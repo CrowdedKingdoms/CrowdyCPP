@@ -14,6 +14,10 @@ add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)
 
+add_executable(kit_test kit_test.cpp)
+target_link_libraries(kit_test PRIVATE crowdy)
+add_test(NAME kit_test COMMAND kit_test)
+
 if(NOT WIN32)
   add_executable(replication_test replication_test.cpp)
   target_link_libraries(replication_test PRIVATE crowdy_replication crowdy_crypto_openssl)

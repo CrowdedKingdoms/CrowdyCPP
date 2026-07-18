@@ -46,6 +46,8 @@ class JVal {
   bool isNull() const { return std::holds_alternative<std::nullptr_t>(v_); }
   bool isObject() const { return std::holds_alternative<JObject>(v_); }
   bool isArray() const { return std::holds_alternative<JArray>(v_); }
+  /// Pointer to the held string, or nullptr when this is not a string.
+  const std::string* asStringPtr() const { return std::get_if<std::string>(&v_); }
 
   JObject& obj() { return std::get<JObject>(v_); }
   const JObject& obj() const { return std::get<JObject>(v_); }

@@ -242,6 +242,21 @@ CrowdyCPP follows the platform's
 3. Build one identity client and one client per game. All world/UDP calls run
    on the game client.
 
+## Server compatibility
+
+CrowdyCPP targets the current platform APIs and degrades gracefully on older
+deployments:
+
+- **Game-model invoke denials:** current servers report invoke-policy denials
+  as `FORBIDDEN` GraphQL errors; newer builds resolve them as
+  `success: false` invoke results (with a failure event). The kit's
+  `kitInvoke` maps both onto `KitInvokeResult{success:false, errorMessage}`,
+  so kit code behaves identically on either generation.
+- **`userAppState` round-trip:** older game-api builds stored the base64
+  `state` input verbatim and re-encoded on read (reads returned
+  base64(base64(bytes))); newer builds round-trip symmetrically. Decode
+  defensively if you must read rows written through an old server.
+
 ## Errors
 
 GraphQL-layer failures throw structured exceptions mirroring CrowdyJS:

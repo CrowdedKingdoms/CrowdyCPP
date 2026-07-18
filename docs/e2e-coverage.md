@@ -41,7 +41,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 |---|---|---|
 | actors | `e2e_actors_crud` | ported |
 | chunks | `e2e_chunks` | ported |
-| voxels | `e2e_voxels_permissions` | ported (grant/deny on distinct chunks; history + rollback) |
+| voxels | `e2e_voxels_permissions` | ported (grant/revoke + history + rollback; the deny verdict is deployment-dependent — see findings) |
 | server-status | `e2e_gamer_journey` (`gameClientBootstrap`) + every UDP suite (`serverWithLeastClients`) | ported |
 | state | `e2e_state_avatars` | ported (strict base64 round-trip) |
 | teleport | `e2e_teleport` | ported |
@@ -149,6 +149,22 @@ public behavior):
 - **`createGrid` reports success via an `error: "NO_ERROR"` sentinel** rather
   than a null error field; the world-grid assignment lands lazily on first
   UDP touch.
+- **Open-world default grants make grid-revoke denial deployment-dependent** —
+  deployments that auto-grant a world-spanning grid on app access authorize
+  entitled players everywhere, so revoking a narrow grid does not produce a
+  durable-write denial. The voxel suite asserts the revoke round-trip and
+  records the write verdict instead of forcing `FORBIDDEN`.
+- **Host election favors the earliest still-fresh actor** — on a shared
+  deployment a third party often holds the host, so the suite asserts
+  convergence and `amIHost` consistency; the failover subtest runs only when
+  one of the suite's own players wins the election.
+- **`setSessionTurn` requires an app admin, the elected host, or the current
+  turn holder** — a fresh session has no holder, so the admin seeds the first
+  turn before players can pass it.
+- **Reading a deleted channel throws `Group N not found`** rather than
+  returning a soft-deleted record.
+- **`gameApps().nearbyPermissions` is admin-only** (like `userPermissions`);
+  effective-permission verification goes through the owner client.
 
 These are captured here so the matrix stays honest about what the live
 platform does, not only what the docs describe.

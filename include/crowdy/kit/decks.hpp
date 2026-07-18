@@ -1,6 +1,9 @@
 #pragma once
 
-<contents truncated for length>
+#include <stdexcept>
+#include <vector>
+
+#include "crowdy/kit/core.hpp"
 
 /// Decks — cards & hidden information: an admin CardDef catalog and
 /// session-scoped CardInstances whose card_id carries visibility "owner" —

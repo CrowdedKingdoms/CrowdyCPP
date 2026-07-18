@@ -1,23 +1,43 @@
 #pragma once
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "crowdy/crowdy.hpp"
 #include "crowdy/session/world_session.hpp"
 
-/// Shared harness for the env-gated e2e suites. Configure a deployment with:
+/// Shared harness for the env-gated e2e suites. Everything is BLACK-BOX:
+/// provisioning happens through the public Management API the way a real
+/// integrator does it (owner sign-in -> access tier -> grantAppAccess) — no
+/// database access anywhere.
 ///
+/// Required environment:
 ///   CROWDY_E2E_MANAGEMENT_URL   Management API base URL
 ///   CROWDY_E2E_HTTP_URL         Game API base URL (optional; falls back to
 ///                               the gameApiUrl minted with the app token)
-///   CROWDY_E2E_EMAIL            sign-in email (server must have DEV_AUTH_BYPASS)
-///   CROWDY_E2E_EMAIL_2          second player's email (two-client suites)
+///   CROWDY_E2E_EMAIL            base sign-in email; suites derive fresh
+///                               accounts by plus-addressing it
+///                               (user+<suite>-<n>@domain)
 ///   CROWDY_E2E_APP_ID           app id (decimal string)
+///   CROWDY_E2E_OWNER_EMAIL      an account with manage_apps +
+///                               manage_access_tiers on the app (entitles the
+///                               derived players, deploys kit blueprints)
 ///
-/// Tests exit 77 (ctest SKIP_RETURN_CODE) when the variables are unset.
+/// Optional:
+///   CROWDY_E2E_EMAIL_2          fixed second email (legacy two-client mode)
+///   CROWDY_E2E_APP_ID_2         a second app on the same deployment
+///                               (cross-app isolation suites)
+///   CROWDY_E2E_OPERATOR_EMAIL   an is_operator account (operator suite)
+///   CROWDY_E2E_MULTI_SERVER=1   deployment runs 2+ replication servers
+///   CROWDY_E2E_SLOW=1           enable slow suites (soak, TTL waits)
+///
+/// The server must run with DEV_AUTH_BYPASS (dev sign-in); production-style
+/// magic-link flows are covered by the auth suite itself. Tests exit 77
+/// (ctest SKIP_RETURN_CODE) when their required variables are unset.
 namespace e2e {
 
 #define E2E_CHECK(cond)                                                            \
@@ -29,9 +49,16 @@ namespace e2e {
     }                                                                              \
   } while (0)
 
+#define E2E_SUBTEST(name) std::printf("-- %s\n", name)
+
 inline std::string envOr(const char* name, const char* fallback = "") {
   const char* v = std::getenv(name);
   return v ? v : fallback;
+}
+
+inline bool envFlag(const char* name) {
+  const std::string v = envOr(name);
+  return v == "1" || v == "true" || v == "yes";
 }
 
 struct E2eConfig {
@@ -40,6 +67,9 @@ struct E2eConfig {
   std::string email;
   std::string email2;
   std::string appId;
+  std::string appId2;
+  std::string ownerEmail;
+  std::string operatorEmail;
 };
 
 /// Load the config or skip the test (exit 77).
@@ -50,21 +80,67 @@ inline E2eConfig requireConfig(bool needSecondPlayer = false) {
   cfg.email = envOr("CROWDY_E2E_EMAIL");
   cfg.email2 = envOr("CROWDY_E2E_EMAIL_2");
   cfg.appId = envOr("CROWDY_E2E_APP_ID");
+  cfg.appId2 = envOr("CROWDY_E2E_APP_ID_2");
+  cfg.ownerEmail = envOr("CROWDY_E2E_OWNER_EMAIL");
+  cfg.operatorEmail = envOr("CROWDY_E2E_OPERATOR_EMAIL");
   if (cfg.managementUrl.empty() || cfg.email.empty() || cfg.appId.empty() ||
-      (needSecondPlayer && cfg.email2.empty())) {
+      (needSecondPlayer && cfg.email2.empty() && cfg.ownerEmail.empty())) {
     std::puts("CROWDY_E2E_* not configured; skipping");
     std::exit(77);
   }
   return cfg;
 }
 
-/// One signed-in player with an app-scoped game client and a connected
-/// native-UDP replication session.
+/// Skip (exit 77) unless the owner account is configured. Most suites need
+/// it for self-provisioning.
+inline void requireOwner(const E2eConfig& cfg) {
+  if (cfg.ownerEmail.empty()) {
+    std::puts("CROWDY_E2E_OWNER_EMAIL not configured; skipping");
+    std::exit(77);
+  }
+}
+
+inline void requireFlag(const char* flag) {
+  if (!envFlag(flag)) {
+    std::printf("%s not set; skipping\n", flag);
+    std::exit(77);
+  }
+}
+
+/// A per-process unique suffix so reruns on a shared app never collide
+/// (fresh derived accounts, fresh kit typePrefixes, fresh org slugs).
+inline const std::string& runSuffix() {
+  static const std::string suffix = [] {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    return std::to_string(ms % 100000000);
+  }();
+  return suffix;
+}
+
+/// Plus-address a derived account into the base email:
+/// alice@x.com + "voxel-1" -> alice+voxel-1-<runSuffix>@x.com
+inline std::string deriveEmail(const E2eConfig& cfg, const std::string& tag) {
+  const auto at = cfg.email.find('@');
+  return cfg.email.substr(0, at) + "+" + tag + "-" + runSuffix() + cfg.email.substr(at);
+}
+
+/// A CamelCase-safe unique kit typePrefix for this run: "Ct" + digits is a
+/// valid GraphQL type-name fragment.
+inline std::string kitPrefix(const char* base) { return std::string(base) + runSuffix(); }
+
+// ---------------------------------------------------------------------------
+// Clients and players
+// ---------------------------------------------------------------------------
+
+/// One signed-in player with an app-scoped game client and (optionally) a
+/// connected native-UDP replication session.
 struct Player {
   std::unique_ptr<crowdy::CrowdyClient> identity;
   std::unique_ptr<crowdy::CrowdyClient> game;
   crowdy::domains::AppTokenResponse appToken;
   std::string userId;
+  std::string email;
   std::shared_ptr<crowdy::replication::Connection> conn;
 
   crowdy::replication::TokenInfo tokenInfo() const {
@@ -77,17 +153,93 @@ struct Player {
   }
 };
 
-/// Sign in (dev bypass), mint the app token, build the per-game client.
-inline Player signIn(const E2eConfig& cfg, const std::string& email) {
-  Player p;
-  crowdy::ClientConfig identityCfg;
-  identityCfg.managementUrl = cfg.managementUrl;
-  p.identity = std::make_unique<crowdy::CrowdyClient>(std::move(identityCfg));
-  auto auth = p.identity->auth().devLogin(email);
+/// Sign in an identity client only (management plane).
+inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg,
+                                                            const std::string& email,
+                                                            std::string* userId = nullptr) {
+  crowdy::ClientConfig c;
+  c.managementUrl = cfg.managementUrl;
+  auto client = std::make_unique<crowdy::CrowdyClient>(std::move(c));
+  auto auth = client->auth().devLogin(email);
   E2E_CHECK(!auth.token.empty());
-  p.userId = auth.userId;
+  if (userId) *userId = auth.userId;
+  return client;
+}
 
-  p.appToken = p.identity->portal().mintAppToken(cfg.appId);
+/// The owner's identity client (entitles players, administers the app).
+/// Skips when no owner is configured.
+inline crowdy::CrowdyClient& owner(const E2eConfig& cfg) {
+  static std::unique_ptr<crowdy::CrowdyClient> cached;
+  if (!cached) {
+    requireOwner(cfg);
+    cached = identityClient(cfg, cfg.ownerEmail);
+  }
+  return *cached;
+}
+
+/// The owner's per-game client (app token; used for kit deploys and
+/// game-plane admin such as grid grants).
+inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
+  static std::unique_ptr<crowdy::CrowdyClient> cached;
+  if (!cached) {
+    auto minted = owner(cfg).portal().mintAppToken(cfg.appId);
+    crowdy::ClientConfig c;
+    c.httpUrl = !cfg.httpUrl.empty()
+                    ? cfg.httpUrl
+                    : (!minted.gameApiUrl.empty() ? minted.gameApiUrl : cfg.managementUrl);
+    c.managementUrl = cfg.managementUrl;
+    cached = std::make_unique<crowdy::CrowdyClient>(std::move(c));
+    cached->setToken(minted.token);
+  }
+  return *cached;
+}
+
+/// Find-or-create the e2e access tier carrying every runtime permission.
+/// Idempotent across runs (keyed by name, not suffix).
+inline std::string ensureEntitledTier(const E2eConfig& cfg, const std::string& appId) {
+  static constexpr const char* kTierName = "crowdycpp-e2e";
+  auto& adminClient = owner(cfg);
+  crowdy::graphql::Json tiers = adminClient.admin().appAccess().tiers(appId);
+  std::string tierId;
+  tiers.forEach([&](crowdy::graphql::Json t) {
+    if (!tierId.empty()) return;
+    if (t["name"].asString() == kTierName && t["permissionKeys"].size() >= 4)
+      tierId = t["tierId"].asString();
+  });
+  if (!tierId.empty()) return tierId;
+
+  crowdy::graphql::JVal input;
+  input["appId"] = appId;
+  input["name"] = kTierName;
+  input["isFree"] = true;
+  input["description"] = "CrowdyCPP e2e tier: all runtime permissions";
+  input["permissionKeys"] = crowdy::graphql::JVal::array(
+      {crowdy::graphql::JVal("access"), crowdy::graphql::JVal("teleport"),
+       crowdy::graphql::JVal("update_voxel_data"), crowdy::graphql::JVal("use_voice_chat")});
+  crowdy::graphql::Json created = adminClient.admin().appAccess().createTier(input);
+  tierId = created["tierId"].asString();
+  E2E_CHECK(!tierId.empty());
+  return tierId;
+}
+
+/// Sign in `email`, entitle it on the e2e tier via the owner, mint the app
+/// token, and build the per-game client. Fully black-box.
+inline Player provisionPlayerEmail(const E2eConfig& cfg, const std::string& email,
+                                   const std::string& appId) {
+  Player p;
+  p.email = email;
+  p.identity = identityClient(cfg, email, &p.userId);
+
+  if (!cfg.ownerEmail.empty()) {
+    const std::string tierId = ensureEntitledTier(cfg, appId);
+    crowdy::graphql::JVal grant;
+    grant["appId"] = appId;
+    grant["userId"] = p.userId;
+    grant["tierId"] = tierId;
+    owner(cfg).admin().appAccess().grant(grant);
+  }
+
+  p.appToken = p.identity->portal().mintAppToken(appId);
   E2E_CHECK(p.appToken.token.size() == 64);
 
   const std::string gameUrl =
@@ -102,15 +254,36 @@ inline Player signIn(const E2eConfig& cfg, const std::string& email) {
   return p;
 }
 
+/// Provision a fresh derived player for this suite run: `tag` names it
+/// (e.g. "voxel-a"). Requires the owner for entitlement.
+inline Player provisionPlayer(const E2eConfig& cfg, const std::string& tag) {
+  requireOwner(cfg);
+  return provisionPlayerEmail(cfg, deriveEmail(cfg, tag), cfg.appId);
+}
+
+/// Legacy fixed-account sign-in (kept for the original suites): uses the
+/// pre-entitled CROWDY_E2E_EMAIL / _EMAIL_2 accounts when no owner is
+/// configured, otherwise self-provisions them too.
+inline Player signIn(const E2eConfig& cfg, const std::string& email) {
+  return provisionPlayerEmail(cfg, email, cfg.appId);
+}
+
 /// Assign a replication server and open the native UDP connection
 /// (owned-thread mode), waiting for session-ready.
-inline void connectUdp(Player& p, const E2eConfig& cfg) {
+inline void connectUdp(Player& p, const E2eConfig& cfg, const std::string& appId = {}) {
   crowdy::replication::Config rc;
-  rc.appId = std::strtoll(cfg.appId.c_str(), nullptr, 10);
+  const std::string& app = appId.empty() ? cfg.appId : appId;
+  rc.appId = std::strtoll(app.c_str(), nullptr, 10);
   rc.token = p.tokenInfo();
   p.conn = p.game->replication().connect(rc);
-  E2E_CHECK(p.conn->connect().ok());
-  // Session install is asynchronous server-side; wait for Connected.
+  // Server-status heartbeats can transiently lapse on small deployments;
+  // retry assignment for up to ~30 s before declaring failure.
+  bool connected = p.conn->connect().ok();
+  for (int i = 0; i < 10 && !connected; ++i) {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    connected = p.conn->connect().ok();
+  }
+  E2E_CHECK(connected);
   for (int i = 0; i < 100 && p.conn->state() != crowdy::replication::ConnState::Connected; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     p.conn->poll();
@@ -129,6 +302,21 @@ inline bool pollUntil(crowdy::replication::Connection& conn, Fn&& done, int time
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   return true;
+}
+
+/// Repeatedly run `attempt()` (a send/refresh action) then poll both
+/// connections until `done()`; UDP is best-effort so single sends may drop.
+template <typename Attempt, typename Done>
+inline bool retryUntil(Attempt&& attempt, Done&& done, int attempts = 40, int perWaitMs = 400) {
+  for (int i = 0; i < attempts; ++i) {
+    attempt();
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(perWaitMs)) {
+      if (done()) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+  return done();
 }
 
 }  // namespace e2e

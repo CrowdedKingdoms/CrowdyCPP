@@ -1,0 +1,146 @@
+#include "crowdy/replication/udp_socket.hpp"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+using SockLen = int;
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+using SockLen = socklen_t;
+#endif
+
+#include <cstring>
+
+namespace crowdy::replication {
+
+namespace {
+
+#ifdef _WIN32
+void ensureWinsock() {
+  static bool initialized = [] {
+    WSADATA data;
+    return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+  }();
+  (void)initialized;
+}
+#endif
+
+}  // namespace
+
+Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes) {
+  close();
+#ifdef _WIN32
+  ensureWinsock();
+#endif
+
+  sockaddr_storage addr{};
+  SockLen addrLen = 0;
+  in6_addr v6{};
+  in_addr v4{};
+  if (inet_pton(AF_INET, host.c_str(), &v4) == 1) {
+    auto* a = reinterpret_cast<sockaddr_in*>(&addr);
+    a->sin_family = AF_INET;
+    a->sin_port = htons(static_cast<std::uint16_t>(port));
+    a->sin_addr = v4;
+    addrLen = sizeof(sockaddr_in);
+  } else if (inet_pton(AF_INET6, host.c_str(), &v6) == 1) {
+    auto* a = reinterpret_cast<sockaddr_in6*>(&addr);
+    a->sin6_family = AF_INET6;
+    a->sin6_port = htons(static_cast<std::uint16_t>(port));
+    a->sin6_addr = v6;
+    addrLen = sizeof(sockaddr_in6);
+  } else {
+    return Errc::InvalidArgument;
+  }
+
+  const int family = reinterpret_cast<sockaddr*>(&addr)->sa_family;
+#ifdef _WIN32
+  const auto fd = ::socket(family, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd == INVALID_SOCKET) return Errc::SocketError;
+#else
+  const int fd = ::socket(family, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd < 0) return Errc::SocketError;
+#endif
+
+  if (recvBufferBytes > 0) {
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&recvBufferBytes),
+                 sizeof(recvBufferBytes));
+  }
+
+  if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), addrLen) != 0) {
+#ifdef _WIN32
+    ::closesocket(fd);
+#else
+    ::close(fd);
+#endif
+    return Errc::SocketError;
+  }
+
+  fd_ = static_cast<long long>(fd);
+  return Errc::Ok;
+}
+
+void UdpSocket::close() {
+  if (fd_ < 0) return;
+#ifdef _WIN32
+  ::closesocket(static_cast<SOCKET>(fd_));
+#else
+  ::close(static_cast<int>(fd_));
+#endif
+  fd_ = -1;
+}
+
+Status UdpSocket::send(Bytes datagram) {
+  if (fd_ < 0) return Errc::NotConnected;
+#ifdef _WIN32
+  const int n = ::send(static_cast<SOCKET>(fd_), reinterpret_cast<const char*>(datagram.data()),
+                       static_cast<int>(datagram.size()), 0);
+  if (n != static_cast<int>(datagram.size())) return Errc::SocketError;
+#else
+  const ssize_t n = ::send(static_cast<int>(fd_), datagram.data(), datagram.size(), 0);
+  if (n != static_cast<ssize_t>(datagram.size())) return Errc::SocketError;
+#endif
+  return Errc::Ok;
+}
+
+Result<std::size_t> UdpSocket::recv(MutableBytes buffer, int timeoutMs) {
+  if (fd_ < 0) return Errc::NotConnected;
+
+#ifdef _WIN32
+  if (timeoutMs > 0) {
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(static_cast<SOCKET>(fd_), &readSet);
+    timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+    const int r = ::select(0, &readSet, nullptr, nullptr, &tv);
+    if (r == 0) return std::size_t{0};
+    if (r < 0) return Errc::SocketError;
+  }
+  const int n = ::recv(static_cast<SOCKET>(fd_), reinterpret_cast<char*>(buffer.data()),
+                       static_cast<int>(buffer.size()), 0);
+  if (n < 0) {
+    return WSAGetLastError() == WSAEWOULDBLOCK ? Result<std::size_t>(std::size_t{0})
+                                               : Result<std::size_t>(Errc::SocketError);
+  }
+  return static_cast<std::size_t>(n);
+#else
+  pollfd pfd{static_cast<int>(fd_), POLLIN, 0};
+  const int r = ::poll(&pfd, 1, timeoutMs);
+  if (r == 0) return std::size_t{0};
+  if (r < 0) return Errc::SocketError;
+  const ssize_t n =
+      ::recv(static_cast<int>(fd_), buffer.data(), buffer.size(), MSG_DONTWAIT);
+  if (n < 0) {
+    return (errno == EAGAIN || errno == EWOULDBLOCK) ? Result<std::size_t>(std::size_t{0})
+                                                     : Result<std::size_t>(Errc::SocketError);
+  }
+  return static_cast<std::size_t>(n);
+#endif
+}
+
+}  // namespace crowdy::replication

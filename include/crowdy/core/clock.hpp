@@ -17,4 +17,8 @@ class IClock {
 
 const IClock& systemClock();
 
+/// Parse an ISO-8601 UTC timestamp ("2026-06-12T18:00:00.000Z") into epoch
+/// milliseconds. Returns 0 on parse failure or empty input.
+std::int64_t parseIso8601Millis(const char* text, std::size_t len);
+
 }  // namespace crowdy::core

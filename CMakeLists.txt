@@ -30,6 +30,7 @@ set_target_properties(crowdy_yyjson PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ---- core + wire (no external deps beyond the ICrypto interface)
 add_library(crowdy_core STATIC
+  src/core/base64.cpp
   src/core/clock.cpp
   src/core/logger.cpp
   src/core/uuid.cpp

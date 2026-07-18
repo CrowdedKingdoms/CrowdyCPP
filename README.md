@@ -41,7 +41,8 @@ include/crowdy/          public headers
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
   kit/                   Game Kit (blueprints + runtime helpers)
-src/                     implementation + src/generated/ (committed codegen output)
+src/                     implementation
+include/crowdy/generated/  committed codegen output (operations + enums)
 operations/              GraphQL operation documents (codegen input)
 schema.gql               committed schema snapshot (merged Management + Game API SDL)
 scripts/                 schema sync + codegen (Node, maintainers only)
@@ -59,7 +60,7 @@ ctest --test-dir build        # unit tests: no network required
 ```
 
 A clean external clone builds offline: the schema snapshot (`schema.gql`) and
-the generated code (`src/generated/`) are committed. Only maintainers run the
+the generated code (`include/crowdy/generated/`) are committed. Only maintainers run the
 schema sync / codegen scripts (see [Schema refresh](#schema-refresh-and-codegen)).
 
 Dependencies (all replaceable through interfaces):
@@ -264,8 +265,8 @@ never need network access or sibling repos:
 ```bash
 # Maintainers: refresh the schema snapshot from the published production SDLs
 node scripts/schema-sync.mjs            # writes schema.gql
-node scripts/codegen.mjs                # regenerates src/generated/
-# commit schema.gql and src/generated/ together
+node scripts/codegen.mjs                # regenerates include/crowdy/generated/
+# commit schema.gql and include/crowdy/generated/ together
 ```
 
 `scripts/schema-sync.mjs` downloads the published SDLs

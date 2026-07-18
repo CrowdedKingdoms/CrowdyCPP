@@ -2,6 +2,7 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 
 #include "crowdy/core/crypto.hpp"
 
@@ -15,6 +16,12 @@ class OpensslCrypto final : public ICrypto {
     unsigned int outLen = 0;
     return HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), message.data(),
                 message.size(), out, &outLen) != nullptr &&
+           outLen == kHmacTagSize;
+  }
+
+  bool sha256(Bytes message, std::uint8_t* out) const override {
+    unsigned int outLen = 0;
+    return EVP_Digest(message.data(), message.size(), out, &outLen, EVP_sha256(), nullptr) == 1 &&
            outLen == kHmacTagSize;
   }
 

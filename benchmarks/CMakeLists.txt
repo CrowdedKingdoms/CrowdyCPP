@@ -1,0 +1,2 @@
+add_executable(bench_codec bench_codec.cpp)
+target_link_libraries(bench_codec PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)

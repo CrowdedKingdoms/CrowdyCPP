@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const opsDir = join(root, 'operations');
-const outDir = join(root, 'src', 'generated');
+const outDir = join(root, 'include', 'crowdy', 'generated');
 mkdirSync(outDir, { recursive: true });
 
 const HEADER = `// GENERATED FILE — do not edit by hand.
@@ -141,5 +141,5 @@ writeFileSync(join(outDir, 'enums.hpp'), enumsHpp);
 
 console.log(
   `generated ${manifest.length} operations across ${listDomains().length} domains, ` +
-  `${enums.length} enums -> src/generated/`,
+  `${enums.length} enums -> include/crowdy/generated/`,
 );

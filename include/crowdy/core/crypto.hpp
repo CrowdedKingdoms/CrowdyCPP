@@ -21,6 +21,9 @@ class ICrypto {
   /// out must hold 32 bytes. Returns false on provider failure.
   virtual bool hmacSha256(Bytes key, Bytes message, std::uint8_t* out) const = 0;
 
+  /// Plain SHA-256 (used by the PKCE portal flow). out must hold 32 bytes.
+  virtual bool sha256(Bytes message, std::uint8_t* out) const = 0;
+
   /// Constant-time equality of two 32-byte tags.
   virtual bool constantTimeEquals(const std::uint8_t* a, const std::uint8_t* b,
                                   std::size_t len) const = 0;

@@ -289,6 +289,10 @@ inline void connectUdp(Player& p, const E2eConfig& cfg, const std::string& appId
     p.conn->poll();
   }
   E2E_CHECK(p.conn->state() == crowdy::replication::ConnState::Connected);
+  // Announce ourselves: the server replies to the socket address it hears
+  // from, so a receive-only client must send at least one datagram (a cheap
+  // presence heartbeat) before any notification can reach it.
+  p.conn->sendHeartbeat({0, 0, 0}, crowdy::core::generateActorUuid());
 }
 
 /// Poll until `done()` or the timeout elapses; returns done().

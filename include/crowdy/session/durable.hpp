@@ -138,11 +138,12 @@ class AvatarStateStore {
 
   const std::string& avatarId() const { return avatarId_; }
 
-  /// Fetch both blobs (identity + app state) into the cache.
+  /// Fetch both blobs (identity-level publicState + per-app state) into the
+  /// cache.
   void load() {
     graphql::Json avatar = client_.avatars().get(avatarId_);
     identityState_.clear();
-    if (auto bytes = core::base64Decode(avatar["state"].asStringView()))
+    if (auto bytes = core::base64Decode(avatar["publicState"].asStringView()))
       identityState_ = *bytes;
     graphql::Json appState = client_.avatars().appState(appId_, avatarId_);
     appState_.clear();
@@ -152,11 +153,11 @@ class AvatarStateStore {
     loaded_ = true;
   }
 
-  /// Replace + persist the avatar's identity-level state blob.
+  /// Replace + persist the avatar's identity-level public state blob.
   void setIdentityState(Bytes bytes) {
     identityState_.assign(bytes.begin(), bytes.end());
     graphql::JVal input;
-    input["state"] = core::base64Encode(bytes);
+    input["publicState"] = core::base64Encode(bytes);
     client_.avatars().updateState(avatarId_, input);
   }
 

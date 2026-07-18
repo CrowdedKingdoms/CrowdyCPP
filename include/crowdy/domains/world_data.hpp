@@ -21,30 +21,33 @@ class ChunksAPI : public DomainBase {
   graphql::Json get(std::string_view appId, const ChunkRef& chunk) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
-    vars["input"]["chunk"] = chunk.toInput();
+    vars["input"]["coordinates"] = chunk.toInput();
     return execUnwrap(gen::chunks::kGetChunkDocument, vars);
   }
 
-  graphql::Json getLods(std::string_view appId, const ChunkRef& chunk) const {
+  graphql::Json getLods(std::string_view appId, const ChunkRef& chunk,
+                        const graphql::JVal& lodLevels = graphql::JVal()) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
-    vars["input"]["chunk"] = chunk.toInput();
+    vars["input"]["coordinates"] = chunk.toInput();
+    if (!lodLevels.isNull()) vars["input"]["lodLevels"] = lodLevels;
     return execUnwrap(gen::chunks::kGetChunkLodsDocument, vars);
   }
 
-  /// Bulk-load every stored chunk within `distance` of `chunk` (Chebyshev).
-  graphql::Json byDistance(std::string_view appId, const ChunkRef& chunk, int distance) const {
+  /// Bulk-load every stored chunk within `maxDistance` of `center`
+  /// (Chebyshev, 1-8).
+  graphql::Json byDistance(std::string_view appId, const ChunkRef& center, int maxDistance) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
-    vars["input"]["chunk"] = chunk.toInput();
-    vars["input"]["distance"] = std::int64_t{distance};
+    vars["input"]["centerCoordinate"] = center.toInput();
+    vars["input"]["maxDistance"] = std::int64_t{maxDistance};
     return execUnwrap(gen::chunks::kGetChunksByDistanceDocument, vars);
   }
 
   graphql::Json voxelList(std::string_view appId, const ChunkRef& chunk) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
-    vars["input"]["chunk"] = chunk.toInput();
+    vars["input"]["coordinates"] = chunk.toInput();
     return execUnwrap(gen::chunks::kGetVoxelListDocument, vars);
   }
 

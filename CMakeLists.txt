@@ -26,7 +26,8 @@ find_package(Threads REQUIRED)
 
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)
-target_include_directories(crowdy_yyjson PUBLIC third_party/yyjson)
+target_include_directories(crowdy_yyjson PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/yyjson>)
 set_target_properties(crowdy_yyjson PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ---- core + wire (no external deps beyond the ICrypto interface)
@@ -36,19 +37,25 @@ add_library(crowdy_core STATIC
   src/core/logger.cpp
   src/core/uuid.cpp
 )
-target_include_directories(crowdy_core PUBLIC include)
+target_include_directories(crowdy_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_link_libraries(crowdy_core PUBLIC Threads::Threads)
 
 # wire is header-only; provide an interface target for consumers
 add_library(crowdy_wire INTERFACE)
-target_include_directories(crowdy_wire INTERFACE include)
+target_include_directories(crowdy_wire INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_link_libraries(crowdy_wire INTERFACE crowdy_core)
 
 # ---- default crypto provider (OpenSSL)
 if(CROWDY_WITH_OPENSSL)
   find_package(OpenSSL REQUIRED)
   add_library(crowdy_crypto_openssl STATIC src/core/crypto_openssl.cpp)
-  target_include_directories(crowdy_crypto_openssl PUBLIC include)
+  target_include_directories(crowdy_crypto_openssl PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
   target_link_libraries(crowdy_crypto_openssl PUBLIC OpenSSL::Crypto crowdy_core)
 endif()
 
@@ -59,13 +66,17 @@ add_library(crowdy_graphql STATIC
   src/graphql/auth_state.cpp
   src/graphql/errors.cpp
 )
-target_include_directories(crowdy_graphql PUBLIC include)
+target_include_directories(crowdy_graphql PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_link_libraries(crowdy_graphql PUBLIC crowdy_core crowdy_yyjson)
 
 if(CROWDY_WITH_CURL)
   find_package(CURL REQUIRED)
   add_library(crowdy_http_curl STATIC src/graphql/http_curl.cpp)
-  target_include_directories(crowdy_http_curl PUBLIC include)
+  target_include_directories(crowdy_http_curl PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
   target_link_libraries(crowdy_http_curl PUBLIC CURL::libcurl crowdy_graphql)
 endif()
 
@@ -74,7 +85,9 @@ add_library(crowdy_replication STATIC
   src/replication/udp_socket.cpp
   src/replication/connection.cpp
 )
-target_include_directories(crowdy_replication PUBLIC include)
+target_include_directories(crowdy_replication PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_link_libraries(crowdy_replication PUBLIC crowdy_wire crowdy_core)
 if(WIN32)
   target_link_libraries(crowdy_replication PUBLIC ws2_32)
@@ -90,7 +103,9 @@ add_library(crowdy STATIC
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
 )
-target_include_directories(crowdy PUBLIC include)
+target_include_directories(crowdy PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_link_libraries(crowdy PUBLIC crowdy_graphql crowdy_replication)
 if(CROWDY_WITH_CURL)
   target_link_libraries(crowdy PUBLIC crowdy_http_curl)

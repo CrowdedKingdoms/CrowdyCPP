@@ -1,3 +1,0 @@
-mutation SendActorUpdate($input: ActorUpdateRequestInput!) {
-  sendActorUpdate(input: $input)
-}

@@ -123,6 +123,98 @@ class AuthAPI : public DomainBase {
         .asBool();
   }
 
+  /// Whether the account behind an email has a password set. Public — used
+  /// by sign-in UIs to pick a flow (magic link vs legacy password).
+  graphql::Json checkAuthMethod(std::string_view email) const {
+    graphql::JVal vars;
+    vars["input"]["email"] = email;
+    return execUnwrap(
+        "query CheckAuthMethod($input: CheckAuthMethodInput!) {"
+        " checkAuthMethod(input: $input) { hasPassword } }",
+        vars);
+  }
+
+  // ----- Legacy password authentication ---------------------------------------
+  // The platform is passwordless-first; these wrap the password surface for
+  // apps migrating older accounts. Both return the identity SESSION token.
+
+  AuthResponse login(std::string_view email, std::string_view password) const {
+    graphql::JVal vars;
+    vars["loginUserInput"]["email"] = email;
+    vars["loginUserInput"]["password"] = password;
+    auto r = AuthResponse::fromJson(execUnwrap(
+        "mutation Login($loginUserInput: LoginUserInput!) {"
+        " login(loginUserInput: $loginUserInput) {"
+        " token gameTokenId user { userId email gamertag } } }",
+        vars));
+    if (!r.token.empty()) auth_->setToken(r.token);
+    return r;
+  }
+
+  AuthResponse registerUser(std::string_view email, std::string_view password,
+                            std::string_view gamertag = {}) const {
+    graphql::JVal vars;
+    vars["registerUserInput"]["email"] = email;
+    vars["registerUserInput"]["password"] = password;
+    if (!gamertag.empty()) vars["registerUserInput"]["gamertag"] = gamertag;
+    auto r = AuthResponse::fromJson(execUnwrap(
+        "mutation Register($registerUserInput: RegisterUserInput!) {"
+        " register(registerUserInput: $registerUserInput) {"
+        " token gameTokenId user { userId email gamertag } } }",
+        vars));
+    if (!r.token.empty()) auth_->setToken(r.token);
+    return r;
+  }
+
+  bool confirmEmail(std::string_view token) const {
+    graphql::JVal vars;
+    vars["token"] = token;
+    return execUnwrap(
+               "mutation ConfirmEmail($token: String!) { confirmEmail(token: $token) }", vars)
+        .asBool();
+  }
+
+  bool requestPasswordReset(std::string_view email) const {
+    graphql::JVal vars;
+    vars["email"] = email;
+    return execUnwrap(
+               "mutation RequestPasswordReset($email: String!) { requestPasswordReset(email: $email) }",
+               vars)
+        .asBool();
+  }
+
+  bool resetPassword(std::string_view token, std::string_view newPassword) const {
+    graphql::JVal vars;
+    vars["resetPasswordInput"]["token"] = token;
+    vars["resetPasswordInput"]["newPassword"] = newPassword;
+    return execUnwrap(
+               "mutation ResetPassword($resetPasswordInput: ResetPasswordInput!) {"
+               " resetPassword(resetPasswordInput: $resetPasswordInput) }",
+               vars)
+        .asBool();
+  }
+
+  bool resendConfirmationEmail(std::string_view email) const {
+    graphql::JVal vars;
+    vars["email"] = email;
+    return execUnwrap(
+               "mutation ResendConfirmationEmail($email: String!) {"
+               " resendConfirmationEmail(email: $email) }",
+               vars)
+        .asBool();
+  }
+
+  bool changePassword(std::string_view currentPassword, std::string_view newPassword) const {
+    graphql::JVal vars;
+    vars["currentPassword"] = currentPassword;
+    vars["newPassword"] = newPassword;
+    return execUnwrap(
+               "mutation ChangePassword($currentPassword: String!, $newPassword: String!) {"
+               " changePassword(currentPassword: $currentPassword, newPassword: $newPassword) }",
+               vars)
+        .asBool();
+  }
+
   /// Single-device logout; clears the stored token.
   bool logout() const {
     bool ok = execUnwrap(gen::auth::kLogoutDocument).asBool();

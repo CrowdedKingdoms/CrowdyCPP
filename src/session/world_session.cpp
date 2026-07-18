@@ -26,11 +26,23 @@ WorldSession::~WorldSession() = default;
 void WorldSession::installHandlers() {
   replication::Handlers handlers;
   handlers.actorUpdate = [this](const replication::SpatialNotification& n) {
+    if (n.uuidArray() == uuid_) {
+      self_->recordAck(n.sequence, n.epochMillis, n.payload);
+      return;
+    }
     actors_->ingest(n, core::systemClock().monotonicMillis());
   };
   handlers.voxelUpdate = [this](const replication::SpatialNotification& n,
                                 const wire::VoxelPayloadView& voxel) {
     chunks_->ingest(n, voxel);
+  };
+  handlers.clientEvent = [this](const replication::SpatialNotification& n,
+                                const wire::EventPayloadView& payload) {
+    events_.ingest(n, payload, /*fromServer=*/false, core::systemClock().monotonicMillis());
+  };
+  handlers.serverEvent = [this](const replication::SpatialNotification& n,
+                                const wire::EventPayloadView& payload) {
+    events_.ingest(n, payload, /*fromServer=*/true, core::systemClock().monotonicMillis());
   };
   handlers.genericError = [this](const replication::GenericError& e) {
     errors_.ingest(e, core::systemClock().monotonicMillis());
@@ -80,8 +92,13 @@ void WorldSession::tick() {
       nowMs - lastHostBeatMs_ >= config_.hostHeartbeatIntervalMs) {
     lastHostBeatMs_ = nowMs;
     try {
-      client_->host().heartbeat(config_.appId);
+      graphql::Json host = client_->host().heartbeat(config_.appId);
       amIHost_ = client_->host().amIHost(config_.appId);
+      std::string newHost = host["hostUserId"].asString();
+      if (newHost != hostUserId_) {
+        hostUserId_ = std::move(newHost);
+        if (onHostChanged_) onHostChanged_(hostUserId_);
+      }
     } catch (const std::exception&) {
       // Host tracking is best-effort; next interval retries.
     }
@@ -120,6 +137,23 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
   return hydrated;
 }
 
+bool ChunkStore::flushOne(ChunkData& chunk) {
+  if (!chunksApi_) return false;
+  try {
+    graphql::JVal input;
+    input["appId"] = appId_;
+    input["chunk"] =
+        domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
+    input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
+    chunksApi_->update(input);
+    chunk.dirty = false;
+    chunk.storedOnServer = true;
+    return true;
+  } catch (const std::exception&) {
+    return false;  // leave dirty; retried later
+  }
+}
+
 void ChunkStore::tick(std::int64_t nowMs) {
   if (!chunksApi_ || options_.writeBackIntervalMs <= 0) return;
   if (nowMs - lastWriteBackMs_ < options_.writeBackIntervalMs) return;
@@ -127,17 +161,7 @@ void ChunkStore::tick(std::int64_t nowMs) {
   for (auto& [coord, chunk] : chunks_) {
     if (!chunk.dirty) continue;
     lastWriteBackMs_ = nowMs;
-    try {
-      graphql::JVal input;
-      input["appId"] = appId_;
-      input["chunk"] = domains::ChunkRef{coord.x, coord.y, coord.z}.toInput();
-      input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
-      chunksApi_->update(input);
-      chunk.dirty = false;
-      chunk.storedOnServer = true;
-    } catch (const std::exception&) {
-      // Leave dirty; retried on a later tick.
-    }
+    flushOne(chunk);
     break;  // at most one chunk per interval
   }
 }

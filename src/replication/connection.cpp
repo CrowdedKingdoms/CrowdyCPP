@@ -1,6 +1,8 @@
 #include "crowdy/replication/connection.hpp"
 
+#include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace crowdy::replication {
 
@@ -390,6 +392,50 @@ std::size_t Connection::pump(int timeoutMs) {
   return n;
 }
 
+Connection::WaitOutcome Connection::waitForSequence(std::uint8_t sequence,
+                                                    const core::ActorUuid& uuid, int timeoutMs) {
+  pendingWait_ = PendingWait{};
+  pendingWait_.active = true;
+  pendingWait_.sequence = sequence;
+  pendingWait_.uuid = uuid;
+
+  const std::int64_t deadline = clock_.monotonicMillis() + timeoutMs;
+  while (!pendingWait_.done && clock_.monotonicMillis() < deadline) {
+    if (config_.manualPump) pump(5);
+    if (poll() == 0 && !config_.manualPump) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+  pendingWait_.active = false;
+  return pendingWait_.outcome;
+}
+
+Connection::WaitOutcome Connection::sendActorUpdateAndWait(const SpatialSend& p, int timeoutMs) {
+  auto seq = sendActorUpdate(p);
+  if (!seq.ok()) return WaitOutcome{};
+  return waitForSequence(seq.value(), p.uuid, timeoutMs);
+}
+
+Connection::WaitOutcome Connection::sendVoxelUpdateAndWait(const wire::ChunkCoord& chunk,
+                                                           const core::ActorUuid& uuid,
+                                                           std::int16_t x, std::int16_t y,
+                                                           std::int16_t z, std::int16_t voxelType,
+                                                           Bytes voxelState,
+                                                           std::uint8_t distance,
+                                                           wire::DecayRate decay, int timeoutMs) {
+  auto seq = sendVoxelUpdate(chunk, uuid, x, y, z, voxelType, voxelState, distance, decay);
+  if (!seq.ok()) return WaitOutcome{};
+  return waitForSequence(seq.value(), uuid, timeoutMs);
+}
+
+Connection::WaitOutcome Connection::sendTextAndWait(const SpatialSend& p, int timeoutMs) {
+  auto seq = sendText(p);
+  if (!seq.ok()) return WaitOutcome{};
+  // Text has no self-echo: a clean timeout (acknowledged=false, no error)
+  // means the send was accepted as far as the wire can tell.
+  return waitForSequence(seq.value(), p.uuid, timeoutMs);
+}
+
 std::size_t Connection::poll(std::size_t maxEvents) {
   Handlers handlers;
   {
@@ -417,6 +463,11 @@ std::size_t Connection::poll(std::size_t maxEvents) {
             // Refresh + reassign; the session provider re-mints server-side.
             reconnectRequested_.store(true, std::memory_order_release);
           }
+          if (pendingWait_.active && !pendingWait_.done &&
+              err->sequence == pendingWait_.sequence) {
+            pendingWait_.outcome.error = err->code;
+            pendingWait_.done = true;
+          }
           if (handlers.genericError) handlers.genericError({err->sequence, err->code});
         }
         break;
@@ -438,6 +489,12 @@ std::size_t Connection::poll(std::size_t maxEvents) {
                               v->chunk,  v->uuid,
                               v->payload, v->epochMillisOrTokenId,
                               v->sequence};
+        if (pendingWait_.active && !pendingWait_.done && v->sequence == pendingWait_.sequence &&
+            std::memcmp(v->uuid, pendingWait_.uuid.data(), wire::kUuidSize) == 0) {
+          pendingWait_.outcome.acknowledged = true;
+          pendingWait_.outcome.serverEpochMs = v->epochMillisOrTokenId;
+          pendingWait_.done = true;
+        }
         if (handlers.any) handlers.any(n);
         switch (v->type) {
           case MessageType::ActorUpdateNotification:

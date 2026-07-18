@@ -1,6 +1,7 @@
 #pragma once
 
 #include "crowdy/domains/domain_base.hpp"
+#include "crowdy/domains/game_apps.hpp"
 #include "crowdy/generated/operations.hpp"
 
 /// Studio-admin surface — client.admin().*. Privileged organization/app
@@ -115,7 +116,17 @@ class AppsAPI : public detail::AdminDomain {
   graphql::Json forOrg(std::string_view orgSlug) const {
     return execUnwrap(gen::apps::kAppsForOrgDocument, one("orgSlug", graphql::JVal(orgSlug)));
   }
-  graphql::Json marketplace() const { return execUnwrap(gen::apps::kMarketplaceAppsDocument); }
+  graphql::Json marketplace() const {
+    return execUnwrap(gen::apps::kMarketplaceAppsDocument, graphql::JVal(), "MarketplaceApps");
+  }
+  /// Relay cursor pagination variant of marketplace().
+  graphql::Json marketplaceConnection(const graphql::JVal& vars = graphql::JVal()) const {
+    return execUnwrap(gen::apps::kMarketplaceAppsDocument, vars, "AppsConnection");
+  }
+  /// Routing tuple for an app: which game-api endpoint should serve it.
+  /// Returns { appId, splitMode, deploymentTarget, gameApiUrl } fields from
+  /// the app row; route gameplay to gameApiUrl when non-null.
+  graphql::Json routeFor(std::string_view appId) const { return get(appId); }
   graphql::Json create(const graphql::JVal& input) const {
     return execUnwrap(gen::apps::kCreateAppDocument, one("input", input));
   }
@@ -144,7 +155,12 @@ class AppAccessAPI : public detail::AdminDomain {
     return execUnwrap(gen::appAccess::kMyAppAccessDocument, one("appId", graphql::JVal(appId)));
   }
   graphql::Json userAccessByApp(const graphql::JVal& vars) const {
-    return execUnwrap(gen::appAccess::kAppUserAccessByAppDocument, vars);
+    return execUnwrap(gen::appAccess::kAppUserAccessByAppDocument, vars, "AppUserAccessByApp");
+  }
+  /// Relay cursor pagination variant of userAccessByApp().
+  graphql::Json userAccessConnection(const graphql::JVal& vars) const {
+    return execUnwrap(gen::appAccess::kAppUserAccessByAppDocument, vars,
+                      "AppUserAccessConnection");
   }
   graphql::Json grantMemberCandidates(std::string_view appId) const {
     return execUnwrap(gen::appAccess::kAppGrantMemberCandidatesDocument,
@@ -193,7 +209,17 @@ class BillingAPI : public detail::AdminDomain {
     vars["orgId"] = orgId;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    return execUnwrap(gen::billing::kWalletTransactionsDocument, vars);
+    return execUnwrap(gen::billing::kWalletTransactionsDocument, vars, "WalletTransactions");
+  }
+  /// Relay cursor pagination variant of walletTransactions().
+  graphql::Json walletTransactionsConnection(std::string_view orgId, int first = 50,
+                                             std::string_view after = {}) const {
+    graphql::JVal vars;
+    vars["orgId"] = orgId;
+    vars["first"] = std::int64_t{first};
+    if (!after.empty()) vars["after"] = after;
+    return execUnwrap(gen::billing::kWalletTransactionsDocument, vars,
+                      "WalletTransactionsConnection");
   }
   graphql::Json appBudget(std::string_view orgId, std::string_view appId) const {
     return execUnwrap(gen::billing::kAppBudgetDocument,
@@ -239,7 +265,10 @@ class PaymentsAPI : public detail::AdminDomain {
     return execUnwrap(gen::payments::kCapturePaypalCheckoutDocument, vars);
   }
   graphql::Json checkouts(const graphql::JVal& vars = graphql::JVal()) const {
-    return execUnwrap(gen::payments::kCheckoutsDocument, vars);
+    return execUnwrap(gen::payments::kCheckoutsDocument, vars, "Checkouts");
+  }
+  graphql::Json checkoutsConnection(const graphql::JVal& vars = graphql::JVal()) const {
+    return execUnwrap(gen::payments::kCheckoutsDocument, vars, "CheckoutsConnection");
   }
   graphql::Json myCheckouts(int limit = 50, int offset = 0) const {
     graphql::JVal vars;
@@ -247,11 +276,23 @@ class PaymentsAPI : public detail::AdminDomain {
     vars["offset"] = std::int64_t{offset};
     return execUnwrap(gen::payments::kMyCheckoutsDocument, vars, "MyCheckouts");
   }
+  graphql::Json myCheckoutsConnection(int first = 50, std::string_view after = {}) const {
+    graphql::JVal vars;
+    vars["first"] = std::int64_t{first};
+    if (!after.empty()) vars["after"] = after;
+    return execUnwrap(gen::payments::kMyCheckoutsDocument, vars, "MyCheckoutsConnection");
+  }
   graphql::Json paymentEvents(int limit = 50, int offset = 0) const {
     graphql::JVal vars;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
     return execUnwrap(gen::payments::kPaymentEventsDocument, vars, "PaymentEvents");
+  }
+  graphql::Json paymentEventsConnection(int first = 50, std::string_view after = {}) const {
+    graphql::JVal vars;
+    vars["first"] = std::int64_t{first};
+    if (!after.empty()) vars["after"] = after;
+    return execUnwrap(gen::payments::kPaymentEventsDocument, vars, "PaymentEventsConnection");
   }
 };
 
@@ -360,6 +401,42 @@ class UsageAPI : public detail::AdminDomain {
   graphql::Json playerPulse(std::string_view orgId) const {
     return execUnwrap(gen::usage::kPlayerPulseDocument, one("orgId", graphql::JVal(orgId)));
   }
+  /// Org-wide usage rollup for a window ("since" = ISO-8601 or relative like
+  /// "7d"; defaults server-side to 7d).
+  graphql::Json orgSummary(std::string_view orgId, std::string_view since = {}) const {
+    graphql::JVal vars;
+    vars["orgId"] = orgId;
+    if (!since.empty()) vars["since"] = since;
+    return execUnwrap(
+        "query OrgUsageSummary($orgId: BigInt!, $since: DateTime) {"
+        " orgUsageSummary(orgId: $orgId, since: $since) {"
+        " orgId replicationSendBytes replicationRecvBytes graphqlSendBytes graphqlRecvBytes"
+        " totalOps } }",
+        vars);
+  }
+  /// Projected month-end egress for one shared app vs its free allowance.
+  graphql::Json appProjection(std::string_view orgId, std::string_view appId) const {
+    graphql::JVal vars;
+    vars["orgId"] = orgId;
+    vars["appId"] = appId;
+    return execUnwrap(
+        "query AppUsageProjection($orgId: BigInt!, $appId: BigInt!) {"
+        " appUsageProjection(orgId: $orgId, appId: $appId) {"
+        " appId currentEgressBytes sufficientData daysElapsed projectedBytes"
+        " freeAllowanceBytes projectedPctOfFree onTrackToExceed } }",
+        vars);
+  }
+  /// Org-level rollup of per-app usage projections.
+  graphql::Json orgProjection(std::string_view orgId) const {
+    graphql::JVal vars;
+    vars["orgId"] = orgId;
+    return execUnwrap(
+        "query OrgUsageProjection($orgId: BigInt!) {"
+        " orgUsageProjection(orgId: $orgId) {"
+        " sufficientData daysElapsed totalProjectedBytes totalFreeAllowanceBytes"
+        " apps { appId appName currentEgressBytes projectedBytes onTrackToExceed } } }",
+        vars);
+  }
 };
 
 /// client.admin().sharedEnvironment() — publish-to-shared, runtime gating,
@@ -409,6 +486,20 @@ class SharedEnvironmentAPI : public detail::AdminDomain {
   graphql::Json removePaymentMethod(const graphql::JVal& vars) const {
     return run("RemoveSharedPaymentMethod", vars);
   }
+  /// ECONOMY-SENSITIVE: reserve sustained egress throughput for a shared app
+  /// (bytes/s; 0 clears back to the free tier). Pass an idempotencyKey.
+  graphql::Json setAppReservedThroughput(const graphql::JVal& input,
+                                         std::string_view idempotencyKey = {}) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    if (!idempotencyKey.empty()) vars["idempotencyKey"] = idempotencyKey;
+    return execUnwrap(
+        "mutation SetAppReservedThroughput($input: SetAppReservedThroughputInput!,"
+        " $idempotencyKey: String) {"
+        " setAppReservedThroughput(input: $input, idempotencyKey: $idempotencyKey) {"
+        " app { appId } chargedCents } }",
+        vars);
+  }
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
@@ -419,7 +510,11 @@ class SharedEnvironmentAPI : public detail::AdminDomain {
 /// Aggregate accessor: client.admin().
 class AdminAPI {
  public:
-  explicit AdminAPI(std::shared_ptr<graphql::GraphQLClient> management)
+  /// `gameApps` points at the Game-API-plane grids domain (same instance as
+  /// client.gameApps()), grouped here for discoverability like CrowdyJS's
+  /// admin.grids.
+  explicit AdminAPI(std::shared_ptr<graphql::GraphQLClient> management,
+                    GameAppsAPI* gameApps = nullptr)
       : organizations_(management),
         apps_(management),
         appAccess_(management),
@@ -428,7 +523,8 @@ class AdminAPI {
         quotas_(management),
         environments_(management),
         usage_(management),
-        sharedEnvironment_(management) {}
+        sharedEnvironment_(management),
+        grids_(gameApps) {}
 
   OrganizationsAPI& organizations() { return organizations_; }
   AppsAPI& apps() { return apps_; }
@@ -439,6 +535,9 @@ class AdminAPI {
   EnvironmentsAPI& environments() { return environments_; }
   UsageAPI& usage() { return usage_; }
   SharedEnvironmentAPI& sharedEnvironment() { return sharedEnvironment_; }
+  /// App grids + grid runtime-permission administration (same instance as
+  /// client.gameApps(); requires a per-game client / app token).
+  GameAppsAPI& grids() { return *grids_; }
 
  private:
   OrganizationsAPI organizations_;
@@ -450,6 +549,7 @@ class AdminAPI {
   EnvironmentsAPI environments_;
   UsageAPI usage_;
   SharedEnvironmentAPI sharedEnvironment_;
+  GameAppsAPI* grids_;
 };
 
 }  // namespace crowdy::domains

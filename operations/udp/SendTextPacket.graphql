@@ -1,3 +1,0 @@
-mutation SendTextPacket($input: ClientTextPacketInput!) {
-  sendTextPacket(input: $input)
-}

@@ -1,3 +1,0 @@
-mutation SendSingleActorMessage($input: SingleActorMessageInput!) {
-  sendSingleActorMessage(input: $input)
-}

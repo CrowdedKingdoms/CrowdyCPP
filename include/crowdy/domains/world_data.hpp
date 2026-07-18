@@ -99,6 +99,12 @@ class VoxelsAPI : public DomainBase {
                       "VoxelUpdateHistory");
   }
 
+  /// Relay cursor pagination variant of history().
+  graphql::Json historyConnection(const graphql::JVal& vars) const {
+    return execUnwrap(gen::voxels::kVoxelUpdateHistoryDocument, vars,
+                      "VoxelUpdateHistoryConnection");
+  }
+
   /// Moderation: revert a region/user's voxel edits. Accepts idempotencyKey
   /// inside the input.
   graphql::Json rollback(const graphql::JVal& input) const {
@@ -123,6 +129,16 @@ class ActorsAPI : public DomainBase {
     graphql::JVal vars;
     if (!filter.isNull()) vars["filter"] = filter;
     return execUnwrap(gen::actors::kActorsDocument, vars, "Actors");
+  }
+
+  /// Relay cursor pagination variant of list().
+  graphql::Json listConnection(int first = 50, std::string_view after = {},
+                               const graphql::JVal& filter = graphql::JVal()) const {
+    graphql::JVal vars;
+    vars["first"] = std::int64_t{first};
+    if (!after.empty()) vars["after"] = after;
+    if (!filter.isNull()) vars["filter"] = filter;
+    return execUnwrap(gen::actors::kActorsDocument, vars, "ActorsConnection");
   }
 
   graphql::Json batchLookup(const std::vector<std::string>& uuids) const {

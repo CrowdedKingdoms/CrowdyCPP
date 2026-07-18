@@ -95,6 +95,38 @@ class Connection {
   /// idle so presence never lapses.
   Result<std::uint8_t> sendHeartbeat(const wire::ChunkCoord& chunk, const core::ActorUuid& uuid);
 
+  // ----- AndWait correlation (the CrowdyJS *AndWait analog) -------------------
+
+  /// Outcome of a waitForSequence.
+  struct WaitOutcome {
+    /// True when the send's self-echo notification arrived.
+    bool acknowledged = false;
+    /// Set when the server answered with a GENERIC_ERROR_MESSAGE instead.
+    std::optional<wire::ErrorCode> error;
+    /// Server epoch millis from the echo (when acknowledged).
+    std::int64_t serverEpochMs = 0;
+  };
+
+  /// Wait (pumping/polling internally; handlers still fire normally) until a
+  /// long-spatial notification with our `uuid` + `sequence` arrives (echo),
+  /// a GENERIC_ERROR_MESSAGE with that sequence arrives, or the timeout
+  /// elapses. Actor/voxel sends echo to the sender; audio/text/event sends
+  /// only error-correlate — for those, treat a timeout as accepted.
+  WaitOutcome waitForSequence(std::uint8_t sequence, const core::ActorUuid& uuid, int timeoutMs);
+
+  /// Send an actor update and wait for its echo or error.
+  WaitOutcome sendActorUpdateAndWait(const SpatialSend& p, int timeoutMs = 5000);
+  /// Send a voxel update and wait for its echo or error.
+  WaitOutcome sendVoxelUpdateAndWait(const wire::ChunkCoord& chunk, const core::ActorUuid& uuid,
+                                     std::int16_t x, std::int16_t y, std::int16_t z,
+                                     std::int16_t voxelType, Bytes voxelState,
+                                     std::uint8_t distance = 8,
+                                     wire::DecayRate decay = wire::DecayRate::None,
+                                     int timeoutMs = 5000);
+  /// Send a text packet and wait for a correlated error (no echo exists; a
+  /// clean timeout means accepted).
+  WaitOutcome sendTextAndWait(const SpatialSend& p, int timeoutMs = 1500);
+
   // ----- Receive-side --------------------------------------------------------
 
   /// Drain pending notifications and dispatch them to the handlers on the
@@ -181,6 +213,16 @@ class Connection {
   std::int64_t lastRecvMs_ = 0;
   std::int64_t lastSendMs_ = 0;
   std::atomic<bool> reconnectRequested_{false};
+
+  // One in-flight AndWait at a time (poll-thread only).
+  struct PendingWait {
+    bool active = false;
+    std::uint8_t sequence = 0;
+    core::ActorUuid uuid{};
+    WaitOutcome outcome;
+    bool done = false;
+  };
+  PendingWait pendingWait_;
 
   mutable std::mutex statsMutex_;
   Stats stats_;

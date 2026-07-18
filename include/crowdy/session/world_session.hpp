@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -56,12 +57,19 @@ class WorldSession {
   RemoteActorStore& actors() { return *actors_; }
   ChunkStore& chunks() { return *chunks_; }
   ErrorStore& errors() { return errors_; }
+  EventRouter& events() { return events_; }
   Inbox& channelInbox() { return channelInbox_; }
   Inbox& directInbox() { return directInbox_; }
   replication::Connection& connection() { return *conn_; }
 
   const core::ActorUuid& actorUuid() const { return uuid_; }
   bool amIHost() const { return amIHost_; }
+  /// The elected host's user id ("" while unknown).
+  const std::string& hostUserId() const { return hostUserId_; }
+  /// Observe host transitions (fires from tick() when the host changes).
+  void onHostChanged(std::function<void(const std::string& hostUserId)> cb) {
+    onHostChanged_ = std::move(cb);
+  }
 
   /// Join the world (first actor update) at `chunk` with the initial state.
   Status join(const ChunkCoord& chunk, Bytes initialState) {
@@ -86,10 +94,13 @@ class WorldSession {
   std::unique_ptr<RemoteActorStore> actors_;
   std::unique_ptr<ChunkStore> chunks_;
   ErrorStore errors_;
+  EventRouter events_;
   Inbox channelInbox_;
   Inbox directInbox_;
 
   bool amIHost_ = false;
+  std::string hostUserId_;
+  std::function<void(const std::string&)> onHostChanged_;
   std::int64_t lastReapMs_ = 0;
   std::int64_t lastHostBeatMs_ = 0;
 };

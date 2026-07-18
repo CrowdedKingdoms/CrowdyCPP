@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -334,6 +335,18 @@ class MatchesKit {
         actorUuid_(actorUuid ? *actorUuid : core::generateActorUuid()) {}
 
   const MatchesNames& names() const { return names_; }
+
+  /// The notify-to-pull loop, ingest-flavored: feed channel notifications
+  /// (from a Connection channelMessage handler or the WorldSession channel
+  /// inbox) into this method; when one pings `match`'s channel, the match
+  /// state is re-pulled and handed to `callback`. Returns true when the ping
+  /// matched (the CrowdyJS onMatchChanged analog for the native transport).
+  bool onMatchChanged(const KitMatch& match, std::int64_t notifiedChannelId,
+                      const std::function<void(const KitMatch&)>& callback) {
+    if (std::to_string(notifiedChannelId) != match.channelId) return false;
+    callback(get(match.metaId));
+    return true;
+  }
 
   /// Create a match: a session (the platform match primitive), a per-match
   /// notification channel, and the session-scoped MatchMeta.

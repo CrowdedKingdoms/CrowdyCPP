@@ -240,6 +240,39 @@ void run() {
   }
   CHECK_EQ(provider->assignCalls, 2);
 
+  // --- AndWait: a queued self-echo with the send's sequence resolves the wait.
+  conn.setHandlers({});  // the strict handlers above do not apply to this traffic
+  auto seqForWait = conn.sendActorUpdate(send);
+  CHECK(seqForWait.ok());
+  auto sentDatagram = server.recvOne();
+  auto parsedSent = wire::parseLongSpatial(Bytes(sentDatagram.data(), sentDatagram.size()));
+  CHECK(parsedSent.ok());
+  auto echo = makeNotification(wire::MessageType::ActorUpdateNotification,
+                               Bytes(pose, sizeof(pose)), 1700000001000LL, parsedSent->sequence);
+  std::memcpy(echo.data() + wire::offsets::kUuid, send.uuid.data(), 32);
+  // Re-sign after patching the uuid (prefix changed).
+  {
+    const std::size_t prefixLen = echo.size() - wire::kTailWithHmac;
+    CHECK(wire::spatialHmac(core::opensslCrypto(), Bytes(echo.data(), prefixLen), token64(),
+                            echo.data() + prefixLen));
+  }
+  server.sendToClient(echo.data(), echo.size());
+  auto outcome = conn.waitForSequence(parsedSent->sequence, send.uuid, 2000);
+  CHECK(outcome.acknowledged);
+  CHECK(!outcome.error.has_value());
+  CHECK_EQ(outcome.serverEpochMs, 1700000001000LL);
+
+  // AndWait: a correlated error resolves with the code instead.
+  auto seqForError = conn.sendActorUpdate(send);
+  CHECK(seqForError.ok());
+  server.recvOne();
+  const std::uint8_t errReply[] = {3, seqForError.value(), 7};
+  server.sendToClient(errReply, sizeof(errReply));
+  auto errOutcome = conn.waitForSequence(seqForError.value(), send.uuid, 2000);
+  CHECK(!errOutcome.acknowledged);
+  CHECK(errOutcome.error.has_value());
+  CHECK_EQ(static_cast<int>(*errOutcome.error), 7);
+
   conn.disconnect();
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Closed));
 }

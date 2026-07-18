@@ -1,8 +1,0 @@
-query UdpProxyConnectionStatus {
-  udpProxyConnectionStatus {
-    connected
-    serverIp6
-    serverClientPort
-    lastMessageTime
-  }
-}

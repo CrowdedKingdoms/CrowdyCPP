@@ -244,12 +244,61 @@ void run() {
   for (int i = 0; i < 5 && !sawVoxel; ++i) sawVoxel = server.recvOne()[0] == 131;
   CHECK(sawVoxel);
 
-  // --- Staleness reaping: with no more traffic the remote actor expires.
-  for (int i = 0; i < 100 && session.actors().size() > 0; ++i) {
+  // --- Lanes, callbacks, and the event router (phase-2 store surface).
+  int laneJoins = 0, laneLeaves = 0;
+  auto& mobLane = session.actors().lane("mobs", {[](const replication::SpatialNotification& sn) {
+                                                   return sn.payload.size() == 3;  // mob tag
+                                                 },
+                                                 200, 2});
+  mobLane.onJoin([&](const RemoteActor&) { ++laneJoins; });
+  mobLane.onLeave([&](const RemoteActor&) { ++laneLeaves; });
+
+  int routedEvents = 0;
+  session.events().on(42, [&](const EventRouter::Event& e) {
+    ++routedEvents;
+    CHECK_EQ(e.eventType, 42u);
+    CHECK_EQ(e.state.size(), 1u);
+  });
+
+  const auto mob = uuidOf('m');
+  const std::uint8_t mobPose[] = {7, 7, 7};
+  auto mobNote = makeNotification(wire::MessageType::ActorUpdateNotification, mob, {1, 0, 0},
+                                  Bytes(mobPose, sizeof(mobPose)), 1700000000600LL, 8);
+  server.reply(mobNote.data(), mobNote.size());
+
+  std::uint8_t eventPayload[wire::kEventTypeSize + 1];
+  const std::uint8_t eventState[] = {9};
+  wire::encodeEventPayload(42, Bytes(eventState, 1),
+                           MutableBytes(eventPayload, sizeof(eventPayload)));
+  auto eventNote = makeNotification(wire::MessageType::ClientEventNotification, other, {1, 0, 0},
+                                    Bytes(eventPayload, sizeof(eventPayload)), 1700000000700LL, 9);
+  server.reply(eventNote.data(), eventNote.size());
+
+  for (int i = 0; i < 100 && (laneJoins < 1 || routedEvents < 1); ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(laneJoins, 1);
+  CHECK(mobLane.find(mob) != nullptr);
+  CHECK_EQ(routedEvents, 1);
+  CHECK(session.events().lastEvent(42) != nullptr);
+  CHECK(session.events().lastEvent(43) == nullptr);
+
+  // ChunkStore ergonomics.
+  CHECK_EQ(session.chunks().voxelTypeAt({2, 0, 0}, 3, 4, 5), 7u);
+  CHECK(session.chunks().voxelStateAt({2, 0, 0}, 3, 4, 5) != nullptr);
+  CHECK(session.chunks().list().size() >= 1);
+  CHECK_EQ(session.chunks().pruneBeyond({2, 0, 0}, 0), 0u);  // only chunk 2,0,0 cached
+
+  // --- Staleness reaping: with no more traffic the remote actors expire
+  // (default lane and named lanes; onLeave fires).
+  for (int i = 0; i < 100 && (session.actors().size() > 0 || mobLane.size() > 0); ++i) {
     conn->pump(5);
     session.tick();
   }
   CHECK_EQ(session.actors().size(), 0u);
+  CHECK_EQ(mobLane.size(), 0u);
+  CHECK_EQ(laneLeaves, 1);
 
   session.dispose();
 }

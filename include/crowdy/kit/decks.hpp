@@ -235,7 +235,7 @@ inline KitBlueprint decksBlueprint(const DecksBlueprintOptions& options = {}) {
     a["selectorJson"] = selector.dump();
     a["description"] =
         "Manual shuffle: fans assign_position out over every deck-zone card (run via "
-        "gameModelRunAutomation / DecksKit::shuffle).";
+        "gameModelRunAutomation / kit.decks.shuffle).";
     bp.automations.push_back(std::move(a));
   }
 

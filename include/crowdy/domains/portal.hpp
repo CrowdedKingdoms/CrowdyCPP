@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cctype>
 #include <string>
 
 #include "crowdy/core/base64.hpp"
@@ -85,6 +86,47 @@ class PortalAPI : public DomainBase {
     return r;
   }
 
+  /// A begun portal entry: send the player to `url`; keep `verifier` (and
+  /// `state` for correlation) to pass to completeEntry() on the callback.
+  struct PortalEntry {
+    std::string url;
+    std::string state;
+    std::string verifier;
+  };
+
+  /// Game side: begin a cross-origin portal entry. Generates PKCE material
+  /// and assembles the authorize URL on the identity origin
+  /// (`authorizeUrl?app_id=...&code_challenge=...&code_challenge_method=S256&
+  /// redirect_uri=...&state=...`). Native flows that own both sides can skip
+  /// this and call createAuthorizationCode + exchangeCode directly.
+  PortalEntry beginEntry(std::string_view appId, std::string_view authorizeUrl,
+                         std::string_view redirectUri, std::string_view state = {}) const {
+    PkcePair pkce = generatePkce();
+    PortalEntry entry;
+    entry.verifier = pkce.verifier;
+    if (state.empty()) {
+      std::uint8_t raw[16];
+      core::opensslCrypto().randomBytes(raw, sizeof(raw));
+      entry.state = core::base64UrlEncode(Bytes(raw, sizeof(raw)));
+    } else {
+      entry.state = std::string(state);
+    }
+    entry.url = std::string(authorizeUrl);
+    entry.url += (entry.url.find('?') == std::string::npos) ? '?' : '&';
+    entry.url += "app_id=" + urlEncode(appId);
+    entry.url += "&code_challenge=" + urlEncode(pkce.challenge);
+    entry.url += "&code_challenge_method=S256";
+    entry.url += "&redirect_uri=" + urlEncode(redirectUri);
+    entry.url += "&state=" + urlEncode(entry.state);
+    return entry;
+  }
+
+  /// Game side: complete a portal entry from the callback's code + the
+  /// verifier saved by beginEntry(). Stores the app token on this client.
+  AppTokenResponse completeEntry(std::string_view code, std::string_view verifier) const {
+    return exchangeCode(code, verifier);
+  }
+
   /// Generate a PKCE verifier + S256 challenge for the portal flow.
   static PkcePair generatePkce(const core::ICrypto& crypto = core::opensslCrypto()) {
     std::uint8_t raw[32];
@@ -147,6 +189,22 @@ class PortalAPI : public DomainBase {
   }
 
  private:
+  static std::string urlEncode(std::string_view s) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+      if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+        out.push_back(static_cast<char>(c));
+      } else {
+        out.push_back('%');
+        out.push_back(kHex[c >> 4]);
+        out.push_back(kHex[c & 0x0f]);
+      }
+    }
+    return out;
+  }
+
   std::shared_ptr<graphql::AuthState> auth_;
 };
 

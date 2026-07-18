@@ -80,7 +80,6 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   users_ = std::make_unique<domains::UsersAPI>(managementGql_);
   portal_ = std::make_unique<domains::PortalAPI>(managementGql_, auth_);
   platform_ = std::make_unique<domains::PlatformAPI>(managementGql_);
-  admin_ = std::make_unique<domains::AdminAPI>(managementGql_);
   operatorApi_ = std::make_unique<domains::OperatorAPI>(managementGql_);
 
   // Game-plane domains (app-scoped token).
@@ -96,6 +95,8 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   channels_ = std::make_unique<domains::ChannelsAPI>(gameGql_);
   gameModel_ = std::make_unique<domains::GameModelAPI>(gameGql_);
   gameApps_ = std::make_unique<domains::GameAppsAPI>(gameGql_);
+
+  admin_ = std::make_unique<domains::AdminAPI>(managementGql_, gameApps_.get());
 }
 
 CrowdyClient::~CrowdyClient() { close(); }

@@ -140,8 +140,8 @@ app-scoped token):
 | `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
 | `client.gameApps()` | App grids + grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
-| `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking. |
-| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model (inventory, lockable objects, NPCs, plots, economy, progression, loot, quests, combat, matches, decks, worldsim, social, leaderboards, feature gates), plus blueprint builders and `deploy()` for the admin "load the rules" step. |
+| `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
+| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus blueprint builders and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps() / appAccess() / billing() /
@@ -185,6 +185,103 @@ heap allocation (pooled datagram buffers), no copies on parse (payloads are
 spans into the receive buffer until you copy them), and no exceptions.
 Notification callbacks run on the thread that calls `poll()` — never on the
 network thread.
+
+## The session layer: data structures that do the bookkeeping
+
+The replication client moves datagrams; `crowdy::session::WorldSession` turns
+them into game state. Every store below is a structure that multiplayer games
+otherwise hand-write (and debug) themselves — using them means your first
+playable build is a render loop over ready-made state instead of weeks of
+netcode bookkeeping. One connection feeds all of them; you call
+`session.tick()` once per frame and read plain snapshots (single-threaded by
+design, so reads never lock).
+
+| Structure | What it replaces | How it makes you faster |
+|---|---|---|
+| `LocalActorStore` (`session.self()`) | your presence loop | Joins the world, re-sends state at a fixed Hz with send-on-change dedup, periodic keyframes, and cheap idle heartbeats so presence never lapses; tracks `lastAck()` from self-echoes. You just `setState(bytes)` from the game loop — or `moveTo(chunk)` on boundary crossings for an immediate send. |
+| `RemoteActorStore` (`session.actors()`) | everyone-else tracking | Self-filtered registry keyed by actor uuid with staleness reaping, `onJoin`/`onLeave`/`onUpdate` callbacks, and a per-actor sample history (state + server timestamp pairs) ready for interpolation/extrapolation. Render directly from `list()`. |
+| `RemoteActorLane` (`actors().lane("mobs", ...)`) | per-kind actor lists | Filtered sub-registries (players vs mobs vs vehicles) so each kind is classified once at ingest — no per-frame re-scanning or re-decoding of the full registry. |
+| `ChunkStore` (`session.chunks()`) | terrain sync | Chunk/voxel cache: bulk `ensureAround()` hydration from the durable store, realtime merge of incoming voxel edits, optimistic `setVoxel()` (applies locally, replicates, queues persistence), worldgen write-back via `seed()`, `pruneBeyond()`/`flush()` for streaming worlds, and `voxelTypeAt()`/`voxelStateAt()` reads for meshing/collision. |
+| `EventRouter` (`session.events()`) | RPC dispatch switch | Routes typed client/server events (`[u16 eventType][state]`) to per-type handlers and retains `lastEvent(type)` — your gameplay events become `events().on(kDoorOpened, ...)` instead of a hand-rolled switch over payload bytes. |
+| `Inbox` (`channelInbox()` / `directInbox()`) | chat/message queues | Bounded queues for channel and direct messages with `drain()`, non-consuming `messages()`, `onMessage` callbacks, and channel discovery — plus `send()` helpers back through the connection. |
+| `ErrorStore` (`session.errors()`) | "why was that send rejected?" | Correlates server error frames (sequence-numbered, uint8 wrap) with the *kind* of send that used that sequence, so a permission denial points at "your voxel edit", not a bare error code. |
+| Host tracking (`amIHost()` / `onHostChanged`) | election polling | Heartbeats host eligibility on a cadence and caches the elected host with a change callback; gate host-only simulation without writing the polling loop. |
+| `SaveStateStore` / `AvatarStateStore` | persistence plumbing | Byte-level caches over the durable save/avatar surfaces with explicit `load()`/`save()`; base64 stays at the wire boundary, your code sees bytes. |
+| `ContainerMirror` | game-model polling | The notify-to-pull client: `watch()` containers, re-pull on demand or when a bound channel pings, read versioned snapshots via `get()`/`onChange` — server-authoritative state without hammering the API. |
+| `PodCodec<T>` / `UnrealPose` | wire layout code | Your replicated state as a packed struct: the struct layout *is* the little-endian wire layout (static-asserted), with the 88-byte Unreal-compatible pose included. No serializer to write, nothing to keep in sync. |
+| `IUuidStore` (memory/file) | identity persistence | Persist your actor uuid across restarts so remote registries treat you as the same actor. |
+
+Under the hood these sit on the same primitives the hot path uses — the
+lock-free SPSC ring between network and game thread, pooled fixed-size
+buffers, and zero-copy parsed views — so the convenience layer does not trade
+away the performance story.
+
+## Game Kit: genre building blocks over the game model
+
+The platform's [game model](https://docs.crowdedkingdoms.com/game-api/game-models)
+gives you server-authoritative rules without running a server: typed
+containers, properties, and transactional functions gated by **invoke
+policies** (`owner_of_self`, `condition` expressions, `is_host`,
+`is_current_turn`, ...), plus
+[automations](https://docs.crowdedkingdoms.com/game-api/autonomous-processes)
+that run functions server-side on schedules or events. The **Game Kit** maps
+traditional game concepts onto that machinery so you don't design the schema
+yourself. Two phases, matching the platform's model:
+
+1. **Studio loads the rules** — blueprint builders emit declarative bundles
+   (container types, property schemas, policy-gated functions, automations);
+   `deploy()` seeds them in one idempotent pass. Admin context
+   (`manage_apps`) only — never the shipped client.
+2. **The game client plays** — runtime kits wrap the conventions with typed
+   helpers. Authority is enforced server-side on every call: `KitInvokeResult`
+   carries the verdict (`success == false` with `errorMessage` on a policy
+   denial — never an exception), so an untrusted client can try anything and
+   change nothing it shouldn't.
+
+```cpp
+// Studio (admin token): one-time "load the rules".
+auto adminKit = crowdy::kit::makeKit(admin, appId);
+adminKit.deploy({crowdy::kit::inventoryBlueprint(),
+                 crowdy::kit::lockBlueprint({.objectTypeName = "Door",
+                                             .authority = {crowdy::kit::LockAuthority::key()}})});
+
+// Game client (player token): typed runtime helpers.
+auto kit = crowdy::kit::makeKit(game, appId);
+auto bag = kit.inventory().ensure(myUserId);
+auto result = kit.objects().open(doorId, keyId);
+if (!result.success) showLockedMessage(result.errorMessage);
+```
+
+### Genre and capability map
+
+Every layer is a blueprint builder plus a runtime kit. Compose the layers
+your genre needs — they share the model, so they interoperate (a quest can
+pay into a wallet, a plot purchase can grant enforced build permissions):
+
+| Genre / concept | Builder → runtime | Capabilities |
+|---|---|---|
+| Items & bags (RPG, survival, sandbox) | `inventoryBlueprint` → `kit.inventory()` | Per-player bags and item stacks (`item_id`/`quantity`/`slot`); owner-gated grant/consume/move and atomic two-stack transfer; the consume guard refuses overdraw server-side. |
+| Doors, chests, gates | `lockBlueprint` → `kit.objects()` | Lockable world objects with pluggable authority: key item, owner, group/team permission, grid permission, enforced chunk permission, or custom policy trees; several lock types per app via `objectsFor()`. |
+| NPCs & world ticks | `npcBlueprint` → `kit.npcs()` | Server-driven behaviors (interval/cron/event triggers) with selector targeting — wander, restock, guards reacting only to intruders via permission predicates; runs with no client online. |
+| Land ownership (MMO, sandbox) | `plotBlueprint` → `kit.plots()` | Buy/rent/evict plots where payment and **replication-enforced grid permissions** commit atomically — buying land grants real build rights, not just a database row. |
+| Economy (any genre) | `economyBlueprint` → `kit.economy()` | Multi-currency wallets, atomic shop purchases, escrow player trades, a player market with escrowed listings, restock automation; every mutation guard is server-side. |
+| Progression (RPG, arcade) | `progressionBlueprint` → `kit.progression()` | XP/levels on a configurable curve, skill trees with prerequisite chains, achievements, host-gated rating. |
+| Loot (RPG, roguelike) | `lootBlueprint` → `kit.loot()` | Weighted tables compiled into seed-driven server expressions (clients can't reroll), atomic single-claim drops, event-triggered drops. |
+| Quests (RPG, live-ops) | `questsBlueprint` → `kit.quests()` | Event-driven progress via automations, atomic reward turn-in (items + currency in one transaction), cron daily resets. |
+| Combat (action, MMO) | `combatBlueprint` → `kit.combat()` | Server-authoritative damage/death/respawn, status-effect ticks over automation selectors, turn-based and host-synced modes. |
+| Matches & lobbies (arena, board, card) | `matchesBlueprint` → `kit.matches()` | Session lobbies, rounds, turn order via the platform's session-turn authority, scores, per-match notification channel (notify-to-pull re-pulls on ping). |
+| Hidden information (card games) | `decksBlueprint` → `kit.decks()` | Hidden hands via owner-visibility properties, server-dealt shuffles by position — opponents' cards never reach your client. |
+| Living world (farming, survival) | `worldsimBlueprint` → `kit.worldsim()` | Day/night clock with spatial notifications, resource nodes with regen + atomic gather, crops, wave counters — all automation-driven. |
+| Social (MMO, co-op) | `guildBlueprint` → `kit.social()` | Parties and guilds over teams + channels, guild chat, territory grants, guild hall (a group-permission lock) + guild bank (a shared inventory) composites. |
+| Leaderboards (arcade, competitive) | `leaderboardsBlueprint` → `kit.leaderboards()` | Trusted keep-best submits (server/host/automation authority — anti-cheat by construction), ranking reads, cron season resets. |
+| Monetization | `featureGate` → `kit.features()` | Feature keys granted per access tier; AND a gate into any builder's policy (`andPolicies(..., featureGate("vip"))`) to tier-gate a capability. |
+
+Trusted mutations (XP grants, loot rolls, currency mints, score submits) take
+a `TrustedAuthority` — server, host, automation, owner, or a custom policy —
+so reward-granting functions are never plain player calls. The C++ builders
+emit **the same model definitions as CrowdyJS's** (verified structurally in
+CI-adjacent tooling), so a world deployed from either SDK is playable from
+both, and studios can seed from TypeScript tooling while the game ships C++.
 
 ## Wrapping CrowdyCPP in engines
 

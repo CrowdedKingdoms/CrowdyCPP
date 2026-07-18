@@ -172,6 +172,18 @@ void run() {
   CHECK(conn.sendChannelMessage(55, uuid('a'), Bytes(hi, sizeof(hi))).ok());
   CHECK_EQ(server.recvOne()[0], 17u);
 
+  // Send-side stats: 3 messages so far (actor update, heartbeat, channel),
+  // with wire bytes and per-opcode counters tracked.
+  {
+    auto s = conn.stats();
+    CHECK_EQ(s.messagesSent, 3u);
+    CHECK_EQ(s.datagramsSent, 3u);
+    CHECK(s.bytesSent > 0u);
+    CHECK_EQ(s.messagesSentByType[128], 1u);  // ACTOR_UPDATE_REQUEST
+    CHECK_EQ(s.messagesSentByType[26], 1u);   // CLIENT_ACTOR_HEARTBEAT
+    CHECK_EQ(s.messagesSentByType[17], 1u);   // CHANNEL_MESSAGE_REQUEST
+  }
+
   // --- Server -> client: single notification.
   auto note = makeNotification(wire::MessageType::ActorUpdateNotification,
                                Bytes(pose, sizeof(pose)), 1700000000000LL, 5);
@@ -208,6 +220,19 @@ void run() {
   CHECK_EQ(errors, 1);
   CHECK_EQ(conn.stats().hmacFailures, 1u);
   CHECK_EQ(conn.stats().lastServerEpochMs, 1700000000001LL);
+
+  // Receive-side stats: 3 accepted messages (actor + voxel + error; the
+  // tampered one dropped), unbundled per-opcode counts, and wire bytes for
+  // every datagram including the dropped one.
+  {
+    auto s = conn.stats();
+    CHECK_EQ(s.messagesReceived, 3u);
+    CHECK_EQ(s.messagesReceivedByType[130], 1u);  // ACTOR_UPDATE_NOTIFICATION
+    CHECK_EQ(s.messagesReceivedByType[133], 1u);  // VOXEL_UPDATE_NOTIFICATION
+    CHECK_EQ(s.messagesReceivedByType[3], 1u);    // GENERIC_ERROR
+    CHECK_EQ(s.datagramsReceived, 3u);
+    CHECK(s.bytesReceived >= s.messagesReceived);
+  }
   CHECK(statusChanges >= 1);  // Connecting -> Connected observed
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
 

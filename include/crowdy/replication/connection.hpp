@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -139,15 +140,31 @@ class Connection {
   std::size_t pump(int timeoutMs = 0);
 
   // ----- Introspection --------------------------------------------------------
+  /// Cumulative traffic/health counters since connect(). All counters only
+  /// grow (no built-in rate windows, keeping the hot paths allocation-free):
+  /// callers wanting rates should snapshot stats() periodically and diff.
+  /// Byte counters measure real wire bytes (full datagrams, framing + HMAC
+  /// included); per-type counters are indexed by the raw wire::MessageType
+  /// opcode (e.g. messagesSentByType[static_cast<std::uint8_t>(
+  /// wire::MessageType::ActorUpdateRequest)]).
   struct Stats {
     std::uint64_t datagramsSent = 0;
     std::uint64_t datagramsReceived = 0;
+    std::uint64_t messagesSent = 0;
     std::uint64_t messagesReceived = 0;
+    std::uint64_t bytesSent = 0;
+    std::uint64_t bytesReceived = 0;
     std::uint64_t hmacFailures = 0;
     std::uint64_t malformed = 0;
     std::uint64_t ringDropped = 0;
     std::uint64_t reconnects = 0;
     std::int64_t lastServerEpochMs = 0;
+    /// Messages sent, by wire opcode (actor/voxel/audio/text/event/channel/
+    /// heartbeat requests).
+    std::array<std::uint64_t, 256> messagesSentByType{};
+    /// Messages received, by wire opcode (notifications, errors, channel
+    /// deliveries) after unbundling.
+    std::array<std::uint64_t, 256> messagesReceivedByType{};
   };
   Stats stats() const;
 

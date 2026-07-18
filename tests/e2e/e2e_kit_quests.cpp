@@ -27,6 +27,7 @@ int main() try {
   options.inventoryTypePrefix = invPrefix;
 
   auto admin = e2e::signIn(cfg, cfg.ownerEmail);
+  e2e::pruneStaleAutomations(*admin.game, cfg.appId);
   auto adminKit = makeKit(*admin.game, cfg.appId, nullptr, options);
 
   E2E_SUBTEST("deploy quests + economy + inventory blueprints");

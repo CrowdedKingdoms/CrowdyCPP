@@ -39,6 +39,7 @@ int main() {
 
     E2E_SUBTEST("deploy combat blueprint");
     auto& admin = e2e::ownerGame(cfg);
+    e2e::pruneStaleAutomations(admin, cfg.appId);
     GameKitOptions adminOptions;
     adminOptions.combatTypePrefix = prefix;
     auto adminKit = makeKit(admin, cfg.appId, nullptr, adminOptions);

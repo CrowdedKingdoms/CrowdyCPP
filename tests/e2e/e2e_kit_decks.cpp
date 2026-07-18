@@ -25,6 +25,7 @@ int main() {
 
     E2E_SUBTEST("deploy decks blueprint");
     auto& admin = e2e::ownerGame(cfg);
+    e2e::pruneStaleAutomations(admin, cfg.appId);
     GameKitOptions adminOptions;
     adminOptions.decksTypePrefix = prefix;
     auto adminKit = makeKit(admin, cfg.appId, nullptr, adminOptions);

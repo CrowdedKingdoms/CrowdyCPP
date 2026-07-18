@@ -56,25 +56,29 @@ int main() try {
   for (const auto& w : deployed.warnings) std::printf("deploy warning: %s\n", w.c_str());
 
   E2E_SUBTEST("owner creates a grid and a priced plot over it");
-  // Suite-index-2 chunk base, nudged by the run suffix so reruns get a fresh
-  // region.
+  // Suite-index-2 chunk base, nudged by the run suffix. Grids persist across
+  // runs, so a slot can already be occupied by an earlier run's grid — on a
+  // non-NO_ERROR verdict (e.g. overlap), nudge to a fresh region and retry.
   const std::int64_t baseX = 300200;
-  const std::int64_t baseZ = 300000 + std::stoll(e2e::runSuffix()) % 1000;
-  graphql::JVal gridInput;
-  gridInput["appId"] = cfg.appId;
-  gridInput["corner1"]["x"] = std::to_string(baseX);
-  gridInput["corner1"]["y"] = "0";
-  gridInput["corner1"]["z"] = std::to_string(baseZ);
-  gridInput["corner2"]["x"] = std::to_string(baseX + 3);
-  gridInput["corner2"]["y"] = "0";
-  gridInput["corner2"]["z"] = std::to_string(baseZ + 3);
-  graphql::Json gridRes = admin.game->gameApps().createGrid(gridInput);
-  // The payload's error field is an enum with a "NO_ERROR" sentinel.
-  const std::string gridError = gridRes["error"].asString();
-  E2E_CHECK(gridError.empty() || gridError == "NO_ERROR");
-  const std::int64_t gridIdNum = gridRes["grid"]["grid_id"].asBigInt();
-  E2E_CHECK(gridIdNum > 0);
-  const std::string gridId = std::to_string(gridIdNum);
+  std::int64_t baseZ = 300000 + std::stoll(e2e::runSuffix()) % 100000;
+  std::string gridId;
+  for (int attempt = 0; attempt < 10 && gridId.empty(); ++attempt, baseZ += 7) {
+    graphql::JVal gridInput;
+    gridInput["appId"] = cfg.appId;
+    gridInput["corner1"]["x"] = std::to_string(baseX);
+    gridInput["corner1"]["y"] = "0";
+    gridInput["corner1"]["z"] = std::to_string(baseZ);
+    gridInput["corner2"]["x"] = std::to_string(baseX + 3);
+    gridInput["corner2"]["y"] = "0";
+    gridInput["corner2"]["z"] = std::to_string(baseZ + 3);
+    graphql::Json gridRes = admin.game->gameApps().createGrid(gridInput);
+    // The payload's error field is an enum with a "NO_ERROR" sentinel.
+    const std::string gridError = gridRes["error"].asString();
+    if (!gridError.empty() && gridError != "NO_ERROR") continue;
+    const std::int64_t gridIdNum = gridRes["grid"]["grid_id"].asBigInt();
+    if (gridIdNum > 0) gridId = std::to_string(gridIdNum);
+  }
+  E2E_CHECK(!gridId.empty());
 
   KitPlotCreateInput plotInput;
   plotInput.displayName = "E2E Plot";
@@ -114,7 +118,7 @@ int main() try {
     if (p.containerId != plotId) continue;
     found = true;
     E2E_CHECK(p.ownerUserId == std::stoll(buyer.userId));
-    E2E_CHECK(p.gridId == gridIdNum);
+    E2E_CHECK(p.gridId == std::stoll(gridId));
     E2E_CHECK(p.price == 100);
   }
   E2E_CHECK(found);

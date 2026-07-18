@@ -129,6 +129,44 @@ inline std::string deriveEmail(const E2eConfig& cfg, const std::string& tag) {
 /// valid GraphQL type-name fragment.
 inline std::string kitPrefix(const char* base) { return std::string(base) + runSuffix(); }
 
+/// Run-suffixed names leave residue on the shared app (every kit run deploys
+/// fresh automations, and apps cap automations — e.g. 100). Prune automations
+/// from PREVIOUS runs: any name embedding a >=6-digit run marker at least an
+/// hour older than this process's runSuffix (so concurrently running suites,
+/// whose markers are seconds apart, are never touched). Call it as admin
+/// before deploying automation-bearing blueprints; failures are non-fatal.
+inline void pruneStaleAutomations(crowdy::CrowdyClient& adminGame, const std::string& appId) {
+  constexpr long long kWrap = 100000000;         // runSuffix() = epochMs % 1e8
+  constexpr long long kMinAgeMs = 60LL * 60000;  // 1 hour
+  const long long now = std::strtoll(runSuffix().c_str(), nullptr, 10);
+  try {
+    adminGame.gameModel().automationsList(appId).forEach([&](crowdy::graphql::Json a) {
+      const std::string name = a["name"].asString();
+      // Longest digit run in the name is the candidate run marker.
+      std::string best, cur;
+      for (char c : name) {
+        if (c >= '0' && c <= '9') {
+          cur += c;
+        } else {
+          if (cur.size() > best.size()) best = cur;
+          cur.clear();
+        }
+      }
+      if (cur.size() > best.size()) best = cur;
+      if (best.size() < 6) return;  // no run marker: not e2e residue
+      const long long marker = std::strtoll(best.c_str(), nullptr, 10);
+      const long long age = ((now - marker) % kWrap + kWrap) % kWrap;
+      if (age < kMinAgeMs || age > kWrap - kMinAgeMs) return;  // current or clock-wrapped
+      try {
+        adminGame.gameModel().deleteAutomation(appId, name);
+      } catch (const std::exception&) { /* another run may have pruned it already */
+      }
+    });
+  } catch (const std::exception& e) {
+    std::printf("(automation prune skipped: %s)\n", e.what());
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Clients and players
 // ---------------------------------------------------------------------------

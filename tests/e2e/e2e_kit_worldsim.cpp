@@ -40,6 +40,7 @@ int main() {
 
     E2E_SUBTEST("deploy worldsim + inventory blueprints");
     auto& admin = e2e::ownerGame(cfg);
+    e2e::pruneStaleAutomations(admin, cfg.appId);
     GameKitOptions adminOptions;
     adminOptions.worldsimTypePrefix = prefix;
     adminOptions.inventoryTypePrefix = prefix;

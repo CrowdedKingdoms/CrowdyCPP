@@ -115,6 +115,9 @@ void WorldSession::dispose() {
 
 std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
   if (!chunksApi_) return 0;
+  // The durable byDistance query accepts a Chebyshev radius of 1-8.
+  if (distance < 1) distance = 1;
+  if (distance > 8) distance = 8;
   graphql::Json page = chunksApi_->byDistance(
       appId_, domains::ChunkRef{center.x, center.y, center.z}, distance);
   graphql::Json list = page["chunks"];
@@ -142,7 +145,7 @@ bool ChunkStore::flushOne(ChunkData& chunk) {
   try {
     graphql::JVal input;
     input["appId"] = appId_;
-    input["chunk"] =
+    input["coordinates"] =
         domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
     input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
     chunksApi_->update(input);

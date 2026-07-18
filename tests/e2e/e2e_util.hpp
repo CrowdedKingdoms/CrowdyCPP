@@ -129,6 +129,44 @@ inline std::string deriveEmail(const E2eConfig& cfg, const std::string& tag) {
 /// valid GraphQL type-name fragment.
 inline std::string kitPrefix(const char* base) { return std::string(base) + runSuffix(); }
 
+/// Run-suffixed names leave residue on the shared app (every kit run deploys
+/// fresh automations, and apps cap automations — e.g. 100). Prune automations
+/// from PREVIOUS runs: any name embedding a >=6-digit run marker at least an
+/// hour older than this process's runSuffix (so concurrently running suites,
+/// whose markers are seconds apart, are never touched). Call it as admin
+/// before deploying automation-bearing blueprints; failures are non-fatal.
+inline void pruneStaleAutomations(crowdy::CrowdyClient& adminGame, const std::string& appId) {
+  constexpr long long kWrap = 100000000;         // runSuffix() = epochMs % 1e8
+  constexpr long long kMinAgeMs = 60LL * 60000;  // 1 hour
+  const long long now = std::strtoll(runSuffix().c_str(), nullptr, 10);
+  try {
+    adminGame.gameModel().automationsList(appId).forEach([&](crowdy::graphql::Json a) {
+      const std::string name = a["name"].asString();
+      // Longest digit run in the name is the candidate run marker.
+      std::string best, cur;
+      for (char c : name) {
+        if (c >= '0' && c <= '9') {
+          cur += c;
+        } else {
+          if (cur.size() > best.size()) best = cur;
+          cur.clear();
+        }
+      }
+      if (cur.size() > best.size()) best = cur;
+      if (best.size() < 6) return;  // no run marker: not e2e residue
+      const long long marker = std::strtoll(best.c_str(), nullptr, 10);
+      const long long age = ((now - marker) % kWrap + kWrap) % kWrap;
+      if (age < kMinAgeMs || age > kWrap - kMinAgeMs) return;  // current or clock-wrapped
+      try {
+        adminGame.gameModel().deleteAutomation(appId, name);
+      } catch (const std::exception&) { /* another run may have pruned it already */
+      }
+    });
+  } catch (const std::exception& e) {
+    std::printf("(automation prune skipped: %s)\n", e.what());
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Clients and players
 // ---------------------------------------------------------------------------
@@ -289,6 +327,29 @@ inline void connectUdp(Player& p, const E2eConfig& cfg, const std::string& appId
     p.conn->poll();
   }
   E2E_CHECK(p.conn->state() == crowdy::replication::ConnState::Connected);
+  // Announce ourselves: the server replies to the socket address it hears
+  // from, so a receive-only client must send at least one datagram (a cheap
+  // presence heartbeat) before any notification can reach it.
+  p.conn->sendHeartbeat({0, 0, 0}, crowdy::core::generateActorUuid());
+}
+
+/// Warm up the server-side permission window for `chunk`. The first spatial
+/// messages after connect can be denied (UNAUTHORIZED) until the session's
+/// grid-permission window loads — documented "first-chunk" behavior
+/// (https://docs.crowdedkingdoms.com/replication-api/troubleshooting). Send
+/// actor updates until one is acknowledged so later assertions observe steady
+/// state. Returns true once acknowledged.
+inline bool warmUp(crowdy::replication::Connection& conn, const crowdy::wire::ChunkCoord& chunk,
+                   int budgetMs = 15000) {
+  const auto uuid = crowdy::core::generateActorUuid();
+  const std::uint8_t pose[] = {0};
+  const auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(budgetMs)) {
+    auto outcome = conn.sendActorUpdateAndWait(
+        {chunk, uuid, crowdy::Bytes(pose, sizeof(pose)), 8, crowdy::wire::DecayRate::None}, 1000);
+    if (outcome.acknowledged) return true;
+  }
+  return false;
 }
 
 /// Poll until `done()` or the timeout elapses; returns done().

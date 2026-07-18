@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 /// Pluggable clock so engine wrappers can drive SDK timing from engine time

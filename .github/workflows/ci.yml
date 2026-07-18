@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check public content policy
-        run: ./scripts/check-content-policy.sh
+        run: bash scripts/check-content-policy.sh
 
   build-test:
     strategy:

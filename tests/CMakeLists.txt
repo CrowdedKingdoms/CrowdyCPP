@@ -18,6 +18,10 @@ if(NOT WIN32)
   add_executable(replication_test replication_test.cpp)
   target_link_libraries(replication_test PRIVATE crowdy_replication crowdy_crypto_openssl)
   add_test(NAME replication_test COMMAND replication_test)
+
+  add_executable(session_test session_test.cpp)
+  target_link_libraries(session_test PRIVATE crowdy)
+  add_test(NAME session_test COMMAND session_test)
 endif()
 
 if(CROWDY_BUILD_E2E)

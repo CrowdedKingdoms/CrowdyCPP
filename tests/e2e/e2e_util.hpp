@@ -295,6 +295,25 @@ inline void connectUdp(Player& p, const E2eConfig& cfg, const std::string& appId
   p.conn->sendHeartbeat({0, 0, 0}, crowdy::core::generateActorUuid());
 }
 
+/// Warm up the server-side permission window for `chunk`. The first spatial
+/// messages after connect can be denied (UNAUTHORIZED) until the session's
+/// grid-permission window loads — documented "first-chunk" behavior
+/// (https://docs.crowdedkingdoms.com/replication-api/troubleshooting). Send
+/// actor updates until one is acknowledged so later assertions observe steady
+/// state. Returns true once acknowledged.
+inline bool warmUp(crowdy::replication::Connection& conn, const crowdy::wire::ChunkCoord& chunk,
+                   int budgetMs = 15000) {
+  const auto uuid = crowdy::core::generateActorUuid();
+  const std::uint8_t pose[] = {0};
+  const auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(budgetMs)) {
+    auto outcome = conn.sendActorUpdateAndWait(
+        {chunk, uuid, crowdy::Bytes(pose, sizeof(pose)), 8, crowdy::wire::DecayRate::None}, 1000);
+    if (outcome.acknowledged) return true;
+  }
+  return false;
+}
+
 /// Poll until `done()` or the timeout elapses; returns done().
 template <typename Fn>
 inline bool pollUntil(crowdy::replication::Connection& conn, Fn&& done, int timeoutMs = 8000) {

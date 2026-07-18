@@ -141,7 +141,7 @@ app-scoped token):
 | `client.gameApps()` | App grids + grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking. |
-| `client.kit(appId)` | Game Kit: ready-made mappings of game concepts onto the game model (inventory, lockable objects, NPCs, plots, economy, progression, loot, quests, combat, matches, decks, worldsim, social, leaderboards, feature gates). |
+| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model (inventory, lockable objects, NPCs, plots, economy, progression, loot, quests, combat, matches, decks, worldsim, social, leaderboards, feature gates), plus blueprint builders and `deploy()` for the admin "load the rules" step. |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps() / appAccess() / billing() /

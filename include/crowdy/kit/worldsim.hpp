@@ -231,8 +231,9 @@ inline KitBlueprint worldsimBlueprint(const WorldsimBlueprintOptions& options = 
           "self", "time_of_day",
           "(self.time_of_day + 1) % " + std::to_string(time.hoursPerDay)));
       if (time.weather) {
-        mutations.push_back(mutation(
-            "self", "weather", "if(rand() < 0.7, \"clear\", if(rand() < 0.5, \"rain\", \"storm\"))"));
+        mutations.push_back(
+            mutation("self", "weather",
+                     "if(rand() < 0.7, \"clear\", if(rand() < 0.5, \"rain\", \"storm\"))"));
       }
       fn["mutations"] = JVal(std::move(mutations));
       fn["returnExpression"] = "self.time_of_day";

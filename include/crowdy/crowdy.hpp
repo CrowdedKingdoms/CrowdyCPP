@@ -13,4 +13,6 @@
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
 #include "crowdy/generated/enums.hpp"
+#include "crowdy/kit/kit.hpp"
 #include "crowdy/replication/connection.hpp"
+#include "crowdy/session/world_session.hpp"

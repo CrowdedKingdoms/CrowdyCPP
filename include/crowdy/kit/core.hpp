@@ -330,7 +330,9 @@ struct KitInvokeResult {
   Json raw;                 ///< full server result (event id, mutations, ...)
 };
 
-/// Invoke a model function and wrap the result.
+/// Invoke a model function and wrap the result. Authority denials are part
+/// of the result (success = false), never exceptions — whether the server
+/// reports them in the payload or as a FORBIDDEN GraphQL error.
 inline KitInvokeResult kitInvoke(domains::GameModelAPI& gameModel, std::string_view appId,
                                  std::string_view functionName, std::string_view selfContainerId,
                                  const JVal& params = JVal(), std::string_view sessionId = {}) {
@@ -341,8 +343,18 @@ inline KitInvokeResult kitInvoke(domains::GameModelAPI& gameModel, std::string_v
   input["paramsJson"] = params.isNull() ? std::string("{}") : params.dump();
   if (!sessionId.empty()) input["sessionId"] = sessionId;
 
-  Json raw = gameModel.invoke(input);
   KitInvokeResult result;
+  Json raw;
+  try {
+    raw = gameModel.invoke(input);
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    if (e.code() == "FORBIDDEN") {
+      result.success = false;
+      result.errorMessage = e.what();
+      return result;
+    }
+    throw;
+  }
   result.raw = raw;
   result.success = raw["success"].asBool();
   result.errorMessage = raw["errorMessage"].asString();

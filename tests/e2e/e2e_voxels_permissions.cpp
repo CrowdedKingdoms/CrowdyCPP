@@ -18,7 +18,11 @@ namespace {
 std::string isoFromEpochMs(std::int64_t epochMs) {
   const std::time_t secs = static_cast<std::time_t>(epochMs / 1000);
   std::tm tm{};
+#ifdef _WIN32
+  gmtime_s(&tm, &secs);
+#else
   gmtime_r(&secs, &tm);
+#endif
   char buf[64];
   std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", tm.tm_year + 1900,
                 tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,

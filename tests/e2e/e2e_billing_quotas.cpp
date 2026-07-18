@@ -20,7 +20,11 @@ std::string isoDaysAgo(int days) {
   const auto t = std::chrono::system_clock::now() - std::chrono::hours(24 * days);
   const std::time_t tt = std::chrono::system_clock::to_time_t(t);
   std::tm tm{};
+#ifdef _WIN32
+  gmtime_s(&tm, &tt);
+#else
   gmtime_r(&tt, &tm);
+#endif
   char buf[32];
   std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000Z", &tm);
   return buf;

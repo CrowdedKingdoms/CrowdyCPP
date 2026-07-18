@@ -30,6 +30,14 @@ class UdpSocket {
   /// wait). Returns the datagram length, 0 on timeout, or an error.
   Result<std::size_t> recv(MutableBytes buffer, int timeoutMs);
 
+  /// Batched receive: fill up to `count` datagrams into equal-sized slots of
+  /// `slab` (slotSize bytes each), writing each datagram's length into
+  /// `lengths`. Waits up to timeoutMs for the first datagram, then drains
+  /// without waiting. Uses recvmmsg(2) on Linux (one syscall per batch);
+  /// falls back to a recv loop elsewhere. Returns the number received.
+  Result<std::size_t> recvBatch(std::uint8_t* slab, std::size_t slotSize, std::size_t count,
+                                std::size_t* lengths, int timeoutMs);
+
  private:
   long long fd_ = -1;
 };

@@ -53,6 +53,8 @@ class CrowdyClient {
 
   CrowdyClient(const CrowdyClient&) = delete;
   CrowdyClient& operator=(const CrowdyClient&) = delete;
+  CrowdyClient(CrowdyClient&&) noexcept;
+  CrowdyClient& operator=(CrowdyClient&&) noexcept;
 
   // ----- Auth state -----------------------------------------------------------
   /// Seed a token directly (identity session token on an identity client, or

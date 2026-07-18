@@ -309,15 +309,24 @@ void Connection::handleDatagram(Bytes datagram) {
 }
 
 std::size_t Connection::receiveBatch(int timeoutMs) {
-  std::uint8_t buffer[4096];
+  // Batched receive: one syscall per burst on Linux (recvmmsg), a drain loop
+  // elsewhere. 2048-byte slots comfortably hold any 1232-byte datagram.
+  constexpr std::size_t kSlot = 2048;
+  constexpr std::size_t kBatch = 16;
+  std::uint8_t slab[kSlot * kBatch];
+  std::size_t lengths[kBatch];
+
   std::size_t processed = 0;
   int wait = timeoutMs;
   for (;;) {
-    auto n = socket_.recv(MutableBytes(buffer, sizeof(buffer)), wait);
+    auto n = socket_.recvBatch(slab, kSlot, kBatch, lengths, wait);
     if (!n.ok() || n.value() == 0) break;
-    handleDatagram(Bytes(buffer, n.value()));
-    ++processed;
-    wait = 0;  // drain without waiting after the first datagram
+    for (std::size_t i = 0; i < n.value(); ++i) {
+      handleDatagram(Bytes(slab + i * kSlot, lengths[i]));
+    }
+    processed += n.value();
+    if (n.value() < kBatch) break;  // drained
+    wait = 0;
   }
   return processed;
 }

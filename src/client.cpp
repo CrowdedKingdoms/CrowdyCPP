@@ -101,6 +101,9 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
 
 CrowdyClient::~CrowdyClient() { close(); }
 
+CrowdyClient::CrowdyClient(CrowdyClient&&) noexcept = default;
+CrowdyClient& CrowdyClient::operator=(CrowdyClient&&) noexcept = default;
+
 replication::ReplicationClient& CrowdyClient::replication() {
   if (!replication_) {
     auto provider = std::make_shared<ClientSessionProvider>(*serverStatus_, *portal_,

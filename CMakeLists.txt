@@ -12,6 +12,7 @@ endif()
 option(CROWDY_BUILD_TESTS "Build unit tests" ON)
 option(CROWDY_BUILD_E2E "Build env-gated e2e tests" ON)
 option(CROWDY_BUILD_BENCHMARKS "Build benchmarks" ON)
+option(CROWDY_BUILD_EXAMPLES "Build example programs" ON)
 option(CROWDY_WITH_CURL "Build the default libcurl HTTP transport" ON)
 option(CROWDY_WITH_OPENSSL "Build the default OpenSSL crypto provider" ON)
 
@@ -108,6 +109,38 @@ if(CROWDY_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-install(TARGETS crowdy crowdy_core crowdy_graphql crowdy_replication crowdy_yyjson
-        ARCHIVE DESTINATION lib)
-install(DIRECTORY include/ DESTINATION include)
+if(CROWDY_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
+
+# ---- installation + package config (find_package(CrowdyCPP)) ----------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(CROWDY_INSTALL_TARGETS crowdy crowdy_core crowdy_graphql crowdy_replication crowdy_yyjson)
+if(CROWDY_WITH_CURL)
+  list(APPEND CROWDY_INSTALL_TARGETS crowdy_http_curl)
+endif()
+if(CROWDY_WITH_OPENSSL)
+  list(APPEND CROWDY_INSTALL_TARGETS crowdy_crypto_openssl)
+endif()
+
+install(TARGETS ${CROWDY_INSTALL_TARGETS} crowdy_wire
+        EXPORT CrowdyCPPTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT CrowdyCPPTargets
+        NAMESPACE CrowdyCPP::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)
+
+configure_package_config_file(
+  cmake/CrowdyCPPConfig.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfig.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfigVersion.cmake
+  COMPATIBILITY SameMajorVersion)
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)

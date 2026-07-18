@@ -15,6 +15,7 @@
 #include "crowdy/generated/enums.hpp"
 #include "crowdy/kit/kit.hpp"
 #include "crowdy/replication/connection.hpp"
+#include "crowdy/session/codec.hpp"
 #include "crowdy/session/durable.hpp"
 #include "crowdy/session/model_mirror.hpp"
 #include "crowdy/session/world_session.hpp"

@@ -108,6 +108,50 @@ Status UdpSocket::send(Bytes datagram) {
   return Errc::Ok;
 }
 
+Result<std::size_t> UdpSocket::recvBatch(std::uint8_t* slab, std::size_t slotSize,
+                                         std::size_t count, std::size_t* lengths,
+                                         int timeoutMs) {
+  if (fd_ < 0) return Errc::NotConnected;
+#ifdef __linux__
+  constexpr std::size_t kMaxBatch = 32;
+  if (count > kMaxBatch) count = kMaxBatch;
+
+  pollfd pfd{static_cast<int>(fd_), POLLIN, 0};
+  const int r = ::poll(&pfd, 1, timeoutMs);
+  if (r == 0) return std::size_t{0};
+  if (r < 0) return Errc::SocketError;
+
+  mmsghdr messages[kMaxBatch]{};
+  iovec vectors[kMaxBatch];
+  for (std::size_t i = 0; i < count; ++i) {
+    vectors[i].iov_base = slab + i * slotSize;
+    vectors[i].iov_len = slotSize;
+    messages[i].msg_hdr.msg_iov = &vectors[i];
+    messages[i].msg_hdr.msg_iovlen = 1;
+  }
+  const int n = ::recvmmsg(static_cast<int>(fd_), messages, static_cast<unsigned>(count),
+                           MSG_DONTWAIT, nullptr);
+  if (n < 0) {
+    return (errno == EAGAIN || errno == EWOULDBLOCK) ? Result<std::size_t>(std::size_t{0})
+                                                     : Result<std::size_t>(Errc::SocketError);
+  }
+  for (int i = 0; i < n; ++i) lengths[i] = messages[i].msg_len;
+  return static_cast<std::size_t>(n);
+#else
+  // Portable fallback: one recv per datagram, draining after the first.
+  std::size_t received = 0;
+  int wait = timeoutMs;
+  while (received < count) {
+    auto n = recv(MutableBytes(slab + received * slotSize, slotSize), wait);
+    if (!n.ok()) return received > 0 ? Result<std::size_t>(received) : n;
+    if (n.value() == 0) break;
+    lengths[received++] = n.value();
+    wait = 0;
+  }
+  return received;
+#endif
+}
+
 Result<std::size_t> UdpSocket::recv(MutableBytes buffer, int timeoutMs) {
   if (fd_ < 0) return Errc::NotConnected;
 

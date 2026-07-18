@@ -43,7 +43,12 @@ int main() {
         {.chunk = chunk, .uuid = uuid, .payload = Bytes(pose, sizeof(pose)), .distance = 8});
     if (!seq.ok()) continue;
     pendingSeq.store(seq.value(), std::memory_order_release);
-    e2e::pollUntil(*p.conn, [&] { return pendingSeq.load() == -1; }, 1000);
+    // Spin-poll so the measurement reflects the wire, not a sleep interval.
+    const auto waitStart = std::chrono::steady_clock::now();
+    while (pendingSeq.load(std::memory_order_acquire) != -1 &&
+           std::chrono::steady_clock::now() - waitStart < std::chrono::seconds(1)) {
+      p.conn->poll();
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
 

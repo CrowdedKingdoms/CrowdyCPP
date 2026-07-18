@@ -30,4 +30,52 @@ suite or carries an explicit exclusion reason.
 
 The management server must run with `DEV_AUTH_BYPASS` (the suites sign in with
 `devLogin`; the auth suite also exercises the magic-link dev-token flow).
-Every test exits **77** (
+Every test exits **77** (ctest `SKIP_RETURN_CODE`) when its required
+variables are unset, so an unconfigured checkout reports skips, not failures.
+
+## Running
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+
+# default suites (fast; skip when unconfigured)
+ctest --test-dir build -L e2e --output-on-failure
+
+# long-running suites (soak, permission-cache TTL) — also needs CROWDY_E2E_SLOW=1
+ctest --test-dir build -L e2e_slow --output-on-failure
+
+# optional suites needing extra deployment features (operator account,
+# multiple replication servers) — gated on their own env vars
+ctest --test-dir build -L e2e_optional --output-on-failure
+```
+
+Run a single suite directly for its per-subtest output:
+
+```bash
+./build/tests/e2e/e2e_two_client_actor
+```
+
+## Labels
+
+| Label | Suites | Gate |
+|---|---|---|
+| `e2e` | everything not below | env config |
+| `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
+| `e2e_optional` | `e2e_cross_server`, `e2e_operator` | `CROWDY_E2E_MULTI_SERVER=1` / `CROWDY_E2E_OPERATOR_EMAIL` |
+
+## Notes for reruns
+
+- Suites derive fresh accounts (plus-addressed with a per-run suffix) and
+  use unique kit blueprint prefixes, so back-to-back runs never collide on a
+  shared app.
+- Each suite owns a disjoint chunk-coordinate band (base
+  `{100000..500000 + suite*100, 0, ...}`) so parallel suites don't cross
+  spatial fan-out.
+- `assignServer failed: No available servers found` during connect is
+  transient on small deployments (server-status heartbeats briefly lapse) and
+  is absorbed by the harness's assignment retry — not a failure.
+- On a busy shared deployment, `Connection::stats().hmacFailures` may be
+  nonzero: a concurrent player's foreign-signed frame fanning into a shared
+  chunk is correctly dropped by verification. Suites treat this as a
+  diagnostic, asserting on their own traffic's integrity instead.

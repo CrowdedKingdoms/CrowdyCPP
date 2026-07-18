@@ -112,6 +112,10 @@ Status Connection::transmit(const std::uint8_t* data, std::size_t len) {
     lastSendMs_ = clock_.monotonicMillis();
     std::lock_guard lock(statsMutex_);
     ++stats_.datagramsSent;
+    // Client datagrams carry exactly one message whose opcode is byte 0.
+    ++stats_.messagesSent;
+    stats_.bytesSent += len;
+    if (len > 0) ++stats_.messagesSentByType[data[0]];
   }
   return st;
 }
@@ -227,6 +231,7 @@ void Connection::handleDatagram(Bytes datagram) {
   {
     std::lock_guard lock(statsMutex_);
     ++stats_.datagramsReceived;
+    stats_.bytesReceived += datagram.size();
   }
   lastRecvMs_ = clock_.monotonicMillis();
 
@@ -296,6 +301,7 @@ void Connection::handleDatagram(Bytes datagram) {
     {
       std::lock_guard lock(statsMutex_);
       ++stats_.messagesReceived;
+      ++stats_.messagesReceivedByType[type];
     }
     if (!ring_.tryPush(e)) {
       std::lock_guard lock(statsMutex_);

@@ -165,6 +165,16 @@ public behavior):
   returning a soft-deleted record.
 - **`gameApps().nearbyPermissions` is admin-only** (like `userPermissions`);
   effective-permission verification goes through the owner client.
+- **Revocation semantics on the replication plane** — permission state is
+  cached per session and re-pulled only when a send is denied, so revoking a
+  player does not interrupt their live authorized session (it flows until the
+  session goes stale). Once the session is reinstalled, the revoked user's
+  token carries **no app scope at all**, so denials surface as
+  `INVALID_APP_ID(18)` — not `UNAUTHORIZED(7)`, which is reserved for a held
+  app scope missing a permission bit. A re-grant converges on a live denied
+  session without reconnecting (each denial triggers a backoff-limited
+  refresh). The management plane cuts over immediately: `mintAppToken` is
+  refused as soon as the revoke lands.
 
 These are captured here so the matrix stays honest about what the live
 platform does, not only what the docs describe.

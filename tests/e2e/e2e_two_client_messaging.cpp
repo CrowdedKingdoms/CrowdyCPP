@@ -35,15 +35,20 @@ int main() {
   };
   b.conn->setHandlers(std::move(hb));
 
-  // Join presence (first actor update) so both actors are known to the world.
+  // Join presence (first actor update); keep it fresh throughout — a quiet
+  // actor goes stale after a few seconds and stops receiving fan-out.
   const std::uint8_t pose[] = {1};
-  E2E_CHECK(a.conn->sendActorUpdate({chunk, uuidA, Bytes(pose, 1), 8}).ok());
-  E2E_CHECK(b.conn->sendActorUpdate({chunk, uuidB, Bytes(pose, 1), 8}).ok());
+  auto keepAlive = [&] {
+    E2E_CHECK(a.conn->sendActorUpdate({chunk, uuidA, Bytes(pose, 1), 8}).ok());
+    E2E_CHECK(b.conn->sendActorUpdate({chunk, uuidB, Bytes(pose, 1), 8}).ok());
+  };
+  keepAlive();
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   // Proximity text.
   bool textSeen = false;
   for (int i = 0; i < 40 && !textSeen; ++i) {
+    keepAlive();
     E2E_CHECK(a.conn->sendText({chunk, uuidA, asBytes("hello nearby"), 8}).ok());
     textSeen = e2e::pollUntil(*b.conn, [&] { return bSawText.load() > 0; }, 500);
   }
@@ -52,6 +57,7 @@ int main() {
   // Direct actor-to-actor message (addressed to B's uuid + chunk).
   bool directSeen = false;
   for (int i = 0; i < 40 && !directSeen; ++i) {
+    keepAlive();
     E2E_CHECK(a.conn->sendSingleActorMessage(chunk, uuidB, asBytes("dm for b")).ok());
     directSeen = e2e::pollUntil(*b.conn, [&] { return bSawDirect.load() > 0; }, 500);
   }
@@ -70,6 +76,7 @@ int main() {
 
   bool channelSeen = false;
   for (int i = 0; i < 40 && !channelSeen; ++i) {
+    keepAlive();
     E2E_CHECK(a.conn->sendChannelMessage(channelId, uuidA, asBytes("channel hi")).ok());
     channelSeen = e2e::pollUntil(*b.conn, [&] { return bSawChannel.load() > 0; }, 500);
   }

@@ -19,18 +19,25 @@ int main() {
   graphql::Json me = p.identity->users().me();
   E2E_CHECK(me["userId"].asString() == p.userId);
 
-  // Save state: write + read back the per-user per-app blob.
+  // Save state: write + read back the per-user per-app blob. Servers return
+  // the stored bytes base64-encoded; accept either identity or one decode.
   const std::string savedBlob = core::base64Encode(asBytes("e2e-save-v1"));
   graphql::JVal stateInput;
   stateInput["appId"] = cfg.appId;
   stateInput["state"] = savedBlob;
   p.game->state().update(stateInput);
   graphql::Json read = p.game->state().getOne(cfg.appId);
-  E2E_CHECK(read["state"].asString() == savedBlob);
+  std::string roundTripped = read["state"].asString();
+  if (roundTripped != savedBlob) {
+    auto decoded = core::base64Decode(roundTripped);
+    E2E_CHECK(decoded.has_value());
+    roundTripped = std::string(decoded->begin(), decoded->end());
+  }
+  E2E_CHECK(roundTripped == savedBlob);
 
   // Avatars: create then list.
   graphql::JVal avatarInput;
-  avatarInput["displayName"] = "E2E Avatar";
+  avatarInput["name"] = "E2E Avatar";
   graphql::Json created = p.game->avatars().create(avatarInput);
   const std::string avatarId = created["id"].asString(created["avatarId"].asString());
   E2E_CHECK(!avatarId.empty());

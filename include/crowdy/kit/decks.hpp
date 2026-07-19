@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 
 /// Decks — cards & hidden information: an admin CardDef catalog and
 /// session-scoped CardInstances whose card_id carries visibility "owner" —
@@ -264,10 +265,75 @@ struct KitCard {
 class DecksKit {
  public:
   DecksKit(std::string appId, domains::GameModelAPI& gameModel,
-           std::string_view typePrefix = {})
-      : appId_(std::move(appId)), gameModel_(gameModel), names_(decksNames(typePrefix)) {}
+           std::string_view typePrefix = {}, EngineDetector* engines = nullptr,
+           std::string_view engineModuleName = {})
+      : appId_(std::move(appId)),
+        gameModel_(gameModel),
+        names_(decksNames(typePrefix)),
+        engines_(engines),
+        engineModuleName_(engineModuleName.empty() ? std::string("deck-engine")
+                                                   : std::string(engineModuleName)) {}
 
   const DecksNames& names() const { return names_; }
+
+  // -- Engine path (Wave 2): true hidden information over the deck engine --
+
+  /// Is a deck compute engine deployed + enabled (cached per client)?
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(engineModuleName_); }
+
+  /// Create an engine table with seeded shuffle + hidden deals.
+  Json engineNewTable(std::string_view tableId, const std::vector<std::string>& players,
+                      std::int64_t handSize = 5, std::string_view deckDef = {}) {
+    JVal params;
+    params["tableId"] = tableId;
+    JArray list;
+    for (const auto& player : players) list.push_back(JVal(player));
+    params["players"] = JVal(std::move(list));
+    params["handSize"] = handSize;
+    if (!deckDef.empty()) params["deckDef"] = deckDef;
+    return engineInvoke("new_table", params);
+  }
+
+  /// YOUR hidden hand (the only read path; opponents can never see it).
+  std::vector<std::string> engineHand(std::string_view tableId) {
+    JVal params;
+    params["tableId"] = tableId;
+    Json body = engineInvoke("hand", params);
+    std::vector<std::string> hand;
+    body["hand"].forEach([&](Json card) { hand.push_back(card.asString()); });
+    return hand;
+  }
+
+  /// Draw one card into your hidden hand.
+  Json engineDraw(std::string_view tableId) {
+    JVal params;
+    params["tableId"] = tableId;
+    return engineInvoke("draw", params);
+  }
+
+  /// Play (reveal) a card from your hand into a public zone.
+  Json enginePlay(std::string_view tableId, std::string_view card, std::string_view zone = "table") {
+    JVal params;
+    params["tableId"] = tableId;
+    params["card"] = card;
+    params["zone"] = zone;
+    return engineInvoke("play", params);
+  }
+
+  /// Collect a public zone to the discard (trick taken).
+  Json engineTakeZone(std::string_view tableId, std::string_view zone) {
+    JVal params;
+    params["tableId"] = tableId;
+    params["zone"] = zone;
+    return engineInvoke("take_zone", params);
+  }
+
+  /// The public table view (counts + zones — never hidden hands).
+  Json engineTable(std::string_view tableId) {
+    JVal params;
+    params["tableId"] = tableId;
+    return engineInvoke("table", params);
+  }
 
   /// Deal a deck to a player: creates one CardInstance per card id (zone
   /// "deck"), owned by the player. Run shuffle() afterwards to deal random
@@ -379,9 +445,22 @@ class DecksKit {
     return card;
   }
 
+  Json engineInvoke(std::string_view exportName, const JVal& params) {
+    if (engines_ == nullptr) {
+      throw std::runtime_error("deck engine unavailable: compute domain not wired");
+    }
+    EngineInvokeResult result = engines_->invoke(engineModuleName_, exportName, params);
+    if (!result.success) {
+      throw std::runtime_error("decks." + std::string(exportName) + " failed: " + result.reason);
+    }
+    return result.body;
+  }
+
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   DecksNames names_;
+  EngineDetector* engines_ = nullptr;
+  std::string engineModuleName_;
 };
 
 }  // namespace crowdy::kit

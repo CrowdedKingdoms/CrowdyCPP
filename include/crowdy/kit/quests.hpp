@@ -1,5 +1,8 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdlib>
+
 #include <optional>
 #include <vector>
 
@@ -344,6 +347,80 @@ class QuestsKit {
       : appId_(std::move(appId)), gameModel_(gameModel), names_(questsNames(typePrefix)) {}
 
   const QuestsNames& names() const { return names_; }
+
+  // -- FTUE / tutorial step sequencing (Wave 2) -----------------------------
+
+  /// One tutorial step joined with the player's progress.
+  struct TutorialStep {
+    int stepIndex = 0;
+    KitQuestDef def;
+    std::optional<KitQuestProgress> progress;
+    std::string status;  ///< "locked" | "active" | "complete"
+  };
+
+  /// STUDIO (admin) — define an ordered tutorial chain as quest defs whose
+  /// questId encodes chain + index ("<chain>:<i>"). Pure convention — the
+  /// sequencing is enforced by tutorial()/acceptNextTutorialStep().
+  std::vector<Json> defineTutorial(std::vector<KitQuestDefinition> steps,
+                                   std::string_view chain = "ftue") {
+    std::vector<Json> created;
+    int index = 0;
+    for (auto& step : steps) {
+      step.questId = std::string(chain) + ":" + std::to_string(index);
+      created.push_back(defineQuest(step));
+      ++index;
+    }
+    return created;
+  }
+
+  /// A player's tutorial view: ordered steps, each locked (an earlier step
+  /// is incomplete), active (the first incomplete), or complete.
+  std::vector<TutorialStep> tutorial(std::string_view ownerUserId,
+                                     std::string_view chain = "ftue") {
+    const std::string prefix = std::string(chain) + ":";
+    std::vector<TutorialStep> steps;
+    for (const auto& def : catalog()) {
+      if (def.questId.rfind(prefix, 0) != 0) continue;
+      TutorialStep step;
+      step.stepIndex = std::atoi(def.questId.c_str() + prefix.size());
+      step.def = def;
+      steps.push_back(std::move(step));
+    }
+    std::sort(steps.begin(), steps.end(),
+              [](const TutorialStep& a, const TutorialStep& b) { return a.stepIndex < b.stepIndex; });
+    auto progress = mine(ownerUserId);
+    bool blocked = false;
+    for (auto& step : steps) {
+      for (const auto& row : progress) {
+        if (row.questId == step.def.questId) step.progress = row;
+      }
+      const bool complete = step.progress && step.progress->completed;
+      step.status = complete ? "complete" : (blocked ? "locked" : "active");
+      if (!complete) blocked = true;
+    }
+    return steps;
+  }
+
+  /// Ensure the player's ACTIVE tutorial step has a progress row (accepting
+  /// it when missing) and return it; nullopt when the chain is complete.
+  std::optional<TutorialStep> acceptNextTutorialStep(std::string_view ownerUserId,
+                                                     std::string_view chain = "ftue",
+                                                     std::string_view sessionId = {}) {
+    auto steps = tutorial(ownerUserId, chain);
+    for (const auto& step : steps) {
+      if (step.status != "active") continue;
+      if (!step.progress) {
+        accept(ownerUserId, step.def.containerId, {}, sessionId);
+        auto refreshed = tutorial(ownerUserId, chain);
+        for (const auto& again : refreshed) {
+          if (again.stepIndex == step.stepIndex) return again;
+        }
+      }
+      return step;
+    }
+    return std::nullopt;
+  }
+
 
   /// List the quest catalog (admin-seeded QuestDef containers).
   std::vector<KitQuestDef> catalog() {

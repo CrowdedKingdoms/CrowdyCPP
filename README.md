@@ -358,6 +358,14 @@ deployments:
   that serves the `compute*` root fields (v0.13.13+ dev line). Older servers
   reject compute operations with a GraphQL validation error; every other
   sub-client is unaffected.
+- **Session-genre engine surfaces (v0.5.0):** `kit.instances()` /
+  `director()` / `matchmaking()` / `minigames()`, the engine paths on
+  `matches()` (`engineReady`/`engineSubmitMove`/`findByProposal`),
+  `decks()` (hidden hands via the deck engine), `leaderboards()`
+  (server-ranked pages), `economy().orderBook()` (escrowed bid/ask), the
+  quests tutorial sequencing, and the type-91/92/93 wire parsers talk to
+  the Wave 2 engine templates. Capability-detected; model-only deployments
+  keep today's behavior.
 - **Engine kit surfaces (v0.4.0):** `kit.mobs()` / `kit.pets()` /
   `combat().attackRouted()` / `worldsim().forecast()` and the
   `crowdy/kit/wire.hpp` pose/lane registry talk to compute-module game

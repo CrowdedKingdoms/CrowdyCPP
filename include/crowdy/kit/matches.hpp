@@ -10,6 +10,7 @@
 #include "crowdy/core/uuid.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 #include "crowdy/replication/connection.hpp"
 
 /// Matches — lobbies, rounds, turns, scoring: the session-layer wrapper every
@@ -326,15 +327,51 @@ class MatchesKit {
   MatchesKit(std::string appId, domains::GameModelAPI& gameModel,
              domains::ChannelsAPI* channels, replication::Connection* connection = nullptr,
              std::string_view typePrefix = {},
-             std::optional<core::ActorUuid> actorUuid = std::nullopt)
+             std::optional<core::ActorUuid> actorUuid = std::nullopt,
+             EngineDetector* engines = nullptr, std::string_view engineModuleName = {})
       : appId_(std::move(appId)),
         gameModel_(gameModel),
         channels_(channels),
         connection_(connection),
+        engines_(engines),
+        engineModuleName_(engineModuleName.empty() ? std::string("match-engine")
+                                                   : std::string(engineModuleName)),
         names_(matchesNames(typePrefix)),
         actorUuid_(actorUuid ? *actorUuid : core::generateActorUuid()) {}
 
   const MatchesNames& names() const { return names_; }
+
+  // -- Engine path (Wave 2): server-driven lifecycle over the match engine --
+
+  /// Is a match compute engine deployed + enabled (cached per client)?
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(engineModuleName_); }
+
+  /// Declare ready on an engine match (MatchMeta container id); the match
+  /// starts server-side once every expected player is ready.
+  Json engineReady(std::string_view matchId) { return engineInvoke("ready", matchId, JVal()); }
+
+  /// Submit your move (the engine validates the turn + resolves).
+  Json engineSubmitMove(std::string_view matchId, const JVal& params = JVal()) {
+    return engineInvoke("submit_move", matchId, params);
+  }
+
+  /// Forfeit an engine match.
+  Json engineForfeit(std::string_view matchId) { return engineInvoke("forfeit", matchId, JVal()); }
+
+  /// The engine's live view: turn holder, timers, standings, summary.
+  Json engineStatus(std::string_view matchId) { return engineInvoke("status", matchId, JVal()); }
+
+  /// Resolve a matchmaking proposal to the match the engine created for it.
+  std::optional<std::string> findByProposal(std::string_view proposalId) {
+    if (engines_ == nullptr) return std::nullopt;
+    JVal params;
+    params["proposalId"] = proposalId;
+    EngineInvokeResult result = engines_->invoke(engineModuleName_, "find_by_proposal", params);
+    if (!result.success) return std::nullopt;
+    std::string matchId = result.body["matchId"].asString();
+    if (matchId.empty()) return std::nullopt;
+    return matchId;
+  }
 
   /// The notify-to-pull loop, ingest-flavored: feed channel notifications
   /// (from a Connection channelMessage handler or the WorldSession channel
@@ -563,10 +600,25 @@ class MatchesKit {
     return m;
   }
 
+  Json engineInvoke(std::string_view exportName, std::string_view matchId, const JVal& extra) {
+    if (engines_ == nullptr) {
+      throw std::runtime_error("match engine unavailable: compute domain not wired");
+    }
+    JVal params = extra;
+    params["matchId"] = matchId;
+    EngineInvokeResult result = engines_->invoke(engineModuleName_, exportName, params);
+    if (!result.success) {
+      throw std::runtime_error("matches." + std::string(exportName) + " failed: " + result.reason);
+    }
+    return result.body;
+  }
+
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   domains::ChannelsAPI* channels_;
   replication::Connection* connection_;
+  EngineDetector* engines_ = nullptr;
+  std::string engineModuleName_;
   MatchesNames names_;
   core::ActorUuid actorUuid_;
 };

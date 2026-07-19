@@ -11,12 +11,16 @@
 #include "crowdy/kit/core.hpp"
 #include "crowdy/kit/decks.hpp"
 #include "crowdy/kit/economy.hpp"
+#include "crowdy/kit/director.hpp"
 #include "crowdy/kit/engine.hpp"
+#include "crowdy/kit/instances.hpp"
 #include "crowdy/kit/features.hpp"
 #include "crowdy/kit/inventory.hpp"
 #include "crowdy/kit/leaderboards.hpp"
 #include "crowdy/kit/loot.hpp"
 #include "crowdy/kit/matches.hpp"
+#include "crowdy/kit/matchmaking.hpp"
+#include "crowdy/kit/minigames.hpp"
 #include "crowdy/kit/mobs.hpp"
 #include "crowdy/kit/npcs.hpp"
 #include "crowdy/kit/objects.hpp"
@@ -71,6 +75,13 @@ struct GameKitOptions {
   std::string mobDefTypeName;
   std::string mobSlotTypeName;
   std::string petTypeName;
+  std::string matchEngineModule;
+  std::string deckEngineModule;
+  std::string instanceEngineModule;
+  std::string directorModule;
+  std::string matchmakingModule;
+  std::string boardEngineModule;
+  std::string minigameModule;
 };
 
 /// The result of GameKitClient::deploy.
@@ -100,18 +111,21 @@ class GameKitClient {
         objects_(appId, gameModel, options.objectTypeName, options.keyTypeName),
         npcs_(appId, gameModel, options.npcTypeName, &engines_, options.npcEngineModule),
         plots_(appId, gameModel, gameApps, options.plotTypeName),
-        economy_(appId, gameModel, options.economy),
+        economy_(appId, gameModel, options.economy, &engines_),
         progression_(appId, gameModel, options.progressionTypePrefix),
         loot_(appId, gameModel, options.lootTypePrefix),
         quests_(appId, gameModel, options.questsTypePrefix),
         combat_(appId, gameModel, options.combatTypePrefix, &engines_,
                 options.mobEngineModule),
-        matches_(appId, gameModel, channels, connection, options.matchesTypePrefix),
-        decks_(appId, gameModel, options.decksTypePrefix),
+        matches_(appId, gameModel, channels, connection, options.matchesTypePrefix,
+                 std::nullopt, &engines_, options.matchEngineModule),
+        decks_(appId, gameModel, options.decksTypePrefix, &engines_,
+               options.deckEngineModule),
         worldsim_(appId, gameModel, options.worldsimTypePrefix, &engines_,
                   options.worldEngineModule),
         social_(appId, teams, channels, gameApps, connection, options.social),
-        leaderboards_(appId, gameModel, options.leaderboardsTypePrefix),
+        leaderboards_(appId, gameModel, options.leaderboardsTypePrefix, &engines_,
+                      options.boardEngineModule),
         features_(appId, gameModel),
         mobs_(appId, gameModel, engines_,
               options.mobEngineModule.empty() ? "mob-engine" : options.mobEngineModule,
@@ -119,7 +133,16 @@ class GameKitClient {
               options.mobSlotTypeName.empty() ? "Mob" : options.mobSlotTypeName),
         pets_(appId, gameModel, engines_,
               options.npcEngineModule.empty() ? "npc-engine" : options.npcEngineModule,
-              options.petTypeName.empty() ? "Pet" : options.petTypeName) {}
+              options.petTypeName.empty() ? "Pet" : options.petTypeName),
+        instances_(appId, engines_,
+                   options.instanceEngineModule.empty() ? "instance-engine"
+                                                        : options.instanceEngineModule),
+        director_(appId, gameModel, engines_,
+                  options.directorModule.empty() ? "director" : options.directorModule),
+        matchmaking_(appId, engines_,
+                     options.matchmakingModule.empty() ? "matchmaking"
+                                                       : options.matchmakingModule),
+        minigames_(appId, engines_, options.minigameModule) {}
 
   InventoryKit& inventory() { return inventory_; }
   ObjectsKit& objects() { return objects_; }
@@ -138,6 +161,10 @@ class GameKitClient {
   FeaturesKit& features() { return features_; }
   MobsKit& mobs() { return mobs_; }
   PetsKit& pets() { return pets_; }
+  InstancesKit& instances() { return instances_; }
+  DirectorKit& director() { return director_; }
+  MatchmakingKit& matchmaking() { return matchmaking_; }
+  MinigamesKit& minigames() { return minigames_; }
   EngineDetector& engines() { return engines_; }
 
   /// Helpers for an additional lockable object type deployed under a
@@ -192,6 +219,10 @@ class GameKitClient {
   FeaturesKit features_;
   MobsKit mobs_;
   PetsKit pets_;
+  InstancesKit instances_;
+  DirectorKit director_;
+  MatchmakingKit matchmaking_;
+  MinigamesKit minigames_;
 };
 
 /// Build a GameKitClient over a CrowdyClient's domains — the C++ analog of

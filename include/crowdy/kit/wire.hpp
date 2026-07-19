@@ -131,6 +131,16 @@ inline constexpr std::uint16_t kEventTurn = 91;
 inline constexpr std::uint16_t kEventScore = 92;
 /// Match proposal (matchmaking -> matches handoff).
 inline constexpr std::uint16_t kEventProposal = 93;
+/// Ability cast/impact (kit-play abilities).
+inline constexpr std::uint16_t kEventAbility = 94;
+/// Movement-envelope violation (movement-warden, observe/flag).
+inline constexpr std::uint16_t kEventMovementViolation = 95;
+/// Control-point state change (territory).
+inline constexpr std::uint16_t kEventControlPoint = 96;
+/// Race timing: checkpoint/lap/finish (kit-play timing).
+inline constexpr std::uint16_t kEventRaceTiming = 97;
+/// Zone change: shrinking circles, event areas (kit-sim zones).
+inline constexpr std::uint16_t kEventZoneChange = 98;
 
 /// A split engine server-event payload: type + parsed JSON body.
 struct EngineEvent {
@@ -247,6 +257,118 @@ inline std::optional<ProposalEvent> parseProposalEvent(const std::uint8_t* bytes
   out.proposalId = event->body["proposalId"].asString();
   out.mode = event->body["mode"].asString();
   event->body["players"].forEach([&](graphql::Json p) { out.players.push_back(p.asString()); });
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-94 ability cast/impact event.
+struct AbilityEvent {
+  std::string kind;  ///< "cast" or "impact"
+  std::string abilityId;
+  std::string casterId;
+  std::string victimId;
+  std::int64_t damage = 0;
+  graphql::Json body;
+};
+
+/// Parse an ability event; nullopt when the payload is another type.
+inline std::optional<AbilityEvent> parseAbilityEvent(const std::uint8_t* bytes, std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventAbility) return std::nullopt;
+  AbilityEvent out;
+  out.kind = event->body["kind"].asString();
+  out.abilityId = event->body["abilityId"].asString();
+  out.casterId = event->body["casterId"].asString();
+  out.victimId = event->body["victimId"].asString();
+  out.damage = event->body["damage"].asInt64();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-95 movement-violation event (observe/flag posture).
+struct MovementViolationEvent {
+  std::string kind;  ///< "speed", "teleport", or "bounds"
+  std::string userId;
+  std::string detail;
+  graphql::Json body;
+};
+
+/// Parse a movement-violation event; nullopt when the payload is another type.
+inline std::optional<MovementViolationEvent> parseMovementViolation(const std::uint8_t* bytes,
+                                                                    std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventMovementViolation) return std::nullopt;
+  MovementViolationEvent out;
+  out.kind = event->body["kind"].asString();
+  out.userId = event->body["userId"].asString();
+  out.detail = event->body["detail"].asString();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-96 control-point state event (territory flips).
+struct ControlPointEvent {
+  std::string pointId;
+  std::string owner;
+  std::string previousOwner;
+  graphql::Json body;
+};
+
+/// Parse a control-point event; nullopt when the payload is another type.
+inline std::optional<ControlPointEvent> parseControlPointEvent(const std::uint8_t* bytes,
+                                                               std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventControlPoint) return std::nullopt;
+  ControlPointEvent out;
+  out.pointId = event->body["pointId"].asString();
+  out.owner = event->body["owner"].asString();
+  out.previousOwner = event->body["previousOwner"].asString();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-97 race-timing event (checkpoint/lap/finish).
+struct RaceTimingEvent {
+  std::string kind;  ///< "started", "checkpoint", "lap", or "finished"
+  std::string courseId;
+  std::string userId;
+  graphql::Json body;
+};
+
+/// Parse a race-timing event; nullopt when the payload is another type.
+inline std::optional<RaceTimingEvent> parseRaceTimingEvent(const std::uint8_t* bytes,
+                                                           std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventRaceTiming) return std::nullopt;
+  RaceTimingEvent out;
+  out.kind = event->body["kind"].asString();
+  out.courseId = event->body["courseId"].asString();
+  out.userId = event->body["userId"].asString();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-98 zone-change event (BR circles, event areas).
+struct ZoneChangeEvent {
+  std::string kind;  ///< "warning", "shrinking", "settled", or "final"
+  std::int64_t phase = -1;
+  double radiusNow = 0.0;
+  double centerX = 0.0;
+  double centerZ = 0.0;
+  graphql::Json body;
+};
+
+/// Parse a zone-change event; nullopt when the payload is another type.
+inline std::optional<ZoneChangeEvent> parseZoneChangeEvent(const std::uint8_t* bytes,
+                                                           std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventZoneChange) return std::nullopt;
+  ZoneChangeEvent out;
+  out.kind = event->body["kind"].asString();
+  out.phase = event->body["phase"].isNull() ? -1 : event->body["phase"].asInt64();
+  out.radiusNow = event->body["radiusNow"].asDouble();
+  out.centerX = event->body["centerX"].asDouble();
+  out.centerZ = event->body["centerZ"].asDouble();
   out.body = event->body;
   return out;
 }

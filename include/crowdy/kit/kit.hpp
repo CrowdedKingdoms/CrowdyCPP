@@ -11,6 +11,7 @@
 #include "crowdy/kit/core.hpp"
 #include "crowdy/kit/decks.hpp"
 #include "crowdy/kit/economy.hpp"
+#include "crowdy/kit/abilities.hpp"
 #include "crowdy/kit/director.hpp"
 #include "crowdy/kit/engine.hpp"
 #include "crowdy/kit/instances.hpp"
@@ -18,11 +19,17 @@
 #include "crowdy/kit/inventory.hpp"
 #include "crowdy/kit/leaderboards.hpp"
 #include "crowdy/kit/loot.hpp"
+#include "crowdy/kit/liveops.hpp"
 #include "crowdy/kit/matches.hpp"
 #include "crowdy/kit/matchmaking.hpp"
+#include "crowdy/kit/moderation.hpp"
+#include "crowdy/kit/movement.hpp"
 #include "crowdy/kit/minigames.hpp"
 #include "crowdy/kit/mobs.hpp"
 #include "crowdy/kit/npcs.hpp"
+#include "crowdy/kit/racing.hpp"
+#include "crowdy/kit/telemetry.hpp"
+#include "crowdy/kit/territory.hpp"
 #include "crowdy/kit/objects.hpp"
 #include "crowdy/kit/pets.hpp"
 #include "crowdy/kit/plots.hpp"
@@ -82,6 +89,14 @@ struct GameKitOptions {
   std::string matchmakingModule;
   std::string boardEngineModule;
   std::string minigameModule;
+  std::string liveopsModule;
+  std::string abilitiesModule;
+  std::string wardenModule;
+  std::string territoryModule;
+  std::string racingModule;
+  std::string possessionModule;
+  std::string liveopsTypePrefix;
+  std::string moderationTypePrefix;
 };
 
 /// The result of GameKitClient::deploy.
@@ -142,7 +157,20 @@ class GameKitClient {
         matchmaking_(appId, engines_,
                      options.matchmakingModule.empty() ? "matchmaking"
                                                        : options.matchmakingModule),
-        minigames_(appId, engines_, options.minigameModule) {}
+        minigames_(appId, engines_, options.minigameModule),
+        liveops_(appId, gameModel, options.liveopsTypePrefix, &engines_,
+                 options.liveopsModule),
+        moderation_(appId, gameModel, options.moderationTypePrefix),
+        telemetry_(appId, gameModel),
+        abilities_(appId, gameModel, engines_,
+                   options.abilitiesModule.empty() ? "abilities-engine" : options.abilitiesModule),
+        movement_(appId, gameModel, engines_,
+                  options.wardenModule.empty() ? "movement-warden" : options.wardenModule),
+        territory_(appId, gameModel, engines_,
+                   options.territoryModule.empty() ? "territory" : options.territoryModule),
+        racing_(appId, gameModel, engines_,
+                options.racingModule.empty() ? "racing" : options.racingModule,
+                options.possessionModule.empty() ? "possession" : options.possessionModule) {}
 
   InventoryKit& inventory() { return inventory_; }
   ObjectsKit& objects() { return objects_; }
@@ -165,6 +193,13 @@ class GameKitClient {
   DirectorKit& director() { return director_; }
   MatchmakingKit& matchmaking() { return matchmaking_; }
   MinigamesKit& minigames() { return minigames_; }
+  LiveopsKit& liveops() { return liveops_; }
+  ModerationKit& moderation() { return moderation_; }
+  TelemetryKit& telemetry() { return telemetry_; }
+  AbilitiesKit& abilities() { return abilities_; }
+  MovementKit& movement() { return movement_; }
+  TerritoryKit& territory() { return territory_; }
+  RacingKit& racing() { return racing_; }
   EngineDetector& engines() { return engines_; }
 
   /// Helpers for an additional lockable object type deployed under a
@@ -223,6 +258,13 @@ class GameKitClient {
   DirectorKit director_;
   MatchmakingKit matchmaking_;
   MinigamesKit minigames_;
+  LiveopsKit liveops_;
+  ModerationKit moderation_;
+  TelemetryKit telemetry_;
+  AbilitiesKit abilities_;
+  MovementKit movement_;
+  TerritoryKit territory_;
+  RacingKit racing_;
 };
 
 /// Build a GameKitClient over a CrowdyClient's domains — the C++ analog of

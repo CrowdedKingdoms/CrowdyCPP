@@ -109,6 +109,45 @@ void testEventParsers() {
   CHECK(!parseEngineEvent(tiny, 1).has_value());
 }
 
+void testRealtimeEventParsers() {
+  auto abilityFrame = frame(kEventAbility,
+      R"({"kind":"impact","abilityId":"bolt","casterId":"7","victimId":"9","damage":6})");
+  auto ability = parseAbilityEvent(abilityFrame.data(), abilityFrame.size());
+  CHECK(ability.has_value());
+  CHECK_EQ(ability->kind, "impact");
+  CHECK_EQ(ability->damage, 6);
+  CHECK(!parseMovementViolation(abilityFrame.data(), abilityFrame.size()).has_value());
+
+  auto violationFrame = frame(kEventMovementViolation,
+      R"({"kind":"teleport","userId":"9","detail":"80 units"})");
+  auto violation = parseMovementViolation(violationFrame.data(), violationFrame.size());
+  CHECK(violation.has_value());
+  CHECK_EQ(violation->kind, "teleport");
+  CHECK_EQ(violation->userId, "9");
+
+  auto pointFrame = frame(kEventControlPoint,
+      R"({"pointId":"alpha","owner":"red","previousOwner":""})");
+  auto point = parseControlPointEvent(pointFrame.data(), pointFrame.size());
+  CHECK(point.has_value());
+  CHECK_EQ(point->owner, "red");
+
+  auto raceFrame = frame(kEventRaceTiming,
+      R"({"kind":"lap","courseId":"loop","userId":"7","lap":2})");
+  auto race = parseRaceTimingEvent(raceFrame.data(), raceFrame.size());
+  CHECK(race.has_value());
+  CHECK_EQ(race->kind, "lap");
+  CHECK_EQ(race->courseId, "loop");
+
+  auto zoneFrame = frame(kEventZoneChange,
+      R"({"kind":"shrinking","phase":1,"radiusNow":42.5,"centerX":50,"centerZ":50})");
+  auto zone = parseZoneChangeEvent(zoneFrame.data(), zoneFrame.size());
+  CHECK(zone.has_value());
+  CHECK_EQ(zone->kind, "shrinking");
+  CHECK_EQ(zone->phase, 1);
+  CHECK(zone->radiusNow > 42.0 && zone->radiusNow < 43.0);
+  CHECK(!parseZoneChangeEvent(raceFrame.data(), raceFrame.size()).has_value());
+}
+
 void testSessionEventParsers() {
   auto turnFrame = frame(kEventTurn, R"({"actorId":"7","round":2,"turnInRound":3})");
   auto turn = parseTurnEvent(turnFrame.data(), turnFrame.size());
@@ -142,6 +181,7 @@ int main() {
   testSuffixAndRejects();
   testEventParsers();
   testSessionEventParsers();
+  testRealtimeEventParsers();
   std::puts("kit_wire_test OK");
   return 0;
 }

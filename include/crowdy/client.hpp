@@ -6,6 +6,7 @@
 #include "crowdy/domains/auth.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
+#include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/domains/portal.hpp"
 #include "crowdy/domains/server_status.hpp"
@@ -80,6 +81,7 @@ class CrowdyClient {
   domains::TeamsAPI& teams() { return *teams_; }
   domains::ChannelsAPI& channels() { return *channels_; }
   domains::GameModelAPI& gameModel() { return *gameModel_; }
+  domains::ComputeAPI& compute() { return *compute_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
 
@@ -127,6 +129,7 @@ class CrowdyClient {
   std::unique_ptr<domains::TeamsAPI> teams_;
   std::unique_ptr<domains::ChannelsAPI> channels_;
   std::unique_ptr<domains::GameModelAPI> gameModel_;
+  std::unique_ptr<domains::ComputeAPI> compute_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
   std::unique_ptr<domains::PlatformAPI> platform_;
   std::unique_ptr<domains::AdminAPI> admin_;

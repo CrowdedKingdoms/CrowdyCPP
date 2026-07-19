@@ -48,6 +48,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | host discovery | `e2e_host_election` | ported |
 | teams / channels | `e2e_teams_channels` | ported |
 | game model + automations | `e2e_game_model`, plus every `e2e_kit_*` (model composition) | ported |
+| compute modules | `e2e_compute` (author → deploy → compile → enable → invoke → observe → delete) | mirrors CrowdyJS `compute-module` e2e |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
 ## Management API e2e (public `test/auth` + `test/sdk`)

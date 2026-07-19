@@ -49,13 +49,18 @@ class PetsKit {
   /// Is the pet-driving npc engine deployed + enabled (cached per client)?
   bool engineAvailable() { return engines_.has(moduleName_); }
 
-  /// Adopt a pet: creates the caller-owned Pet container (active).
+  /// Adopt a pet: creates the caller-owned Pet container (active). Member
+  /// instantiation defaults the owner to the caller; admin tokens must pass
+  /// ownerUserId explicitly (the engine validates ownership on every
+  /// summon/dismiss/rename).
   graphql::Json adopt(std::string_view species, std::string_view name,
-                      std::optional<std::array<double, 3>> position = std::nullopt) {
+                      std::optional<std::array<double, 3>> position = std::nullopt,
+                      std::string_view ownerUserId = {}) {
     graphql::JVal input;
     input["appId"] = appId_;
     input["typeName"] = typeName_;
     input["displayName"] = name;
+    if (!ownerUserId.empty()) input["ownerUserId"] = ownerUserId;
     graphql::JArray properties;
     properties.push_back(property("species", "string", graphql::JVal(species).dump()));
     properties.push_back(property("name", "string", graphql::JVal(name).dump()));

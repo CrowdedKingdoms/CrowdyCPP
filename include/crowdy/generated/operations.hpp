@@ -1606,6 +1606,20 @@ query ComputeAppDiagnostics($appId: BigInt!) {
       failures
     }
   }
+}
+
+query ComputeTemplates($appId: BigInt!) {
+  computeTemplates(appId: $appId) {
+    name
+    description
+    exports
+  }
+}
+
+mutation ComputeDeployTemplate($appId: BigInt!, $templateName: String!, $moduleName: String) {
+  computeDeployTemplate(appId: $appId, templateName: $templateName, moduleName: $moduleName) {
+    ...ComputeModuleFields
+  }
 })gql";
 inline constexpr std::string_view kComputeUpsertModuleOperationName = "ComputeUpsertModule";
 inline constexpr std::string_view kComputeDeployVersionOperationName = "ComputeDeployVersion";
@@ -1624,6 +1638,8 @@ inline constexpr std::string_view kComputeModuleRunsOperationName = "ComputeModu
 inline constexpr std::string_view kComputeModuleStatsOperationName = "ComputeModuleStats";
 inline constexpr std::string_view kComputeModuleLogsOperationName = "ComputeModuleLogs";
 inline constexpr std::string_view kComputeAppDiagnosticsOperationName = "ComputeAppDiagnostics";
+inline constexpr std::string_view kComputeTemplatesOperationName = "ComputeTemplates";
+inline constexpr std::string_view kComputeDeployTemplateOperationName = "ComputeDeployTemplate";
 
 }  // namespace compute
 

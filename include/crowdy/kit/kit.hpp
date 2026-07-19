@@ -128,7 +128,7 @@ class GameKitClient {
         plots_(appId, gameModel, gameApps, options.plotTypeName),
         economy_(appId, gameModel, options.economy, &engines_),
         progression_(appId, gameModel, options.progressionTypePrefix),
-        loot_(appId, gameModel, options.lootTypePrefix),
+        loot_(appId, gameModel, options.lootTypePrefix, &engines_),
         quests_(appId, gameModel, options.questsTypePrefix),
         combat_(appId, gameModel, options.combatTypePrefix, &engines_,
                 options.mobEngineModule),

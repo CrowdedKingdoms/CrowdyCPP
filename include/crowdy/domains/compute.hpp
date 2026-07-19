@@ -141,6 +141,26 @@ class ComputeAPI : public DomainBase {
 
   /// List a module's source versions, newest first, including compile
   /// status/log (poll after deploy until compileStatus settles).
+  /// The platform's engine-template registry: ready-made engines deployable
+  /// by name with deployTemplate().
+  graphql::Json templates(std::string_view appId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeTemplates");
+  }
+
+  /// Deploy a named engine template from the platform registry — one call
+  /// instead of the upsert/deploy/trigger/enable sequence. Compilation runs
+  /// asynchronously; follow with waitForCompile().
+  graphql::Json deployTemplate(std::string_view appId, std::string_view templateName,
+                               std::string_view moduleName = {}) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["templateName"] = templateName;
+    if (!moduleName.empty()) vars["moduleName"] = moduleName;
+    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeDeployTemplate");
+  }
+
   graphql::Json moduleVersions(std::string_view appId, std::string_view moduleName,
                                int limit = 0) const {
     graphql::JVal vars;

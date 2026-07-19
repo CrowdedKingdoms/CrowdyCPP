@@ -358,6 +358,14 @@ deployments:
   that serves the `compute*` root fields (v0.13.13+ dev line). Older servers
   reject compute operations with a GraphQL validation error; every other
   sub-client is unaffected.
+- **Realtime + live-ops surfaces (v0.6.0):** `abilities()` (server-validated
+  casts), `movement()` (warden violation books, observe/flag), `territory()`
+  (control points + factions), `racing()` (server-timed laps, ghosts, the
+  possession ball), `liveops()` (event windows, seasons, battle-pass
+  composition), `moderation()` + `telemetry()` (model-first), the loot
+  engine path (`enginePull` pity rolls), `compute().templates()` /
+  `deployTemplate()` (the platform engine registry), and the type-94..98
+  wire parsers. Capability-detected as always.
 - **Session-genre engine surfaces (v0.5.0):** `kit.instances()` /
   `director()` / `matchmaking()` / `minigames()`, the engine paths on
   `matches()` (`engineReady`/`engineSubmitMove`/`findByProposal`),

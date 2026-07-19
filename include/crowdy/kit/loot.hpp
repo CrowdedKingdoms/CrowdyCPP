@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 
 /// Loot — loot tables & drops: weighted tables are unrolled into pure
 /// expressions at blueprint-build time (the expression language is
@@ -359,13 +360,36 @@ struct KitLootRoll {
 /// stored seed, so clients can neither pick their loot nor claim it twice.
 class LootKit {
  public:
-  LootKit(std::string appId, domains::GameModelAPI& gameModel, std::string_view typePrefix = {})
+  LootKit(std::string appId, domains::GameModelAPI& gameModel, std::string_view typePrefix = {},
+          EngineDetector* engines = nullptr, std::string_view engineModuleName = {})
       : appId_(std::move(appId)),
         gameModel_(gameModel),
         typePrefix_(typePrefix),
-        names_(lootNames(typePrefix)) {}
+        names_(lootNames(typePrefix)),
+        engines_(engines),
+        engineModuleName_(engineModuleName.empty() ? std::string("loot-engine")
+                                                   : std::string(engineModuleName)) {}
 
   const LootNames& names() const { return names_; }
+
+  // -- Engine path (Wave 3): big-table pity rolls with audit trails ---------
+
+  /// Is a big-table loot module deployed + enabled (cached)? Small weighted
+  /// tables stay on the model (the coexistence policy).
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(engineModuleName_); }
+
+  /// Pull from the module's table (pity-timer path); count caps at 10.
+  Json enginePull(std::int64_t count = 1) {
+    JVal params;
+    params["count"] = count;
+    return engineInvoke("pull", params);
+  }
+
+  /// Your pity counters + roll totals from the module.
+  Json enginePity() { return engineInvoke("pity", JVal()); }
+
+  /// Your rolling audit trail from the module (dispute resolution).
+  Json engineAudit() { return engineInvoke("audit", JVal()); }
 
   /// Create an unrolled LootRoll for a table, owned by ownerUserId (who will
   /// claim it). Event-drop automations pick from the pool of unrolled rolls
@@ -461,10 +485,23 @@ class LootKit {
     return r;
   }
 
+  Json engineInvoke(std::string_view exportName, const JVal& params) {
+    if (engines_ == nullptr) {
+      throw std::runtime_error("loot engine unavailable: compute domain not wired");
+    }
+    EngineInvokeResult result = engines_->invoke(engineModuleName_, exportName, params);
+    if (!result.success) {
+      throw std::runtime_error("loot." + std::string(exportName) + " failed: " + result.reason);
+    }
+    return result.body;
+  }
+
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   std::string typePrefix_;
   LootNames names_;
+  EngineDetector* engines_ = nullptr;
+  std::string engineModuleName_;
 };
 
 }  // namespace crowdy::kit

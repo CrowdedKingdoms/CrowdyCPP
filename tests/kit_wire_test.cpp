@@ -109,12 +109,39 @@ void testEventParsers() {
   CHECK(!parseEngineEvent(tiny, 1).has_value());
 }
 
+void testSessionEventParsers() {
+  auto turnFrame = frame(kEventTurn, R"({"actorId":"7","round":2,"turnInRound":3})");
+  auto turn = parseTurnEvent(turnFrame.data(), turnFrame.size());
+  CHECK(turn.has_value());
+  CHECK_EQ(turn->actorId, "7");
+  CHECK_EQ(turn->round, 2);
+  CHECK_EQ(turn->turnInRound, 3);
+  CHECK(!parseScoreEvent(turnFrame.data(), turnFrame.size()).has_value());
+
+  auto scoreFrame = frame(
+      kEventScore,
+      R"({"winnerId":"9","standings":[{"actorId":"9","score":20,"rank":1}]})");
+  auto score = parseScoreEvent(scoreFrame.data(), scoreFrame.size());
+  CHECK(score.has_value());
+  CHECK_EQ(score->winnerId, "9");
+  CHECK_EQ(score->standings.at(0)["rank"].asInt64(), 1);
+
+  auto proposalFrame =
+      frame(kEventProposal, R"({"proposalId":"p1","mode":"ranked","players":["1","2"]})");
+  auto proposal = parseProposalEvent(proposalFrame.data(), proposalFrame.size());
+  CHECK(proposal.has_value());
+  CHECK_EQ(proposal->proposalId, "p1");
+  CHECK_EQ(proposal->players.size(), 2u);
+  CHECK(!parseProposalEvent(turnFrame.data(), turnFrame.size()).has_value());
+}
+
 }  // namespace
 
 int main() {
   testPoseRoundtripAndLayout();
   testSuffixAndRejects();
   testEventParsers();
+  testSessionEventParsers();
   std::puts("kit_wire_test OK");
   return 0;
 }

@@ -125,6 +125,12 @@ inline std::optional<EnginePose> decodeEnginePose(const std::vector<std::uint8_t
 inline constexpr std::uint16_t kEventContactDamage = 77;
 /// Weather/season transition from a world engine (kit-sim weather).
 inline constexpr std::uint16_t kEventWeather = 90;
+/// Turn changed (kit-play turns; match engines).
+inline constexpr std::uint16_t kEventTurn = 91;
+/// Score / match summary (kit-play score).
+inline constexpr std::uint16_t kEventScore = 92;
+/// Match proposal (matchmaking -> matches handoff).
+inline constexpr std::uint16_t kEventProposal = 93;
 
 /// A split engine server-event payload: type + parsed JSON body.
 struct EngineEvent {
@@ -183,6 +189,64 @@ inline std::optional<WeatherEvent> parseWeatherEvent(const std::uint8_t* bytes, 
   out.weather = event->body["weather"].asString();
   out.sinceMs = event->body["sinceMs"].asInt64();
   out.untilMs = event->body["untilMs"].asInt64();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-91 turn-changed event (match engines).
+struct TurnChangedEvent {
+  std::string actorId;
+  std::int64_t round = 0;
+  std::int64_t turnInRound = 0;
+  graphql::Json body;
+};
+
+/// Parse a turn event; nullopt when the payload is another type.
+inline std::optional<TurnChangedEvent> parseTurnEvent(const std::uint8_t* bytes, std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventTurn) return std::nullopt;
+  TurnChangedEvent out;
+  out.actorId = event->body["actorId"].asString();
+  out.round = event->body["round"].asInt64();
+  out.turnInRound = event->body["turnInRound"].asInt64();
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-92 score/summary event (match engines).
+struct ScoreEvent {
+  std::string winnerId;
+  graphql::Json standings;  ///< array of {actorId, score, rank}
+  graphql::Json body;
+};
+
+/// Parse a score event; nullopt when the payload is another type.
+inline std::optional<ScoreEvent> parseScoreEvent(const std::uint8_t* bytes, std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventScore) return std::nullopt;
+  ScoreEvent out;
+  out.winnerId = event->body["winnerId"].asString();
+  out.standings = event->body["standings"];
+  out.body = event->body;
+  return out;
+}
+
+/// A parsed type-93 match-proposal event (matchmaking handoff).
+struct ProposalEvent {
+  std::string proposalId;
+  std::string mode;
+  std::vector<std::string> players;
+  graphql::Json body;
+};
+
+/// Parse a proposal event; nullopt when the payload is another type.
+inline std::optional<ProposalEvent> parseProposalEvent(const std::uint8_t* bytes, std::size_t len) {
+  auto event = parseEngineEvent(bytes, len);
+  if (!event || event->eventType != kEventProposal) return std::nullopt;
+  ProposalEvent out;
+  out.proposalId = event->body["proposalId"].asString();
+  out.mode = event->body["mode"].asString();
+  event->body["players"].forEach([&](graphql::Json p) { out.players.push_back(p.asString()); });
   out.body = event->body;
   return out;
 }

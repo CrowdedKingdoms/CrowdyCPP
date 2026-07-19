@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 
 /// Leaderboards — per-player LeaderboardEntry rows keyed by a board_id,
 /// written only through the trusted submit_score, with optional cron season
@@ -193,10 +194,53 @@ struct KitLeaderboardEntry {
 class LeaderboardsKit {
  public:
   LeaderboardsKit(std::string appId, domains::GameModelAPI& gameModel,
-                  std::string_view typePrefix = {})
-      : appId_(std::move(appId)), gameModel_(gameModel), names_(leaderboardsNames(typePrefix)) {}
+                  std::string_view typePrefix = {}, EngineDetector* engines = nullptr,
+                  std::string_view engineModuleName = {})
+      : appId_(std::move(appId)),
+        gameModel_(gameModel),
+        names_(leaderboardsNames(typePrefix)),
+        engines_(engines),
+        engineModuleName_(engineModuleName.empty() ? std::string("board-engine")
+                                                   : std::string(engineModuleName)) {}
 
   const LeaderboardsNames& names() const { return names_; }
+
+  // -- Engine path (Wave 2): server-computed rankings ------------------------
+
+  /// Is a board compute engine deployed + enabled (cached per client)?
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(engineModuleName_); }
+
+  /// A server-ranked page (tie-aware rank + percentile computed module-side).
+  Json engineTop(std::string_view boardId, std::int64_t page = 0, std::int64_t perPage = 10) {
+    JVal params;
+    params["boardId"] = boardId;
+    params["page"] = page;
+    params["perPage"] = perPage;
+    return engineInvoke("top", params);
+  }
+
+  /// Your (or a subject's) server-computed ranked row.
+  Json engineRankOf(std::string_view boardId, std::string_view subjectId = {}) {
+    JVal params;
+    params["boardId"] = boardId;
+    if (!subjectId.empty()) params["subjectId"] = subjectId;
+    return engineInvoke("rank_of", params);
+  }
+
+  /// Submit YOUR OWN score (personal-best semantics) to an engine board.
+  Json engineSubmitSelf(std::string_view boardId, std::int64_t score) {
+    JVal params;
+    params["boardId"] = boardId;
+    params["score"] = score;
+    return engineInvoke("submit_self", params);
+  }
+
+  /// Frozen season snapshots (top rows per rolled season).
+  Json engineSeasons(std::string_view boardId) {
+    JVal params;
+    params["boardId"] = boardId;
+    return engineInvoke("seasons", params);
+  }
 
   /// Find-or-create a player's entry on a board.
   Json ensureEntry(std::string_view ownerUserId, std::string_view boardId,
@@ -295,9 +339,23 @@ class LeaderboardsKit {
     return p;
   }
 
+  Json engineInvoke(std::string_view exportName, const JVal& params) {
+    if (engines_ == nullptr) {
+      throw std::runtime_error("board engine unavailable: compute domain not wired");
+    }
+    EngineInvokeResult result = engines_->invoke(engineModuleName_, exportName, params);
+    if (!result.success) {
+      throw std::runtime_error("leaderboards." + std::string(exportName) +
+                               " failed: " + result.reason);
+    }
+    return result.body;
+  }
+
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   LeaderboardsNames names_;
+  EngineDetector* engines_ = nullptr;
+  std::string engineModuleName_;
 };
 
 }  // namespace crowdy::kit

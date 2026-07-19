@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 
 /// Economy — a server-authoritative economy: per-player Wallet containers
 /// (one int property per currency), an admin ShopListing catalog with an
@@ -515,16 +516,115 @@ struct KitTradeOfferCreate {
 /// exception). earn is a trusted grant: with the default blueprint authority
 /// (Server) it succeeds only for app admins — call it from studio/backend
 /// code, or drive grants through automations instead.
+
+/// Order-book market methods over the market-engine (Wave 2): price-time
+/// priority matching with escrowed settlement. Deposits/withdrawals bridge
+/// to the game's wallets via compute events. Obtained via
+/// EconomyKit::orderBook().
+class MarketKit {
+ public:
+  MarketKit(EngineDetector* engines, std::string moduleName)
+      : engines_(engines), moduleName_(std::move(moduleName)) {}
+
+  /// Is the market engine deployed + enabled (cached per client)?
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(moduleName_); }
+
+  /// Move coins into your market account (escrow source for bids).
+  Json depositCoins(std::int64_t amount) {
+    JVal params;
+    params["amount"] = amount;
+    return invoke("deposit_coins", params);
+  }
+
+  /// Move items into your market account (escrow source for asks).
+  Json depositItems(std::string_view item, std::int64_t quantity) {
+    JVal params;
+    params["item"] = item;
+    params["quantity"] = quantity;
+    return invoke("deposit_items", params);
+  }
+
+  /// Place a limit bid: locks coins at your limit; fills at maker price.
+  Json bid(std::string_view item, std::int64_t price, std::int64_t quantity) {
+    return place(item, "buy", price, quantity);
+  }
+
+  /// Place a limit ask: locks items until filled or cancelled.
+  Json ask(std::string_view item, std::int64_t price, std::int64_t quantity) {
+    return place(item, "sell", price, quantity);
+  }
+
+  /// Cancel a resting order (owner only); escrow refunds instantly.
+  Json cancel(std::string_view item, std::int64_t orderId) {
+    JVal params;
+    params["item"] = item;
+    params["orderId"] = orderId;
+    return invoke("cancel", params);
+  }
+
+  /// Book depth: best bids/asks as [price, quantity] levels.
+  Json book(std::string_view item) {
+    JVal params;
+    params["item"] = item;
+    return invoke("book", params);
+  }
+
+  /// Your market account (settled + locked balances).
+  Json account() { return invoke("account", JVal()); }
+
+  /// Withdraw settled balances back to the game layer.
+  Json withdraw(std::optional<std::int64_t> coins = std::nullopt, std::string_view item = {},
+                std::optional<std::int64_t> quantity = std::nullopt) {
+    JVal params;
+    if (coins) params["coins"] = *coins;
+    if (!item.empty()) params["item"] = item;
+    if (quantity) params["quantity"] = *quantity;
+    return invoke("withdraw", params);
+  }
+
+ private:
+  Json place(std::string_view item, std::string_view side, std::int64_t price,
+             std::int64_t quantity) {
+    JVal params;
+    params["item"] = item;
+    params["side"] = side;
+    params["price"] = price;
+    params["quantity"] = quantity;
+    return invoke("place", params);
+  }
+
+  Json invoke(std::string_view exportName, const JVal& params) {
+    if (engines_ == nullptr) {
+      throw std::runtime_error("market engine unavailable: compute domain not wired");
+    }
+    EngineInvokeResult result = engines_->invoke(moduleName_, exportName, params);
+    if (!result.success) {
+      throw std::runtime_error("market." + std::string(exportName) + " failed: " + result.reason);
+    }
+    return result.body;
+  }
+
+  EngineDetector* engines_ = nullptr;
+  std::string moduleName_;
+};
+
 class EconomyKit {
  public:
-  EconomyKit(std::string appId, domains::GameModelAPI& gameModel, EconomyKitOptions options = {})
+  EconomyKit(std::string appId, domains::GameModelAPI& gameModel, EconomyKitOptions options = {},
+             EngineDetector* engines = nullptr)
       : appId_(std::move(appId)),
         gameModel_(gameModel),
         typePrefix_(std::move(options.typePrefix)),
         currencies_(std::move(options.currencies)),
-        names_(economyNames(typePrefix_)) {}
+        names_(economyNames(typePrefix_)),
+        orderBook_(engines, "market-engine") {}
 
   const EconomyNames& names() const { return names_; }
+
+  /// The order-book market (Wave 2 engine): escrowed bid/ask price
+  /// discovery; the model-side fixed-price market listings keep working
+  /// without it.
+  MarketKit& orderBook() { return orderBook_; }
 
   /// Find the player's wallet, creating it when absent (member-instantiable;
   /// the server assigns ownership to the caller). Sets the owner_user_id
@@ -834,6 +934,7 @@ class EconomyKit {
 
   std::string appId_;
   domains::GameModelAPI& gameModel_;
+  MarketKit orderBook_;
   std::string typePrefix_;
   std::vector<std::string> currencies_;
   EconomyNames names_;

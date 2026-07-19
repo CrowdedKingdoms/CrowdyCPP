@@ -1369,6 +1369,264 @@ inline constexpr std::string_view kUpdateChunkStateOperationName = "UpdateChunkS
 
 }  // namespace chunks
 
+namespace compute {
+
+/// compute/ComputeModules.graphql
+inline constexpr std::string_view kComputeModulesDocument = R"gql(fragment ComputeModuleFields on WasmModule {
+  moduleId
+  appId
+  name
+  description
+  enabled
+  alwaysOn
+  currentVersionId
+  circuitState
+  consecutiveFailures
+  cooldownUntil
+  lastError
+  createdAt
+  updatedAt
+}
+
+fragment ComputeVersionFields on WasmModuleVersion {
+  versionId
+  moduleId
+  appId
+  versionNo
+  sourceHash
+  sdkVersion
+  abiVersion
+  compileStatus
+  compileLog
+  compiledSizeBytes
+  publishedAt
+  createdAt
+}
+
+fragment ComputeTriggerFields on WasmModuleTrigger {
+  triggerId
+  appId
+  moduleId
+  triggerType
+  tickHz
+  onEvent
+  functionName
+  containerTypeName
+  propertyKey
+  eventName
+  debounceMs
+  exportName
+  invokePolicyJson
+  createdAt
+}
+
+fragment ComputePolicyFields on WasmModulePolicy {
+  appId
+  enabled
+  maxModules
+  maxTickHz
+  fuelPerTick
+  fuelPerInvoke
+  maxMemoryMb
+  maxRunMs
+  maxDbOpsPerTick
+  maxEgressMsgsPerMin
+  maxEgressBytesPerMin
+  failureThreshold
+  cooldownMs
+}
+
+fragment ComputeRunFields on WasmModuleRun {
+  runId
+  appId
+  moduleId
+  moduleName
+  triggerSource
+  entry
+  startedAt
+  durationUs
+  fuelUsed
+  dbReads
+  dbWrites
+  egressMsgs
+  egressBytes
+  success
+  errorMessage
+  circuitAction
+}
+
+mutation ComputeUpsertModule($input: UpsertComputeModuleInput!) {
+  computeUpsertModule(input: $input) {
+    ...ComputeModuleFields
+  }
+}
+
+mutation ComputeDeployVersion($input: DeployComputeVersionInput!) {
+  computeDeployVersion(input: $input) {
+    ...ComputeVersionFields
+  }
+}
+
+mutation ComputeSetModuleEnabled($appId: BigInt!, $name: String!, $enabled: Boolean!) {
+  computeSetModuleEnabled(appId: $appId, name: $name, enabled: $enabled) {
+    ...ComputeModuleFields
+  }
+}
+
+mutation ComputeDeleteModule($appId: BigInt!, $name: String!) {
+  computeDeleteModule(appId: $appId, name: $name)
+}
+
+mutation ComputeUpsertTrigger($input: UpsertComputeTriggerInput!) {
+  computeUpsertTrigger(input: $input) {
+    ...ComputeTriggerFields
+  }
+}
+
+mutation ComputeDeleteTrigger($appId: BigInt!, $triggerId: String!) {
+  computeDeleteTrigger(appId: $appId, triggerId: $triggerId)
+}
+
+mutation ComputeSetPolicy($input: SetComputePolicyInput!) {
+  computeSetPolicy(input: $input) {
+    ...ComputePolicyFields
+  }
+}
+
+mutation ComputeInvoke(
+  $appId: BigInt!
+  $moduleName: String!
+  $exportName: String!
+  $paramsJson: String
+) {
+  computeInvoke(
+    appId: $appId
+    moduleName: $moduleName
+    exportName: $exportName
+    paramsJson: $paramsJson
+  ) {
+    resultBase64
+    resultJson
+    fuelUsed
+    durationUs
+  }
+}
+
+query ComputeModules($appId: BigInt!) {
+  computeModules(appId: $appId) {
+    ...ComputeModuleFields
+  }
+}
+
+query ComputeModule($appId: BigInt!, $name: String!) {
+  computeModule(appId: $appId, name: $name) {
+    ...ComputeModuleFields
+  }
+}
+
+query ComputeModuleVersions($appId: BigInt!, $moduleName: String!, $limit: Int) {
+  computeModuleVersions(appId: $appId, moduleName: $moduleName, limit: $limit) {
+    ...ComputeVersionFields
+  }
+}
+
+query ComputeModuleTriggers($appId: BigInt!, $moduleName: String) {
+  computeModuleTriggers(appId: $appId, moduleName: $moduleName) {
+    ...ComputeTriggerFields
+  }
+}
+
+query ComputeModulePolicy($appId: BigInt!) {
+  computeModulePolicy(appId: $appId) {
+    ...ComputePolicyFields
+  }
+}
+
+query ComputeModuleRuns(
+  $appId: BigInt!
+  $moduleName: String
+  $success: Boolean
+  $limit: Int
+  $offset: Int
+) {
+  computeModuleRuns(
+    appId: $appId
+    moduleName: $moduleName
+    success: $success
+    limit: $limit
+    offset: $offset
+  ) {
+    ...ComputeRunFields
+  }
+}
+
+query ComputeModuleStats($appId: BigInt!, $windowMinutes: Int) {
+  computeModuleStats(appId: $appId, windowMinutes: $windowMinutes) {
+    windowMinutes
+    totalRuns
+    failedRuns
+    failureRatePct
+    totalFuelUsed
+    totalEgressMsgs
+    avgDurationUs
+    byModule {
+      moduleName
+      runs
+      failures
+      fuelUsed
+      avgDurationUs
+      circuitState
+    }
+  }
+}
+
+query ComputeModuleLogs($appId: BigInt!, $moduleName: String, $limit: Int) {
+  computeModuleLogs(appId: $appId, moduleName: $moduleName, limit: $limit) {
+    ts
+    moduleName
+    level
+    message
+    triggerSource
+  }
+}
+
+query ComputeAppDiagnostics($appId: BigInt!) {
+  computeAppDiagnostics(appId: $appId) {
+    appId
+    moduleCount
+    enabledModuleCount
+    versionCount
+    triggerCount
+    runs24h
+    failedRuns24h
+    fuelUsed24h
+    topModules {
+      moduleName
+      runs
+      failures
+    }
+  }
+})gql";
+inline constexpr std::string_view kComputeUpsertModuleOperationName = "ComputeUpsertModule";
+inline constexpr std::string_view kComputeDeployVersionOperationName = "ComputeDeployVersion";
+inline constexpr std::string_view kComputeSetModuleEnabledOperationName = "ComputeSetModuleEnabled";
+inline constexpr std::string_view kComputeDeleteModuleOperationName = "ComputeDeleteModule";
+inline constexpr std::string_view kComputeUpsertTriggerOperationName = "ComputeUpsertTrigger";
+inline constexpr std::string_view kComputeDeleteTriggerOperationName = "ComputeDeleteTrigger";
+inline constexpr std::string_view kComputeSetPolicyOperationName = "ComputeSetPolicy";
+inline constexpr std::string_view kComputeInvokeOperationName = "ComputeInvoke";
+inline constexpr std::string_view kComputeModulesOperationName = "ComputeModules";
+inline constexpr std::string_view kComputeModuleOperationName = "ComputeModule";
+inline constexpr std::string_view kComputeModuleVersionsOperationName = "ComputeModuleVersions";
+inline constexpr std::string_view kComputeModuleTriggersOperationName = "ComputeModuleTriggers";
+inline constexpr std::string_view kComputeModulePolicyOperationName = "ComputeModulePolicy";
+inline constexpr std::string_view kComputeModuleRunsOperationName = "ComputeModuleRuns";
+inline constexpr std::string_view kComputeModuleStatsOperationName = "ComputeModuleStats";
+inline constexpr std::string_view kComputeModuleLogsOperationName = "ComputeModuleLogs";
+inline constexpr std::string_view kComputeAppDiagnosticsOperationName = "ComputeAppDiagnostics";
+
+}  // namespace compute
+
 namespace controlPlane {
 
 /// controlPlane/ControlPlane.graphql

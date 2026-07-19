@@ -138,6 +138,7 @@ app-scoped token):
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
 | `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
+| `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.gameApps()` | App grids + grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
@@ -353,6 +354,10 @@ deployments:
   `state` input verbatim and re-encoded on read (reads returned
   base64(base64(bytes))); newer builds round-trip symmetrically. Decode
   defensively if you must read rows written through an old server.
+- **Compute Modules (`client.compute()`):** requires a `cks-game-api` build
+  that serves the `compute*` root fields (v0.13.13+ dev line). Older servers
+  reject compute operations with a GraphQL validation error; every other
+  sub-client is unaffected.
 
 ## Errors
 

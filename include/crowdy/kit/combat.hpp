@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
 
 /// Combat — server-authoritative combat (the turn-based / MMO-durable tier):
 /// Combatant containers (hp / attack / defense / alive), an attack function
@@ -368,13 +369,59 @@ struct KitCombatantSpawn {
 /// attack (server-side damage formula + death flip), arm status effects the
 /// tick automation applies over time, respawn, and — with hostSynced —
 /// persist host-simulated hp. Denials resolve with success=false.
+/// The verdict of a routed attack (CombatKit::attackRouted).
+struct KitRoutedAttack {
+  bool success = false;
+  std::optional<std::int64_t> health;  ///< remaining health/hp after an accepted hit
+  std::optional<bool> killed;
+  std::string reason;  ///< denial reason (engine) or error message (model)
+  bool viaEngine = false;
+};
+
 class CombatKit {
  public:
   CombatKit(std::string appId, domains::GameModelAPI& gameModel,
-            std::string_view typePrefix = {})
-      : appId_(std::move(appId)), gameModel_(gameModel), names_(combatNames(typePrefix)) {}
+            std::string_view typePrefix = {}, EngineDetector* engines = nullptr,
+            std::string_view engineModuleName = {})
+      : appId_(std::move(appId)),
+        gameModel_(gameModel),
+        names_(combatNames(typePrefix)),
+        engines_(engines),
+        engineModuleName_(engineModuleName.empty() ? std::string("mob-engine")
+                                                   : std::string(engineModuleName)) {}
 
   const CombatNames& names() const { return names_; }
+
+  /// Route an attack through the strongest available authority: the compute
+  /// referee (attack_mob on the mob engine — presence/range validated
+  /// server-side) when the engine is deployed (capability-detected, cached),
+  /// else today's model attack function. One call, both deployments.
+  /// attackerId is required for the model path only.
+  KitRoutedAttack attackRouted(std::string_view targetId, std::string_view attackerId = {},
+                               std::int64_t amount = 1) {
+    KitRoutedAttack out;
+    if (engines_ != nullptr && engines_->has(engineModuleName_)) {
+      JVal params;
+      params["containerId"] = targetId;
+      params["amount"] = amount;
+      EngineInvokeResult result = engines_->invoke(engineModuleName_, "attack_mob", params);
+      out.success = result.success;
+      out.reason = result.reason;
+      if (result.body["health"].isNumber()) out.health = result.body["health"].asInt64();
+      if (result.body["killed"].isBool()) out.killed = result.body["killed"].asBool();
+      out.viaEngine = true;
+      return out;
+    }
+    if (attackerId.empty()) {
+      out.reason = "attackerId is required for the model combat path";
+      return out;
+    }
+    KitInvokeResult result = attack(attackerId, targetId);
+    out.success = result.success;
+    out.reason = result.errorMessage;
+    if (result.returnValue.isNumber()) out.health = result.returnValue.asInt64();
+    return out;
+  }
 
   /// Spawn a combatant with a unique combat_key (the status-effect join key)
   /// and the owner_user_id mirror.
@@ -513,6 +560,8 @@ class CombatKit {
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   CombatNames names_;
+  EngineDetector* engines_ = nullptr;
+  std::string engineModuleName_;
 };
 
 }  // namespace crowdy::kit

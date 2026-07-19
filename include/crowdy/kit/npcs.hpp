@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
+#include "crowdy/kit/wire.hpp"
 
 /// NPC archetypes — an admin-instantiable container type holding the NPC's
 /// durable state, one autonomousInvocable model function per behavior (gated
@@ -251,12 +253,50 @@ struct KitNpcSpawnInput {
 /// Obtained via GameKitClient::npcs().
 class NpcsKit {
  public:
-  NpcsKit(std::string appId, domains::GameModelAPI& gameModel, std::string_view typeName = {})
+  NpcsKit(std::string appId, domains::GameModelAPI& gameModel, std::string_view typeName = {},
+          EngineDetector* engines = nullptr, std::string_view moduleName = {})
       : appId_(std::move(appId)),
         gameModel_(gameModel),
-        typeName_(typeName.empty() ? std::string("Npc") : std::string(typeName)) {}
+        typeName_(typeName.empty() ? std::string("Npc") : std::string(typeName)),
+        engines_(engines),
+        moduleName_(moduleName.empty() ? std::string("npc-engine") : std::string(moduleName)) {}
 
   const std::string& typeName() const { return typeName_; }
+
+  /// Is an NPC compute engine deployed + enabled (cached per client)? When
+  /// true, NPCs stream smooth kFlagNpc actor poses — overlay them with
+  /// overlayLivePoses. When false (model-only deployment), the polled
+  /// container positions are all there is, exactly as before.
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(moduleName_); }
+
+  /// One live engine pose keyed by the NPC's actor uuid, for
+  /// overlayLivePoses (fill from your replication layer's actor stream).
+  struct LivePose {
+    std::string uuid;
+    double x = 0, y = 0, z = 0;
+  };
+
+  /// Overlay live engine-driven poses onto a polled NPC snapshot (the
+  /// generalized BWF NpcService.withLivePoses pattern): each NPC whose
+  /// actor_uuid has a fresh pose gets its position replaced; the rest keep
+  /// their durable container position.
+  static std::vector<KitNpc> overlayLivePoses(std::vector<KitNpc> npcs,
+                                              const std::vector<LivePose>& lane) {
+    if (lane.empty()) return npcs;
+    for (auto& npc : npcs) {
+      const std::string uuid = npc.properties["actor_uuid"].asString();
+      if (uuid.empty()) continue;
+      for (const auto& live : lane) {
+        if (live.uuid == uuid) {
+          npc.x = live.x;
+          npc.y = live.y;
+          npc.z = live.z;
+          break;
+        }
+      }
+    }
+    return npcs;
+  }
 
   /// Spawn a live NPC instance (admin — the type is admin-instantiable).
   Json spawn(const KitNpcSpawnInput& input) {
@@ -351,6 +391,8 @@ class NpcsKit {
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   std::string typeName_;
+  EngineDetector* engines_ = nullptr;
+  std::string moduleName_;
 };
 
 }  // namespace crowdy::kit

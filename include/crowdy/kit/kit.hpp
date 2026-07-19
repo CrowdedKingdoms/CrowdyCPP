@@ -4,23 +4,28 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/kit/combat.hpp"
 #include "crowdy/kit/core.hpp"
 #include "crowdy/kit/decks.hpp"
 #include "crowdy/kit/economy.hpp"
+#include "crowdy/kit/engine.hpp"
 #include "crowdy/kit/features.hpp"
 #include "crowdy/kit/inventory.hpp"
 #include "crowdy/kit/leaderboards.hpp"
 #include "crowdy/kit/loot.hpp"
 #include "crowdy/kit/matches.hpp"
+#include "crowdy/kit/mobs.hpp"
 #include "crowdy/kit/npcs.hpp"
 #include "crowdy/kit/objects.hpp"
+#include "crowdy/kit/pets.hpp"
 #include "crowdy/kit/plots.hpp"
 #include "crowdy/kit/progression.hpp"
 #include "crowdy/kit/quests.hpp"
 #include "crowdy/kit/social.hpp"
+#include "crowdy/kit/wire.hpp"
 #include "crowdy/kit/worldsim.hpp"
 
 /// The app-scoped Game Kit facade — client.kit(appId): high-level building
@@ -58,6 +63,14 @@ struct GameKitOptions {
   std::string worldsimTypePrefix;
   SocialKitOptions social;
   std::string leaderboardsTypePrefix;
+  /// Engine-aware helper module names (defaults: npc-engine, mob-engine,
+  /// world-engine). Set them to your game's module names (e.g. bwf-mobs).
+  std::string npcEngineModule;
+  std::string mobEngineModule;
+  std::string worldEngineModule;
+  std::string mobDefTypeName;
+  std::string mobSlotTypeName;
+  std::string petTypeName;
 };
 
 /// The result of GameKitClient::deploy.
@@ -72,27 +85,41 @@ class GameKitClient {
  public:
   /// `channels`/`teams`/`connection` are optional composition points (match
   /// notify-to-pull channels, social chat); pass what your game uses.
+  /// `compute` enables the engine-aware helpers (mobs/pets, capability
+  /// detection); without it they report engineAvailable() == false and the
+  /// model paths behave exactly as before.
   GameKitClient(std::string appId, domains::GameModelAPI& gameModel,
                 domains::GameAppsAPI& gameApps, domains::TeamsAPI* teams = nullptr,
                 domains::ChannelsAPI* channels = nullptr,
-                replication::Connection* connection = nullptr, GameKitOptions options = {})
+                replication::Connection* connection = nullptr, GameKitOptions options = {},
+                domains::ComputeAPI* compute = nullptr)
       : appId_(appId),
         gameModel_(gameModel),
+        engines_(appId, compute),
         inventory_(appId, gameModel, options.inventoryTypePrefix),
         objects_(appId, gameModel, options.objectTypeName, options.keyTypeName),
-        npcs_(appId, gameModel, options.npcTypeName),
+        npcs_(appId, gameModel, options.npcTypeName, &engines_, options.npcEngineModule),
         plots_(appId, gameModel, gameApps, options.plotTypeName),
         economy_(appId, gameModel, options.economy),
         progression_(appId, gameModel, options.progressionTypePrefix),
         loot_(appId, gameModel, options.lootTypePrefix),
         quests_(appId, gameModel, options.questsTypePrefix),
-        combat_(appId, gameModel, options.combatTypePrefix),
+        combat_(appId, gameModel, options.combatTypePrefix, &engines_,
+                options.mobEngineModule),
         matches_(appId, gameModel, channels, connection, options.matchesTypePrefix),
         decks_(appId, gameModel, options.decksTypePrefix),
-        worldsim_(appId, gameModel, options.worldsimTypePrefix),
+        worldsim_(appId, gameModel, options.worldsimTypePrefix, &engines_,
+                  options.worldEngineModule),
         social_(appId, teams, channels, gameApps, connection, options.social),
         leaderboards_(appId, gameModel, options.leaderboardsTypePrefix),
-        features_(appId, gameModel) {}
+        features_(appId, gameModel),
+        mobs_(appId, gameModel, engines_,
+              options.mobEngineModule.empty() ? "mob-engine" : options.mobEngineModule,
+              options.mobDefTypeName.empty() ? "MobDef" : options.mobDefTypeName,
+              options.mobSlotTypeName.empty() ? "Mob" : options.mobSlotTypeName),
+        pets_(appId, gameModel, engines_,
+              options.npcEngineModule.empty() ? "npc-engine" : options.npcEngineModule,
+              options.petTypeName.empty() ? "Pet" : options.petTypeName) {}
 
   InventoryKit& inventory() { return inventory_; }
   ObjectsKit& objects() { return objects_; }
@@ -109,6 +136,9 @@ class GameKitClient {
   SocialKit& social() { return social_; }
   LeaderboardsKit& leaderboards() { return leaderboards_; }
   FeaturesKit& features() { return features_; }
+  MobsKit& mobs() { return mobs_; }
+  PetsKit& pets() { return pets_; }
+  EngineDetector& engines() { return engines_; }
 
   /// Helpers for an additional lockable object type deployed under a
   /// different type name (e.g. both Door and Chest lock blueprints).
@@ -144,6 +174,7 @@ class GameKitClient {
  private:
   std::string appId_;
   domains::GameModelAPI& gameModel_;
+  EngineDetector engines_;
   InventoryKit inventory_;
   ObjectsKit objects_;
   NpcsKit npcs_;
@@ -159,6 +190,8 @@ class GameKitClient {
   SocialKit social_;
   LeaderboardsKit leaderboards_;
   FeaturesKit features_;
+  MobsKit mobs_;
+  PetsKit pets_;
 };
 
 /// Build a GameKitClient over a CrowdyClient's domains — the C++ analog of
@@ -168,7 +201,7 @@ inline GameKitClient makeKit(CrowdyClient& client, std::string appId,
                              replication::Connection* connection = nullptr,
                              GameKitOptions options = {}) {
   return GameKitClient(std::move(appId), client.gameModel(), client.gameApps(), &client.teams(),
-                       &client.channels(), connection, std::move(options));
+                       &client.channels(), connection, std::move(options), &client.compute());
 }
 
 }  // namespace crowdy::kit

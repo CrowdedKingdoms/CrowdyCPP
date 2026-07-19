@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "crowdy/kit/core.hpp"
+#include "crowdy/kit/engine.hpp"
+#include "crowdy/kit/wire.hpp"
 
 /// World simulation — day/night + weather (a WorldState singleton),
 /// regenerating ResourceNodes, growing Crops / production jobs, and
@@ -528,13 +530,60 @@ struct KitCropPlantInput {
 /// and drive the player-facing functions.
 ///
 /// Obtained via GameKitClient::worldsim().
+/// A world engine's forecast (current front + day phase).
+struct KitForecast {
+  std::string weather;
+  std::optional<double> dayPhase;  ///< in [0, 1) when the engine reports it
+  std::optional<bool> isNight;
+  std::optional<std::int64_t> remainingMs;  ///< until the current front rolls
+  Json body;
+};
+
 class WorldsimKit {
  public:
   WorldsimKit(std::string appId, domains::GameModelAPI& gameModel,
-              std::string_view typePrefix = {})
-      : appId_(std::move(appId)), gameModel_(gameModel), names_(worldsimNames(typePrefix)) {}
+              std::string_view typePrefix = {}, EngineDetector* engines = nullptr,
+              std::string_view moduleName = {})
+      : appId_(std::move(appId)),
+        gameModel_(gameModel),
+        names_(worldsimNames(typePrefix)),
+        engines_(engines),
+        moduleName_(moduleName.empty() ? std::string("world-engine")
+                                       : std::string(moduleName)) {}
 
   const WorldsimNames& names() const { return names_; }
+
+  /// Is a world compute engine deployed + enabled (cached per client)?
+  bool engineAvailable() { return engines_ != nullptr && engines_->has(moduleName_); }
+
+  /// The world engine's forecast invoke: the current weather front plus
+  /// day-phase fields. Late joiners call this once, then track transitions
+  /// from the type-90 event stream (parseWeatherEvent). Throws when no
+  /// engine is available.
+  KitForecast forecast() {
+    EngineInvokeResult result = engines_ != nullptr
+                                    ? engines_->invoke(moduleName_, "forecast")
+                                    : EngineInvokeResult{false, "compute domain unavailable", {}};
+    if (!result.success) {
+      throw std::runtime_error("forecast unavailable: " +
+                               (result.reason.empty() ? "engine missing" : result.reason));
+    }
+    KitForecast out;
+    out.weather = result.body["weather"].asString();
+    if (result.body["dayPhase"].isNumber()) out.dayPhase = result.body["dayPhase"].asDouble();
+    if (result.body["isNight"].isBool()) out.isNight = result.body["isNight"].asBool();
+    if (result.body["remainingMs"].isNumber()) {
+      out.remainingMs = result.body["remainingMs"].asInt64();
+    }
+    out.body = result.body;
+    return out;
+  }
+
+  /// Parse a server-event payload as a world-engine weather transition
+  /// (type 90), or nullopt when it is another event type.
+  static std::optional<WeatherEvent> parseWeather(const std::uint8_t* bytes, std::size_t len) {
+    return parseWeatherEvent(bytes, len);
+  }
 
   /// Find-or-create the WorldState singleton (admin). anchorChunk is where
   /// the clock's spatial time-changed ping is emitted.
@@ -740,6 +789,8 @@ class WorldsimKit {
   std::string appId_;
   domains::GameModelAPI& gameModel_;
   WorldsimNames names_;
+  EngineDetector* engines_ = nullptr;
+  std::string moduleName_;
 };
 
 }  // namespace crowdy::kit

@@ -142,7 +142,7 @@ app-scoped token):
 | `client.gameApps()` | App grids + grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
-| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus blueprint builders and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
+| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps() / appAccess() / billing() /
@@ -358,6 +358,12 @@ deployments:
   that serves the `compute*` root fields (v0.13.13+ dev line). Older servers
   reject compute operations with a GraphQL validation error; every other
   sub-client is unaffected.
+- **Engine kit surfaces (v0.4.0):** `kit.mobs()` / `kit.pets()` /
+  `combat().attackRouted()` / `worldsim().forecast()` and the
+  `crowdy/kit/wire.hpp` pose/lane registry talk to compute-module game
+  engines built on the Wave 0/1 `cks-game-api` dev line (`crowdy-game-kit`
+  crates). Capability detection (`kit.engines()`) makes them degrade
+  gracefully — model-only deployments keep today's behavior.
 
 ## Errors
 

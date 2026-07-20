@@ -7,6 +7,7 @@
 #include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/groups.hpp"
+#include "crowdy/kit/actions.hpp"
 #include "crowdy/kit/combat.hpp"
 #include "crowdy/kit/core.hpp"
 #include "crowdy/kit/decks.hpp"

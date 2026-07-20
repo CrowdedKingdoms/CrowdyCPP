@@ -38,6 +38,8 @@ const FIELD_WAIVERS = {
   // Replication in CrowdyCPP is native UDP directly with the replication
   // server, always. The GraphQL UDP proxy exists for clients that cannot
   // open UDP sockets (browsers -> CrowdyJS).
+  gameModelContainerChanged:
+    'graphql-transport-ws push stream (browser SDK); native clients poll or ride replication events',
   connectUdpProxy: 'browser proxy path; CrowdyCPP replicates natively over UDP',
   disconnectUdpProxy: 'browser proxy path; CrowdyCPP replicates natively over UDP',
   udpProxyConnectionStatus: 'browser proxy path; CrowdyCPP replicates natively over UDP',
@@ -54,6 +56,8 @@ const FIELD_WAIVERS = {
 // CrowdyJS members that have no C++ counterpart by design.
 const METHOD_WAIVERS = {
   'UdpAPI.*': 'whole domain waived: browser proxy path; native replication client instead',
+  'GameModelAPI.containerChanged':
+    'graphql-transport-ws push stream (browser SDK); native clients poll or ride replication events',
   'BrowserSessionPkceStore.*': 'browser sessionStorage helper; native flows keep the verifier in memory',
   'AuthAPI.setToken': 'covered by CrowdyClient::setToken / auth().setToken',
   'AuthAPI.getToken': 'covered by CrowdyClient::getToken / auth().getToken',

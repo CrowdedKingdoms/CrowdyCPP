@@ -31,6 +31,11 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.10.0:** operator compute-ceilings coverage (`operator_().computePlatformCeilings()`
+/ `setComputePlatformCeilings(input)` — the Track F platform-ceilings surface;
+patch semantics: omit = unchanged, explicit null = clear, value = set; requires
+`is_operator`). Requires the 2026-07-20 `cks-management-api` dev line.
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics

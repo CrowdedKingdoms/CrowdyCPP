@@ -51,7 +51,8 @@ void testTrustedAuthority() {
 }
 
 void testInventoryBlueprintShape() {
-  KitBlueprint bp = inventoryBlueprint({.typePrefix = "Bank", .maxSlots = 10, .slotCount = 8});
+  KitBlueprint bp = inventoryBlueprint(
+      {.typePrefix = "Bank", .maxSlots = 10, .slotCount = 8, .recipes = {}, .barters = {}});
   CHECK_EQ(bp.name, "BankInventory");
   CHECK_EQ(bp.containerTypes.size(), 2u);
   CHECK_EQ(bp.propertyDefinitions.size(), 5u);
@@ -79,9 +80,36 @@ void testInventoryBlueprintShape() {
   CHECK_EQ(maxSlots["defaultValueJson"].asString(), "10");
 }
 
+void testAtomicInventoryTransactions() {
+  InventoryRecipeSpec recipe;
+  recipe.recipeId = "wood-planks";
+  recipe.inputs = {{"wood", 2}};
+  recipe.output = {"plank", 4};
+  InventoryBarterSpec barter;
+  barter.barterId = "wheat-for-emerald";
+  barter.pay = {"wheat", 5};
+  barter.receive = {"emerald", 1};
+  KitBlueprint bp = inventoryBlueprint(
+      {.typePrefix = "", .maxSlots = 24, .slotCount = 64,
+       .recipes = {recipe}, .barters = {barter}});
+  CHECK_EQ(bp.functions.size(), 6u);
+  graphql::Json craft = graphql::Json::parse(bp.functions[4].dump());
+  CHECK_EQ(craft["name"].asString(), "craft_wood_planks");
+  CHECK(craft["autonomousInvocable"].asBool());
+  CHECK_EQ(craft["mutations"].size(), 2u);
+  graphql::Json craftPolicy =
+      graphql::Json::parse(craft["invokePolicyJson"].asStringView());
+  CHECK(std::strstr(craftPolicy["rules"].at(1)["expression"].asString().c_str(),
+                    "item_id == \"wood\"") != nullptr);
+  graphql::Json trade = graphql::Json::parse(bp.functions[5].dump());
+  CHECK_EQ(trade["name"].asString(), "barter_wheat_for_emerald");
+  CHECK(trade["autonomousInvocable"].asBool());
+}
+
 void testMergeBlueprints() {
   KitBlueprint a = inventoryBlueprint();
-  KitBlueprint b = inventoryBlueprint({.typePrefix = "Bank"});
+  KitBlueprint b = inventoryBlueprint(
+      {.typePrefix = "Bank", .maxSlots = 24, .slotCount = 64, .recipes = {}, .barters = {}});
   MergedBlueprints merged = mergeBlueprints("42", {a, b}, "sess-1");
 
   graphql::Json seed = graphql::Json::parse(merged.seedInput.dump());
@@ -103,7 +131,13 @@ void testMergeBlueprints() {
 
 void testComposeBlueprints() {
   KitBlueprint composite =
-      composeBlueprints("bundle", {inventoryBlueprint(), inventoryBlueprint({.typePrefix = "X"})});
+      composeBlueprints("bundle",
+                        {inventoryBlueprint(),
+                         inventoryBlueprint({.typePrefix = "X",
+                                             .maxSlots = 24,
+                                             .slotCount = 64,
+                                             .recipes = {},
+                                             .barters = {}})});
   CHECK_EQ(composite.name, "bundle");
   CHECK_EQ(composite.containerTypes.size(), 4u);
   CHECK_EQ(composite.functions.size(), 8u);
@@ -126,6 +160,7 @@ int main() {
   testToSnakeCase();
   testTrustedAuthority();
   testInventoryBlueprintShape();
+  testAtomicInventoryTransactions();
   testMergeBlueprints();
   testComposeBlueprints();
   testOwnerHelpers();

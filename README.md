@@ -31,6 +31,10 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.7.0:** inventory blueprint/runtime parity includes generated atomic
+crafting and barter transactions, explicit owner-mirror representation, and
+the hardened admin-created/server-granted stack posture.
+
 ## Layout
 
 ```text

@@ -349,6 +349,12 @@ class EnvironmentsAPI : public detail::AdminDomain {
   graphql::Json create(const graphql::JVal& input) const {
     return execUnwrap(gen::environments::kCreateEnvironmentDocument, one("input", input));
   }
+  /// DRY RUN of redeploy(): component version diffs, schema apply/skip and
+  /// the pipeline tasks a redeploy would run — read-only, no change order.
+  /// Would-fail conditions come back in `blockers`. Needs view_environments.
+  graphql::Json redeployPlan(const graphql::JVal& input) const {
+    return execUnwrap(gen::environments::kEnvironmentRedeployPlanDocument, one("input", input));
+  }
   graphql::Json redeploy(const graphql::JVal& input) const {
     return execUnwrap(gen::environments::kRedeployEnvironmentDocument, one("input", input));
   }

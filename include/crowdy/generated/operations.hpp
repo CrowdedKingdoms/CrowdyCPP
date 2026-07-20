@@ -2137,6 +2137,33 @@ inline constexpr std::string_view kEnvironmentQuoteDocument = R"gql(query Enviro
 })gql";
 inline constexpr std::string_view kEnvironmentQuoteOperationName = "EnvironmentQuote";
 
+/// environments/EnvironmentRedeployPlan.graphql
+inline constexpr std::string_view kEnvironmentRedeployPlanDocument = R"gql(query EnvironmentRedeployPlan($input: RedeployEnvironmentInput!) {
+  environmentRedeployPlan(input: $input) {
+    environmentSlug
+    currentVersion
+    targetVersion
+    deployMode
+    changeOrderKind
+    schemaWillApply
+    schemaGitRef
+    componentChanges {
+      component
+      fromVersion
+      toVersion
+      changed
+    }
+    tasks {
+      kind
+      dependsOn
+      steps
+    }
+    blockers
+    notes
+  }
+})gql";
+inline constexpr std::string_view kEnvironmentRedeployPlanOperationName = "EnvironmentRedeployPlan";
+
 /// environments/EnvironmentVersions.graphql
 inline constexpr std::string_view kEnvironmentVersionsDocument = R"gql(query EnvironmentVersions {
   environmentVersions {

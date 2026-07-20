@@ -1,5 +1,7 @@
 #include <cstring>
+#include <stdexcept>
 
+#include "crowdy/kit/actions.hpp"
 #include "crowdy/kit/inventory.hpp"
 #include "test_util.hpp"
 
@@ -153,6 +155,58 @@ void testOwnerHelpers() {
   CHECK_EQ(mirror["defaultValueJson"].asString(), "0");
 }
 
+void testOptimisticAction() {
+  // Acceptance keeps the optimistic state and runs confirm.
+  int state = 0;
+  bool confirmed = false;
+  OptimisticActionSpec ok;
+  ok.apply = [&] { state = 1; };
+  ok.rollback = [&] { state = 0; };
+  ok.invoke = [](const std::string& actionId) {
+    CHECK(actionId.size() > 8);
+    return graphql::Json::parse(R"({"success":true,"itemId":"wood"})");
+  };
+  ok.confirm = [&](const graphql::Json&) { confirmed = true; };
+  auto accepted = run_optimistic_action(ok);
+  CHECK(accepted.ok);
+  CHECK(confirmed);
+  CHECK_EQ(state, 1);
+  CHECK_EQ(accepted.result["itemId"].asString(), "wood");
+
+  // Denial rolls back and surfaces the reason.
+  OptimisticActionSpec denied = ok;
+  denied.confirm = nullptr;
+  denied.invoke = [](const std::string&) {
+    return graphql::Json::parse(R"({"success":false,"reason":"out of range"})");
+  };
+  auto deniedOut = run_optimistic_action(denied);
+  CHECK(!deniedOut.ok);
+  CHECK_EQ(deniedOut.error_message, "out of range");
+  CHECK_EQ(state, 0);
+
+  // Transport errors roll back without throwing.
+  OptimisticActionSpec thrown = ok;
+  thrown.confirm = nullptr;
+  thrown.invoke = [](const std::string&) -> graphql::Json {
+    throw std::runtime_error("network down");
+  };
+  auto thrownOut = run_optimistic_action(thrown);
+  CHECK(!thrownOut.ok);
+  CHECK_EQ(thrownOut.error_message, "network down");
+  CHECK_EQ(state, 0);
+
+  // Caller-supplied actionId is honored (deliberate retries).
+  OptimisticActionSpec retry;
+  retry.action_id = "retry-1";
+  std::string seen;
+  retry.invoke = [&](const std::string& actionId) {
+    seen = actionId;
+    return graphql::Json::parse("{}");
+  };
+  run_optimistic_action(retry);
+  CHECK_EQ(seen, "retry-1");
+}
+
 }  // namespace
 
 int main() {
@@ -164,6 +218,7 @@ int main() {
   testMergeBlueprints();
   testComposeBlueprints();
   testOwnerHelpers();
+  testOptimisticAction();
   std::puts("kit_test OK");
   return 0;
 }

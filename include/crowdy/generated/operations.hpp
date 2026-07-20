@@ -1417,6 +1417,7 @@ fragment ComputeTriggerFields on WasmModuleTrigger {
   debounceMs
   exportName
   invokePolicyJson
+  contractJson
   createdAt
 }
 

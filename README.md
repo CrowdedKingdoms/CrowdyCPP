@@ -32,11 +32,17 @@ and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
 **v0.8.0:** container query predicates (`gameModel().containersWhere(...)` —
-`where`/`limit`/`offset` on container lists) and automation compute actions
+`where`/`limit`/`offset` on container lists), automation compute actions
 (`actionKind: "compute_invoke"` with `computeModuleName`/`computeExport` on
-`upsertAutomation`; automations invoke a compute-module export directly).
-Requires the 2026-07 `cks-game-api` dev line; older servers reject the new
-arguments/fields (omit them and everything else keeps working).
+`upsertAutomation`; automations invoke a compute-module export directly),
+invoke-trigger contracts (`contractJson` on compute trigger reads — typed
+params/result declarations validated server-side pre-sandbox), and the
+`crowdy::kit::run_optimistic_action` helper (the packaged optimistic apply →
+referee invoke → confirm/rollback loop with actionId receipts). The
+`gameModelContainerChanged` push subscription is waived (browser stream;
+native clients poll or ride replication events). Requires the 2026-07
+`cks-game-api` dev line; older servers reject the new arguments/fields (omit
+them and everything else keeps working).
 
 **v0.7.0:** inventory blueprint/runtime parity includes generated atomic
 crafting and barter transactions, explicit owner-mirror representation, and

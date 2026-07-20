@@ -1961,6 +1961,38 @@ mutation PublishEnvironmentReleaseFromGameApiTag(
 
 mutation YankEnvironmentVersion($version: String!) {
   yankEnvironmentVersion(version: $version)
+}
+
+query CpComputePlatformCeilings {
+  cpComputePlatformCeilings {
+    maxModules
+    maxTickHz
+    fuelPerTick
+    fuelPerInvoke
+    maxMemoryMb
+    maxRunMs
+    maxDbOpsPerTick
+    maxEgressMsgsPerMin
+    maxEgressBytesPerMin
+    updatedAt
+    updatedByUserId
+  }
+}
+
+mutation CpSetComputePlatformCeilings($input: CpSetComputePlatformCeilingsInput!) {
+  cpSetComputePlatformCeilings(input: $input) {
+    maxModules
+    maxTickHz
+    fuelPerTick
+    fuelPerInvoke
+    maxMemoryMb
+    maxRunMs
+    maxDbOpsPerTick
+    maxEgressMsgsPerMin
+    maxEgressBytesPerMin
+    updatedAt
+    updatedByUserId
+  }
 })gql";
 inline constexpr std::string_view kCpEnvironmentsOperationName = "CpEnvironments";
 inline constexpr std::string_view kCpEnvironmentOperationName = "CpEnvironment";
@@ -1981,6 +2013,8 @@ inline constexpr std::string_view kPutCpEnvSecretOperationName = "PutCpEnvSecret
 inline constexpr std::string_view kIngestEnvironmentVersionOperationName = "IngestEnvironmentVersion";
 inline constexpr std::string_view kPublishEnvironmentReleaseFromGameApiTagOperationName = "PublishEnvironmentReleaseFromGameApiTag";
 inline constexpr std::string_view kYankEnvironmentVersionOperationName = "YankEnvironmentVersion";
+inline constexpr std::string_view kCpComputePlatformCeilingsOperationName = "CpComputePlatformCeilings";
+inline constexpr std::string_view kCpSetComputePlatformCeilingsOperationName = "CpSetComputePlatformCeilings";
 
 }  // namespace controlPlane
 

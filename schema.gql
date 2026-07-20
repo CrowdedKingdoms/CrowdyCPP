@@ -725,6 +725,10 @@ type Query {
   Current server version plus the minimum client version required to connect; used by clients to gate/prompt upgrades. No auth required.
   """
   versionInfo: ServerVersionInfo!
+  """
+  Operator only (is_operator). The stored platform ceilings for the per-app WASM compute policy (the nine knobs computeSetPolicy clamps against). Null fields mean no operator override: game-api uses its COMPUTE_PLATFORM_MAX_* env var, then the code default. Read-only.
+  """
+  cpComputePlatformCeilings: CpComputePlatformCeilings! @requiresPermission(scope: "operator", permission: "is_operator")
 
   """
   Returns the authenticated user for the bearer game token on this request, or null if the token is missing/invalid. Use this to validate a token and fetch the current player. The token is issued by the Management API login and sent as `Authorization: Bearer <token>` (and, for the udpNotifications WebSocket, in the graphql-transport-ws connection_init payload as `Authorization`). game-api does not issue tokens.
@@ -2052,6 +2056,15 @@ type Mutation {
     """Environment version to yank, e.g. 'v0.1.4'."""
     version: String!
   ): Boolean! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  Operator only (is_operator). Patches the platform compute ceilings: omitted fields stay unchanged, an explicit null clears that override (game-api falls back to env/default), a value (> 0) sets it. SIDE EFFECTS: fans a replica notify out to every game-api so the new ceilings clamp computeSetPolicy within ~30 seconds without a restart, and writes an audit entry. Lowering a ceiling does not shrink already-stored per-app policies; it rejects future computeSetPolicy values above the new ceiling. Returns the updated ceilings row.
+  """
+  cpSetComputePlatformCeilings(
+    """
+    Ceiling patch: at least one field; omitted = unchanged, explicit null = clear override, value (> 0) = set.
+    """
+    input: CpSetComputePlatformCeilingsInput!
+  ): CpComputePlatformCeilings! @requiresPermission(scope: "operator", permission: "is_operator")
 
   """
   Sets the authenticated user’s gamertag and disambiguation and appends a gamertag-history row. Requires a valid game token; only ever updates the caller. Fails if the gamertag+disambiguation pair is already taken. NOTE: the users table is management-owned, so in cks-game-api this throws ForbiddenException — call cks-management-api instead.
@@ -5435,6 +5448,55 @@ type ServerVersionInfo {
 
 
 """
+Operator-set platform ceilings for the per-app WASM compute policy. Each field caps the matching wasm_module_policy knob platform-wide: game-api rejects computeSetPolicy values above the ceiling. A null field means no operator override is stored — game-api falls back to its COMPUTE_PLATFORM_MAX_* env var (bootstrap default), then to the built-in code default. Edits propagate to game-api replicas via replica sync and apply within ~30 seconds, without a game-api restart.
+"""
+type CpComputePlatformCeilings {
+  """
+  Max compute modules per app (wasm_module_policy.max_modules ceiling). Null = no override (game-api bootstrap default 100).
+  """
+  maxModules: Int
+  """
+  Max tick trigger rate in Hz per module (max_tick_hz ceiling). Null = no override (game-api bootstrap default 60).
+  """
+  maxTickHz: Int
+  """
+  Max deterministic fuel budget per tick (fuel_per_tick ceiling; decimal string). Null = no override (game-api bootstrap default 10000000000).
+  """
+  fuelPerTick: BigInt
+  """
+  Max deterministic fuel budget per invoke (fuel_per_invoke ceiling; decimal string). Null = no override (game-api bootstrap default 50000000000).
+  """
+  fuelPerInvoke: BigInt
+  """
+  Max WASM linear memory per module instance in MiB (max_memory_mb ceiling). Null = no override (game-api bootstrap default 512).
+  """
+  maxMemoryMb: Int
+  """
+  Max wall-clock watchdog deadline per entry call in milliseconds (max_run_ms ceiling). Null = no override (game-api bootstrap default 5000).
+  """
+  maxRunMs: Int
+  """
+  Max host data-API operations per tick (max_db_ops_per_tick ceiling). Null = no override (game-api bootstrap default 500).
+  """
+  maxDbOpsPerTick: Int
+  """
+  Max module-emitted replication messages per minute (max_egress_msgs_per_min ceiling). Null = no override (game-api bootstrap default 60000).
+  """
+  maxEgressMsgsPerMin: Int
+  """
+  Max module-emitted replication bytes per minute (max_egress_bytes_per_min ceiling; decimal string). Null = no override (game-api bootstrap default 100000000).
+  """
+  maxEgressBytesPerMin: BigInt
+  """When the ceilings row was last updated (UTC)."""
+  updatedAt: DateTime!
+  """
+  users.user_id of the operator who last updated the ceilings. Null when never edited.
+  """
+  updatedByUserId: String
+}
+
+
+"""
 64-bit integer. Sent and received as a decimal string (e.g. "123"), never a JSON number, to avoid precision loss for values beyond 2^53. On input, provide a string literal; on output, the value is serialized as a string.
 """
 scalar BigInt
@@ -6213,6 +6275,49 @@ input PublishEnvironmentReleaseFromGameApiTagInput {
   gameApiTag: String!
   """Overwrite an existing environment version row if it already exists."""
   force: Boolean! = false
+}
+
+
+"""
+Patch for cpSetComputePlatformCeilings. Omitted fields stay unchanged; a field set to an explicit null clears that override (game-api falls back to its COMPUTE_PLATFORM_MAX_* env var, then the code default); a value sets the ceiling. All values must be > 0. At least one field is required.
+"""
+input CpSetComputePlatformCeilingsInput {
+  """
+  Max compute modules per app. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxModules: Int
+  """
+  Max tick rate in Hz per module. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxTickHz: Int
+  """
+  Max fuel per tick (decimal string). > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  fuelPerTick: BigInt
+  """
+  Max fuel per invoke (decimal string). > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  fuelPerInvoke: BigInt
+  """
+  Max WASM memory per module instance in MiB. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxMemoryMb: Int
+  """
+  Max watchdog deadline per entry call in milliseconds. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxRunMs: Int
+  """
+  Max host data-API operations per tick. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxDbOpsPerTick: Int
+  """
+  Max module-emitted replication messages per minute. > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxEgressMsgsPerMin: Int
+  """
+  Max module-emitted replication bytes per minute (decimal string). > 0; explicit null clears the override; omit to leave unchanged.
+  """
+  maxEgressBytesPerMin: BigInt
 }
 
 schema {

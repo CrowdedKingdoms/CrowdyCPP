@@ -56,6 +56,19 @@ class OperatorAPI : public DomainBase {
     vars["since"] = sinceIso;
     return run("CpUsageSummary", vars);
   }
+  /// Platform-wide compute ceilings (the maxima computeSetPolicy clamps to).
+  /// Nullable knobs: null = no operator override (game-api bootstrap default).
+  graphql::Json computePlatformCeilings() const {
+    return run("CpComputePlatformCeilings", graphql::JVal());
+  }
+  /// Patch the compute ceilings. Per knob: omit = unchanged, explicit null =
+  /// clear the override, positive value = set. Replica-syncs to game-api
+  /// (no restart, <=30s cache bound) and writes an audit entry.
+  graphql::Json setComputePlatformCeilings(const graphql::JVal& input) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    return run("CpSetComputePlatformCeilings", vars);
+  }
   graphql::Json unreleasedGameApiTags() const {
     return run("CpUnreleasedGameApiTags", graphql::JVal());
   }

@@ -2447,7 +2447,10 @@ inline constexpr std::string_view kGameModelAutomationsDocument = R"gql(fragment
   name
   description
   enabled
+  actionKind
   functionName
+  computeModuleName
+  computeExport
   targetMode
   selfContainerId
   targetTypeName
@@ -2754,8 +2757,22 @@ query GameModelContainer($appId: BigInt!, $containerId: String!) {
   }
 }
 
-query GameModelContainers($appId: BigInt!, $typeName: String, $sessionId: String) {
-  gameModelContainers(appId: $appId, typeName: $typeName, sessionId: $sessionId) {
+query GameModelContainers(
+  $appId: BigInt!
+  $typeName: String
+  $sessionId: String
+  $where: [GmPropertyPredicateInput!]
+  $limit: Int
+  $offset: Int
+) {
+  gameModelContainers(
+    appId: $appId
+    typeName: $typeName
+    sessionId: $sessionId
+    where: $where
+    limit: $limit
+    offset: $offset
+  ) {
     ...GmContainerFields
   }
 }

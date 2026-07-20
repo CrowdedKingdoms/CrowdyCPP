@@ -150,6 +150,23 @@ class GameModelAPI : public DomainBase {
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
     return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers");
   }
+  /// Filtered/paged container list (2026-07+ servers): `where` is an array of
+  /// up to 8 AND-combined `{key, op, valueJson}` predicates (ops ==, !=, <,
+  /// >, <=, >=; requires typeName; missing properties fall back to the type
+  /// default — the same shape automation selectors use); limit/offset page
+  /// after filtering over the stable created-at ordering (pass -1 to omit).
+  graphql::Json containersWhere(std::string_view appId, std::string_view typeName,
+                                const graphql::JVal& where, int limit = -1, int offset = -1,
+                                std::string_view sessionId = {}) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    if (!typeName.empty()) vars["typeName"] = typeName;
+    if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    if (!where.isNull()) vars["where"] = where;
+    if (limit >= 0) vars["limit"] = limit;
+    if (offset >= 0) vars["offset"] = offset;
+    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers");
+  }
   graphql::Json containerState(std::string_view appId, std::string_view containerId) const {
     graphql::JVal vars;
     vars["appId"] = appId;

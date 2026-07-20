@@ -2,6 +2,7 @@
 
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
+#include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/replication/connection.hpp"
 
 namespace crowdy {
@@ -75,6 +76,16 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
       graphql::GraphQLClientConfig{joinUrl(gameBase, config_.graphqlEndpoint), config_.timeoutMs},
       transport_, auth_);
 
+  // Share one completion pump across both endpoints so poll() drains every
+  // async API callback, and wire in the engine's async transport when provided.
+  dispatcher_ = std::make_shared<graphql::Dispatcher>();
+  managementGql_->setDispatcher(dispatcher_);
+  gameGql_->setDispatcher(dispatcher_);
+  if (config_.asyncTransport) {
+    managementGql_->setAsyncTransport(config_.asyncTransport);
+    gameGql_->setAsyncTransport(config_.asyncTransport);
+  }
+
   // Management-plane domains.
   authApi_ = std::make_unique<domains::AuthAPI>(managementGql_, auth_);
   users_ = std::make_unique<domains::UsersAPI>(managementGql_);
@@ -112,6 +123,10 @@ replication::ReplicationClient& CrowdyClient::replication() {
     replication_ = std::make_unique<replication::ReplicationClient>(std::move(provider));
   }
   return *replication_;
+}
+
+void CrowdyClient::poll() {
+  if (dispatcher_) dispatcher_->drain();
 }
 
 void CrowdyClient::close() { replication_.reset(); }

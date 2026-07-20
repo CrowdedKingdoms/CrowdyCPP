@@ -204,6 +204,20 @@ class GameModelAPI : public DomainBase {
   graphql::Json eventsConnection(const graphql::JVal& vars) const {
     return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelEventsConnection");
   }
+  /// Diagnostics: stitch one flow correlation id (a UUID from the flowId
+  /// field of a GmEvent, GmAutomationRun, or WasmModuleRun) into a single
+  /// cross-engine timeline — the model events, automation runs, and compute
+  /// module runs sharing the flowId minted at the entry edge, each array
+  /// ordered by time ascending. Requires the app-admin manage_apps
+  /// permission and a game-api with gameModelFlow (2026-07-19+; older
+  /// servers reject the operation with a validation error). An unknown
+  /// flowId returns three empty arrays.
+  graphql::Json flow(std::string_view appId, std::string_view flowId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["flowId"] = flowId;
+    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelFlow");
+  }
 
   // ----- Automations (admin-authored; diagnostics readable at runtime) -------
 

@@ -1440,6 +1440,7 @@ fragment ComputePolicyFields on WasmModulePolicy {
 fragment ComputeRunFields on WasmModuleRun {
   runId
   appId
+  flowId
   moduleId
   moduleName
   triggerSource
@@ -2502,6 +2503,7 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
 fragment GmAutomationRunFields on GmAutomationRun {
   runId
   appId
+  flowId
   automationId
   automationName
   triggerSource
@@ -2847,6 +2849,7 @@ query GameModelEvents(
     offset: $offset
   ) {
     eventId
+    flowId
     sessionId
     functionName
     selfContainerId
@@ -2885,6 +2888,7 @@ query GameModelEventsConnection(
       cursor
       node {
         eventId
+        flowId
         sessionId
         functionName
         selfContainerId
@@ -2908,6 +2912,73 @@ query GameModelEventsConnection(
     }
     totalCount
   }
+}
+
+# Cross-engine flow timeline (diagnostics; requires manage_apps and a
+# game-api with gameModelFlow, 2026-07-19+). Selections are inlined because
+# each operations file is shipped as one self-contained document.
+query GameModelFlow($appId: BigInt!, $flowId: String!) {
+  gameModelFlow(appId: $appId, flowId: $flowId) {
+    flowId
+    events {
+      eventId
+      flowId
+      sessionId
+      functionName
+      selfContainerId
+      callerUserId
+      callerKind
+      automationId
+      paramsJson
+      mutationsAppliedJson
+      permissionEffectsAppliedJson
+      returnValueJson
+      success
+      errorMessage
+      executedAt
+    }
+    automationRuns {
+      runId
+      appId
+      flowId
+      automationId
+      automationName
+      triggerSource
+      parentRunId
+      cascadeDepth
+      startedAt
+      finishedAt
+      durationUs
+      targets
+      invocations
+      mutations
+      fnCalls
+      gasUsed
+      success
+      errorMessage
+      circuitAction
+      computeUnits
+    }
+    moduleRuns {
+      runId
+      appId
+      flowId
+      moduleId
+      moduleName
+      triggerSource
+      entry
+      startedAt
+      durationUs
+      fuelUsed
+      dbReads
+      dbWrites
+      egressMsgs
+      egressBytes
+      success
+      errorMessage
+      circuitAction
+    }
+  }
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
 inline constexpr std::string_view kGameModelJoinSessionOperationName = "GameModelJoinSession";
@@ -2926,6 +2997,7 @@ inline constexpr std::string_view kGameModelSessionOperationName = "GameModelSes
 inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSessions";
 inline constexpr std::string_view kGameModelEventsOperationName = "GameModelEvents";
 inline constexpr std::string_view kGameModelEventsConnectionOperationName = "GameModelEventsConnection";
+inline constexpr std::string_view kGameModelFlowOperationName = "GameModelFlow";
 
 /// gameModel/GameModelStudio.graphql
 inline constexpr std::string_view kGameModelStudioDocument = R"gql(fragment GmFunctionFields on GmFunction {

@@ -31,6 +31,15 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
+flow correlation id into a single cross-engine timeline of model events,
+automation runs, and compute module runs, each time-ascending; a diagnostics
+surface gated by `manage_apps`), and the nullable `flowId` field on the
+default `GmEvent` / `GmAutomationRun` / `WasmModuleRun` selections. Requires
+the 2026-07-19 `cks-game-api` dev line (`gameModelFlow` + the flow-id
+columns); older servers reject the operations with a GraphQL validation
+error (everything else keeps working).
+
 **v0.8.0:** container query predicates (`gameModel().containersWhere(...)` —
 `where`/`limit`/`offset` on container lists), automation compute actions
 (`actionKind: "compute_invoke"` with `computeModuleName`/`computeExport` on

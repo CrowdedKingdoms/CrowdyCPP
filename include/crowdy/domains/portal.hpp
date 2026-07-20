@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cctype>
+#include <functional>
 #include <string>
+#include <utility>
 
 #include "crowdy/core/base64.hpp"
 #include "crowdy/core/crypto.hpp"
@@ -44,6 +46,20 @@ class PortalAPI : public DomainBase {
         vars));
   }
 
+  void mintAppTokenAsync(std::string_view appId,
+                         std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["appId"] = appId;
+    execUnwrapAsync(
+        "mutation MintAppToken($input: MintAppTokenInput!) { mintAppToken(input: $input) {"
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AppTokenResponse value{};
+          if (out.ok()) value = AppTokenResponse::fromJson(out.data);
+          cb(std::move(out), value);
+        });
+  }
+
   /// Same-app refresh: rotate the CURRENT app token (send it as the bearer on
   /// this client) for a fresh one and store it. Call before expiresAt to keep
   /// playing without re-portaling.
@@ -53,6 +69,20 @@ class PortalAPI : public DomainBase {
         " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }"));
     if (!r.token.empty()) auth_->setToken(r.token);
     return r;
+  }
+
+  void refreshAsync(std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb) const {
+    execUnwrapAsync(
+        "mutation RefreshAppToken { refreshAppToken {"
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        graphql::JVal(), {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AppTokenResponse r{};
+          if (out.ok()) {
+            r = AppTokenResponse::fromJson(out.data);
+            if (!r.token.empty()) auth_->setToken(r.token);
+          }
+          cb(std::move(out), r);
+        });
   }
 
   /// Overworld side: mint a one-time authorization code bound to the game's
@@ -71,6 +101,21 @@ class PortalAPI : public DomainBase {
         vars);
   }
 
+  void createAuthorizationCodeAsync(std::string_view appId, std::string_view codeChallenge,
+                                    std::string_view redirectUri,
+                                    std::string_view codeChallengeMethod,
+                                    graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"]["appId"] = appId;
+    vars["input"]["codeChallenge"] = codeChallenge;
+    vars["input"]["codeChallengeMethod"] = codeChallengeMethod;
+    vars["input"]["redirectUri"] = redirectUri;
+    execUnwrapAsync(
+        "mutation CreatePortalAuthorizationCode($input: CreatePortalAuthorizationCodeInput!) {"
+        " createPortalAuthorizationCode(input: $input) { code redirectUri expiresAt } }",
+        vars, {}, std::move(cb));
+  }
+
   /// Game side: exchange a one-time code (+ PKCE verifier) for an app token
   /// and store it on this client. Public — no session token required.
   AppTokenResponse exchangeCode(std::string_view code, std::string_view codeVerifier = {}) const {
@@ -84,6 +129,25 @@ class PortalAPI : public DomainBase {
         vars));
     if (!r.token.empty()) auth_->setToken(r.token);
     return r;
+  }
+
+  void exchangeCodeAsync(std::string_view code, std::string_view codeVerifier,
+                         std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["code"] = code;
+    if (!codeVerifier.empty()) vars["input"]["codeVerifier"] = codeVerifier;
+    execUnwrapAsync(
+        "mutation ExchangePortalCode($input: ExchangePortalCodeInput!) {"
+        " exchangePortalCode(input: $input) {"
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AppTokenResponse r{};
+          if (out.ok()) {
+            r = AppTokenResponse::fromJson(out.data);
+            if (!r.token.empty()) auth_->setToken(r.token);
+          }
+          cb(std::move(out), r);
+        });
   }
 
   /// A begun portal entry: send the player to `url`; keep `verifier` (and
@@ -127,6 +191,11 @@ class PortalAPI : public DomainBase {
     return exchangeCode(code, verifier);
   }
 
+  void completeEntryAsync(std::string_view code, std::string_view verifier,
+                          std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb) const {
+    exchangeCodeAsync(code, verifier, std::move(cb));
+  }
+
   /// Generate a PKCE verifier + S256 challenge for the portal flow.
   static PkcePair generatePkce(const core::ICrypto& crypto = core::opensslCrypto()) {
     std::uint8_t raw[32];
@@ -151,6 +220,15 @@ class PortalAPI : public DomainBase {
         vars);
   }
 
+  void getConsentAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    execUnwrapAsync(
+        "query PortalConsent($appId: BigInt!) { portalConsent(appId: $appId) {"
+        " appId appName trusted alreadyGranted consentRequired } }",
+        vars, {}, std::move(cb));
+  }
+
   /// Record the user's consent for an app (call from the consent screen).
   graphql::Json authorizeApp(std::string_view appId) const {
     graphql::JVal vars;
@@ -159,6 +237,15 @@ class PortalAPI : public DomainBase {
         "mutation AuthorizeApp($input: AuthorizeAppInput!) { authorizeApp(input: $input) {"
         " grantId appId status scopes } }",
         vars);
+  }
+
+  void authorizeAppAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"]["appId"] = appId;
+    execUnwrapAsync(
+        "mutation AuthorizeApp($input: AuthorizeAppInput!) { authorizeApp(input: $input) {"
+        " grantId appId status scopes } }",
+        vars, {}, std::move(cb));
   }
 
   /// Revoke a prior authorization; also revokes the user's live tokens for it.
@@ -171,11 +258,31 @@ class PortalAPI : public DomainBase {
         .asBool();
   }
 
+  void revokeAppAuthorizationAsync(std::string_view appId,
+                                   std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    execUnwrapAsync(
+        "mutation RevokeAppAuthorization($appId: BigInt!) { revokeAppAuthorization(appId: $appId) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
+  }
+
   /// The user's active app authorizations ("connected apps").
   graphql::Json myAuthorizedApps() const {
     return execUnwrap(
         "query MyAuthorizedApps { myAuthorizedApps {"
         " grantId appId appName scopes status grantedAt revokedAt } }");
+  }
+
+  void myAuthorizedAppsAsync(graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(
+        "query MyAuthorizedApps { myAuthorizedApps {"
+        " grantId appId appName scopes status grantedAt revokedAt } }",
+        graphql::JVal(), {}, std::move(cb));
   }
 
   /// Register/update an app's portal client settings (requires manage_apps).
@@ -186,6 +293,15 @@ class PortalAPI : public DomainBase {
         "mutation SetAppClientSettings($input: SetAppClientSettingsInput!) {"
         " setAppClientSettings(input: $input) { appId appName trusted consentRequired } }",
         vars);
+  }
+
+  void setAppClientSettingsAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    execUnwrapAsync(
+        "mutation SetAppClientSettings($input: SetAppClientSettingsInput!) {"
+        " setAppClientSettings(input: $input) { appId appName trusted consentRequired } }",
+        vars, {}, std::move(cb));
   }
 
  private:

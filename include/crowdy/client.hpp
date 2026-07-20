@@ -20,6 +20,9 @@ namespace domains {
 class AdminAPI;
 class OperatorAPI;
 }  // namespace domains
+namespace graphql {
+class Dispatcher;
+}
 namespace replication {
 class ReplicationClient;
 }
@@ -42,6 +45,10 @@ struct ClientConfig {
   /// HTTP transport; the default libcurl transport when null. Engine
   /// wrappers inject their own here.
   std::shared_ptr<graphql::IHttpTransport> transport;
+  /// Optional async HTTP transport for the non-blocking API path. When set,
+  /// *Async calls run on it and their callbacks are delivered from poll();
+  /// engines inject their own here (FHttpModule, UnityWebRequest, HTTPRequest).
+  std::shared_ptr<graphql::IAsyncHttpTransport> asyncTransport;
 };
 
 /// The Crowded Kingdoms client. Domain accessors mirror CrowdyJS sub-clients;
@@ -85,6 +92,12 @@ class CrowdyClient {
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
 
+  // ----- Async API completion --------------------------------------------------
+  /// Drain finished async API callbacks on the calling thread. Call once per
+  /// tick from the game thread so *Async callbacks fire where engine objects
+  /// are safe to touch. No-op unless an async transport routes through it.
+  void poll();
+
   // ----- Native replication ----------------------------------------------------
   /// The native UDP replication client (lazily constructed). Connect with an
   /// app-scoped token held by this client.
@@ -112,6 +125,7 @@ class CrowdyClient {
   ClientConfig config_;
   std::shared_ptr<graphql::IHttpTransport> transport_;
   std::shared_ptr<graphql::AuthState> auth_;
+  std::shared_ptr<graphql::Dispatcher> dispatcher_;
   std::shared_ptr<graphql::GraphQLClient> gameGql_;
   std::shared_ptr<graphql::GraphQLClient> managementGql_;
 

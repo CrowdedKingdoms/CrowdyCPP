@@ -10,6 +10,10 @@ add_executable(json_test json_test.cpp)
 target_link_libraries(json_test PRIVATE crowdy_graphql)
 add_test(NAME json_test COMMAND json_test)
 
+add_executable(graphql_client_test graphql_client_test.cpp)
+target_link_libraries(graphql_client_test PRIVATE crowdy_graphql)
+add_test(NAME graphql_client_test COMMAND graphql_client_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

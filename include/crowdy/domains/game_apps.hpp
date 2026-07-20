@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <utility>
+
 #include "crowdy/domains/domain_base.hpp"
 #include "crowdy/generated/operations.hpp"
 
@@ -21,10 +24,25 @@ class GameAppsAPI : public DomainBase {
     return run("GridUserPermissions", vars);
   }
 
+  void userPermissionsAsync(std::string_view appId, std::string_view gridId,
+                            std::string_view userId, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["userId"] = userId;
+    runAsync("GridUserPermissions", vars, std::move(cb));
+  }
+
   graphql::Json nearbyPermissions(const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
     return run("NearbyGridPermissions", vars);
+  }
+
+  void nearbyPermissionsAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    runAsync("NearbyGridPermissions", vars, std::move(cb));
   }
 
   graphql::Json permissionLimits(std::string_view appId, std::string_view gridId) const {
@@ -32,6 +50,14 @@ class GameAppsAPI : public DomainBase {
     vars["appId"] = appId;
     vars["gridId"] = gridId;
     return run("GridPermissionLimits", vars);
+  }
+
+  void permissionLimitsAsync(std::string_view appId, std::string_view gridId,
+                             graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    runAsync("GridPermissionLimits", vars, std::move(cb));
   }
 
   graphql::Json groupGrants(std::string_view appId, std::string_view gridId,
@@ -43,35 +69,76 @@ class GameAppsAPI : public DomainBase {
     return run("GridGroupGrants", vars);
   }
 
+  void groupGrantsAsync(std::string_view appId, std::string_view gridId, std::string_view groupId,
+                        graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["groupId"] = groupId;
+    runAsync("GridGroupGrants", vars, std::move(cb));
+  }
+
   graphql::Json createGrid(const graphql::JVal& input) const { return byInput("CreateGrid", input); }
+
+  void createGridAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("CreateGrid", input, std::move(cb));
+  }
 
   /// Destructive; input accepts an idempotencyKey.
   graphql::Json deleteGrid(const graphql::JVal& input) const { return byInput("DeleteGrid", input); }
 
+  void deleteGridAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("DeleteGrid", input, std::move(cb));
+  }
+
   graphql::Json grantPermissions(const graphql::JVal& input) const {
     return byInput("GrantGridPermissions", input);
+  }
+  void grantPermissionsAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("GrantGridPermissions", input, std::move(cb));
   }
   graphql::Json revokePermissions(const graphql::JVal& input) const {
     return byInput("RevokeGridPermissions", input);
   }
+  void revokePermissionsAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("RevokeGridPermissions", input, std::move(cb));
+  }
   graphql::Json setPermissionLimits(const graphql::JVal& input) const {
     return byInput("SetGridPermissionLimits", input);
+  }
+  void setPermissionLimitsAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("SetGridPermissionLimits", input, std::move(cb));
   }
   graphql::Json assignGroup(const graphql::JVal& input) const {
     return byInput("AssignGroupToGrid", input);
   }
+  void assignGroupAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("AssignGroupToGrid", input, std::move(cb));
+  }
   graphql::Json revokeGroup(const graphql::JVal& input) const {
     return byInput("RevokeGroupFromGrid", input);
+  }
+  void revokeGroupAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    byInputAsync("RevokeGroupFromGrid", input, std::move(cb));
   }
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
     return execUnwrap(gen::gameApps::kGameAppsDocument, vars, op);
   }
+  void runAsync(std::string_view op, const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::gameApps::kGameAppsDocument, vars, op, std::move(cb));
+  }
   graphql::Json byInput(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
     return run(op, vars);
+  }
+  void byInputAsync(std::string_view op, const graphql::JVal& input,
+                    graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    runAsync(op, vars, std::move(cb));
   }
 };
 
@@ -80,6 +147,10 @@ class PlatformAPI : public DomainBase {
  public:
   using DomainBase::DomainBase;
   graphql::Json config() const { return execUnwrap(gen::platform::kPlatformConfigDocument); }
+
+  void configAsync(graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::platform::kPlatformConfigDocument, graphql::JVal(), {}, std::move(cb));
+  }
 };
 
 }  // namespace crowdy::domains

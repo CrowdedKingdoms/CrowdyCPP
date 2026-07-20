@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrowdyCPP VERSION 0.11.0 LANGUAGES C CXX)
+project(CrowdyCPP VERSION 0.12.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,7 @@ endif()
 add_library(crowdy_graphql STATIC
   src/graphql/json.cpp
   src/graphql/graphql_client.cpp
+  src/graphql/async_transport.cpp
   src/graphql/auth_state.cpp
   src/graphql/errors.cpp
 )

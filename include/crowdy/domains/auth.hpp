@@ -1,6 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "crowdy/domains/domain_base.hpp"
@@ -27,6 +29,18 @@ class AuthAPI : public DomainBase {
     return out;
   }
 
+  void availableLoginProvidersAsync(
+      std::function<void(graphql::GraphQLOutcome, std::vector<std::string>)> cb) const {
+    execUnwrapAsync("query AvailableLoginProviders { availableLoginProviders }", graphql::JVal(), {},
+                    [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+                      std::vector<std::string> value;
+                      if (out.ok())
+                        out.data.forEach(
+                            [&](graphql::Json p) { value.push_back(p.asString()); });
+                      cb(std::move(out), std::move(value));
+                    });
+  }
+
   /// Email a one-time magic sign-in link (creates the account on first
   /// sign-in). In development (DEV_AUTH_BYPASS) the response carries
   /// `devToken` to pass straight to completeLoginLink without an inbox.
@@ -42,6 +56,19 @@ class AuthAPI : public DomainBase {
         vars);
   }
 
+  void requestLoginLinkAsync(std::string_view email, std::string_view redirectUri,
+                             graphql::GraphQLCallback cb) const {
+    graphql::JVal input;
+    input["email"] = email;
+    if (!redirectUri.empty()) input["redirectUri"] = redirectUri;
+    graphql::JVal vars;
+    vars["input"] = input;
+    execUnwrapAsync(
+        "mutation RequestLoginLink($input: RequestLoginLinkInput!) {"
+        " requestLoginLink(input: $input) { sent devToken } }",
+        vars, {}, std::move(cb));
+  }
+
   /// Complete a magic-link sign-in; stores the session token on success.
   AuthResponse completeLoginLink(std::string_view token) const {
     graphql::JVal vars;
@@ -54,6 +81,23 @@ class AuthAPI : public DomainBase {
     return r;
   }
 
+  void completeLoginLinkAsync(std::string_view token,
+                              std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["token"] = token;
+    execUnwrapAsync(
+        "mutation CompleteLoginLink($input: CompleteLoginLinkInput!) {"
+        " completeLoginLink(input: $input) { token gameTokenId user { userId email gamertag } } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth_->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
+
   /// Begin a federated (social) sign-in: returns { authorizeUrl, state }.
   graphql::Json socialLoginStart(std::string_view provider, std::string_view redirectUri) const {
     graphql::JVal vars;
@@ -63,6 +107,17 @@ class AuthAPI : public DomainBase {
         "mutation SocialLoginStart($input: SocialLoginStartInput!) {"
         " socialLoginStart(input: $input) { authorizeUrl state } }",
         vars);
+  }
+
+  void socialLoginStartAsync(std::string_view provider, std::string_view redirectUri,
+                             graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"]["provider"] = provider;
+    vars["input"]["redirectUri"] = redirectUri;
+    execUnwrapAsync(
+        "mutation SocialLoginStart($input: SocialLoginStartInput!) {"
+        " socialLoginStart(input: $input) { authorizeUrl state } }",
+        vars, {}, std::move(cb));
   }
 
   /// Complete a federated sign-in from the provider callback; stores token.
@@ -80,6 +135,26 @@ class AuthAPI : public DomainBase {
     return r;
   }
 
+  void socialLoginCompleteAsync(std::string_view provider, std::string_view code,
+                                std::string_view state,
+                                std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["provider"] = provider;
+    vars["input"]["code"] = code;
+    vars["input"]["state"] = state;
+    execUnwrapAsync(
+        "mutation SocialLoginComplete($input: SocialLoginCompleteInput!) {"
+        " socialLoginComplete(input: $input) { token gameTokenId user { userId email gamertag } } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth_->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
+
   /// DEV ONLY bypass sign-in (server must have DEV_AUTH_BYPASS). Stores the
   /// session token; throws FORBIDDEN when the bypass is disabled.
   AuthResponse devLogin(std::string_view email) const {
@@ -93,11 +168,35 @@ class AuthAPI : public DomainBase {
     return r;
   }
 
+  void devLoginAsync(std::string_view email,
+                     std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["email"] = email;
+    execUnwrapAsync(
+        "mutation DevLogin($input: DevLoginInput!) {"
+        " devLogin(input: $input) { token gameTokenId user { userId email gamertag } } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth_->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
+
   /// The signed-in user's linked sign-in identities.
   graphql::Json myIdentities() const {
     return execUnwrap(
         "query MyIdentities { myIdentities {"
         " identityId provider subject email emailVerified createdAt lastLoginAt } }");
+  }
+
+  void myIdentitiesAsync(graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(
+        "query MyIdentities { myIdentities {"
+        " identityId provider subject email emailVerified createdAt lastLoginAt } }",
+        graphql::JVal(), {}, std::move(cb));
   }
 
   /// Link an additional federated identity (from a social callback).
@@ -113,6 +212,18 @@ class AuthAPI : public DomainBase {
         vars);
   }
 
+  void linkIdentityAsync(std::string_view provider, std::string_view code, std::string_view state,
+                         graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"]["provider"] = provider;
+    vars["input"]["code"] = code;
+    vars["input"]["state"] = state;
+    execUnwrapAsync(
+        "mutation LinkIdentity($input: LinkIdentityInput!) { linkIdentity(input: $input) {"
+        " identityId provider subject email emailVerified createdAt lastLoginAt } }",
+        vars, {}, std::move(cb));
+  }
+
   /// Unlink a federated identity (cannot remove the last sign-in method).
   bool unlinkIdentity(std::string_view identityId) const {
     graphql::JVal vars;
@@ -121,6 +232,19 @@ class AuthAPI : public DomainBase {
                "mutation UnlinkIdentity($identityId: String!) { unlinkIdentity(identityId: $identityId) }",
                vars)
         .asBool();
+  }
+
+  void unlinkIdentityAsync(std::string_view identityId,
+                           std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["identityId"] = identityId;
+    execUnwrapAsync(
+        "mutation UnlinkIdentity($identityId: String!) { unlinkIdentity(identityId: $identityId) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
   }
 
   /// Whether the account behind an email has a password set. Public — used
@@ -132,6 +256,15 @@ class AuthAPI : public DomainBase {
         "query CheckAuthMethod($input: CheckAuthMethodInput!) {"
         " checkAuthMethod(input: $input) { hasPassword } }",
         vars);
+  }
+
+  void checkAuthMethodAsync(std::string_view email, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["input"]["email"] = email;
+    execUnwrapAsync(
+        "query CheckAuthMethod($input: CheckAuthMethodInput!) {"
+        " checkAuthMethod(input: $input) { hasPassword } }",
+        vars, {}, std::move(cb));
   }
 
   // ----- Legacy password authentication ---------------------------------------
@@ -151,6 +284,25 @@ class AuthAPI : public DomainBase {
     return r;
   }
 
+  void loginAsync(std::string_view email, std::string_view password,
+                  std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["loginUserInput"]["email"] = email;
+    vars["loginUserInput"]["password"] = password;
+    execUnwrapAsync(
+        "mutation Login($loginUserInput: LoginUserInput!) {"
+        " login(loginUserInput: $loginUserInput) {"
+        " token gameTokenId user { userId email gamertag } } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth_->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
+
   AuthResponse registerUser(std::string_view email, std::string_view password,
                             std::string_view gamertag = {}) const {
     graphql::JVal vars;
@@ -166,12 +318,45 @@ class AuthAPI : public DomainBase {
     return r;
   }
 
+  void registerUserAsync(std::string_view email, std::string_view password,
+                         std::string_view gamertag,
+                         std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["registerUserInput"]["email"] = email;
+    vars["registerUserInput"]["password"] = password;
+    if (!gamertag.empty()) vars["registerUserInput"]["gamertag"] = gamertag;
+    execUnwrapAsync(
+        "mutation Register($registerUserInput: RegisterUserInput!) {"
+        " register(registerUserInput: $registerUserInput) {"
+        " token gameTokenId user { userId email gamertag } } }",
+        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth_->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
+
   bool confirmEmail(std::string_view token) const {
     graphql::JVal vars;
     vars["token"] = token;
     return execUnwrap(
                "mutation ConfirmEmail($token: String!) { confirmEmail(token: $token) }", vars)
         .asBool();
+  }
+
+  void confirmEmailAsync(std::string_view token,
+                         std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["token"] = token;
+    execUnwrapAsync("mutation ConfirmEmail($token: String!) { confirmEmail(token: $token) }", vars,
+                    {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+                      bool value = false;
+                      if (out.ok()) value = out.data.asBool();
+                      cb(std::move(out), value);
+                    });
   }
 
   bool requestPasswordReset(std::string_view email) const {
@@ -181,6 +366,19 @@ class AuthAPI : public DomainBase {
                "mutation RequestPasswordReset($email: String!) { requestPasswordReset(email: $email) }",
                vars)
         .asBool();
+  }
+
+  void requestPasswordResetAsync(std::string_view email,
+                                 std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["email"] = email;
+    execUnwrapAsync(
+        "mutation RequestPasswordReset($email: String!) { requestPasswordReset(email: $email) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
   }
 
   bool resetPassword(std::string_view token, std::string_view newPassword) const {
@@ -194,6 +392,21 @@ class AuthAPI : public DomainBase {
         .asBool();
   }
 
+  void resetPasswordAsync(std::string_view token, std::string_view newPassword,
+                          std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["resetPasswordInput"]["token"] = token;
+    vars["resetPasswordInput"]["newPassword"] = newPassword;
+    execUnwrapAsync(
+        "mutation ResetPassword($resetPasswordInput: ResetPasswordInput!) {"
+        " resetPassword(resetPasswordInput: $resetPasswordInput) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
+  }
+
   bool resendConfirmationEmail(std::string_view email) const {
     graphql::JVal vars;
     vars["email"] = email;
@@ -202,6 +415,20 @@ class AuthAPI : public DomainBase {
                " resendConfirmationEmail(email: $email) }",
                vars)
         .asBool();
+  }
+
+  void resendConfirmationEmailAsync(std::string_view email,
+                                    std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["email"] = email;
+    execUnwrapAsync(
+        "mutation ResendConfirmationEmail($email: String!) {"
+        " resendConfirmationEmail(email: $email) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
   }
 
   bool changePassword(std::string_view currentPassword, std::string_view newPassword) const {
@@ -215,6 +442,21 @@ class AuthAPI : public DomainBase {
         .asBool();
   }
 
+  void changePasswordAsync(std::string_view currentPassword, std::string_view newPassword,
+                           std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["currentPassword"] = currentPassword;
+    vars["newPassword"] = newPassword;
+    execUnwrapAsync(
+        "mutation ChangePassword($currentPassword: String!, $newPassword: String!) {"
+        " changePassword(currentPassword: $currentPassword, newPassword: $newPassword) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
+  }
+
   /// Single-device logout; clears the stored token.
   bool logout() const {
     bool ok = execUnwrap(gen::auth::kLogoutDocument).asBool();
@@ -222,9 +464,28 @@ class AuthAPI : public DomainBase {
     return ok;
   }
 
+  void logoutAsync(std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    execUnwrapAsync(gen::auth::kLogoutDocument, graphql::JVal(), {},
+                    [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+                      bool ok = false;
+                      if (out.ok()) ok = out.data.asBool();
+                      auth_->clearToken();
+                      cb(std::move(out), ok);
+                    });
+  }
+
   /// Revoke every active session for the user.
   bool logoutAllDevices() const {
     return execUnwrap(gen::auth::kLogoutAllDevicesDocument).asBool();
+  }
+
+  void logoutAllDevicesAsync(std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    execUnwrapAsync(gen::auth::kLogoutAllDevicesDocument, graphql::JVal(), {},
+                    [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+                      bool value = false;
+                      if (out.ok()) value = out.data.asBool();
+                      cb(std::move(out), value);
+                    });
   }
 
   void setToken(const std::string& token) const { auth_->setToken(token); }

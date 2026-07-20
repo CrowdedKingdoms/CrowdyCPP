@@ -43,8 +43,8 @@
 /// blocks that map traditional game concepts (inventory, lockable objects,
 /// NPCs, land plots, economy, progression, loot, quests, combat, matches,
 /// decks, world simulation, social, leaderboards, feature gates) onto the
-/// Game Model + Automations API. Everything composes client.gameModel(); no
-/// new server surface.
+/// Model/Automations plus optional compute engines. Model-first layers
+/// compose client.gameModel(); engine-aware layers use client.compute().
 ///
 /// Two phases, matching the platform's model:
 ///  1. Studio (admin) loads the rules — deploy() takes declarative
@@ -60,6 +60,7 @@ namespace crowdy::kit {
 /// (typePrefix values must equal what the blueprints were deployed with).
 struct GameKitOptions {
   std::string inventoryTypePrefix;
+  OwnerIdKind inventoryOwnerIdKind = OwnerIdKind::Int;
   std::string objectTypeName;
   std::string keyTypeName;
   std::string npcTypeName;
@@ -122,7 +123,8 @@ class GameKitClient {
       : appId_(appId),
         gameModel_(gameModel),
         engines_(appId, compute),
-        inventory_(appId, gameModel, options.inventoryTypePrefix),
+        inventory_(appId, gameModel, options.inventoryTypePrefix,
+                   options.inventoryOwnerIdKind),
         objects_(appId, gameModel, options.objectTypeName, options.keyTypeName),
         npcs_(appId, gameModel, options.npcTypeName, &engines_, options.npcEngineModule),
         plots_(appId, gameModel, gameApps, options.plotTypeName),

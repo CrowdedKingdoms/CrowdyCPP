@@ -12,6 +12,23 @@
 /// kit.inventory.
 namespace crowdy::kit {
 
+struct InventoryIngredient {
+  std::string itemId;
+  std::int64_t quantity = 1;
+};
+
+struct InventoryRecipeSpec {
+  std::string recipeId;
+  std::vector<InventoryIngredient> inputs;
+  InventoryIngredient output;
+};
+
+struct InventoryBarterSpec {
+  std::string barterId;
+  InventoryIngredient pay;
+  InventoryIngredient receive;
+};
+
 struct InventoryBlueprintOptions {
   /// Prefix for type names ("Bank" -> BankInventory/BankItemStack) and,
   /// snake-cased, for function names (bank_grant_stack, ...). Lets several
@@ -19,6 +36,11 @@ struct InventoryBlueprintOptions {
   std::string typePrefix;
   int maxSlots = 24;   ///< default max_slots on new inventories
   int slotCount = 64;  ///< exclusive upper bound for stack slot indexes
+  std::vector<InventoryRecipeSpec> recipes;
+  std::vector<InventoryBarterSpec> barters;
+  OwnerIdKind ownerIdKind = OwnerIdKind::Int;
+  std::string stackInstantiableBy = "member";
+  bool serverGrant = false;
 };
 
 struct InventoryNames {
@@ -43,6 +65,20 @@ inline InventoryNames inventoryNames(std::string_view typePrefix = {}) {
   n.transferFn = fnPrefix + "transfer_stack";
   n.containsEdge = "inventory_contains";
   return n;
+}
+
+inline std::string inventoryCraftFunctionName(std::string_view recipeId,
+                                              std::string_view typePrefix = {}) {
+  const std::string prefix =
+      typePrefix.empty() ? std::string() : toSnakeCase(typePrefix) + "_";
+  return prefix + "craft_" + toSnakeCase(recipeId);
+}
+
+inline std::string inventoryBarterFunctionName(std::string_view barterId,
+                                               std::string_view typePrefix = {}) {
+  const std::string prefix =
+      typePrefix.empty() ? std::string() : toSnakeCase(typePrefix) + "_";
+  return prefix + "barter_" + toSnakeCase(barterId);
 }
 
 /// Build the inventory blueprint. Runtime counterpart: InventoryKit.
@@ -87,19 +123,19 @@ inline KitBlueprint inventoryBlueprint(const InventoryBlueprintOptions& options 
 
   bp.containerTypes.push_back(
       containerType(names.inventoryType, "A bag of item stacks owned by one player."));
-  bp.containerTypes.push_back(
-      containerType(names.stackType, "One stack of a single item type in an inventory slot."));
+  {
+    JVal stack =
+        containerType(names.stackType, "One stack of a single item type in an inventory slot.");
+    stack["instantiableBy"] = options.stackInstantiableBy;
+    bp.containerTypes.push_back(std::move(stack));
+  }
 
   bp.propertyDefinitions.push_back(
       propertyDef(names.inventoryType, "max_slots", "int", std::to_string(options.maxSlots)));
   bp.propertyDefinitions.push_back(
       propertyDef(names.stackType, "item_id", "string", std::nullopt));
   {
-    JVal ownerMirror = propertyDef(names.stackType, "owner_user_id", "int", "0");
-    ownerMirror["description"] =
-        "Mirror of the stack owner's user id (kit convention), read by cross-container guards "
-        "such as the economy trade/market functions.";
-    bp.propertyDefinitions.push_back(std::move(ownerMirror));
+    bp.propertyDefinitions.push_back(ownerMirrorProperty(names.stackType, options.ownerIdKind));
   }
   bp.propertyDefinitions.push_back(propertyDef(names.stackType, "quantity", "int", "0"));
   bp.propertyDefinitions.push_back(propertyDef(names.stackType, "slot", "int", "0"));
@@ -113,8 +149,15 @@ inline KitBlueprint inventoryBlueprint(const InventoryBlueprintOptions& options 
     fn["mutations"] =
         JVal::array({mutation("self", "quantity", "self.quantity + max(0, $amount)")});
     fn["returnExpression"] = "self.quantity";
-    fn["invokePolicyJson"] = ownerOnly;
-    fn["description"] = "Add items to a stack the caller owns.";
+    fn["invokePolicyJson"] =
+        options.serverGrant ? kitPolicyJson(isAutomationPolicy()) : ownerOnly;
+    if (options.serverGrant) {
+      fn["invokeScope"] = "internal";
+      fn["autonomousInvocable"] = true;
+    }
+    fn["description"] = options.serverGrant
+                            ? "Trusted server/compute grant; players cannot mint items."
+                            : "Add items to a stack the caller owns.";
     bp.functions.push_back(std::move(fn));
   }
   {
@@ -161,6 +204,83 @@ inline KitBlueprint inventoryBlueprint(const InventoryBlueprintOptions& options 
     bp.functions.push_back(std::move(fn));
   }
 
+  for (const auto& recipe : options.recipes) {
+    if (recipe.inputs.empty() || recipe.inputs.size() > 6) {
+      throw std::invalid_argument("inventory recipe '" + recipe.recipeId +
+                                  "' must have 1-6 inputs");
+    }
+    JVal fn;
+    fn["name"] = inventoryCraftFunctionName(recipe.recipeId, options.typePrefix);
+    fn["containerTypeName"] = names.inventoryType;
+    fn["returnType"] = "int";
+    JArray parameters;
+    JArray mutations;
+    std::vector<std::string> guards;
+    for (std::size_t i = 0; i < recipe.inputs.size(); ++i) {
+      const std::string input = "input_" + std::to_string(i) + "_id";
+      parameters.push_back(param(input.c_str(), "container_ref"));
+      mutations.push_back(mutation("ref($" + input + ")", "quantity",
+                                   "ref($" + input + ").quantity - " +
+                                       std::to_string(recipe.inputs[i].quantity)));
+      guards.push_back(
+          ownerEqualsCaller("ref($" + input + ").owner_user_id", options.ownerIdKind));
+      guards.push_back("ref($" + input + ").item_id == \"" +
+                       recipe.inputs[i].itemId + "\"");
+      guards.push_back("ref($" + input + ").quantity >= " +
+                       std::to_string(recipe.inputs[i].quantity));
+    }
+    parameters.push_back(param("output_id", "container_ref"));
+    mutations.push_back(mutation(
+        "ref($output_id)", "quantity",
+        "ref($output_id).quantity + " + std::to_string(recipe.output.quantity)));
+    guards.push_back(ownerEqualsCaller("ref($output_id).owner_user_id", options.ownerIdKind));
+    guards.push_back("ref($output_id).item_id == \"" + recipe.output.itemId + "\"");
+    std::string guard;
+    for (const auto& part : guards) {
+      if (!guard.empty()) guard += " && ";
+      guard += part;
+    }
+    fn["parameters"] = JVal(std::move(parameters));
+    fn["mutations"] = JVal(std::move(mutations));
+    fn["returnExpression"] = "ref($output_id).quantity";
+    fn["invokePolicyJson"] =
+        kitPolicyJson(andPolicy({ownerOfSelfPolicy(), conditionPolicy(guard)}));
+    fn["autonomousInvocable"] = true;
+    fn["description"] = "Atomically craft '" + recipe.recipeId +
+                        "': consume all inputs and grant the output, or write nothing.";
+    bp.functions.push_back(std::move(fn));
+  }
+
+  for (const auto& barter : options.barters) {
+    JVal fn;
+    fn["name"] = inventoryBarterFunctionName(barter.barterId, options.typePrefix);
+    fn["containerTypeName"] = names.inventoryType;
+    fn["returnType"] = "int";
+    fn["parameters"] =
+        JVal::array({param("pay_id", "container_ref"), param("receive_id", "container_ref")});
+    fn["mutations"] = JVal::array({
+        mutation("ref($pay_id)", "quantity",
+                 "ref($pay_id).quantity - " + std::to_string(barter.pay.quantity)),
+        mutation("ref($receive_id)", "quantity",
+                 "ref($receive_id).quantity + " +
+                     std::to_string(barter.receive.quantity)),
+    });
+    fn["returnExpression"] = "ref($receive_id).quantity";
+    const std::string guard =
+        ownerEqualsCaller("ref($pay_id).owner_user_id", options.ownerIdKind) +
+        " && ref($pay_id).item_id == \"" + barter.pay.itemId +
+        "\" && ref($pay_id).quantity >= " + std::to_string(barter.pay.quantity) +
+        " && " +
+        ownerEqualsCaller("ref($receive_id).owner_user_id", options.ownerIdKind) +
+        " && ref($receive_id).item_id == \"" + barter.receive.itemId + "\"";
+    fn["invokePolicyJson"] =
+        kitPolicyJson(andPolicy({ownerOfSelfPolicy(), conditionPolicy(guard)}));
+    fn["autonomousInvocable"] = true;
+    fn["description"] =
+        "Atomically execute barter '" + barter.barterId + "', or write nothing.";
+    bp.functions.push_back(std::move(fn));
+  }
+
   return bp;
 }
 
@@ -179,8 +299,13 @@ struct KitItemStack {
 class InventoryKit {
  public:
   InventoryKit(std::string appId, domains::GameModelAPI& gameModel,
-               std::string_view typePrefix = {})
-      : appId_(std::move(appId)), gameModel_(gameModel), names_(inventoryNames(typePrefix)) {}
+               std::string_view typePrefix = {},
+               OwnerIdKind ownerIdKind = OwnerIdKind::Int)
+      : appId_(std::move(appId)),
+        gameModel_(gameModel),
+        typePrefix_(typePrefix),
+        ownerIdKind_(ownerIdKind),
+        names_(inventoryNames(typePrefix)) {}
 
   const InventoryNames& names() const { return names_; }
 
@@ -233,7 +358,11 @@ class InventoryKit {
     properties.push_back(property("quantity", "int", std::to_string(quantity)));
     properties.push_back(property("slot", "int", std::to_string(slot)));
     if (!ownerUserId.empty())
-      properties.push_back(property("owner_user_id", "int", std::string(ownerUserId)));
+      properties.push_back(property(
+          "owner_user_id",
+          ownerIdKind_ == OwnerIdKind::String ? "string" : "int",
+          ownerIdKind_ == OwnerIdKind::String ? JVal(ownerUserId).dump()
+                                              : std::string(ownerUserId)));
     input["properties"] = JVal(std::move(properties));
     return gameModel_.createContainer(input);
   }
@@ -266,6 +395,31 @@ class InventoryKit {
     params["to_id"] = toStackId;
     params["amount"] = amount;
     return kitInvoke(gameModel_, appId_, names_.transferFn, fromStackId, params);
+  }
+
+  /// Atomically craft a generated recipe. Input stack ids must follow the
+  /// recipe input order; every write commits together or none do.
+  KitInvokeResult craft(std::string_view inventoryId, std::string_view recipeId,
+                        const std::vector<std::string>& inputStackIds,
+                        std::string_view outputStackId) {
+    JVal params;
+    for (std::size_t i = 0; i < inputStackIds.size(); ++i) {
+      params["input_" + std::to_string(i) + "_id"] = inputStackIds[i];
+    }
+    params["output_id"] = outputStackId;
+    return kitInvoke(gameModel_, appId_,
+                     inventoryCraftFunctionName(recipeId, typePrefix_), inventoryId, params);
+  }
+
+  /// Atomically execute a generated item-for-item barter offer.
+  KitInvokeResult barter(std::string_view inventoryId, std::string_view barterId,
+                         std::string_view payStackId,
+                         std::string_view receiveStackId) {
+    JVal params;
+    params["pay_id"] = payStackId;
+    params["receive_id"] = receiveStackId;
+    return kitInvoke(gameModel_, appId_,
+                     inventoryBarterFunctionName(barterId, typePrefix_), inventoryId, params);
   }
 
   /// Record that a stack belongs to an inventory (inventory_contains edge).
@@ -317,6 +471,8 @@ class InventoryKit {
 
   std::string appId_;
   domains::GameModelAPI& gameModel_;
+  std::string typePrefix_;
+  OwnerIdKind ownerIdKind_;
   InventoryNames names_;
 };
 

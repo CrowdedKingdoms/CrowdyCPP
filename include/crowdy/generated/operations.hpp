@@ -1607,6 +1607,8 @@ query ComputeAppDiagnostics($appId: BigInt!) {
       runs
       failures
     }
+    toolchainRustVersion
+    toolchainWasmOptVersion
   }
 }
 

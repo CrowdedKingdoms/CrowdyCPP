@@ -194,6 +194,31 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeSwitches", vars, std::move(cb));
   }
 
+  /// Fetch a compiled CLIENT artifact + metadata (P3). Fail-closed server-side
+  /// (ownership, authorship, run_client_code, admission). Native clients get
+  /// the metadata + gas-injected bytes; the browser broker itself is
+  /// JS-only (04 §7), so CrowdyCPP wraps the fetch surface, not a sandbox.
+  graphql::Json artifact(std::string_view appId, std::string_view gridId,
+                         std::string_view name,
+                         std::string_view versionId = "") const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["name"] = name;
+    if (!versionId.empty()) vars["versionId"] = versionId;
+    return run("PlayerComputeArtifact", vars);
+  }
+  void artifactAsync(std::string_view appId, std::string_view gridId,
+                     std::string_view name, std::string_view versionId,
+                     graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["name"] = name;
+    if (!versionId.empty()) vars["versionId"] = versionId;
+    runAsync("PlayerComputeArtifact", vars, std::move(cb));
+  }
+
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
     return execUnwrap(gen::playerCompute::kPlayerComputeDocument, vars, op);

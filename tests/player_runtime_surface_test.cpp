@@ -147,6 +147,15 @@ void testPlayerUsageAndSwitchesUseGamePlane() {
   CHECK(transport->last.body.find("PlayerComputeSetSwitch") !=
         std::string::npos);
   CHECK(transport->last.body.find(R"("scope":"player")") != std::string::npos);
+
+  transport->response = {
+      200,
+      R"({"data":{"playerComputeArtifact":{"versionId":"v-1","artifactHash":"h","sizeBytes":42,"clientFuelPerDispatch":"100000000"}}})"};
+  auto artifact = client.playerCompute().artifact("1", "2", "hud");
+  CHECK(artifact["versionId"].asString() == "v-1");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
+  CHECK(transport->last.body.find("PlayerComputeArtifact") !=
+        std::string::npos);
 }
 
 void testPlayerWalletUsesManagementPlane() {

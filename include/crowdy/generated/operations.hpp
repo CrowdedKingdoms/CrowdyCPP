@@ -3897,6 +3897,7 @@ inline constexpr std::string_view kPlayerComputeDocument = R"gql(fragment Player
   authorUserId
   authorOrgId
   enabled
+  draft
   currentVersionId
   circuitState
   lastError
@@ -4075,6 +4076,28 @@ query PlayerComputeSwitches($appId: BigInt!) {
     reason
     disabledAt
   }
+}
+
+query PlayerComputeArtifact(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $versionId: String
+) {
+  playerComputeArtifact(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    versionId: $versionId
+  ) {
+    versionId
+    artifactHash
+    artifactBase64
+    sizeBytes
+    abiVersion
+    contractJson
+    clientFuelPerDispatch
+  }
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
 inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
@@ -4087,6 +4110,7 @@ inline constexpr std::string_view kPlayerComputeRunsOperationName = "PlayerCompu
 inline constexpr std::string_view kPlayerComputeLogsOperationName = "PlayerComputeLogs";
 inline constexpr std::string_view kPlayerComputeSetSwitchOperationName = "PlayerComputeSetSwitch";
 inline constexpr std::string_view kPlayerComputeSwitchesOperationName = "PlayerComputeSwitches";
+inline constexpr std::string_view kPlayerComputeArtifactOperationName = "PlayerComputeArtifact";
 
 }  // namespace playerCompute
 

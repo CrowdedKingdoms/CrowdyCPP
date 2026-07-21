@@ -71,6 +71,8 @@ const METHOD_WAIVERS = {
   'HostTracker.beat': 'internal; WorldSession::tick heartbeats on the configured interval',
   'LocalActorStore.patchState': 'byte codec: mutate the state struct and call setState',
   'SocialKit.chat.onMessage': 'receive chat via WorldSession channelInbox / Connection channel handler',
+  'PlayerComputeAPI.artifactBytes':
+    'browser broker convenience (base64 -> ArrayBuffer for the JS worker sandbox); native clients use artifact() and decode as needed (04 §7)',
 };
 
 // Idiomatic renames: `TsClass.tsMethod` -> C++ method name (same class).

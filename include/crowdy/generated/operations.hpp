@@ -3410,6 +3410,10 @@ inline constexpr std::string_view kMarketplaceDocument = R"gql(fragment PlayerCo
   mediaJson
   licenseMode
   acquisitionMode
+  priceCents
+  rentIntervalDays
+  windowDays
+  unitBudget
   status
   createdAt
 }

@@ -3982,6 +3982,99 @@ mutation PlayerComputeInvoke(
     fuelUsed
     durationUs
   }
+}
+
+fragment PlayerWasmModuleRunFields on PlayerWasmModuleRun {
+  runId
+  appId
+  gridId
+  moduleId
+  moduleName
+  executedAsUserId
+  flowId
+  triggerSource
+  startedAt
+  durationUs
+  fuelUsed
+  success
+  errorMessage
+}
+
+query PlayerComputeUsage($appId: BigInt!) {
+  playerComputeUsage(appId: $appId) {
+    appId
+    hourUnitsUsed
+    dayUnitsUsed
+    unitsPerHour
+    unitsPerDay
+    compilesThisHour
+    maxCompilesPerHour
+    gateStatus
+    gateReason
+  }
+}
+
+query PlayerComputeRuns(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String
+  $success: Boolean
+  $limit: Int
+  $offset: Int
+) {
+  playerComputeRuns(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    success: $success
+    limit: $limit
+    offset: $offset
+  ) {
+    ...PlayerWasmModuleRunFields
+  }
+}
+
+query PlayerComputeLogs(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String
+  $limit: Int
+) {
+  playerComputeLogs(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    limit: $limit
+  ) {
+    ...PlayerWasmModuleRunFields
+  }
+}
+
+mutation PlayerComputeSetSwitch(
+  $appId: BigInt!
+  $scope: String!
+  $disabled: Boolean!
+  $scopeRef: BigInt
+  $reason: String
+) {
+  playerComputeSetSwitch(
+    appId: $appId
+    scope: $scope
+    disabled: $disabled
+    scopeRef: $scopeRef
+    reason: $reason
+  )
+}
+
+query PlayerComputeSwitches($appId: BigInt!) {
+  playerComputeSwitches(appId: $appId) {
+    switchId
+    appId
+    scope
+    scopeRef
+    reason
+    disabledAt
+  }
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
 inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
@@ -3989,6 +4082,11 @@ inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "Player
 inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
 inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";
 inline constexpr std::string_view kPlayerComputeInvokeOperationName = "PlayerComputeInvoke";
+inline constexpr std::string_view kPlayerComputeUsageOperationName = "PlayerComputeUsage";
+inline constexpr std::string_view kPlayerComputeRunsOperationName = "PlayerComputeRuns";
+inline constexpr std::string_view kPlayerComputeLogsOperationName = "PlayerComputeLogs";
+inline constexpr std::string_view kPlayerComputeSetSwitchOperationName = "PlayerComputeSetSwitch";
+inline constexpr std::string_view kPlayerComputeSwitchesOperationName = "PlayerComputeSwitches";
 
 }  // namespace playerCompute
 
@@ -4068,6 +4166,219 @@ inline constexpr std::string_view kPlayerAutomationSetEnabledOperationName = "Pl
 inline constexpr std::string_view kPlayerAutomationDeleteOperationName = "PlayerAutomationDelete";
 
 }  // namespace playerModel
+
+namespace playerWallet {
+
+/// playerWallet/PlayerWallet.graphql
+inline constexpr std::string_view kPlayerWalletDocument = R"gql(fragment PlayerWalletFields on PlayerWallet {
+  walletId
+  userId
+  balanceCents
+  currency
+  createdAt
+}
+
+fragment PlayerWalletTransactionFields on PlayerWalletTransaction {
+  transactionId
+  walletId
+  userId
+  amountCents
+  balanceAfter
+  transactionType
+  description
+  referenceId
+  appId
+  createdAt
+}
+
+fragment PlayerSpendCapFields on PlayerSpendCap {
+  userId
+  scope
+  scopeRef
+  dailyLimitCents
+  monthlyLimitCents
+  currentDayUsageCents
+  currentMonthUsageCents
+}
+
+fragment PlayerAutoBillingFields on PlayerAutoBilling {
+  userId
+  enabled
+  limitCents
+  autoBilledThisPeriodCents
+  rechargeAmountCents
+  lowWaterThresholdCents
+  hasPaymentMethod
+  lastError
+}
+
+fragment PlayerUsageChargeFields on PlayerUsageCharge {
+  chargeId
+  userId
+  appId
+  periodStart
+  periodEnd
+  amountCents
+  platformCents
+  markupCents
+  currency
+  usageSnapshotJson
+  createdAt
+}
+
+fragment PlayerWasmPolicyFields on PlayerWasmPolicy {
+  policyId
+  appId
+  scope
+  scopeRef
+  enabled
+  maxModulesPerGrid
+  maxModulesTotal
+  maxTickHz
+  fuelPerTick
+  fuelPerInvoke
+  maxMemoryMb
+  maxRunMs
+  maxDbOpsPerTick
+  maxEgressMsgsPerMin
+  maxEgressBytesPerMin
+  unitsPerHour
+  unitsPerDay
+  maxCompilesPerHour
+  maxContainerCreatesDay
+  clientFuelPerDispatch
+}
+
+query PlayerWalletBalance {
+  playerWalletBalance {
+    ...PlayerWalletFields
+  }
+}
+
+query PlayerWalletTransactions($limit: Int, $offset: Int) {
+  playerWalletTransactions(limit: $limit, offset: $offset) {
+    ...PlayerWalletTransactionFields
+  }
+}
+
+query PlayerUsageCharges($appId: BigInt, $limit: Int) {
+  playerUsageCharges(appId: $appId, limit: $limit) {
+    ...PlayerUsageChargeFields
+  }
+}
+
+query PlayerSpendCaps {
+  playerSpendCaps {
+    ...PlayerSpendCapFields
+  }
+}
+
+mutation SetPlayerSpendCap(
+  $scope: String!
+  $appId: BigInt
+  $dailyLimitCents: BigInt
+  $monthlyLimitCents: BigInt
+) {
+  setPlayerSpendCap(
+    scope: $scope
+    appId: $appId
+    dailyLimitCents: $dailyLimitCents
+    monthlyLimitCents: $monthlyLimitCents
+  ) {
+    ...PlayerSpendCapFields
+  }
+}
+
+query PlayerAutoBilling {
+  playerAutoBilling {
+    ...PlayerAutoBillingFields
+  }
+}
+
+mutation SetPlayerAutoBilling(
+  $enabled: Boolean!
+  $limitCents: BigInt
+  $rechargeAmountCents: BigInt
+  $lowWaterThresholdCents: BigInt
+) {
+  setPlayerAutoBilling(
+    enabled: $enabled
+    limitCents: $limitCents
+    rechargeAmountCents: $rechargeAmountCents
+    lowWaterThresholdCents: $lowWaterThresholdCents
+  ) {
+    ...PlayerAutoBillingFields
+  }
+}
+
+query PlayerRuntimeStates {
+  playerRuntimeStates {
+    userId
+    appId
+    status
+    reason
+    updatedAt
+  }
+}
+
+query PlayerWasmPolicies($appId: BigInt!) {
+  playerWasmPolicies(appId: $appId) {
+    ...PlayerWasmPolicyFields
+  }
+}
+
+mutation SetPlayerWasmPolicy($input: SetPlayerWasmPolicyInput!) {
+  setPlayerWasmPolicy(input: $input) {
+    ...PlayerWasmPolicyFields
+  }
+}
+
+mutation DeletePlayerWasmPolicy(
+  $appId: BigInt!
+  $scope: String!
+  $scopeRef: BigInt
+) {
+  deletePlayerWasmPolicy(appId: $appId, scope: $scope, scopeRef: $scopeRef)
+}
+
+query PlayerRateMarkup($appId: BigInt!) {
+  playerRateMarkup(appId: $appId)
+}
+
+mutation SetPlayerRateMarkup($appId: BigInt!, $markupBps: Int!) {
+  setPlayerRateMarkup(appId: $appId, markupBps: $markupBps)
+}
+
+query AppPlayerUsage($appId: BigInt!, $hours: Int) {
+  appPlayerUsage(appId: $appId, hours: $hours) {
+    userId
+    computeUnits
+    automationUnits
+    compileCount
+    chargedCents
+  }
+}
+
+query AppPlayerMarkupAccrued($appId: BigInt!) {
+  appPlayerMarkupAccrued(appId: $appId)
+})gql";
+inline constexpr std::string_view kPlayerWalletBalanceOperationName = "PlayerWalletBalance";
+inline constexpr std::string_view kPlayerWalletTransactionsOperationName = "PlayerWalletTransactions";
+inline constexpr std::string_view kPlayerUsageChargesOperationName = "PlayerUsageCharges";
+inline constexpr std::string_view kPlayerSpendCapsOperationName = "PlayerSpendCaps";
+inline constexpr std::string_view kSetPlayerSpendCapOperationName = "SetPlayerSpendCap";
+inline constexpr std::string_view kPlayerAutoBillingOperationName = "PlayerAutoBilling";
+inline constexpr std::string_view kSetPlayerAutoBillingOperationName = "SetPlayerAutoBilling";
+inline constexpr std::string_view kPlayerRuntimeStatesOperationName = "PlayerRuntimeStates";
+inline constexpr std::string_view kPlayerWasmPoliciesOperationName = "PlayerWasmPolicies";
+inline constexpr std::string_view kSetPlayerWasmPolicyOperationName = "SetPlayerWasmPolicy";
+inline constexpr std::string_view kDeletePlayerWasmPolicyOperationName = "DeletePlayerWasmPolicy";
+inline constexpr std::string_view kPlayerRateMarkupOperationName = "PlayerRateMarkup";
+inline constexpr std::string_view kSetPlayerRateMarkupOperationName = "SetPlayerRateMarkup";
+inline constexpr std::string_view kAppPlayerUsageOperationName = "AppPlayerUsage";
+inline constexpr std::string_view kAppPlayerMarkupAccruedOperationName = "AppPlayerMarkupAccrued";
+
+}  // namespace playerWallet
 
 namespace quotas {
 

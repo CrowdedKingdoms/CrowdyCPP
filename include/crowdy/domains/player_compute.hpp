@@ -113,6 +113,87 @@ class PlayerComputeAPI : public DomainBase {
     return run("PlayerComputeInvoke", vars);
   }
 
+  /// The caller's spend/quota view for one app (P2): current hour/day compute
+  /// units vs the effective policy caps, compile-quota utilization, and the
+  /// wallet/spend-cap gate state with its typed reason.
+  graphql::Json usage(std::string_view appId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    return run("PlayerComputeUsage", vars);
+  }
+  void usageAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    runAsync("PlayerComputeUsage", vars, std::move(cb));
+  }
+
+  /// Executions on an owned grid, newest first (attributed to the grid owner).
+  graphql::Json runs(std::string_view appId, std::string_view gridId,
+                     const graphql::JVal& options = graphql::JVal()) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    return run("PlayerComputeRuns", vars);
+  }
+  void runsAsync(std::string_view appId, std::string_view gridId,
+                 const graphql::JVal& options,
+                 graphql::GraphQLCallback cb) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    runAsync("PlayerComputeRuns", vars, std::move(cb));
+  }
+
+  /// Failed-run diagnostics on an owned grid, newest first.
+  graphql::Json logs(std::string_view appId, std::string_view gridId,
+                     const graphql::JVal& options = graphql::JVal()) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    return run("PlayerComputeLogs", vars);
+  }
+  void logsAsync(std::string_view appId, std::string_view gridId,
+                 const graphql::JVal& options,
+                 graphql::GraphQLCallback cb) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    runAsync("PlayerComputeLogs", vars, std::move(cb));
+  }
+
+  /// Throw or release a kill-ladder switch at player/grid/app scope (studio,
+  /// requires manage_compute). Quota state is retained across a kill.
+  graphql::Json setSwitch(std::string_view appId, std::string_view scope,
+                          bool disabled,
+                          const graphql::JVal& options = graphql::JVal()) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["scope"] = scope;
+    vars["disabled"] = disabled;
+    return run("PlayerComputeSetSwitch", vars);
+  }
+  void setSwitchAsync(std::string_view appId, std::string_view scope,
+                      bool disabled, const graphql::JVal& options,
+                      graphql::GraphQLCallback cb) const {
+    graphql::JVal vars = options;
+    vars["appId"] = appId;
+    vars["scope"] = scope;
+    vars["disabled"] = disabled;
+    runAsync("PlayerComputeSetSwitch", vars, std::move(cb));
+  }
+
+  /// Active kill-ladder switches (studio, requires view_compute_diagnostics).
+  graphql::Json switches(std::string_view appId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    return run("PlayerComputeSwitches", vars);
+  }
+  void switchesAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    runAsync("PlayerComputeSwitches", vars, std::move(cb));
+  }
+
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
     return execUnwrap(gen::playerCompute::kPlayerComputeDocument, vars, op);

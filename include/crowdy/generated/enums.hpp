@@ -105,12 +105,14 @@ inline std::optional<AppVisibility> appVisibilityFromString(std::string_view s) 
 
 enum class CheckoutPurpose {
   ORG_WALLET_TOPUP,
+  PLAYER_WALLET_TOPUP,
   APP_ACCESS_PURCHASE,
 };
 
 inline constexpr std::string_view toString(CheckoutPurpose v) {
   switch (v) {
     case CheckoutPurpose::ORG_WALLET_TOPUP: return "ORG_WALLET_TOPUP";
+    case CheckoutPurpose::PLAYER_WALLET_TOPUP: return "PLAYER_WALLET_TOPUP";
     case CheckoutPurpose::APP_ACCESS_PURCHASE: return "APP_ACCESS_PURCHASE";
   }
   return "";
@@ -118,6 +120,7 @@ inline constexpr std::string_view toString(CheckoutPurpose v) {
 
 inline std::optional<CheckoutPurpose> checkoutPurposeFromString(std::string_view s) {
   if (s == "ORG_WALLET_TOPUP") return CheckoutPurpose::ORG_WALLET_TOPUP;
+  if (s == "PLAYER_WALLET_TOPUP") return CheckoutPurpose::PLAYER_WALLET_TOPUP;
   if (s == "APP_ACCESS_PURCHASE") return CheckoutPurpose::APP_ACCESS_PURCHASE;
   return std::nullopt;
 }

@@ -240,6 +240,147 @@ class MarketplaceAPI {
     management_.runAsync("MarketplaceSetGridClaimPolicy", vars, std::move(cb));
   }
 
+  // -- P4b: paid modes + grid commerce (Game API) -----------------------------
+
+  /// Renew a RENT / extend a TIME_LIMITED acquisition (a wallet charge).
+  graphql::Json renewAcquisition(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceRenewAcquisition", vars);
+  }
+  void renewAcquisitionAsync(const graphql::JVal& vars,
+                             graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceRenewAcquisition", vars, std::move(cb));
+  }
+
+  /// Top up a COST_LIMITED acquisition's unit budget (a wallet charge).
+  graphql::Json topUpAcquisition(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceTopUpAcquisition", vars);
+  }
+  void topUpAcquisitionAsync(const graphql::JVal& vars,
+                             graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceTopUpAcquisition", vars, std::move(cb));
+  }
+
+  /// Refund a paid acquisition (window + void-on-use rules apply). Cents back.
+  graphql::Json refundAcquisition(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceRefundAcquisition", vars);
+  }
+  void refundAcquisitionAsync(const graphql::JVal& vars,
+                              graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceRefundAcquisition", vars, std::move(cb));
+  }
+
+  /// Browse the app's grid listings.
+  graphql::Json gridListings(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceGridListings", vars);
+  }
+  void gridListingsAsync(const graphql::JVal& vars,
+                         graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceGridListings", vars, std::move(cb));
+  }
+
+  /// Buy a grid listing (wallet debit + atomic ownership; refund on failure).
+  graphql::Json purchaseGrid(const graphql::JVal& vars) const {
+    return game_.run("MarketplacePurchaseGrid", vars);
+  }
+  void purchaseGridAsync(const graphql::JVal& vars,
+                         graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplacePurchaseGrid", vars, std::move(cb));
+  }
+
+  // -- P4b: pricing, payouts, risk (Management API) ---------------------------
+
+  /// Author-only: set a listing's acquisition mode + price.
+  graphql::Json setListingPricing(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceSetListingPricing", vars);
+  }
+  void setListingPricingAsync(const graphql::JVal& vars,
+                              graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceSetListingPricing", vars, std::move(cb));
+  }
+
+  /// Set the app's marketplace org revenue share in bps (manage_billing).
+  graphql::Json setOrgShare(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceSetOrgShare", vars);
+  }
+  void setOrgShareAsync(const graphql::JVal& vars,
+                        graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceSetOrgShare", vars, std::move(cb));
+  }
+
+  /// Begin Stripe Connect Express onboarding (returns a BROWSER URL — native
+  /// callers open it externally; the hosted KYC flow itself is web-only).
+  graphql::Json beginSellerOnboarding(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceBeginSellerOnboarding", vars);
+  }
+  void beginSellerOnboardingAsync(const graphql::JVal& vars,
+                                  graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceBeginSellerOnboarding", vars, std::move(cb));
+  }
+
+  /// Begin onboarding for an ORG payout account (manage_billing in the org).
+  graphql::Json beginOrgSellerOnboarding(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceBeginOrgSellerOnboarding", vars);
+  }
+  void beginOrgSellerOnboardingAsync(const graphql::JVal& vars,
+                                     graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceBeginOrgSellerOnboarding", vars,
+                         std::move(cb));
+  }
+
+  /// The calling player's seller payout balance.
+  graphql::Json mySellerBalance() const {
+    return management_.run("MarketplaceMySellerBalance", graphql::JVal());
+  }
+  void mySellerBalanceAsync(graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceMySellerBalance",
+                         graphql::JVal(), std::move(cb));
+  }
+
+  /// Pay out the payable balance to the caller's Connect account.
+  graphql::Json requestPayout() const {
+    return management_.run("MarketplaceRequestPayout", graphql::JVal());
+  }
+  void requestPayoutAsync(graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceRequestPayout", graphql::JVal(),
+                         std::move(cb));
+  }
+
+  /// Earn-to-mod: convert payable balance into player wallet credit.
+  graphql::Json spendPayoutToWallet(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceSpendPayoutToWallet", vars);
+  }
+  void spendPayoutToWalletAsync(const graphql::JVal& vars,
+                                graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceSpendPayoutToWallet", vars, std::move(cb));
+  }
+
+  /// The app's open T11 commerce risk queue (manage_compute).
+  graphql::Json commerceRiskQueue(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceCommerceRiskQueue", vars);
+  }
+  void commerceRiskQueueAsync(const graphql::JVal& vars,
+                              graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceCommerceRiskQueue", vars, std::move(cb));
+  }
+
+  /// Release or confirm a T11 risk flag (manage_compute).
+  graphql::Json decideRiskFlag(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceDecideRiskFlag", vars);
+  }
+  void decideRiskFlagAsync(const graphql::JVal& vars,
+                           graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceDecideRiskFlag", vars, std::move(cb));
+  }
+
+  /// Studio: create a grid listing (blueprint or concrete; manage_apps).
+  graphql::Json createGridListing(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceCreateGridListing", vars);
+  }
+  void createGridListingAsync(const graphql::JVal& vars,
+                              graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceCreateGridListing", vars, std::move(cb));
+  }
+
  private:
   Endpoint game_;
   Endpoint management_;

@@ -3433,6 +3433,9 @@ fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   appId
   mode
   status
+  expiresAt
+  unitBudget
+  unitsConsumed
   acquiredAt
 }
 
@@ -3674,6 +3677,136 @@ mutation MarketplaceSetGridClaimPolicy(
     policy: $policy
     approverUserIds: $approverUserIds
   )
+}
+
+# ---- P4b: paid modes, grid commerce, seller payouts ---------------------------
+
+mutation MarketplaceRenewAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  renewPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+mutation MarketplaceTopUpAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  topUpPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+mutation MarketplaceRefundAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  refundPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId)
+}
+
+query MarketplaceGridListings($appId: BigInt!) {
+  gridListings(appId: $appId) {
+    gridListingId
+    appId
+    kind
+    name
+    description
+    priceCents
+    conferredPermissionKeys
+    resalePolicy
+  }
+}
+
+mutation MarketplacePurchaseGrid(
+  $appId: BigInt!
+  $gridListingId: String!
+  $chunkX: Int
+  $chunkY: Int
+  $chunkZ: Int
+) {
+  purchaseGrid(
+    appId: $appId
+    gridListingId: $gridListingId
+    chunkX: $chunkX
+    chunkY: $chunkY
+    chunkZ: $chunkZ
+  ) {
+    gridId
+    ownershipAssigned
+  }
+}
+
+# ---- P4b management: pricing, seller onboarding/payouts, grid listing CRUD -----
+
+mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
+  setListingPricing(input: $input)
+}
+
+mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
+  setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
+}
+
+mutation MarketplaceBeginSellerOnboarding($country: String!) {
+  beginSellerOnboarding(country: $country) {
+    status
+    onboardingUrl
+    unavailableReason
+  }
+}
+
+mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
+  beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
+    status
+    onboardingUrl
+    unavailableReason
+  }
+}
+
+query MarketplaceMySellerBalance {
+  mySellerPayoutBalance {
+    partyKind
+    partyRef
+    pendingCents
+    payableCents
+    reservedCents
+    onboardingStatus
+    payoutsFrozen
+  }
+}
+
+mutation MarketplaceRequestPayout {
+  requestSellerPayout
+}
+
+mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
+  spendPayoutBalanceToWallet(amountCents: $amountCents)
+}
+
+query MarketplaceCommerceRiskQueue($appId: BigInt!) {
+  commerceRiskQueue(appId: $appId) {
+    flagId
+    appId
+    kind
+    orderId
+    subjectKind
+    subjectRef
+    detail
+    status
+    createdAt
+  }
+}
+
+mutation MarketplaceDecideRiskFlag(
+  $appId: BigInt!
+  $flagId: String!
+  $release: Boolean!
+) {
+  decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
+}
+
+mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
+  createGridListing(input: $input) {
+    gridListingId
+    appId
+    kind
+    name
+    priceCents
+    resalePolicy
+    status
+  }
 })gql";
 inline constexpr std::string_view kMarketplaceListingsOperationName = "MarketplaceListings";
 inline constexpr std::string_view kMarketplaceListingVersionsOperationName = "MarketplaceListingVersions";
@@ -3698,6 +3831,21 @@ inline constexpr std::string_view kMarketplaceAppAcquisitionsOperationName = "Ma
 inline constexpr std::string_view kMarketplaceTransferListingOperationName = "MarketplaceTransferListing";
 inline constexpr std::string_view kMarketplaceSetListingStatusOperationName = "MarketplaceSetListingStatus";
 inline constexpr std::string_view kMarketplaceSetGridClaimPolicyOperationName = "MarketplaceSetGridClaimPolicy";
+inline constexpr std::string_view kMarketplaceRenewAcquisitionOperationName = "MarketplaceRenewAcquisition";
+inline constexpr std::string_view kMarketplaceTopUpAcquisitionOperationName = "MarketplaceTopUpAcquisition";
+inline constexpr std::string_view kMarketplaceRefundAcquisitionOperationName = "MarketplaceRefundAcquisition";
+inline constexpr std::string_view kMarketplaceGridListingsOperationName = "MarketplaceGridListings";
+inline constexpr std::string_view kMarketplacePurchaseGridOperationName = "MarketplacePurchaseGrid";
+inline constexpr std::string_view kMarketplaceSetListingPricingOperationName = "MarketplaceSetListingPricing";
+inline constexpr std::string_view kMarketplaceSetOrgShareOperationName = "MarketplaceSetOrgShare";
+inline constexpr std::string_view kMarketplaceBeginSellerOnboardingOperationName = "MarketplaceBeginSellerOnboarding";
+inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingOperationName = "MarketplaceBeginOrgSellerOnboarding";
+inline constexpr std::string_view kMarketplaceMySellerBalanceOperationName = "MarketplaceMySellerBalance";
+inline constexpr std::string_view kMarketplaceRequestPayoutOperationName = "MarketplaceRequestPayout";
+inline constexpr std::string_view kMarketplaceSpendPayoutToWalletOperationName = "MarketplaceSpendPayoutToWallet";
+inline constexpr std::string_view kMarketplaceCommerceRiskQueueOperationName = "MarketplaceCommerceRiskQueue";
+inline constexpr std::string_view kMarketplaceDecideRiskFlagOperationName = "MarketplaceDecideRiskFlag";
+inline constexpr std::string_view kMarketplaceCreateGridListingOperationName = "MarketplaceCreateGridListing";
 
 }  // namespace marketplace
 
@@ -4623,6 +4771,14 @@ query PlayerAutoBilling {
   }
 }
 
+mutation BeginPlayerCardSetup {
+  beginPlayerCardSetup {
+    clientSecret
+    publishableKey
+    externalCustomerId
+  }
+}
+
 mutation SetPlayerAutoBilling(
   $enabled: Boolean!
   $limitCents: BigInt
@@ -4696,6 +4852,7 @@ inline constexpr std::string_view kPlayerUsageChargesOperationName = "PlayerUsag
 inline constexpr std::string_view kPlayerSpendCapsOperationName = "PlayerSpendCaps";
 inline constexpr std::string_view kSetPlayerSpendCapOperationName = "SetPlayerSpendCap";
 inline constexpr std::string_view kPlayerAutoBillingOperationName = "PlayerAutoBilling";
+inline constexpr std::string_view kBeginPlayerCardSetupOperationName = "BeginPlayerCardSetup";
 inline constexpr std::string_view kSetPlayerAutoBillingOperationName = "SetPlayerAutoBilling";
 inline constexpr std::string_view kPlayerRuntimeStatesOperationName = "PlayerRuntimeStates";
 inline constexpr std::string_view kPlayerWasmPoliciesOperationName = "PlayerWasmPolicies";

@@ -281,17 +281,29 @@ inline std::optional<PaymentProvider> paymentProviderFromString(std::string_view
 
 enum class PlayerCodeAcquisitionMode {
   FREE,
+  BUY,
+  RENT,
+  TIME_LIMITED,
+  COST_LIMITED,
 };
 
 inline constexpr std::string_view toString(PlayerCodeAcquisitionMode v) {
   switch (v) {
     case PlayerCodeAcquisitionMode::FREE: return "FREE";
+    case PlayerCodeAcquisitionMode::BUY: return "BUY";
+    case PlayerCodeAcquisitionMode::RENT: return "RENT";
+    case PlayerCodeAcquisitionMode::TIME_LIMITED: return "TIME_LIMITED";
+    case PlayerCodeAcquisitionMode::COST_LIMITED: return "COST_LIMITED";
   }
   return "";
 }
 
 inline std::optional<PlayerCodeAcquisitionMode> playerCodeAcquisitionModeFromString(std::string_view s) {
   if (s == "FREE") return PlayerCodeAcquisitionMode::FREE;
+  if (s == "BUY") return PlayerCodeAcquisitionMode::BUY;
+  if (s == "RENT") return PlayerCodeAcquisitionMode::RENT;
+  if (s == "TIME_LIMITED") return PlayerCodeAcquisitionMode::TIME_LIMITED;
+  if (s == "COST_LIMITED") return PlayerCodeAcquisitionMode::COST_LIMITED;
   return std::nullopt;
 }
 
@@ -412,6 +424,31 @@ inline constexpr std::string_view toString(RedeployDeployMode v) {
 inline std::optional<RedeployDeployMode> redeployDeployModeFromString(std::string_view s) {
   if (s == "FULL") return RedeployDeployMode::FULL;
   if (s == "SERVICES") return RedeployDeployMode::SERVICES;
+  return std::nullopt;
+}
+
+enum class SellerOnboardingStatus {
+  NONE,
+  PENDING,
+  COMPLETE,
+  BLOCKED,
+};
+
+inline constexpr std::string_view toString(SellerOnboardingStatus v) {
+  switch (v) {
+    case SellerOnboardingStatus::NONE: return "NONE";
+    case SellerOnboardingStatus::PENDING: return "PENDING";
+    case SellerOnboardingStatus::COMPLETE: return "COMPLETE";
+    case SellerOnboardingStatus::BLOCKED: return "BLOCKED";
+  }
+  return "";
+}
+
+inline std::optional<SellerOnboardingStatus> sellerOnboardingStatusFromString(std::string_view s) {
+  if (s == "NONE") return SellerOnboardingStatus::NONE;
+  if (s == "PENDING") return SellerOnboardingStatus::PENDING;
+  if (s == "COMPLETE") return SellerOnboardingStatus::COMPLETE;
+  if (s == "BLOCKED") return SellerOnboardingStatus::BLOCKED;
   return std::nullopt;
 }
 

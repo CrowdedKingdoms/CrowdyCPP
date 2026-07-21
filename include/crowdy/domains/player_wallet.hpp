@@ -85,6 +85,16 @@ class PlayerWalletAPI : public DomainBase {
     runAsync("SetPlayerAutoBilling", vars, std::move(cb));
   }
 
+  /// Begin vaulting a card (P4b): returns the Stripe SetupIntent client
+  /// secret + publishable key. Confirming the card is a BROWSER flow —
+  /// native callers hand the secret to a webview/external browser.
+  graphql::Json beginCardSetup() const {
+    return run("BeginPlayerCardSetup", {});
+  }
+  void beginCardSetupAsync(graphql::GraphQLCallback cb) const {
+    runAsync("BeginPlayerCardSetup", {}, std::move(cb));
+  }
+
   /// The caller's per-app gate states (absence means active).
   graphql::Json runtimeStates() const { return run("PlayerRuntimeStates", {}); }
   void runtimeStatesAsync(graphql::GraphQLCallback cb) const {

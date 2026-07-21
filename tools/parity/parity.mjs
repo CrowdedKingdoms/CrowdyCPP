@@ -71,12 +71,17 @@ const METHOD_WAIVERS = {
   'HostTracker.beat': 'internal; WorldSession::tick heartbeats on the configured interval',
   'LocalActorStore.patchState': 'byte codec: mutate the state struct and call setState',
   'SocialKit.chat.onMessage': 'receive chat via WorldSession channelInbox / Connection channel handler',
+  'PlayerComputeAPI.artifactBytes':
+    'browser broker convenience (base64 -> ArrayBuffer for the JS worker sandbox); native clients use artifact() and decode as needed (04 §7)',
+  'MarketplaceAPI.clientArtifactBytes':
+    'browser broker convenience (base64 -> ArrayBuffer for the JS worker sandbox); native clients use clientArtifact() and decode as needed (04 §7)',
 };
 
 // Idiomatic renames: `TsClass.tsMethod` -> C++ method name (same class).
 const METHOD_ALIASES = {
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
+  'PlayerComputeAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
@@ -335,7 +340,8 @@ const CLASS_MAP = {
   ServerStatusAPI: 'ServerStatusAPI', ChunksAPI: 'ChunksAPI', VoxelsAPI: 'VoxelsAPI',
   ActorsAPI: 'ActorsAPI', AvatarsAPI: 'AvatarsAPI', StateAPI: 'StateAPI', HostAPI: 'HostAPI',
   TeleportAPI: 'TeleportAPI', TeamsAPI: 'TeamsAPI', ChannelsAPI: 'ChannelsAPI',
-  GameModelAPI: 'GameModelAPI', GameAppsAPI: 'GameAppsAPI', PlatformAPI: 'PlatformAPI',
+  GameModelAPI: 'GameModelAPI', GameAppsAPI: 'GameAppsAPI',
+  PlayerComputeAPI: 'PlayerComputeAPI', PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI', AppsAPI: 'AppsAPI', AppAccessAPI: 'AppAccessAPI',
   BillingAPI: 'BillingAPI', PaymentsAPI: 'PaymentsAPI', QuotasAPI: 'QuotasAPI',
   EnvironmentsAPI: 'EnvironmentsAPI', UsageAPI: 'UsageAPI',

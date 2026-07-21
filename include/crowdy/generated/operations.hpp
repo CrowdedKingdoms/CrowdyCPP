@@ -488,6 +488,55 @@ inline constexpr std::string_view kArchiveAppDocument = R"gql(mutation ArchiveAp
 })gql";
 inline constexpr std::string_view kArchiveAppOperationName = "ArchiveApp";
 
+/// apps/CodeAdmissions.graphql
+inline constexpr std::string_view kCodeAdmissionsDocument = R"gql(fragment AppCodeAdmissionFields on AppCodeAdmission {
+  admissionId
+  appId
+  subjectKind
+  subjectRef
+  versionRange
+  admittedBy
+  admittedAt
+  revokedAt
+}
+
+query AppCodeAdmissionMode($appId: BigInt!) {
+  appCodeAdmissionMode(appId: $appId)
+}
+
+query AppCodeAdmissions($appId: BigInt!, $includeRevoked: Boolean) {
+  appCodeAdmissions(appId: $appId, includeRevoked: $includeRevoked) {
+    ...AppCodeAdmissionFields
+  }
+}
+
+mutation SetAppCodeAdmissionMode(
+  $appId: BigInt!
+  $mode: CodeAdmissionMode!
+) {
+  setAppCodeAdmissionMode(appId: $appId, mode: $mode)
+}
+
+mutation AdmitAppCode($input: AdmitAppCodeInput!) {
+  admitAppCode(input: $input) {
+    ...AppCodeAdmissionFields
+  }
+}
+
+mutation RevokeAppCodeAdmission(
+  $appId: BigInt!
+  $admissionId: String!
+) {
+  revokeAppCodeAdmission(appId: $appId, admissionId: $admissionId) {
+    ...AppCodeAdmissionFields
+  }
+})gql";
+inline constexpr std::string_view kAppCodeAdmissionModeOperationName = "AppCodeAdmissionMode";
+inline constexpr std::string_view kAppCodeAdmissionsOperationName = "AppCodeAdmissions";
+inline constexpr std::string_view kSetAppCodeAdmissionModeOperationName = "SetAppCodeAdmissionMode";
+inline constexpr std::string_view kAdmitAppCodeOperationName = "AdmitAppCode";
+inline constexpr std::string_view kRevokeAppCodeAdmissionOperationName = "RevokeAppCodeAdmission";
+
 /// apps/CreateApp.graphql
 inline constexpr std::string_view kCreateAppDocument = R"gql(mutation CreateApp($input: CreateAppInput!) {
   createApp(input: $input) {
@@ -2368,7 +2417,37 @@ inline constexpr std::string_view kUpdateEnvironmentScalingOperationName = "Upda
 namespace gameApps {
 
 /// gameApps/GameApps.graphql
-inline constexpr std::string_view kGameAppsDocument = R"gql(query GridUserPermissions($appId: BigInt!, $gridId: BigInt!, $userId: BigInt!) {
+inline constexpr std::string_view kGameAppsDocument = R"gql(fragment GridOwnershipFields on GridOwnership {
+  gridOwnershipId
+  gridId
+  appId
+  ownerKind
+  ownerRef
+  tenure
+  acquiredVia
+  acquiredAt
+  expiresAt
+}
+
+query GridOwnership($appId: BigInt!, $gridId: BigInt!) {
+  gridOwnership(appId: $appId, gridId: $gridId) {
+    ...GridOwnershipFields
+  }
+}
+
+mutation AssignGridOwnership($input: AssignGridOwnershipInput!) {
+  assignGridOwnership(input: $input) {
+    ...GridOwnershipFields
+  }
+}
+
+mutation TransferGridOwnership($input: TransferGridOwnershipInput!) {
+  transferGridOwnership(input: $input) {
+    ...GridOwnershipFields
+  }
+}
+
+query GridUserPermissions($appId: BigInt!, $gridId: BigInt!, $userId: BigInt!) {
   gridUserPermissions(appId: $appId, gridId: $gridId, userId: $userId) {
     appId
     gridId
@@ -2489,6 +2568,9 @@ mutation RevokeGroupFromGrid($input: RevokeGroupFromGridInput!) {
     expiresAt
   }
 })gql";
+inline constexpr std::string_view kGridOwnershipOperationName = "GridOwnership";
+inline constexpr std::string_view kAssignGridOwnershipOperationName = "AssignGridOwnership";
+inline constexpr std::string_view kTransferGridOwnershipOperationName = "TransferGridOwnership";
 inline constexpr std::string_view kGridUserPermissionsOperationName = "GridUserPermissions";
 inline constexpr std::string_view kNearbyGridPermissionsOperationName = "NearbyGridPermissions";
 inline constexpr std::string_view kGridPermissionLimitsOperationName = "GridPermissionLimits";
@@ -3315,6 +3397,462 @@ inline constexpr std::string_view kActorHeartbeatOperationName = "ActorHeartbeat
 
 }  // namespace host
 
+namespace marketplace {
+
+/// marketplace/Marketplace.graphql
+inline constexpr std::string_view kMarketplaceDocument = R"gql(fragment PlayerCodeListingFields on PlayerCodeListing {
+  listingId
+  appId
+  ownerKind
+  ownerRef
+  name
+  description
+  mediaJson
+  licenseMode
+  acquisitionMode
+  priceCents
+  rentIntervalDays
+  windowDays
+  unitBudget
+  status
+  createdAt
+}
+
+fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
+  versionId
+  listingId
+  versionNo
+  serverArtifactHashes
+  clientArtifactHashes
+  capabilitySummaryJson
+  capabilityHash
+  openSource
+  licenseText
+  createdAt
+}
+
+fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
+  acquisitionId
+  listingId
+  appId
+  mode
+  status
+  expiresAt
+  unitBudget
+  unitsConsumed
+  acquiredAt
+}
+
+fragment PlayerCodeInstallFields on PlayerCodeInstall {
+  installId
+  acquisitionId
+  listingId
+  appId
+  pinnedVersionId
+  targetGridId
+  consentedCapabilityHash
+  status
+  createdAt
+}
+
+fragment GridClaimRequestFields on GridClaimRequest {
+  requestId
+  appId
+  gridId
+  requesterUserId
+  status
+  createdAt
+}
+
+# ---- Game API: browse / publish / acquire / install / consent -----------------
+
+query MarketplaceListings($appId: BigInt!) {
+  playerCodeListings(appId: $appId) {
+    ...PlayerCodeListingFields
+    admissionState
+    latestVersionId
+  }
+}
+
+query MarketplaceListingVersions($appId: BigInt!, $listingId: String!) {
+  playerCodeListingVersions(appId: $appId, listingId: $listingId) {
+    ...PlayerCodeListingVersionFields
+  }
+}
+
+query MarketplaceMyAcquisitions($appId: BigInt!) {
+  myPlayerCodeAcquisitions(appId: $appId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+query MarketplaceMyInstalls($appId: BigInt!) {
+  myPlayerCodeInstalls(appId: $appId) {
+    ...PlayerCodeInstallFields
+  }
+}
+
+query MarketplaceGridClientMods($appId: BigInt!, $gridId: BigInt!) {
+  gridClientMods(appId: $appId, gridId: $gridId) {
+    attachmentId
+    listingId
+    listingName
+    versionId
+    gridId
+    capabilitySummaryJson
+    capabilityHash
+    callerConsented
+  }
+}
+
+query MarketplaceClientArtifact(
+  $appId: BigInt!
+  $listingId: String!
+  $versionId: String
+) {
+  playerCodeClientArtifact(
+    appId: $appId
+    listingId: $listingId
+    versionId: $versionId
+  ) {
+    versionId
+    artifactHash
+    artifactBase64
+    sizeBytes
+    abiVersion
+    contractJson
+    clientFuelPerDispatch
+  }
+}
+
+mutation MarketplacePublishListing($input: PublishPlayerCodeInput!) {
+  publishPlayerCode(input: $input) {
+    ...PlayerCodeListingFields
+    admissionState
+    latestVersionId
+  }
+}
+
+mutation MarketplacePublishVersion($input: PublishPlayerCodeVersionInput!) {
+  publishPlayerCodeVersion(input: $input) {
+    ...PlayerCodeListingVersionFields
+  }
+}
+
+mutation MarketplaceAcquire($appId: BigInt!, $listingId: String!) {
+  acquirePlayerCode(appId: $appId, listingId: $listingId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+mutation MarketplaceInstall(
+  $appId: BigInt!
+  $acquisitionId: String!
+  $consentCapabilityHash: String!
+  $gridId: BigInt
+  $versionId: String
+) {
+  installPlayerCode(
+    appId: $appId
+    acquisitionId: $acquisitionId
+    consentCapabilityHash: $consentCapabilityHash
+    gridId: $gridId
+    versionId: $versionId
+  ) {
+    ...PlayerCodeInstallFields
+  }
+}
+
+mutation MarketplaceUninstall($appId: BigInt!, $installId: String!) {
+  uninstallPlayerCode(appId: $appId, installId: $installId)
+}
+
+mutation MarketplaceConsentGridClientMod(
+  $appId: BigInt!
+  $attachmentId: String!
+  $consentCapabilityHash: String!
+) {
+  consentGridClientMod(
+    appId: $appId
+    attachmentId: $attachmentId
+    consentCapabilityHash: $consentCapabilityHash
+  )
+}
+
+# ---- Game API: D4 grid claim flows --------------------------------------------
+
+query MarketplaceGridClaimPolicy($appId: BigInt!) {
+  gridClaimPolicy(appId: $appId)
+}
+
+query MarketplaceGridClaimRequests($appId: BigInt!) {
+  gridClaimRequests(appId: $appId) {
+    ...GridClaimRequestFields
+  }
+}
+
+mutation MarketplaceClaimGridOwnership($appId: BigInt!, $gridId: BigInt!) {
+  claimGridOwnership(appId: $appId, gridId: $gridId) {
+    policy
+    ownershipAssigned
+    claimRequestId
+  }
+}
+
+mutation MarketplaceDecideGridClaim(
+  $appId: BigInt!
+  $requestId: String!
+  $approve: Boolean!
+) {
+  decideGridClaim(appId: $appId, requestId: $requestId, approve: $approve) {
+    ...GridClaimRequestFields
+  }
+}
+
+mutation MarketplaceIssueGridClaimInvite(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $inviteeUserId: BigInt!
+) {
+  issueGridClaimInvite(
+    appId: $appId
+    gridId: $gridId
+    inviteeUserId: $inviteeUserId
+  )
+}
+
+# ---- Management API: studio moderation / catalog administration ---------------
+
+query MarketplaceAdmissionQueue($appId: BigInt!) {
+  appCodeAdmissionQueue(appId: $appId) {
+    listing {
+      ...PlayerCodeListingFields
+    }
+    admissionState
+    admissionId
+    matchedSubjectKind
+  }
+}
+
+query MarketplaceAppListings($appId: BigInt!, $includeDelisted: Boolean) {
+  appPlayerCodeListings(appId: $appId, includeDelisted: $includeDelisted) {
+    ...PlayerCodeListingFields
+    updatedAt
+  }
+}
+
+query MarketplaceAppAcquisitions($appId: BigInt!) {
+  appPlayerCodeAcquisitions(appId: $appId) {
+    ...PlayerCodeAcquisitionFields
+    acquirerUserId
+    revokedAt
+  }
+}
+
+mutation MarketplaceTransferListing($input: TransferPlayerCodeListingInput!) {
+  transferPlayerCodeListing(input: $input) {
+    ...PlayerCodeListingFields
+    updatedAt
+  }
+}
+
+mutation MarketplaceSetListingStatus(
+  $appId: BigInt!
+  $listingId: String!
+  $status: PlayerCodeListingStatus!
+) {
+  setPlayerCodeListingStatus(
+    appId: $appId
+    listingId: $listingId
+    status: $status
+  ) {
+    ...PlayerCodeListingFields
+    updatedAt
+  }
+}
+
+mutation MarketplaceSetGridClaimPolicy(
+  $appId: BigInt!
+  $policy: GridClaimPolicy!
+  $approverUserIds: [BigInt!]
+) {
+  setAppGridClaimPolicy(
+    appId: $appId
+    policy: $policy
+    approverUserIds: $approverUserIds
+  )
+}
+
+# ---- P4b: paid modes, grid commerce, seller payouts ---------------------------
+
+mutation MarketplaceRenewAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  renewPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+mutation MarketplaceTopUpAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  topUpPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
+    ...PlayerCodeAcquisitionFields
+  }
+}
+
+mutation MarketplaceRefundAcquisition($appId: BigInt!, $acquisitionId: String!) {
+  refundPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId)
+}
+
+query MarketplaceGridListings($appId: BigInt!) {
+  gridListings(appId: $appId) {
+    gridListingId
+    appId
+    kind
+    name
+    description
+    priceCents
+    conferredPermissionKeys
+    resalePolicy
+  }
+}
+
+mutation MarketplacePurchaseGrid(
+  $appId: BigInt!
+  $gridListingId: String!
+  $chunkX: Int
+  $chunkY: Int
+  $chunkZ: Int
+) {
+  purchaseGrid(
+    appId: $appId
+    gridListingId: $gridListingId
+    chunkX: $chunkX
+    chunkY: $chunkY
+    chunkZ: $chunkZ
+  ) {
+    gridId
+    ownershipAssigned
+  }
+}
+
+# ---- P4b management: pricing, seller onboarding/payouts, grid listing CRUD -----
+
+mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
+  setListingPricing(input: $input)
+}
+
+mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
+  setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
+}
+
+mutation MarketplaceBeginSellerOnboarding($country: String!) {
+  beginSellerOnboarding(country: $country) {
+    status
+    onboardingUrl
+    unavailableReason
+  }
+}
+
+mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
+  beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
+    status
+    onboardingUrl
+    unavailableReason
+  }
+}
+
+query MarketplaceMySellerBalance {
+  mySellerPayoutBalance {
+    partyKind
+    partyRef
+    pendingCents
+    payableCents
+    reservedCents
+    onboardingStatus
+    payoutsFrozen
+  }
+}
+
+mutation MarketplaceRequestPayout {
+  requestSellerPayout
+}
+
+mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
+  spendPayoutBalanceToWallet(amountCents: $amountCents)
+}
+
+query MarketplaceCommerceRiskQueue($appId: BigInt!) {
+  commerceRiskQueue(appId: $appId) {
+    flagId
+    appId
+    kind
+    orderId
+    subjectKind
+    subjectRef
+    detail
+    status
+    createdAt
+  }
+}
+
+mutation MarketplaceDecideRiskFlag(
+  $appId: BigInt!
+  $flagId: String!
+  $release: Boolean!
+) {
+  decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
+}
+
+mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
+  createGridListing(input: $input) {
+    gridListingId
+    appId
+    kind
+    name
+    priceCents
+    resalePolicy
+    status
+  }
+})gql";
+inline constexpr std::string_view kMarketplaceListingsOperationName = "MarketplaceListings";
+inline constexpr std::string_view kMarketplaceListingVersionsOperationName = "MarketplaceListingVersions";
+inline constexpr std::string_view kMarketplaceMyAcquisitionsOperationName = "MarketplaceMyAcquisitions";
+inline constexpr std::string_view kMarketplaceMyInstallsOperationName = "MarketplaceMyInstalls";
+inline constexpr std::string_view kMarketplaceGridClientModsOperationName = "MarketplaceGridClientMods";
+inline constexpr std::string_view kMarketplaceClientArtifactOperationName = "MarketplaceClientArtifact";
+inline constexpr std::string_view kMarketplacePublishListingOperationName = "MarketplacePublishListing";
+inline constexpr std::string_view kMarketplacePublishVersionOperationName = "MarketplacePublishVersion";
+inline constexpr std::string_view kMarketplaceAcquireOperationName = "MarketplaceAcquire";
+inline constexpr std::string_view kMarketplaceInstallOperationName = "MarketplaceInstall";
+inline constexpr std::string_view kMarketplaceUninstallOperationName = "MarketplaceUninstall";
+inline constexpr std::string_view kMarketplaceConsentGridClientModOperationName = "MarketplaceConsentGridClientMod";
+inline constexpr std::string_view kMarketplaceGridClaimPolicyOperationName = "MarketplaceGridClaimPolicy";
+inline constexpr std::string_view kMarketplaceGridClaimRequestsOperationName = "MarketplaceGridClaimRequests";
+inline constexpr std::string_view kMarketplaceClaimGridOwnershipOperationName = "MarketplaceClaimGridOwnership";
+inline constexpr std::string_view kMarketplaceDecideGridClaimOperationName = "MarketplaceDecideGridClaim";
+inline constexpr std::string_view kMarketplaceIssueGridClaimInviteOperationName = "MarketplaceIssueGridClaimInvite";
+inline constexpr std::string_view kMarketplaceAdmissionQueueOperationName = "MarketplaceAdmissionQueue";
+inline constexpr std::string_view kMarketplaceAppListingsOperationName = "MarketplaceAppListings";
+inline constexpr std::string_view kMarketplaceAppAcquisitionsOperationName = "MarketplaceAppAcquisitions";
+inline constexpr std::string_view kMarketplaceTransferListingOperationName = "MarketplaceTransferListing";
+inline constexpr std::string_view kMarketplaceSetListingStatusOperationName = "MarketplaceSetListingStatus";
+inline constexpr std::string_view kMarketplaceSetGridClaimPolicyOperationName = "MarketplaceSetGridClaimPolicy";
+inline constexpr std::string_view kMarketplaceRenewAcquisitionOperationName = "MarketplaceRenewAcquisition";
+inline constexpr std::string_view kMarketplaceTopUpAcquisitionOperationName = "MarketplaceTopUpAcquisition";
+inline constexpr std::string_view kMarketplaceRefundAcquisitionOperationName = "MarketplaceRefundAcquisition";
+inline constexpr std::string_view kMarketplaceGridListingsOperationName = "MarketplaceGridListings";
+inline constexpr std::string_view kMarketplacePurchaseGridOperationName = "MarketplacePurchaseGrid";
+inline constexpr std::string_view kMarketplaceSetListingPricingOperationName = "MarketplaceSetListingPricing";
+inline constexpr std::string_view kMarketplaceSetOrgShareOperationName = "MarketplaceSetOrgShare";
+inline constexpr std::string_view kMarketplaceBeginSellerOnboardingOperationName = "MarketplaceBeginSellerOnboarding";
+inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingOperationName = "MarketplaceBeginOrgSellerOnboarding";
+inline constexpr std::string_view kMarketplaceMySellerBalanceOperationName = "MarketplaceMySellerBalance";
+inline constexpr std::string_view kMarketplaceRequestPayoutOperationName = "MarketplaceRequestPayout";
+inline constexpr std::string_view kMarketplaceSpendPayoutToWalletOperationName = "MarketplaceSpendPayoutToWallet";
+inline constexpr std::string_view kMarketplaceCommerceRiskQueueOperationName = "MarketplaceCommerceRiskQueue";
+inline constexpr std::string_view kMarketplaceDecideRiskFlagOperationName = "MarketplaceDecideRiskFlag";
+inline constexpr std::string_view kMarketplaceCreateGridListingOperationName = "MarketplaceCreateGridListing";
+
+}  // namespace marketplace
+
 namespace organizations {
 
 /// organizations/CreateOrgRole.graphql
@@ -3802,6 +4340,534 @@ inline constexpr std::string_view kPlatformConfigDocument = R"gql(query Platform
 inline constexpr std::string_view kPlatformConfigOperationName = "PlatformConfig";
 
 }  // namespace platform
+
+namespace playerCompute {
+
+/// playerCompute/PlayerCompute.graphql
+inline constexpr std::string_view kPlayerComputeDocument = R"gql(fragment PlayerWasmModuleFields on PlayerWasmModule {
+  moduleId
+  appId
+  gridId
+  name
+  description
+  authorUserId
+  authorOrgId
+  enabled
+  draft
+  currentVersionId
+  circuitState
+  lastError
+  createdAt
+  updatedAt
+}
+
+fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
+  versionId
+  moduleId
+  versionNo
+  target
+  sourceFilesJson
+  openSource
+  compileStatus
+  compileLog
+  compiledSizeBytes
+  createdAt
+}
+
+mutation PlayerComputeDeploy($input: DeployPlayerComputeInput!) {
+  playerComputeDeploy(input: $input) {
+    ...PlayerWasmModuleVersionFields
+  }
+}
+
+mutation PlayerComputeSetEnabled(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $enabled: Boolean!
+) {
+  playerComputeSetEnabled(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    enabled: $enabled
+  ) {
+    ...PlayerWasmModuleFields
+  }
+}
+
+query PlayerComputeMyModules($appId: BigInt!) {
+  playerComputeMyModules(appId: $appId) {
+    ...PlayerWasmModuleFields
+  }
+}
+
+query PlayerComputeVersions(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+) {
+  playerComputeVersions(appId: $appId, gridId: $gridId, name: $name) {
+    ...PlayerWasmModuleVersionFields
+  }
+}
+
+mutation PlayerComputeDelete(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+) {
+  playerComputeDelete(appId: $appId, gridId: $gridId, name: $name)
+}
+
+mutation PlayerComputeInvoke(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String!
+  $exportName: String!
+  $paramsJson: String
+) {
+  playerComputeInvoke(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    exportName: $exportName
+    paramsJson: $paramsJson
+  ) {
+    resultBase64
+    resultJson
+    fuelUsed
+    durationUs
+  }
+}
+
+fragment PlayerWasmModuleRunFields on PlayerWasmModuleRun {
+  runId
+  appId
+  gridId
+  moduleId
+  moduleName
+  executedAsUserId
+  flowId
+  triggerSource
+  startedAt
+  durationUs
+  fuelUsed
+  success
+  errorMessage
+}
+
+query PlayerComputeUsage($appId: BigInt!) {
+  playerComputeUsage(appId: $appId) {
+    appId
+    hourUnitsUsed
+    dayUnitsUsed
+    unitsPerHour
+    unitsPerDay
+    compilesThisHour
+    maxCompilesPerHour
+    gateStatus
+    gateReason
+  }
+}
+
+query PlayerComputeRuns(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String
+  $success: Boolean
+  $limit: Int
+  $offset: Int
+) {
+  playerComputeRuns(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    success: $success
+    limit: $limit
+    offset: $offset
+  ) {
+    ...PlayerWasmModuleRunFields
+  }
+}
+
+query PlayerComputeLogs(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String
+  $limit: Int
+) {
+  playerComputeLogs(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    limit: $limit
+  ) {
+    ...PlayerWasmModuleRunFields
+  }
+}
+
+mutation PlayerComputeSetSwitch(
+  $appId: BigInt!
+  $scope: String!
+  $disabled: Boolean!
+  $scopeRef: BigInt
+  $reason: String
+) {
+  playerComputeSetSwitch(
+    appId: $appId
+    scope: $scope
+    disabled: $disabled
+    scopeRef: $scopeRef
+    reason: $reason
+  )
+}
+
+query PlayerComputeSwitches($appId: BigInt!) {
+  playerComputeSwitches(appId: $appId) {
+    switchId
+    appId
+    scope
+    scopeRef
+    reason
+    disabledAt
+  }
+}
+
+query PlayerComputeArtifact(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $versionId: String
+) {
+  playerComputeArtifact(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    versionId: $versionId
+  ) {
+    versionId
+    artifactHash
+    artifactBase64
+    sizeBytes
+    abiVersion
+    contractJson
+    clientFuelPerDispatch
+  }
+})gql";
+inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
+inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
+inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "PlayerComputeMyModules";
+inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
+inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";
+inline constexpr std::string_view kPlayerComputeInvokeOperationName = "PlayerComputeInvoke";
+inline constexpr std::string_view kPlayerComputeUsageOperationName = "PlayerComputeUsage";
+inline constexpr std::string_view kPlayerComputeRunsOperationName = "PlayerComputeRuns";
+inline constexpr std::string_view kPlayerComputeLogsOperationName = "PlayerComputeLogs";
+inline constexpr std::string_view kPlayerComputeSetSwitchOperationName = "PlayerComputeSetSwitch";
+inline constexpr std::string_view kPlayerComputeSwitchesOperationName = "PlayerComputeSwitches";
+inline constexpr std::string_view kPlayerComputeArtifactOperationName = "PlayerComputeArtifact";
+
+}  // namespace playerCompute
+
+namespace playerModel {
+
+/// playerModel/PlayerModel.graphql
+inline constexpr std::string_view kPlayerModelDocument = R"gql(query PlayerModelContainers($appId: BigInt!, $gridId: BigInt!) {
+  playerModelContainers(appId: $appId, gridId: $gridId) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+query PlayerModelContainer($input: PlayerModelContainerRefInput!) {
+  playerModelContainer(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelCreateContainer($input: CreatePlayerModelContainerInput!) {
+  playerModelCreateContainer(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelSetProperty($input: SetPlayerModelPropertyInput!) {
+  playerModelSetProperty(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelDeleteContainer($input: PlayerModelContainerRefInput!) {
+  playerModelDeleteContainer(input: $input)
+}
+
+query PlayerAutomations($appId: BigInt!, $gridId: BigInt!) {
+  playerAutomations(appId: $appId, gridId: $gridId) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationCreate($input: CreatePlayerAutomationInput!) {
+  playerAutomationCreate(input: $input) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationSetEnabled($input: SetPlayerAutomationEnabledInput!) {
+  playerAutomationSetEnabled(input: $input) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationDelete($input: PlayerAutomationRefInput!) {
+  playerAutomationDelete(input: $input)
+})gql";
+inline constexpr std::string_view kPlayerModelContainersOperationName = "PlayerModelContainers";
+inline constexpr std::string_view kPlayerModelContainerOperationName = "PlayerModelContainer";
+inline constexpr std::string_view kPlayerModelCreateContainerOperationName = "PlayerModelCreateContainer";
+inline constexpr std::string_view kPlayerModelSetPropertyOperationName = "PlayerModelSetProperty";
+inline constexpr std::string_view kPlayerModelDeleteContainerOperationName = "PlayerModelDeleteContainer";
+inline constexpr std::string_view kPlayerAutomationsOperationName = "PlayerAutomations";
+inline constexpr std::string_view kPlayerAutomationCreateOperationName = "PlayerAutomationCreate";
+inline constexpr std::string_view kPlayerAutomationSetEnabledOperationName = "PlayerAutomationSetEnabled";
+inline constexpr std::string_view kPlayerAutomationDeleteOperationName = "PlayerAutomationDelete";
+
+}  // namespace playerModel
+
+namespace playerWallet {
+
+/// playerWallet/PlayerWallet.graphql
+inline constexpr std::string_view kPlayerWalletDocument = R"gql(fragment PlayerWalletFields on PlayerWallet {
+  walletId
+  userId
+  balanceCents
+  currency
+  createdAt
+}
+
+fragment PlayerWalletTransactionFields on PlayerWalletTransaction {
+  transactionId
+  walletId
+  userId
+  amountCents
+  balanceAfter
+  transactionType
+  description
+  referenceId
+  appId
+  createdAt
+}
+
+fragment PlayerSpendCapFields on PlayerSpendCap {
+  userId
+  scope
+  scopeRef
+  dailyLimitCents
+  monthlyLimitCents
+  currentDayUsageCents
+  currentMonthUsageCents
+}
+
+fragment PlayerAutoBillingFields on PlayerAutoBilling {
+  userId
+  enabled
+  limitCents
+  autoBilledThisPeriodCents
+  rechargeAmountCents
+  lowWaterThresholdCents
+  hasPaymentMethod
+  lastError
+}
+
+fragment PlayerUsageChargeFields on PlayerUsageCharge {
+  chargeId
+  userId
+  appId
+  periodStart
+  periodEnd
+  amountCents
+  platformCents
+  markupCents
+  currency
+  usageSnapshotJson
+  createdAt
+}
+
+fragment PlayerWasmPolicyFields on PlayerWasmPolicy {
+  policyId
+  appId
+  scope
+  scopeRef
+  enabled
+  maxModulesPerGrid
+  maxModulesTotal
+  maxTickHz
+  fuelPerTick
+  fuelPerInvoke
+  maxMemoryMb
+  maxRunMs
+  maxDbOpsPerTick
+  maxEgressMsgsPerMin
+  maxEgressBytesPerMin
+  unitsPerHour
+  unitsPerDay
+  maxCompilesPerHour
+  maxContainerCreatesDay
+  clientFuelPerDispatch
+}
+
+query PlayerWalletBalance {
+  playerWalletBalance {
+    ...PlayerWalletFields
+  }
+}
+
+query PlayerWalletTransactions($limit: Int, $offset: Int) {
+  playerWalletTransactions(limit: $limit, offset: $offset) {
+    ...PlayerWalletTransactionFields
+  }
+}
+
+query PlayerUsageCharges($appId: BigInt, $limit: Int) {
+  playerUsageCharges(appId: $appId, limit: $limit) {
+    ...PlayerUsageChargeFields
+  }
+}
+
+query PlayerSpendCaps {
+  playerSpendCaps {
+    ...PlayerSpendCapFields
+  }
+}
+
+mutation SetPlayerSpendCap(
+  $scope: String!
+  $appId: BigInt
+  $dailyLimitCents: BigInt
+  $monthlyLimitCents: BigInt
+) {
+  setPlayerSpendCap(
+    scope: $scope
+    appId: $appId
+    dailyLimitCents: $dailyLimitCents
+    monthlyLimitCents: $monthlyLimitCents
+  ) {
+    ...PlayerSpendCapFields
+  }
+}
+
+query PlayerAutoBilling {
+  playerAutoBilling {
+    ...PlayerAutoBillingFields
+  }
+}
+
+mutation BeginPlayerCardSetup {
+  beginPlayerCardSetup {
+    clientSecret
+    publishableKey
+    externalCustomerId
+  }
+}
+
+mutation SetPlayerAutoBilling(
+  $enabled: Boolean!
+  $limitCents: BigInt
+  $rechargeAmountCents: BigInt
+  $lowWaterThresholdCents: BigInt
+) {
+  setPlayerAutoBilling(
+    enabled: $enabled
+    limitCents: $limitCents
+    rechargeAmountCents: $rechargeAmountCents
+    lowWaterThresholdCents: $lowWaterThresholdCents
+  ) {
+    ...PlayerAutoBillingFields
+  }
+}
+
+query PlayerRuntimeStates {
+  playerRuntimeStates {
+    userId
+    appId
+    status
+    reason
+    updatedAt
+  }
+}
+
+query PlayerWasmPolicies($appId: BigInt!) {
+  playerWasmPolicies(appId: $appId) {
+    ...PlayerWasmPolicyFields
+  }
+}
+
+mutation SetPlayerWasmPolicy($input: SetPlayerWasmPolicyInput!) {
+  setPlayerWasmPolicy(input: $input) {
+    ...PlayerWasmPolicyFields
+  }
+}
+
+mutation DeletePlayerWasmPolicy(
+  $appId: BigInt!
+  $scope: String!
+  $scopeRef: BigInt
+) {
+  deletePlayerWasmPolicy(appId: $appId, scope: $scope, scopeRef: $scopeRef)
+}
+
+query PlayerRateMarkup($appId: BigInt!) {
+  playerRateMarkup(appId: $appId)
+}
+
+mutation SetPlayerRateMarkup($appId: BigInt!, $markupBps: Int!) {
+  setPlayerRateMarkup(appId: $appId, markupBps: $markupBps)
+}
+
+query AppPlayerUsage($appId: BigInt!, $hours: Int) {
+  appPlayerUsage(appId: $appId, hours: $hours) {
+    userId
+    computeUnits
+    automationUnits
+    compileCount
+    chargedCents
+  }
+}
+
+query AppPlayerMarkupAccrued($appId: BigInt!) {
+  appPlayerMarkupAccrued(appId: $appId)
+})gql";
+inline constexpr std::string_view kPlayerWalletBalanceOperationName = "PlayerWalletBalance";
+inline constexpr std::string_view kPlayerWalletTransactionsOperationName = "PlayerWalletTransactions";
+inline constexpr std::string_view kPlayerUsageChargesOperationName = "PlayerUsageCharges";
+inline constexpr std::string_view kPlayerSpendCapsOperationName = "PlayerSpendCaps";
+inline constexpr std::string_view kSetPlayerSpendCapOperationName = "SetPlayerSpendCap";
+inline constexpr std::string_view kPlayerAutoBillingOperationName = "PlayerAutoBilling";
+inline constexpr std::string_view kBeginPlayerCardSetupOperationName = "BeginPlayerCardSetup";
+inline constexpr std::string_view kSetPlayerAutoBillingOperationName = "SetPlayerAutoBilling";
+inline constexpr std::string_view kPlayerRuntimeStatesOperationName = "PlayerRuntimeStates";
+inline constexpr std::string_view kPlayerWasmPoliciesOperationName = "PlayerWasmPolicies";
+inline constexpr std::string_view kSetPlayerWasmPolicyOperationName = "SetPlayerWasmPolicy";
+inline constexpr std::string_view kDeletePlayerWasmPolicyOperationName = "DeletePlayerWasmPolicy";
+inline constexpr std::string_view kPlayerRateMarkupOperationName = "PlayerRateMarkup";
+inline constexpr std::string_view kSetPlayerRateMarkupOperationName = "SetPlayerRateMarkup";
+inline constexpr std::string_view kAppPlayerUsageOperationName = "AppPlayerUsage";
+inline constexpr std::string_view kAppPlayerMarkupAccruedOperationName = "AppPlayerMarkupAccrued";
+
+}  // namespace playerWallet
 
 namespace quotas {
 

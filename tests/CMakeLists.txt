@@ -14,6 +14,10 @@ add_executable(graphql_client_test graphql_client_test.cpp)
 target_link_libraries(graphql_client_test PRIVATE crowdy_graphql)
 add_test(NAME graphql_client_test COMMAND graphql_client_test)
 
+add_executable(player_runtime_surface_test player_runtime_surface_test.cpp)
+target_link_libraries(player_runtime_surface_test PRIVATE crowdy)
+add_test(NAME player_runtime_surface_test COMMAND player_runtime_surface_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

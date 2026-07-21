@@ -7,6 +7,10 @@
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/compute.hpp"
+#include "crowdy/domains/player_compute.hpp"
+#include "crowdy/domains/player_wallet.hpp"
+#include "crowdy/domains/marketplace.hpp"
+#include "crowdy/domains/player_model.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/domains/portal.hpp"
 #include "crowdy/domains/server_status.hpp"
@@ -89,6 +93,10 @@ class CrowdyClient {
   domains::ChannelsAPI& channels() { return *channels_; }
   domains::GameModelAPI& gameModel() { return *gameModel_; }
   domains::ComputeAPI& compute() { return *compute_; }
+  domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
+  domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
+  domains::MarketplaceAPI& marketplace() { return *marketplace_; }
+  domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
 
@@ -144,6 +152,10 @@ class CrowdyClient {
   std::unique_ptr<domains::ChannelsAPI> channels_;
   std::unique_ptr<domains::GameModelAPI> gameModel_;
   std::unique_ptr<domains::ComputeAPI> compute_;
+  std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
+  std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
+  std::unique_ptr<domains::MarketplaceAPI> marketplace_;
+  std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
   std::unique_ptr<domains::PlatformAPI> platform_;
   std::unique_ptr<domains::AdminAPI> admin_;

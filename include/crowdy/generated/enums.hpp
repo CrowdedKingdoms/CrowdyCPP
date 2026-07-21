@@ -105,12 +105,14 @@ inline std::optional<AppVisibility> appVisibilityFromString(std::string_view s) 
 
 enum class CheckoutPurpose {
   ORG_WALLET_TOPUP,
+  PLAYER_WALLET_TOPUP,
   APP_ACCESS_PURCHASE,
 };
 
 inline constexpr std::string_view toString(CheckoutPurpose v) {
   switch (v) {
     case CheckoutPurpose::ORG_WALLET_TOPUP: return "ORG_WALLET_TOPUP";
+    case CheckoutPurpose::PLAYER_WALLET_TOPUP: return "PLAYER_WALLET_TOPUP";
     case CheckoutPurpose::APP_ACCESS_PURCHASE: return "APP_ACCESS_PURCHASE";
   }
   return "";
@@ -118,6 +120,7 @@ inline constexpr std::string_view toString(CheckoutPurpose v) {
 
 inline std::optional<CheckoutPurpose> checkoutPurposeFromString(std::string_view s) {
   if (s == "ORG_WALLET_TOPUP") return CheckoutPurpose::ORG_WALLET_TOPUP;
+  if (s == "PLAYER_WALLET_TOPUP") return CheckoutPurpose::PLAYER_WALLET_TOPUP;
   if (s == "APP_ACCESS_PURCHASE") return CheckoutPurpose::APP_ACCESS_PURCHASE;
   return std::nullopt;
 }
@@ -150,6 +153,113 @@ inline std::optional<CheckoutStatus> checkoutStatusFromString(std::string_view s
   return std::nullopt;
 }
 
+enum class CodeAdmissionMode {
+  IMPLICIT_ALLOW,
+  ALLOW_LIST,
+};
+
+inline constexpr std::string_view toString(CodeAdmissionMode v) {
+  switch (v) {
+    case CodeAdmissionMode::IMPLICIT_ALLOW: return "IMPLICIT_ALLOW";
+    case CodeAdmissionMode::ALLOW_LIST: return "ALLOW_LIST";
+  }
+  return "";
+}
+
+inline std::optional<CodeAdmissionMode> codeAdmissionModeFromString(std::string_view s) {
+  if (s == "IMPLICIT_ALLOW") return CodeAdmissionMode::IMPLICIT_ALLOW;
+  if (s == "ALLOW_LIST") return CodeAdmissionMode::ALLOW_LIST;
+  return std::nullopt;
+}
+
+enum class CodeAdmissionSubjectKind {
+  CODE,
+  AUTHOR,
+  ORG,
+};
+
+inline constexpr std::string_view toString(CodeAdmissionSubjectKind v) {
+  switch (v) {
+    case CodeAdmissionSubjectKind::CODE: return "CODE";
+    case CodeAdmissionSubjectKind::AUTHOR: return "AUTHOR";
+    case CodeAdmissionSubjectKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<CodeAdmissionSubjectKind> codeAdmissionSubjectKindFromString(std::string_view s) {
+  if (s == "CODE") return CodeAdmissionSubjectKind::CODE;
+  if (s == "AUTHOR") return CodeAdmissionSubjectKind::AUTHOR;
+  if (s == "ORG") return CodeAdmissionSubjectKind::ORG;
+  return std::nullopt;
+}
+
+enum class GridClaimPolicy {
+  SELF_CLAIM,
+  APPROVAL,
+  INVITE,
+  MARKETPLACE_ONLY,
+};
+
+inline constexpr std::string_view toString(GridClaimPolicy v) {
+  switch (v) {
+    case GridClaimPolicy::SELF_CLAIM: return "SELF_CLAIM";
+    case GridClaimPolicy::APPROVAL: return "APPROVAL";
+    case GridClaimPolicy::INVITE: return "INVITE";
+    case GridClaimPolicy::MARKETPLACE_ONLY: return "MARKETPLACE_ONLY";
+  }
+  return "";
+}
+
+inline std::optional<GridClaimPolicy> gridClaimPolicyFromString(std::string_view s) {
+  if (s == "SELF_CLAIM") return GridClaimPolicy::SELF_CLAIM;
+  if (s == "APPROVAL") return GridClaimPolicy::APPROVAL;
+  if (s == "INVITE") return GridClaimPolicy::INVITE;
+  if (s == "MARKETPLACE_ONLY") return GridClaimPolicy::MARKETPLACE_ONLY;
+  return std::nullopt;
+}
+
+enum class GridOwnerKind {
+  USER,
+  GROUP,
+  ORG,
+};
+
+inline constexpr std::string_view toString(GridOwnerKind v) {
+  switch (v) {
+    case GridOwnerKind::USER: return "USER";
+    case GridOwnerKind::GROUP: return "GROUP";
+    case GridOwnerKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<GridOwnerKind> gridOwnerKindFromString(std::string_view s) {
+  if (s == "USER") return GridOwnerKind::USER;
+  if (s == "GROUP") return GridOwnerKind::GROUP;
+  if (s == "ORG") return GridOwnerKind::ORG;
+  return std::nullopt;
+}
+
+enum class GridTenure {
+  OWNED,
+  RENTED,
+};
+
+inline constexpr std::string_view toString(GridTenure v) {
+  switch (v) {
+    case GridTenure::OWNED: return "OWNED";
+    case GridTenure::RENTED: return "RENTED";
+  }
+  return "";
+}
+
+inline std::optional<GridTenure> gridTenureFromString(std::string_view s) {
+  if (s == "OWNED") return GridTenure::OWNED;
+  if (s == "RENTED") return GridTenure::RENTED;
+  return std::nullopt;
+}
+
 enum class PaymentProvider {
   STRIPE,
   PAYPAL,
@@ -169,6 +279,135 @@ inline std::optional<PaymentProvider> paymentProviderFromString(std::string_view
   return std::nullopt;
 }
 
+enum class PlayerCodeAcquisitionMode {
+  FREE,
+  BUY,
+  RENT,
+  TIME_LIMITED,
+  COST_LIMITED,
+};
+
+inline constexpr std::string_view toString(PlayerCodeAcquisitionMode v) {
+  switch (v) {
+    case PlayerCodeAcquisitionMode::FREE: return "FREE";
+    case PlayerCodeAcquisitionMode::BUY: return "BUY";
+    case PlayerCodeAcquisitionMode::RENT: return "RENT";
+    case PlayerCodeAcquisitionMode::TIME_LIMITED: return "TIME_LIMITED";
+    case PlayerCodeAcquisitionMode::COST_LIMITED: return "COST_LIMITED";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeAcquisitionMode> playerCodeAcquisitionModeFromString(std::string_view s) {
+  if (s == "FREE") return PlayerCodeAcquisitionMode::FREE;
+  if (s == "BUY") return PlayerCodeAcquisitionMode::BUY;
+  if (s == "RENT") return PlayerCodeAcquisitionMode::RENT;
+  if (s == "TIME_LIMITED") return PlayerCodeAcquisitionMode::TIME_LIMITED;
+  if (s == "COST_LIMITED") return PlayerCodeAcquisitionMode::COST_LIMITED;
+  return std::nullopt;
+}
+
+enum class PlayerCodeAdmissionState {
+  ADMITTED,
+  PENDING,
+  REVOKED,
+};
+
+inline constexpr std::string_view toString(PlayerCodeAdmissionState v) {
+  switch (v) {
+    case PlayerCodeAdmissionState::ADMITTED: return "ADMITTED";
+    case PlayerCodeAdmissionState::PENDING: return "PENDING";
+    case PlayerCodeAdmissionState::REVOKED: return "REVOKED";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeAdmissionState> playerCodeAdmissionStateFromString(std::string_view s) {
+  if (s == "ADMITTED") return PlayerCodeAdmissionState::ADMITTED;
+  if (s == "PENDING") return PlayerCodeAdmissionState::PENDING;
+  if (s == "REVOKED") return PlayerCodeAdmissionState::REVOKED;
+  return std::nullopt;
+}
+
+enum class PlayerCodeLicenseMode {
+  CLOSED,
+  OPEN_SOURCE,
+};
+
+inline constexpr std::string_view toString(PlayerCodeLicenseMode v) {
+  switch (v) {
+    case PlayerCodeLicenseMode::CLOSED: return "CLOSED";
+    case PlayerCodeLicenseMode::OPEN_SOURCE: return "OPEN_SOURCE";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeLicenseMode> playerCodeLicenseModeFromString(std::string_view s) {
+  if (s == "CLOSED") return PlayerCodeLicenseMode::CLOSED;
+  if (s == "OPEN_SOURCE") return PlayerCodeLicenseMode::OPEN_SOURCE;
+  return std::nullopt;
+}
+
+enum class PlayerCodeListingStatus {
+  ACTIVE,
+  DELISTED,
+  KILLED,
+};
+
+inline constexpr std::string_view toString(PlayerCodeListingStatus v) {
+  switch (v) {
+    case PlayerCodeListingStatus::ACTIVE: return "ACTIVE";
+    case PlayerCodeListingStatus::DELISTED: return "DELISTED";
+    case PlayerCodeListingStatus::KILLED: return "KILLED";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeListingStatus> playerCodeListingStatusFromString(std::string_view s) {
+  if (s == "ACTIVE") return PlayerCodeListingStatus::ACTIVE;
+  if (s == "DELISTED") return PlayerCodeListingStatus::DELISTED;
+  if (s == "KILLED") return PlayerCodeListingStatus::KILLED;
+  return std::nullopt;
+}
+
+enum class PlayerCodeOwnerKind {
+  USER,
+  ORG,
+};
+
+inline constexpr std::string_view toString(PlayerCodeOwnerKind v) {
+  switch (v) {
+    case PlayerCodeOwnerKind::USER: return "USER";
+    case PlayerCodeOwnerKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeOwnerKind> playerCodeOwnerKindFromString(std::string_view s) {
+  if (s == "USER") return PlayerCodeOwnerKind::USER;
+  if (s == "ORG") return PlayerCodeOwnerKind::ORG;
+  return std::nullopt;
+}
+
+enum class PlayerComputeTarget {
+  SERVER,
+  CLIENT,
+};
+
+inline constexpr std::string_view toString(PlayerComputeTarget v) {
+  switch (v) {
+    case PlayerComputeTarget::SERVER: return "SERVER";
+    case PlayerComputeTarget::CLIENT: return "CLIENT";
+  }
+  return "";
+}
+
+inline std::optional<PlayerComputeTarget> playerComputeTargetFromString(std::string_view s) {
+  if (s == "SERVER") return PlayerComputeTarget::SERVER;
+  if (s == "CLIENT") return PlayerComputeTarget::CLIENT;
+  return std::nullopt;
+}
+
 enum class RedeployDeployMode {
   FULL,
   SERVICES,
@@ -185,6 +424,31 @@ inline constexpr std::string_view toString(RedeployDeployMode v) {
 inline std::optional<RedeployDeployMode> redeployDeployModeFromString(std::string_view s) {
   if (s == "FULL") return RedeployDeployMode::FULL;
   if (s == "SERVICES") return RedeployDeployMode::SERVICES;
+  return std::nullopt;
+}
+
+enum class SellerOnboardingStatus {
+  NONE,
+  PENDING,
+  COMPLETE,
+  BLOCKED,
+};
+
+inline constexpr std::string_view toString(SellerOnboardingStatus v) {
+  switch (v) {
+    case SellerOnboardingStatus::NONE: return "NONE";
+    case SellerOnboardingStatus::PENDING: return "PENDING";
+    case SellerOnboardingStatus::COMPLETE: return "COMPLETE";
+    case SellerOnboardingStatus::BLOCKED: return "BLOCKED";
+  }
+  return "";
+}
+
+inline std::optional<SellerOnboardingStatus> sellerOnboardingStatusFromString(std::string_view s) {
+  if (s == "NONE") return SellerOnboardingStatus::NONE;
+  if (s == "PENDING") return SellerOnboardingStatus::PENDING;
+  if (s == "COMPLETE") return SellerOnboardingStatus::COMPLETE;
+  if (s == "BLOCKED") return SellerOnboardingStatus::BLOCKED;
   return std::nullopt;
 }
 

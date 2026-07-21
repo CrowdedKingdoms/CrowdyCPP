@@ -73,6 +73,8 @@ const METHOD_WAIVERS = {
   'SocialKit.chat.onMessage': 'receive chat via WorldSession channelInbox / Connection channel handler',
   'PlayerComputeAPI.artifactBytes':
     'browser broker convenience (base64 -> ArrayBuffer for the JS worker sandbox); native clients use artifact() and decode as needed (04 §7)',
+  'MarketplaceAPI.clientArtifactBytes':
+    'browser broker convenience (base64 -> ArrayBuffer for the JS worker sandbox); native clients use clientArtifact() and decode as needed (04 §7)',
 };
 
 // Idiomatic renames: `TsClass.tsMethod` -> C++ method name (same class).

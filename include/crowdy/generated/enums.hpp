@@ -194,6 +194,31 @@ inline std::optional<CodeAdmissionSubjectKind> codeAdmissionSubjectKindFromStrin
   return std::nullopt;
 }
 
+enum class GridClaimPolicy {
+  SELF_CLAIM,
+  APPROVAL,
+  INVITE,
+  MARKETPLACE_ONLY,
+};
+
+inline constexpr std::string_view toString(GridClaimPolicy v) {
+  switch (v) {
+    case GridClaimPolicy::SELF_CLAIM: return "SELF_CLAIM";
+    case GridClaimPolicy::APPROVAL: return "APPROVAL";
+    case GridClaimPolicy::INVITE: return "INVITE";
+    case GridClaimPolicy::MARKETPLACE_ONLY: return "MARKETPLACE_ONLY";
+  }
+  return "";
+}
+
+inline std::optional<GridClaimPolicy> gridClaimPolicyFromString(std::string_view s) {
+  if (s == "SELF_CLAIM") return GridClaimPolicy::SELF_CLAIM;
+  if (s == "APPROVAL") return GridClaimPolicy::APPROVAL;
+  if (s == "INVITE") return GridClaimPolicy::INVITE;
+  if (s == "MARKETPLACE_ONLY") return GridClaimPolicy::MARKETPLACE_ONLY;
+  return std::nullopt;
+}
+
 enum class GridOwnerKind {
   USER,
   GROUP,
@@ -251,6 +276,104 @@ inline constexpr std::string_view toString(PaymentProvider v) {
 inline std::optional<PaymentProvider> paymentProviderFromString(std::string_view s) {
   if (s == "STRIPE") return PaymentProvider::STRIPE;
   if (s == "PAYPAL") return PaymentProvider::PAYPAL;
+  return std::nullopt;
+}
+
+enum class PlayerCodeAcquisitionMode {
+  FREE,
+};
+
+inline constexpr std::string_view toString(PlayerCodeAcquisitionMode v) {
+  switch (v) {
+    case PlayerCodeAcquisitionMode::FREE: return "FREE";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeAcquisitionMode> playerCodeAcquisitionModeFromString(std::string_view s) {
+  if (s == "FREE") return PlayerCodeAcquisitionMode::FREE;
+  return std::nullopt;
+}
+
+enum class PlayerCodeAdmissionState {
+  ADMITTED,
+  PENDING,
+  REVOKED,
+};
+
+inline constexpr std::string_view toString(PlayerCodeAdmissionState v) {
+  switch (v) {
+    case PlayerCodeAdmissionState::ADMITTED: return "ADMITTED";
+    case PlayerCodeAdmissionState::PENDING: return "PENDING";
+    case PlayerCodeAdmissionState::REVOKED: return "REVOKED";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeAdmissionState> playerCodeAdmissionStateFromString(std::string_view s) {
+  if (s == "ADMITTED") return PlayerCodeAdmissionState::ADMITTED;
+  if (s == "PENDING") return PlayerCodeAdmissionState::PENDING;
+  if (s == "REVOKED") return PlayerCodeAdmissionState::REVOKED;
+  return std::nullopt;
+}
+
+enum class PlayerCodeLicenseMode {
+  CLOSED,
+  OPEN_SOURCE,
+};
+
+inline constexpr std::string_view toString(PlayerCodeLicenseMode v) {
+  switch (v) {
+    case PlayerCodeLicenseMode::CLOSED: return "CLOSED";
+    case PlayerCodeLicenseMode::OPEN_SOURCE: return "OPEN_SOURCE";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeLicenseMode> playerCodeLicenseModeFromString(std::string_view s) {
+  if (s == "CLOSED") return PlayerCodeLicenseMode::CLOSED;
+  if (s == "OPEN_SOURCE") return PlayerCodeLicenseMode::OPEN_SOURCE;
+  return std::nullopt;
+}
+
+enum class PlayerCodeListingStatus {
+  ACTIVE,
+  DELISTED,
+  KILLED,
+};
+
+inline constexpr std::string_view toString(PlayerCodeListingStatus v) {
+  switch (v) {
+    case PlayerCodeListingStatus::ACTIVE: return "ACTIVE";
+    case PlayerCodeListingStatus::DELISTED: return "DELISTED";
+    case PlayerCodeListingStatus::KILLED: return "KILLED";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeListingStatus> playerCodeListingStatusFromString(std::string_view s) {
+  if (s == "ACTIVE") return PlayerCodeListingStatus::ACTIVE;
+  if (s == "DELISTED") return PlayerCodeListingStatus::DELISTED;
+  if (s == "KILLED") return PlayerCodeListingStatus::KILLED;
+  return std::nullopt;
+}
+
+enum class PlayerCodeOwnerKind {
+  USER,
+  ORG,
+};
+
+inline constexpr std::string_view toString(PlayerCodeOwnerKind v) {
+  switch (v) {
+    case PlayerCodeOwnerKind::USER: return "USER";
+    case PlayerCodeOwnerKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<PlayerCodeOwnerKind> playerCodeOwnerKindFromString(std::string_view s) {
+  if (s == "USER") return PlayerCodeOwnerKind::USER;
+  if (s == "ORG") return PlayerCodeOwnerKind::ORG;
   return std::nullopt;
 }
 

@@ -9,6 +9,7 @@
 #include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
+#include "crowdy/domains/marketplace.hpp"
 #include "crowdy/domains/player_model.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/domains/portal.hpp"
@@ -94,6 +95,7 @@ class CrowdyClient {
   domains::ComputeAPI& compute() { return *compute_; }
   domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
   domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
+  domains::MarketplaceAPI& marketplace() { return *marketplace_; }
   domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
@@ -152,6 +154,7 @@ class CrowdyClient {
   std::unique_ptr<domains::ComputeAPI> compute_;
   std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
   std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
+  std::unique_ptr<domains::MarketplaceAPI> marketplace_;
   std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
   std::unique_ptr<domains::PlatformAPI> platform_;

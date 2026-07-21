@@ -3751,6 +3751,26 @@ mutation MarketplaceBeginSellerOnboarding($country: String!) {
   }
 }
 
+mutation MarketplaceCreateAccountSession($country: String!) {
+  createSellerAccountSession(country: $country) {
+    clientSecret
+    publishableKey
+    accountRef
+    onboardingComplete
+    expiresAt
+  }
+}
+
+mutation MarketplaceCreateOrgAccountSession($orgId: BigInt!, $country: String!) {
+  createOrgSellerAccountSession(orgId: $orgId, country: $country) {
+    clientSecret
+    publishableKey
+    accountRef
+    onboardingComplete
+    expiresAt
+  }
+}
+
 mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
   beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
     status
@@ -3843,6 +3863,8 @@ inline constexpr std::string_view kMarketplacePurchaseGridOperationName = "Marke
 inline constexpr std::string_view kMarketplaceSetListingPricingOperationName = "MarketplaceSetListingPricing";
 inline constexpr std::string_view kMarketplaceSetOrgShareOperationName = "MarketplaceSetOrgShare";
 inline constexpr std::string_view kMarketplaceBeginSellerOnboardingOperationName = "MarketplaceBeginSellerOnboarding";
+inline constexpr std::string_view kMarketplaceCreateAccountSessionOperationName = "MarketplaceCreateAccountSession";
+inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionOperationName = "MarketplaceCreateOrgAccountSession";
 inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingOperationName = "MarketplaceBeginOrgSellerOnboarding";
 inline constexpr std::string_view kMarketplaceMySellerBalanceOperationName = "MarketplaceMySellerBalance";
 inline constexpr std::string_view kMarketplaceRequestPayoutOperationName = "MarketplaceRequestPayout";

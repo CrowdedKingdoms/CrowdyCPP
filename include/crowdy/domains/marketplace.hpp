@@ -307,6 +307,28 @@ class MarketplaceAPI {
     management_.runAsync("MarketplaceSetOrgShare", vars, std::move(cb));
   }
 
+  /// Account Session for Stripe's EMBEDDED Connect components (web-only
+  /// rendering: the clientSecret feeds Connect.js in a browser/webview;
+  /// native callers hand it to their embedded web surface).
+  graphql::Json createAccountSession(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceCreateAccountSession", vars);
+  }
+  void createAccountSessionAsync(const graphql::JVal& vars,
+                                 graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceCreateAccountSession", vars, std::move(cb));
+  }
+
+  /// Embedded-components Account Session for an ORG payout account
+  /// (manage_billing in the org).
+  graphql::Json createOrgAccountSession(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceCreateOrgAccountSession", vars);
+  }
+  void createOrgAccountSessionAsync(const graphql::JVal& vars,
+                                    graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceCreateOrgAccountSession", vars,
+                         std::move(cb));
+  }
+
   /// Begin Stripe Connect Express onboarding (returns a BROWSER URL — native
   /// callers open it externally; the hosted KYC flow itself is web-only).
   graphql::Json beginSellerOnboarding(const graphql::JVal& vars) const {

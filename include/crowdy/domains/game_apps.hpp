@@ -15,6 +15,43 @@ class GameAppsAPI : public DomainBase {
  public:
   using DomainBase::DomainBase;
 
+  /// Read the current first-class title record. Returns null when the grid has
+  /// no current or unexpired owner. Requires authentication.
+  graphql::Json ownership(std::string_view appId, std::string_view gridId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    return run("GridOwnership", vars);
+  }
+  void ownershipAsync(std::string_view appId, std::string_view gridId,
+                      graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    runAsync("GridOwnership", vars, std::move(cb));
+  }
+
+  /// Bootstrap an unowned grid to one user. Requires manage_apps and assigns
+  /// title only; runtime permissions must be granted separately.
+  graphql::Json assignOwnership(const graphql::JVal& input) const {
+    return byInput("AssignGridOwnership", input);
+  }
+  void assignOwnershipAsync(const graphql::JVal& input,
+                            graphql::GraphQLCallback cb) const {
+    byInputAsync("AssignGridOwnership", input, std::move(cb));
+  }
+
+  /// Transfer title as current user owner or app admin. Security-sensitive:
+  /// disables player modules, wipes state, removes old direct grants, and
+  /// grants the new owner no implicit permissions.
+  graphql::Json transferOwnership(const graphql::JVal& input) const {
+    return byInput("TransferGridOwnership", input);
+  }
+  void transferOwnershipAsync(const graphql::JVal& input,
+                              graphql::GraphQLCallback cb) const {
+    byInputAsync("TransferGridOwnership", input, std::move(cb));
+  }
+
   graphql::Json userPermissions(std::string_view appId, std::string_view gridId,
                                 std::string_view userId) const {
     graphql::JVal vars;

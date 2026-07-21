@@ -49,6 +49,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teams / channels | `e2e_teams_channels` | ported |
 | game model + automations | `e2e_game_model`, plus every `e2e_kit_*` (model composition) | ported |
 | compute modules | `e2e_compute` (author → deploy → compile → enable → invoke → observe → delete) | mirrors CrowdyJS `compute-module` e2e |
+| player compute + grid ownership | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
 ## Management API e2e (public `test/auth` + `test/sdk`)
@@ -59,6 +60,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | users | `e2e_auth_identities` (`me`, profile) | ported |
 | organizations | `e2e_studio_admin` | ported |
 | apps | `e2e_studio_admin` | ported |
+| app code admission | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
 | app-access (tiers + grants) | `e2e_studio_admin` | ported |
 | billing | `e2e_billing_quotas` | ported |
 | quotas | `e2e_billing_quotas` | ported |

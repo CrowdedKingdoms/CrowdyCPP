@@ -190,6 +190,89 @@ class OrganizationsAPI : public detail::AdminDomain {
 class AppsAPI : public detail::AdminDomain {
  public:
   using AdminDomain::AdminDomain;
+
+  /// Read the app's player-code admission mode. Requires
+  /// view_compute_diagnostics.
+  graphql::Json codeAdmissionMode(std::string_view appId) const {
+    return execUnwrap(gen::apps::kCodeAdmissionsDocument,
+                      one("appId", graphql::JVal(appId)),
+                      "AppCodeAdmissionMode");
+  }
+  void codeAdmissionModeAsync(std::string_view appId,
+                              graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument,
+                    one("appId", graphql::JVal(appId)),
+                    "AppCodeAdmissionMode", std::move(cb));
+  }
+
+  /// List code/author/org allow-list entries newest-first. Revoked audit rows
+  /// are omitted unless includeRevoked is true.
+  graphql::Json codeAdmissions(std::string_view appId,
+                               bool includeRevoked = false) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["includeRevoked"] = includeRevoked;
+    return execUnwrap(gen::apps::kCodeAdmissionsDocument, vars,
+                      "AppCodeAdmissions");
+  }
+  void codeAdmissionsAsync(std::string_view appId, bool includeRevoked,
+                           graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["includeRevoked"] = includeRevoked;
+    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument, vars,
+                    "AppCodeAdmissions", std::move(cb));
+  }
+
+  /// Set IMPLICIT_ALLOW or ALLOW_LIST. Switching to ALLOW_LIST drains
+  /// unadmitted code at activation while deploy/compile remain available.
+  graphql::Json setCodeAdmissionMode(std::string_view appId,
+                                     std::string_view mode) const {
+    return execUnwrap(
+        gen::apps::kCodeAdmissionsDocument,
+        two("appId", graphql::JVal(appId), "mode", graphql::JVal(mode)),
+        "SetAppCodeAdmissionMode");
+  }
+  void setCodeAdmissionModeAsync(std::string_view appId, std::string_view mode,
+                                 graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(
+        gen::apps::kCodeAdmissionsDocument,
+        two("appId", graphql::JVal(appId), "mode", graphql::JVal(mode)),
+        "SetAppCodeAdmissionMode", std::move(cb));
+  }
+
+  /// Admit one code listing, author, or org. Admission controls execution only
+  /// and never grants source visibility.
+  graphql::Json admitCode(const graphql::JVal& input) const {
+    return execUnwrap(gen::apps::kCodeAdmissionsDocument, one("input", input),
+                      "AdmitAppCode");
+  }
+  void admitCodeAsync(const graphql::JVal& input,
+                      graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument, one("input", input),
+                    "AdmitAppCode", std::move(cb));
+  }
+
+  /// Revoke an active admission; the server audit-logs and replica-syncs the
+  /// change before draining or blocking affected artifacts.
+  graphql::Json revokeCodeAdmission(std::string_view appId,
+                                    std::string_view admissionId) const {
+    return execUnwrap(
+        gen::apps::kCodeAdmissionsDocument,
+        two("appId", graphql::JVal(appId), "admissionId",
+            graphql::JVal(admissionId)),
+        "RevokeAppCodeAdmission");
+  }
+  void revokeCodeAdmissionAsync(std::string_view appId,
+                                std::string_view admissionId,
+                                graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(
+        gen::apps::kCodeAdmissionsDocument,
+        two("appId", graphql::JVal(appId), "admissionId",
+            graphql::JVal(admissionId)),
+        "RevokeAppCodeAdmission", std::move(cb));
+  }
+
   graphql::Json mine() const { return execUnwrap(gen::apps::kMyAppsDocument); }
   void mineAsync(graphql::GraphQLCallback cb) const {
     execUnwrapAsync(gen::apps::kMyAppsDocument, graphql::JVal(), {}, std::move(cb));

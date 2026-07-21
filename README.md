@@ -36,6 +36,14 @@ natively.
 patch semantics: omit = unchanged, explicit null = clear, value = set; requires
 `is_operator`). Requires the 2026-07-20 `cks-management-api` dev line.
 
+**P1 player runtime:** `playerCompute()` wraps player-authored SERVER/CLIENT
+Rust/WASM bound to player-owned grids; `gameApps()` now exposes first-class
+ownership reads/assignments/transfers; and `admin().apps()` wraps app code
+admission mode plus code/author/org allow-list administration.
+`playerModel()` wraps owner/grid-confined flexible containers and player
+automations. These methods
+require the 2026-07-20 game-api/management-api player-runtime schemas.
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics
@@ -170,13 +178,15 @@ app-scoped token):
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
 | `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
-| `client.gameApps()` | App grids + grid runtime-permission administration. |
+| `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
+| `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
-context): `client.admin().organizations() / apps() / appAccess() / billing() /
+context): `client.admin().organizations() / apps()` (including player-code
+admission policy) `/ appAccess() / billing() /
 payments() / quotas() / environments() / usage() / sharedEnvironment()`.
 Operator surface (platform operations, requires operator rights):
 `client.operator_()`. The SDK never relaxes server-side authorization — these

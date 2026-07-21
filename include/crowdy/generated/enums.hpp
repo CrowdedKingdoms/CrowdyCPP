@@ -150,6 +150,88 @@ inline std::optional<CheckoutStatus> checkoutStatusFromString(std::string_view s
   return std::nullopt;
 }
 
+enum class CodeAdmissionMode {
+  IMPLICIT_ALLOW,
+  ALLOW_LIST,
+};
+
+inline constexpr std::string_view toString(CodeAdmissionMode v) {
+  switch (v) {
+    case CodeAdmissionMode::IMPLICIT_ALLOW: return "IMPLICIT_ALLOW";
+    case CodeAdmissionMode::ALLOW_LIST: return "ALLOW_LIST";
+  }
+  return "";
+}
+
+inline std::optional<CodeAdmissionMode> codeAdmissionModeFromString(std::string_view s) {
+  if (s == "IMPLICIT_ALLOW") return CodeAdmissionMode::IMPLICIT_ALLOW;
+  if (s == "ALLOW_LIST") return CodeAdmissionMode::ALLOW_LIST;
+  return std::nullopt;
+}
+
+enum class CodeAdmissionSubjectKind {
+  CODE,
+  AUTHOR,
+  ORG,
+};
+
+inline constexpr std::string_view toString(CodeAdmissionSubjectKind v) {
+  switch (v) {
+    case CodeAdmissionSubjectKind::CODE: return "CODE";
+    case CodeAdmissionSubjectKind::AUTHOR: return "AUTHOR";
+    case CodeAdmissionSubjectKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<CodeAdmissionSubjectKind> codeAdmissionSubjectKindFromString(std::string_view s) {
+  if (s == "CODE") return CodeAdmissionSubjectKind::CODE;
+  if (s == "AUTHOR") return CodeAdmissionSubjectKind::AUTHOR;
+  if (s == "ORG") return CodeAdmissionSubjectKind::ORG;
+  return std::nullopt;
+}
+
+enum class GridOwnerKind {
+  USER,
+  GROUP,
+  ORG,
+};
+
+inline constexpr std::string_view toString(GridOwnerKind v) {
+  switch (v) {
+    case GridOwnerKind::USER: return "USER";
+    case GridOwnerKind::GROUP: return "GROUP";
+    case GridOwnerKind::ORG: return "ORG";
+  }
+  return "";
+}
+
+inline std::optional<GridOwnerKind> gridOwnerKindFromString(std::string_view s) {
+  if (s == "USER") return GridOwnerKind::USER;
+  if (s == "GROUP") return GridOwnerKind::GROUP;
+  if (s == "ORG") return GridOwnerKind::ORG;
+  return std::nullopt;
+}
+
+enum class GridTenure {
+  OWNED,
+  RENTED,
+};
+
+inline constexpr std::string_view toString(GridTenure v) {
+  switch (v) {
+    case GridTenure::OWNED: return "OWNED";
+    case GridTenure::RENTED: return "RENTED";
+  }
+  return "";
+}
+
+inline std::optional<GridTenure> gridTenureFromString(std::string_view s) {
+  if (s == "OWNED") return GridTenure::OWNED;
+  if (s == "RENTED") return GridTenure::RENTED;
+  return std::nullopt;
+}
+
 enum class PaymentProvider {
   STRIPE,
   PAYPAL,
@@ -166,6 +248,25 @@ inline constexpr std::string_view toString(PaymentProvider v) {
 inline std::optional<PaymentProvider> paymentProviderFromString(std::string_view s) {
   if (s == "STRIPE") return PaymentProvider::STRIPE;
   if (s == "PAYPAL") return PaymentProvider::PAYPAL;
+  return std::nullopt;
+}
+
+enum class PlayerComputeTarget {
+  SERVER,
+  CLIENT,
+};
+
+inline constexpr std::string_view toString(PlayerComputeTarget v) {
+  switch (v) {
+    case PlayerComputeTarget::SERVER: return "SERVER";
+    case PlayerComputeTarget::CLIENT: return "CLIENT";
+  }
+  return "";
+}
+
+inline std::optional<PlayerComputeTarget> playerComputeTargetFromString(std::string_view s) {
+  if (s == "SERVER") return PlayerComputeTarget::SERVER;
+  if (s == "CLIENT") return PlayerComputeTarget::CLIENT;
   return std::nullopt;
 }
 

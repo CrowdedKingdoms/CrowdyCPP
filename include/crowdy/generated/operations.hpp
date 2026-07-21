@@ -488,6 +488,55 @@ inline constexpr std::string_view kArchiveAppDocument = R"gql(mutation ArchiveAp
 })gql";
 inline constexpr std::string_view kArchiveAppOperationName = "ArchiveApp";
 
+/// apps/CodeAdmissions.graphql
+inline constexpr std::string_view kCodeAdmissionsDocument = R"gql(fragment AppCodeAdmissionFields on AppCodeAdmission {
+  admissionId
+  appId
+  subjectKind
+  subjectRef
+  versionRange
+  admittedBy
+  admittedAt
+  revokedAt
+}
+
+query AppCodeAdmissionMode($appId: BigInt!) {
+  appCodeAdmissionMode(appId: $appId)
+}
+
+query AppCodeAdmissions($appId: BigInt!, $includeRevoked: Boolean) {
+  appCodeAdmissions(appId: $appId, includeRevoked: $includeRevoked) {
+    ...AppCodeAdmissionFields
+  }
+}
+
+mutation SetAppCodeAdmissionMode(
+  $appId: BigInt!
+  $mode: CodeAdmissionMode!
+) {
+  setAppCodeAdmissionMode(appId: $appId, mode: $mode)
+}
+
+mutation AdmitAppCode($input: AdmitAppCodeInput!) {
+  admitAppCode(input: $input) {
+    ...AppCodeAdmissionFields
+  }
+}
+
+mutation RevokeAppCodeAdmission(
+  $appId: BigInt!
+  $admissionId: String!
+) {
+  revokeAppCodeAdmission(appId: $appId, admissionId: $admissionId) {
+    ...AppCodeAdmissionFields
+  }
+})gql";
+inline constexpr std::string_view kAppCodeAdmissionModeOperationName = "AppCodeAdmissionMode";
+inline constexpr std::string_view kAppCodeAdmissionsOperationName = "AppCodeAdmissions";
+inline constexpr std::string_view kSetAppCodeAdmissionModeOperationName = "SetAppCodeAdmissionMode";
+inline constexpr std::string_view kAdmitAppCodeOperationName = "AdmitAppCode";
+inline constexpr std::string_view kRevokeAppCodeAdmissionOperationName = "RevokeAppCodeAdmission";
+
 /// apps/CreateApp.graphql
 inline constexpr std::string_view kCreateAppDocument = R"gql(mutation CreateApp($input: CreateAppInput!) {
   createApp(input: $input) {
@@ -2368,7 +2417,37 @@ inline constexpr std::string_view kUpdateEnvironmentScalingOperationName = "Upda
 namespace gameApps {
 
 /// gameApps/GameApps.graphql
-inline constexpr std::string_view kGameAppsDocument = R"gql(query GridUserPermissions($appId: BigInt!, $gridId: BigInt!, $userId: BigInt!) {
+inline constexpr std::string_view kGameAppsDocument = R"gql(fragment GridOwnershipFields on GridOwnership {
+  gridOwnershipId
+  gridId
+  appId
+  ownerKind
+  ownerRef
+  tenure
+  acquiredVia
+  acquiredAt
+  expiresAt
+}
+
+query GridOwnership($appId: BigInt!, $gridId: BigInt!) {
+  gridOwnership(appId: $appId, gridId: $gridId) {
+    ...GridOwnershipFields
+  }
+}
+
+mutation AssignGridOwnership($input: AssignGridOwnershipInput!) {
+  assignGridOwnership(input: $input) {
+    ...GridOwnershipFields
+  }
+}
+
+mutation TransferGridOwnership($input: TransferGridOwnershipInput!) {
+  transferGridOwnership(input: $input) {
+    ...GridOwnershipFields
+  }
+}
+
+query GridUserPermissions($appId: BigInt!, $gridId: BigInt!, $userId: BigInt!) {
   gridUserPermissions(appId: $appId, gridId: $gridId, userId: $userId) {
     appId
     gridId
@@ -2489,6 +2568,9 @@ mutation RevokeGroupFromGrid($input: RevokeGroupFromGridInput!) {
     expiresAt
   }
 })gql";
+inline constexpr std::string_view kGridOwnershipOperationName = "GridOwnership";
+inline constexpr std::string_view kAssignGridOwnershipOperationName = "AssignGridOwnership";
+inline constexpr std::string_view kTransferGridOwnershipOperationName = "TransferGridOwnership";
 inline constexpr std::string_view kGridUserPermissionsOperationName = "GridUserPermissions";
 inline constexpr std::string_view kNearbyGridPermissionsOperationName = "NearbyGridPermissions";
 inline constexpr std::string_view kGridPermissionLimitsOperationName = "GridPermissionLimits";
@@ -3802,6 +3884,168 @@ inline constexpr std::string_view kPlatformConfigDocument = R"gql(query Platform
 inline constexpr std::string_view kPlatformConfigOperationName = "PlatformConfig";
 
 }  // namespace platform
+
+namespace playerCompute {
+
+/// playerCompute/PlayerCompute.graphql
+inline constexpr std::string_view kPlayerComputeDocument = R"gql(fragment PlayerWasmModuleFields on PlayerWasmModule {
+  moduleId
+  appId
+  gridId
+  name
+  description
+  authorUserId
+  authorOrgId
+  enabled
+  currentVersionId
+  circuitState
+  lastError
+  createdAt
+  updatedAt
+}
+
+fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
+  versionId
+  moduleId
+  versionNo
+  target
+  sourceFilesJson
+  openSource
+  compileStatus
+  compileLog
+  compiledSizeBytes
+  createdAt
+}
+
+mutation PlayerComputeDeploy($input: DeployPlayerComputeInput!) {
+  playerComputeDeploy(input: $input) {
+    ...PlayerWasmModuleVersionFields
+  }
+}
+
+mutation PlayerComputeSetEnabled(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $enabled: Boolean!
+) {
+  playerComputeSetEnabled(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    enabled: $enabled
+  ) {
+    ...PlayerWasmModuleFields
+  }
+}
+
+query PlayerComputeMyModules($appId: BigInt!) {
+  playerComputeMyModules(appId: $appId) {
+    ...PlayerWasmModuleFields
+  }
+}
+
+query PlayerComputeVersions(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+) {
+  playerComputeVersions(appId: $appId, gridId: $gridId, name: $name) {
+    ...PlayerWasmModuleVersionFields
+  }
+}
+
+mutation PlayerComputeDelete(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+) {
+  playerComputeDelete(appId: $appId, gridId: $gridId, name: $name)
+})gql";
+inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
+inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
+inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "PlayerComputeMyModules";
+inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
+inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";
+
+}  // namespace playerCompute
+
+namespace playerModel {
+
+/// playerModel/PlayerModel.graphql
+inline constexpr std::string_view kPlayerModelDocument = R"gql(query PlayerModelContainers($appId: BigInt!, $gridId: BigInt!) {
+  playerModelContainers(appId: $appId, gridId: $gridId) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+query PlayerModelContainer($input: PlayerModelContainerRefInput!) {
+  playerModelContainer(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelCreateContainer($input: CreatePlayerModelContainerInput!) {
+  playerModelCreateContainer(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelSetProperty($input: SetPlayerModelPropertyInput!) {
+  playerModelSetProperty(input: $input) {
+    containerId appId gridId ownerUserId typeKey displayName
+    stateJson propertiesJson createdAt updatedAt
+  }
+}
+
+mutation PlayerModelDeleteContainer($input: PlayerModelContainerRefInput!) {
+  playerModelDeleteContainer(input: $input)
+}
+
+query PlayerAutomations($appId: BigInt!, $gridId: BigInt!) {
+  playerAutomations(appId: $appId, gridId: $gridId) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationCreate($input: CreatePlayerAutomationInput!) {
+  playerAutomationCreate(input: $input) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationSetEnabled($input: SetPlayerAutomationEnabledInput!) {
+  playerAutomationSetEnabled(input: $input) {
+    automationId appId gridId ownerUserId name description enabled
+    triggerJson actionJson maxRunsPerMinute failureThreshold cooldownMs
+    circuitState consecutiveFailures pausedUntil lastError lastRunAt
+    nextRunAt createdAt updatedAt
+  }
+}
+
+mutation PlayerAutomationDelete($input: PlayerAutomationRefInput!) {
+  playerAutomationDelete(input: $input)
+})gql";
+inline constexpr std::string_view kPlayerModelContainersOperationName = "PlayerModelContainers";
+inline constexpr std::string_view kPlayerModelContainerOperationName = "PlayerModelContainer";
+inline constexpr std::string_view kPlayerModelCreateContainerOperationName = "PlayerModelCreateContainer";
+inline constexpr std::string_view kPlayerModelSetPropertyOperationName = "PlayerModelSetProperty";
+inline constexpr std::string_view kPlayerModelDeleteContainerOperationName = "PlayerModelDeleteContainer";
+inline constexpr std::string_view kPlayerAutomationsOperationName = "PlayerAutomations";
+inline constexpr std::string_view kPlayerAutomationCreateOperationName = "PlayerAutomationCreate";
+inline constexpr std::string_view kPlayerAutomationSetEnabledOperationName = "PlayerAutomationSetEnabled";
+inline constexpr std::string_view kPlayerAutomationDeleteOperationName = "PlayerAutomationDelete";
+
+}  // namespace playerModel
 
 namespace quotas {
 

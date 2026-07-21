@@ -77,6 +77,7 @@ const METHOD_WAIVERS = {
 const METHOD_ALIASES = {
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
+  'PlayerComputeAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
@@ -335,7 +336,8 @@ const CLASS_MAP = {
   ServerStatusAPI: 'ServerStatusAPI', ChunksAPI: 'ChunksAPI', VoxelsAPI: 'VoxelsAPI',
   ActorsAPI: 'ActorsAPI', AvatarsAPI: 'AvatarsAPI', StateAPI: 'StateAPI', HostAPI: 'HostAPI',
   TeleportAPI: 'TeleportAPI', TeamsAPI: 'TeamsAPI', ChannelsAPI: 'ChannelsAPI',
-  GameModelAPI: 'GameModelAPI', GameAppsAPI: 'GameAppsAPI', PlatformAPI: 'PlatformAPI',
+  GameModelAPI: 'GameModelAPI', GameAppsAPI: 'GameAppsAPI',
+  PlayerComputeAPI: 'PlayerComputeAPI', PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI', AppsAPI: 'AppsAPI', AppAccessAPI: 'AppAccessAPI',
   BillingAPI: 'BillingAPI', PaymentsAPI: 'PaymentsAPI', QuotasAPI: 'QuotasAPI',
   EnvironmentsAPI: 'EnvironmentsAPI', UsageAPI: 'UsageAPI',

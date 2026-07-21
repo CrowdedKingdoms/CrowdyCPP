@@ -99,6 +99,20 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeDelete", vars, std::move(cb));
   }
 
+  /// Synchronously invoke an enabled/admitted server module as the grid owner.
+  graphql::Json invoke(std::string_view appId, std::string_view gridId,
+                       std::string_view moduleName,
+                       std::string_view exportName,
+                       std::string_view paramsJson = "{}") const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["moduleName"] = moduleName;
+    vars["exportName"] = exportName;
+    vars["paramsJson"] = paramsJson;
+    return run("PlayerComputeInvoke", vars);
+  }
+
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
     return execUnwrap(gen::playerCompute::kPlayerComputeDocument, vars, op);

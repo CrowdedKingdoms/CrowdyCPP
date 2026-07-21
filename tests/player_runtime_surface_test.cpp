@@ -50,6 +50,14 @@ void testGridOwnershipAndPlayerComputeUseGamePlane() {
   CHECK(transport->last.url == "https://game.invalid/graphql");
   CHECK(transport->last.body.find("PlayerComputeDeploy") != std::string::npos);
   CHECK(transport->last.body.find(R"("name":"weather")") != std::string::npos);
+
+  transport->response = {
+      200,
+      R"({"data":{"playerComputeInvoke":{"resultBase64":"","resultJson":"{}","fuelUsed":"12","durationUs":34}}})"};
+  auto invoked =
+      client.playerCompute().invoke("1", "2", "weather", "status", "{}");
+  CHECK(invoked["resultJson"].asString() == "{}");
+  CHECK(transport->last.body.find("PlayerComputeInvoke") != std::string::npos);
 }
 
 void testCodeAdmissionsUseManagementPlane() {

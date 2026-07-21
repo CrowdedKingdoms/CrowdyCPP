@@ -3961,12 +3961,34 @@ mutation PlayerComputeDelete(
   $name: String!
 ) {
   playerComputeDelete(appId: $appId, gridId: $gridId, name: $name)
+}
+
+mutation PlayerComputeInvoke(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $moduleName: String!
+  $exportName: String!
+  $paramsJson: String
+) {
+  playerComputeInvoke(
+    appId: $appId
+    gridId: $gridId
+    moduleName: $moduleName
+    exportName: $exportName
+    paramsJson: $paramsJson
+  ) {
+    resultBase64
+    resultJson
+    fuelUsed
+    durationUs
+  }
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
 inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
 inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "PlayerComputeMyModules";
 inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
 inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";
+inline constexpr std::string_view kPlayerComputeInvokeOperationName = "PlayerComputeInvoke";
 
 }  // namespace playerCompute
 

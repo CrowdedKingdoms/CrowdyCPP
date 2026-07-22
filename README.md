@@ -44,6 +44,13 @@ admission mode plus code/author/org allow-list administration.
 automations. These methods
 require the 2026-07-20 game-api/management-api player-runtime schemas.
 
+**Player-code bundles:** `playerCompute().setRequires(...)` binds an immutable
+SERVER version to its required CLIENT companion. `marketplace().gridClientMods`
+returns marketplace/self-authored attachment provenance plus aggregate
+per-author capability hashes; `marketplace().trustGridAuthor(...)` records the
+visitor's capability-bound grant. Native clients fetch attachment artifacts
+through `clientArtifact` and own their local sandbox/lifecycle implementation.
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics

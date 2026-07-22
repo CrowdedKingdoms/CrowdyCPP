@@ -48,6 +48,34 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeSetEnabled", vars, std::move(cb));
   }
 
+  /// Set or clear the required CLIENT companion for the current immutable
+  /// SERVER version. Empty requiredClientName clears the edge.
+  graphql::Json setRequires(std::string_view appId, std::string_view gridId,
+                            std::string_view serverName,
+                            std::string_view requiredClientName = "") const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["serverName"] = serverName;
+    if (!requiredClientName.empty()) {
+      vars["requiredClientName"] = requiredClientName;
+    }
+    return run("PlayerComputeSetRequires", vars);
+  }
+  void setRequiresAsync(std::string_view appId, std::string_view gridId,
+                        std::string_view serverName,
+                        std::string_view requiredClientName,
+                        graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["serverName"] = serverName;
+    if (!requiredClientName.empty()) {
+      vars["requiredClientName"] = requiredClientName;
+    }
+    runAsync("PlayerComputeSetRequires", vars, std::move(cb));
+  }
+
   /// List modules authored by the caller or installed on grids they currently
   /// own. Closed source is not returned by this module-level operation.
   graphql::Json myModules(std::string_view appId) const {

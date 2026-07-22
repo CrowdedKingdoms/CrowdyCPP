@@ -3424,6 +3424,10 @@ fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
   versionNo
   serverArtifactHashes
   clientArtifactHashes
+  requirements {
+    serverArtifactHash
+    clientArtifactHash
+  }
   capabilitySummaryJson
   capabilityHash
   openSource
@@ -3498,21 +3502,32 @@ query MarketplaceGridClientMods($appId: BigInt!, $gridId: BigInt!) {
     listingId
     listingName
     versionId
+    sourceKind
+    authorKind
+    authorRef
+    serverVersionId
+    clientVersionId
+    clientArtifactHash
     gridId
     capabilitySummaryJson
     capabilityHash
+    authorCapabilitySummaryJson
+    authorCapabilityHash
     callerConsented
+    callerTrustsAuthor
   }
 }
 
 query MarketplaceClientArtifact(
   $appId: BigInt!
-  $listingId: String!
+  $listingId: String
+  $attachmentId: String
   $versionId: String
 ) {
   playerCodeClientArtifact(
     appId: $appId
     listingId: $listingId
+    attachmentId: $attachmentId
     versionId: $versionId
   ) {
     versionId
@@ -3523,6 +3538,22 @@ query MarketplaceClientArtifact(
     contractJson
     clientFuelPerDispatch
   }
+}
+
+mutation MarketplaceTrustGridAuthor(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $authorKind: PlayerCodeOwnerKind!
+  $authorRef: BigInt!
+  $consentCapabilityHash: String!
+) {
+  trustGridAuthor(
+    appId: $appId
+    gridId: $gridId
+    authorKind: $authorKind
+    authorRef: $authorRef
+    consentCapabilityHash: $consentCapabilityHash
+  )
 }
 
 mutation MarketplacePublishListing($input: PublishPlayerCodeInput!) {
@@ -3838,6 +3869,7 @@ inline constexpr std::string_view kMarketplaceMyAcquisitionsOperationName = "Mar
 inline constexpr std::string_view kMarketplaceMyInstallsOperationName = "MarketplaceMyInstalls";
 inline constexpr std::string_view kMarketplaceGridClientModsOperationName = "MarketplaceGridClientMods";
 inline constexpr std::string_view kMarketplaceClientArtifactOperationName = "MarketplaceClientArtifact";
+inline constexpr std::string_view kMarketplaceTrustGridAuthorOperationName = "MarketplaceTrustGridAuthor";
 inline constexpr std::string_view kMarketplacePublishListingOperationName = "MarketplacePublishListing";
 inline constexpr std::string_view kMarketplacePublishVersionOperationName = "MarketplacePublishVersion";
 inline constexpr std::string_view kMarketplaceAcquireOperationName = "MarketplaceAcquire";
@@ -4377,6 +4409,7 @@ inline constexpr std::string_view kPlayerComputeDocument = R"gql(fragment Player
   enabled
   draft
   currentVersionId
+  currentTarget
   circuitState
   lastError
   createdAt
@@ -4416,6 +4449,20 @@ mutation PlayerComputeSetEnabled(
   ) {
     ...PlayerWasmModuleFields
   }
+}
+
+mutation PlayerComputeSetRequires(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $serverName: String!
+  $requiredClientName: String
+) {
+  playerComputeSetRequires(
+    appId: $appId
+    gridId: $gridId
+    serverName: $serverName
+    requiredClientName: $requiredClientName
+  )
 }
 
 query PlayerComputeMyModules($appId: BigInt!) {
@@ -4579,6 +4626,7 @@ query PlayerComputeArtifact(
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
 inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
+inline constexpr std::string_view kPlayerComputeSetRequiresOperationName = "PlayerComputeSetRequires";
 inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "PlayerComputeMyModules";
 inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
 inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";

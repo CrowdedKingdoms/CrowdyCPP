@@ -135,6 +135,16 @@ class MarketplaceAPI {
     game_.runAsync("MarketplaceConsentGridClientMod", vars, std::move(cb));
   }
 
+  /// Trust one author's active attachments at gridClientMods'
+  /// authorCapabilityHash. Widening requires another explicit call.
+  graphql::Json trustGridAuthor(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceTrustGridAuthor", vars);
+  }
+  void trustGridAuthorAsync(const graphql::JVal& vars,
+                            graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceTrustGridAuthor", vars, std::move(cb));
+  }
+
   /// Fetch an acquired/attached listing's client artifact (base64 + metadata).
   graphql::Json clientArtifact(const graphql::JVal& vars) const {
     return game_.run("MarketplaceClientArtifact", vars);

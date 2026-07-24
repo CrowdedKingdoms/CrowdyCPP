@@ -32,7 +32,11 @@ AttachedSession createAndAttach(
   graphql::JVal attach;
   attach["sessionId"] = result.sessionId;
   attach["clientInstanceId"] =
-      "cpp-e2e-" + std::string(mode) + "-" + std::string(suffix);
+      mode == "ASK"
+          ? "11111111-2222-4333-8444-555555555555"
+          : mode == "BUILD"
+                ? "22222222-3333-4444-8555-666666666666"
+                : "33333333-4444-4555-8666-777777777777";
   attach["idempotencyKey"] =
       "cpp-agent-attach-" + std::string(mode) + "-" + std::string(suffix);
   const auto attached = api.attachClient(attach);
@@ -57,7 +61,7 @@ void closeSession(domains::CrowdyStudioAgentAPI& api,
 
 }  // namespace
 
-int main() {
+int main() try {
   const auto cfg = e2e::requireConfig();
   e2e::requireOwner(cfg);
   e2e::requireFlag("CROWDY_E2E_AGENT");
@@ -164,4 +168,16 @@ int main() {
 
   std::puts("e2e_agentic_studio passed");
   return 0;
+} catch (const graphql::CrowdyGraphQLError& error) {
+  std::fprintf(stderr, "GraphQL error");
+  for (const auto& detail : error.errors()) {
+    std::fprintf(stderr, ": %s (%s, path=%s, remediation=%s)",
+                 detail.message.c_str(), detail.code.c_str(),
+                 detail.path.c_str(), detail.remediation.c_str());
+  }
+  std::fputc('\n', stderr);
+  return 1;
+} catch (const std::exception& error) {
+  std::fprintf(stderr, "exception: %s\n", error.what());
+  return 1;
 }

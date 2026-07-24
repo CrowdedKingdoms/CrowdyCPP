@@ -18,6 +18,7 @@ import {
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Kind, parse, print } from 'graphql';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const opsDir = join(root, 'operations');
@@ -65,11 +66,50 @@ function listDomains() {
 }
 
 function operationsInFile(text) {
-  const ops = [];
-  const re = /^\s*(query|mutation|subscription)\s+([A-Za-z0-9_]+)/gm;
-  let m;
-  while ((m = re.exec(text)) !== null) ops.push({ kind: m[1], name: m[2] });
-  return ops;
+  const document = parse(text, { noLocation: true });
+  const fragments = new Map(
+    document.definitions
+      .filter((definition) => definition.kind === Kind.FRAGMENT_DEFINITION)
+      .map((definition) => [definition.name.value, definition]),
+  );
+  const collectSpreads = (node, names) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.kind === Kind.FRAGMENT_SPREAD) names.add(node.name.value);
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const entry of value) collectSpreads(entry, names);
+      } else {
+        collectSpreads(value, names);
+      }
+    }
+  };
+  return document.definitions
+    .filter((definition) => definition.kind === Kind.OPERATION_DEFINITION)
+    .map((operation) => {
+      if (!operation.name) throw new Error('anonymous operations are not supported');
+      const names = new Set();
+      collectSpreads(operation, names);
+      const selected = [];
+      const pending = [...names];
+      while (pending.length > 0) {
+        const name = pending.shift();
+        if (selected.some((fragment) => fragment.name.value === name)) continue;
+        const fragment = fragments.get(name);
+        if (!fragment) throw new Error(`operation ${operation.name.value}: missing fragment ${name}`);
+        selected.push(fragment);
+        const nested = new Set();
+        collectSpreads(fragment, nested);
+        pending.push(...nested);
+      }
+      return {
+        kind: operation.operation,
+        name: operation.name.value,
+        document: print({
+          kind: Kind.DOCUMENT,
+          definitions: [operation, ...selected],
+        }),
+      };
+    });
 }
 
 let opsHpp = `${HEADER}
@@ -77,10 +117,9 @@ let opsHpp = `${HEADER}
 
 #include <string_view>
 
-/// GraphQL operation documents, one namespace per domain. Each constant is
-/// the full document text of its source file (which may contain fragments or
-/// several operations); the matching *OperationName constant names the
-/// operation to execute.
+/// GraphQL operation documents, one namespace per domain. File constants are
+/// retained for compatibility; operation constants contain only that operation
+/// and its transitive fragments so unrelated roots cannot invalidate a request.
 namespace crowdy::gen {
 
 `;
@@ -88,6 +127,8 @@ namespace crowdy::gen {
 const manifest = [];
 for (const domain of listDomains()) {
   opsHpp += `namespace ${domain} {\n\n`;
+  const domainOps = [];
+  const seenOperationNames = new Set();
   const files = readdirSync(join(opsDir, domain))
     .filter((f) => f.endsWith('.graphql'))
     .sort();
@@ -101,11 +142,25 @@ for (const domain of listDomains()) {
     opsHpp += `/// ${domain}/${file}\n`;
     opsHpp += `inline constexpr std::string_view k${base}Document = R"gql(${text})gql";\n`;
     for (const op of ops) {
+      if (seenOperationNames.has(op.name)) {
+        throw new Error(`duplicate operation ${domain}.${op.name}`);
+      }
+      seenOperationNames.add(op.name);
+      if (op.document.includes(')gql"')) {
+        throw new Error(`raw-string delimiter clash in ${file}:${op.name}`);
+      }
+      opsHpp += `inline constexpr std::string_view k${op.name}IsolatedDocument = R"gql(${op.document})gql";\n`;
       opsHpp += `inline constexpr std::string_view k${op.name}OperationName = "${op.name}";\n`;
       manifest.push({ domain, file, ...op });
+      domainOps.push(op);
     }
     opsHpp += '\n';
   }
+  opsHpp += `inline constexpr std::string_view documentFor(std::string_view operationName) {\n`;
+  for (const op of domainOps) {
+    opsHpp += `  if (operationName == "${op.name}") return k${op.name}IsolatedDocument;\n`;
+  }
+  opsHpp += `  return {};\n}\n\n`;
   opsHpp += `}  // namespace ${domain}\n\n`;
 }
 opsHpp += '}  // namespace crowdy::gen\n';

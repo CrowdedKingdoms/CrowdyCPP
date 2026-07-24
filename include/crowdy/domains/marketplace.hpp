@@ -29,11 +29,11 @@ class MarketplaceAPI {
    public:
     using DomainBase::DomainBase;
     graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-      return execUnwrap(gen::marketplace::kMarketplaceDocument, vars, op);
+      return execUnwrap(gen::marketplace::documentFor(op), vars, op);
     }
     void runAsync(std::string_view op, const graphql::JVal& vars,
                   graphql::GraphQLCallback cb) const {
-      execUnwrapAsync(gen::marketplace::kMarketplaceDocument, vars, op,
+      execUnwrapAsync(gen::marketplace::documentFor(op), vars, op,
                       std::move(cb));
     }
   };

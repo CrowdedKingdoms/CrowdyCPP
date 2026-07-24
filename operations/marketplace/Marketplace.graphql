@@ -33,24 +33,6 @@ fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
   createdAt
 }
 
-fragment AppPlayerCodeVersionFields on PlayerCodeVersion {
-  versionId
-  listingId
-  appId
-  versionNo
-  serverArtifactHashes
-  clientArtifactHashes
-  requirements {
-    serverArtifactHash
-    clientArtifactHash
-  }
-  capabilitySummaryJson
-  capabilityHash
-  openSource
-  licenseText
-  createdAt
-}
-
 fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   acquisitionId
   listingId
@@ -334,12 +316,6 @@ query MarketplaceAppListings($appId: BigInt!, $includeDelisted: Boolean) {
   appPlayerCodeListings(appId: $appId, includeDelisted: $includeDelisted) {
     ...PlayerCodeListingFields
     updatedAt
-  }
-}
-
-query MarketplaceAppListingVersions($appId: BigInt!, $listingId: String!) {
-  appPlayerCodeListingVersions(appId: $appId, listingId: $listingId) {
-    ...AppPlayerCodeVersionFields
   }
 }
 

@@ -1,0 +1,18 @@
+query MarketplaceAppListingVersions($appId: BigInt!, $listingId: String!) {
+  appPlayerCodeListingVersions(appId: $appId, listingId: $listingId) {
+    versionId
+    listingId
+    versionNo
+    serverArtifactHashes
+    clientArtifactHashes
+    requirements {
+      serverArtifactHash
+      clientArtifactHash
+    }
+    capabilitySummaryJson
+    capabilityHash
+    openSource
+    licenseText
+    createdAt
+  }
+}

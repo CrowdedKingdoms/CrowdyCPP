@@ -1,10 +1,11 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.14.0 is the strict portable/native counterpart to CrowdyJS 12.0.0.
-The parity gate pins CrowdyJS commit
+CrowdyCPP 0.14.0 passes the strict portable-parity gate against CrowdyJS
+12.0.0. The gate pins CrowdyJS commit
 `a4624c9193cb943b8a922ecea5013a9e48dcc2fb`; see
 [`parity-matrix.md`](parity-matrix.md) for the generated method-by-method
-evidence.
+evidence. Native equivalents and browser exclusions remain intentional, so
+this does not claim identical transports or browser behavior.
 
 | Surface | CrowdyCPP 0.14.0 | CrowdyJS 12.0.0 | Required public API generation |
 |---|---|---|---|
@@ -36,3 +37,15 @@ artifact-byte decoding is portable and is available through
 `playerCompute().artifactBytes(...)` and
 `marketplace().clientArtifactBytes(...)`.
 Portable gaps, unclassified differences, and stale classifications are zero.
+
+## CrowdyCPP 0.x source and ABI policy
+
+Until 1.0, each minor release may contain source-incompatible or ABI-incompatible
+changes. Patch releases within one minor line preserve the public source and
+installed-library ABI. Consumers should review `MIGRATION.md` and rebuild when
+moving between minors.
+
+The installed `CrowdyCPPConfigVersion.cmake` uses CMake's
+`SameMinorVersion` policy. A request for `0.14` may select a compatible newer
+`0.14.x` package, but no `0.15.x` package is accepted as compatible merely
+because both versions have major version `0`.

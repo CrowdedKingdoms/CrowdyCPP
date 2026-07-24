@@ -31,16 +31,19 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.14.0 strict parity:** the generated matrix now reports zero portable
-gaps, unclassified differences, and stale classifications against CrowdyJS
-12.0.0. Production Agentic Studio uses typed GraphQL-WS durable events,
-reconnect gap-fill, and lifetime-safe controller construction; the native
-player-host dispatcher has an exact `IAgentBrowserToolDispatcher` bridge.
-Game-model container changes have a typed subscription, and current platform
-extensions add keyed container ensure/filter plus app listing-version
-administration. Session stores expose real revision, dirty/save, queue, error,
-local-actor, and owner-private avatar observability. See the
-[compatibility matrix](docs/compatibility.md) and
+**v0.14.0 strict portable-parity target:** the release gate reports zero
+portable gaps, unclassified differences, and stale classifications against
+CrowdyJS 12.0.0 at
+`a9c620c021c83c39f630dca4bb3e46b76691ac2d`. This is not a claim that the
+implementations are identical: the generated matrix retains reviewed native
+equivalents and browser-only exclusions. Production Agentic Studio uses typed
+GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
+construction; the native player-host dispatcher has an exact
+`IAgentBrowserToolDispatcher` bridge. Game-model container metadata changes
+have a typed subscription, and current platform extensions add keyed container
+ensure/filter plus app listing-version administration. Session stores expose
+real revision, dirty/save, queue, error, local-actor, and owner-private avatar
+observability. See the [compatibility matrix](docs/compatibility.md) and
 [0.14 migration notes](MIGRATION.md).
 
 **v0.10.0:** operator compute-ceilings coverage (`operator_().computePlatformCeilings()`
@@ -72,7 +75,7 @@ refresh failure (old token retained) from reconnect failure (fresh token
 retained). Routed HTTP and WebSocket bases normalize to one `/graphql`, while
 explicit complete custom endpoints are preserved.
 
-**Crowdy Studio (CrowdyJS v12 portable parity):** `crowdyStudio()` is the typed,
+**Crowdy Studio (CrowdyJS 12.0.0 portable surface):** `crowdyStudio()` is the typed,
 app-scoped project/library/common-file API, including optimistic atomic saves,
 archive/restore, provenance-preserving imports, authored-module recovery, and
 permission-gated common publication. `crowdy::studio::CrowdyStudioController`
@@ -85,10 +88,10 @@ engine renderer.
 `crowdy.studio-agent/1` Game/Management operations, while
 `crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
 epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
-tool seam. The immutable 28-tool registry is verified against CrowdyJS v12
-canonical SHA-256 fixtures. There is no provider client, DOM driver, raw
-GraphQL/UDP executor, or generic tool authority in this surface. See
-[Native Agentic Studio](docs/native-agent-api.md).
+tool seam. The immutable 28-tool registry is verified against the pinned
+CrowdyJS 12.0.0 canonical SHA-256 fixtures. There is no provider client, DOM
+driver, raw GraphQL/UDP executor, or generic tool authority in this surface.
+See [Native Agentic Studio](docs/native-agent-api.md).
 
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
@@ -203,12 +206,12 @@ int main() {
   // 3) Connect the native replication client (assigns a server, installs the
   //    UDP session, waits for session-ready).
   crowdy::replication::Config repl{.appId = appId};
-  auto conn = game.replication().connect(repl);
-
-  // 4) Subscribe and join the world.
-  conn->onActorUpdate([](const crowdy::replication::ActorUpdate& u) {
+  // 4) Install receive handlers and join the world.
+  crowdy::replication::Handlers handlers;
+  handlers.actorUpdate = [](const crowdy::replication::SpatialNotification& u) {
     // u.uuid, u.chunk, u.payload (span over the datagram — copy if you keep it)
-  });
+  };
+  auto conn = game.replication().connect(repl, handlers);
   conn->sendActorUpdate({.chunk = {0, 0, 0},
                          .uuid = myActorUuid,
                          .payload = poseBytes,
@@ -264,7 +267,11 @@ Use the typed wrappers where available:
 `game.gameModel().containerChanged(...)` maps container metadata pushes, and
 `client.createCrowdyStudioAgentController(...)` owns the durable Agentic Studio
 event adapter and replay/gap-fill lifecycle. The generic client remains for
-application-specific subscriptions. See
+application-specific subscriptions. `crowdy::session::ContainerMirror` does
+not subscribe automatically: it remains a pull cache. Call `refresh()` from a
+typed container-change callback, or continue feeding channel notifications to
+`notifyChannelPing()`, when that is the application's notify-to-pull contract.
+See
 [GraphQL WebSocket examples](docs/graphql-websocket.md).
 
 ## Sub-clients at a glance
@@ -344,8 +351,8 @@ Runtime actions are revision-bound:
 The synchronization and runtime interfaces are intentionally server-free in
 unit tests. They do not grant grid permissions or source visibility: Game API
 ownership, target write/run permissions, and admission checks still execute on
-every playerCompute call. See [MIGRATION.md](MIGRATION.md) for the additive
-surface notes.
+every playerCompute call. See [MIGRATION.md](MIGRATION.md) for source-behavior
+and runtime-ownership notes.
 
 ## Native player-host and local tool integration
 
@@ -442,7 +449,7 @@ design, so reads never lock).
 | `ErrorStore` (`session.errors()`) | "why was that send rejected?" | Correlates server error frames (sequence-numbered, uint8 wrap) with the *kind* of send that used that sequence, so a permission denial points at "your voxel edit", not a bare error code. |
 | Host tracking (`amIHost()` / `onHostChanged`) | election polling | Heartbeats host eligibility on a cadence and caches the elected host with a change callback; gate host-only simulation without writing the polling loop. |
 | `SaveStateStore` / `AvatarStateStore` | persistence plumbing | Byte-level caches over the durable save/avatar surfaces with explicit `load()`/`save()`; base64 stays at the wire boundary, your code sees bytes. |
-| `ContainerMirror` | game-model polling | The notify-to-pull client: `watch()` containers, re-pull on demand or when a bound channel pings, read versioned snapshots via `get()`/`onChange` — server-authoritative state without hammering the API. |
+| `ContainerMirror` | game-model polling | A pull cache, not a subscription owner: `watch()` containers, re-pull on demand or when a bound channel pings, and read versioned snapshots via `get()`/`onChange`. Applications may also call `refresh()` from the separate typed `containerChanged` metadata feed. |
 | `PodCodec<T>` / `UnrealPose` | wire layout code | Your replicated state as a packed struct: the struct layout *is* the little-endian wire layout (static-asserted), with the 88-byte Unreal-compatible pose included. No serializer to write, nothing to keep in sync. |
 | `IUuidStore` (memory/file) | identity persistence | Persist your actor uuid across restarts so remote registries treat you as the same actor. |
 
@@ -581,6 +588,18 @@ CrowdyCPP follows the platform's
 3. Build one identity client and one client per game. All world/UDP calls run
    on the game client.
 
+## Versioning and binary compatibility
+
+CrowdyCPP remains pre-1.0. Within a minor line, patch releases preserve public
+source compatibility and ABI compatibility for the installed libraries.
+Each new minor release may make source or ABI changes, even though the major
+version remains `0`; consumers must review the migration notes and rebuild.
+
+The installed CMake package follows that policy with `SameMinorVersion`.
+For example, `find_package(CrowdyCPP 0.14 CONFIG REQUIRED)` can select a newer
+`0.14.x` package, but it will not accept `0.15.x`. No compatibility is promised
+between arbitrary `0.x` minors.
+
 ## Server compatibility
 
 CrowdyCPP targets the current platform APIs and degrades gracefully on older
@@ -674,8 +693,11 @@ files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks one reviewed CrowdyJS commit in
-`.github/workflows/ci.yml`. After either SDK changes its public surface:
+CrowdyCPP tracks CrowdyJS 12.0.0 at
+`a4624c9193cb943b8a922ecea5013a9e48dcc2fb`. The source of truth is
+`crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
+and the parity/fixture tools reject a checkout whose package version or HEAD
+does not match. After either SDK changes its public surface:
 
 ```bash
 # Optional for nonstandard layouts. Otherwise tools resolve ../CrowdyJS,
@@ -683,7 +705,8 @@ CrowdyCPP tracks one reviewed CrowdyJS commit in
 export CROWDYJS_PATH=/path/to/CrowdyJS
 
 # Compare both schemas in both directions, audit roots/methods, and refresh docs.
-node tools/parity/parity.mjs --write docs/parity-matrix.md
+node tools/parity/parity.mjs --crowdyjs "$CROWDYJS_PATH" \
+  --write docs/parity-matrix.md --strict
 npm run check:operations
 npm run check:parity
 
@@ -703,7 +726,7 @@ The reviewed baseline accepts only named classifications. A **portable gap** is
 shown as missing work and is not presented as parity; native equivalents and
 inherently browser-only surfaces are the only waivers. New differences and
 stale classifications fail. `--strict` additionally fails on every remaining
-portable gap and is intended for the final strict-parity release gate.
+portable gap and is the strict portable-parity release gate used by CI.
 
 Blueprint builders are a compiled structural gate:
 
@@ -747,6 +770,7 @@ external CMake build.
 - [Native Agentic Studio](docs/native-agent-api.md)
 - [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
 - [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
+- [Release verification checklist](docs/release-checklist.md)
 - [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)
 - [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS) — the TypeScript SDK this API surface mirrors
 - Agent index: [llms.txt](https://docs.crowdedkingdoms.com/llms.txt)

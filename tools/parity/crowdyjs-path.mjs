@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 function isCrowdyJsCheckout(path) {
@@ -47,4 +47,50 @@ export function resolveCrowdyJsPath(repoRoot, explicitPath = null) {
     'CrowdyJS checkout not found. Set CROWDYJS_PATH or place CrowdyJS ' +
       `beside this checkout. Checked: ${checked.join(', ')}`,
   );
+}
+
+/**
+ * Require parity tools to run against the version and exact commit declared
+ * by CrowdyCPP's package metadata. This prevents a same-version moving branch
+ * from silently becoming the release target.
+ */
+export function assertCrowdyJsParityTarget(repoRoot, crowdyJsPath) {
+  const manifest = JSON.parse(
+    readFileSync(join(repoRoot, 'package.json'), 'utf8'),
+  );
+  const target = manifest.crowdyjsParityTarget;
+  if (
+    !target ||
+    typeof target.version !== 'string' ||
+    typeof target.commit !== 'string' ||
+    !/^[0-9a-f]{40}$/u.test(target.commit)
+  ) {
+    throw new Error(
+      'package.json must declare crowdyjsParityTarget.version and its full commit SHA',
+    );
+  }
+
+  const candidate = JSON.parse(
+    readFileSync(join(crowdyJsPath, 'package.json'), 'utf8'),
+  );
+  let commit;
+  try {
+    commit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: crowdyJsPath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    throw new Error(
+      `CrowdyJS parity checkout is not a readable git checkout: ${crowdyJsPath}`,
+    );
+  }
+
+  if (candidate.version !== target.version || commit !== target.commit) {
+    throw new Error(
+      `CrowdyJS parity target mismatch: expected ${target.version} at ` +
+        `${target.commit}, received ${candidate.version ?? 'unknown'} at ${commit}`,
+    );
+  }
+  return target;
 }

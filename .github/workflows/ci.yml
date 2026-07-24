@@ -18,11 +18,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Read pinned CrowdyJS parity target
+        id: crowdyjs-target
+        run: echo "commit=$(jq -r '.crowdyjsParityTarget.commit' package.json)" >> "$GITHUB_OUTPUT"
       - name: Check out pinned CrowdyJS parity target
         uses: actions/checkout@v4
         with:
           repository: CrowdedKingdoms/CrowdyJS
-          ref: a4624c9193cb943b8a922ecea5013a9e48dcc2fb
+          ref: ${{ steps.crowdyjs-target.outputs.commit }}
           path: CrowdyJS
       - uses: actions/setup-node@v4
         with:

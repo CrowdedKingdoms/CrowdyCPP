@@ -30,6 +30,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
 | `CROWDY_E2E_AGENT_PLAY=1` | no | enable Play lease grant/takeover; also set controlled-entity and host-capability vars |
 | `CROWDY_E2E_AGENT_POLICY_KILL=1` | no | explicitly allow a temporary operator app kill/release; requires operator email |
+| `CROWDY_E2E_WEBSOCKET=1` | no | enable generic GraphQL-WS + typed container-feed live evidence; the client must have an injected or default transport |
 | `CROWDY_E2E_SLOW=1` | no | enable long-running suites (soak, cache-TTL waits) |
 
 \* a few legacy suites can run with pre-entitled fixed accounts
@@ -39,6 +40,8 @@ The management server must run with `DEV_AUTH_BYPASS` (the suites sign in with
 `devLogin`; the auth suite also exercises the magic-link dev-token flow).
 Every test exits **77** (ctest `SKIP_RETURN_CODE`) when its required
 variables are unset, so an unconfigured checkout reports skips, not failures.
+Hosted CI intentionally has no live deployment credentials: it compiles these
+targets and records exit-77 skips, not live platform passes.
 
 ## Running
 
@@ -69,7 +72,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_cross_server`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid / multi-server / claim coordinate / operator |
+| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid / multi-server / WebSocket transport / claim coordinate / operator |
 
 ## Notes for reruns
 
@@ -85,8 +88,15 @@ Run a single suite directly for its per-subtest output:
 - `e2e_crowdy_studio` archives its unique project after submitting the exact
   saved revision as a draft player-compute version.
 - `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
-  asks the configured server-side provider to run; policy-kill coverage is a
-  separate explicit opt-in and releases the kill before asserting.
+  asks the configured server-side provider to run. The suite uses the
+  production controller factory for create/attach/replay/heartbeat and binds a
+  fake native host to the live session epoch for takeover cancellation.
+  Policy-kill coverage is a separate explicit opt-in and releases the kill
+  before asserting.
+- `e2e_graphql_websocket` exits 77 when the client has neither an injected nor
+  compatible default WebSocket transport. With its explicit flag set,
+  endpoint/protocol failures are failures and structured GraphQL details are
+  printed.
 - `assignServer failed: No available servers found` during connect is
   transient on small deployments (server-status heartbeats briefly lapse) and
   is absorbed by the harness's assignment retry — not a failure.

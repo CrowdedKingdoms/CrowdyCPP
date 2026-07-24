@@ -17,7 +17,7 @@ int main() try {
   e2e::requireOwner(cfg);
   auto p = e2e::provisionPlayer(cfg, "durable");
 
-  E2E_SUBTEST("SaveStateStore load/save/patch round-trips");
+  E2E_SUBTEST("SaveStateStore patch stays local until explicit save");
   SaveStateStore save(*p.game, cfg.appId);
   const std::uint8_t blob[] = {1, 2, 3, 4, 5};
   save.save(Bytes(blob, sizeof(blob)));
@@ -28,12 +28,26 @@ int main() try {
     E2E_CHECK(std::memcmp(loaded.data(), blob, sizeof(blob)) == 0);
     const std::uint8_t patchBytes[] = {9, 9};
     fresh.patch(1, Bytes(patchBytes, sizeof(patchBytes)));
+    E2E_CHECK(fresh.dirty());
+    const auto local = fresh.snapshot();
+    E2E_CHECK(local[0] == 1 && local[1] == 9 && local[2] == 9 &&
+              local[3] == 4);
+
+    SaveStateStore beforeSave(*p.game, cfg.appId);
+    const auto& persisted = beforeSave.load();
+    E2E_CHECK(persisted.size() == sizeof(blob));
+    E2E_CHECK(std::memcmp(persisted.data(), blob, sizeof(blob)) == 0);
+
+    fresh.save();
+    E2E_CHECK(!fresh.dirty());
+    E2E_CHECK(fresh.lastSavedAt().has_value());
   }
   {
-    SaveStateStore fresh(*p.game, cfg.appId);
-    const auto& loaded = fresh.load();
+    SaveStateStore afterSave(*p.game, cfg.appId);
+    const auto& loaded = afterSave.load();
     E2E_CHECK(loaded.size() == sizeof(blob));
-    E2E_CHECK(loaded[0] == 1 && loaded[1] == 9 && loaded[2] == 9 && loaded[3] == 4);
+    E2E_CHECK(loaded[0] == 1 && loaded[1] == 9 && loaded[2] == 9 &&
+              loaded[3] == 4);
   }
 
   E2E_SUBTEST("AvatarStateStore identity + per-app state round-trips");

@@ -2,6 +2,7 @@
 
 #include <cctype>
 
+#include "crowdy/agent/client_runtime.hpp"
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
@@ -370,7 +371,8 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   teleport_ = std::make_unique<domains::TeleportAPI>(gameGql_);
   teams_ = std::make_unique<domains::TeamsAPI>(gameGql_);
   channels_ = std::make_unique<domains::ChannelsAPI>(gameGql_);
-  gameModel_ = std::make_unique<domains::GameModelAPI>(gameGql_);
+  gameModel_ = std::make_unique<domains::GameModelAPI>(
+      gameGql_, gameSubscriptions_);
   compute_ = std::make_unique<domains::ComputeAPI>(gameGql_);
   playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gameGql_);
   playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(managementGql_);
@@ -396,6 +398,13 @@ replication::ReplicationClient& CrowdyClient::replication() {
     replication_ = std::make_unique<replication::ReplicationClient>(std::move(provider));
   }
   return *replication_;
+}
+
+std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
+CrowdyClient::createCrowdyStudioAgentController(
+    agent::CrowdyStudioAgentControllerOptions options) {
+  return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
+      *crowdyStudioAgent_, *gameSubscriptions_, std::move(options));
 }
 
 GameplayTokenRefreshResult CrowdyClient::refreshGameplayToken() {

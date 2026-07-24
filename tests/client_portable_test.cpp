@@ -6,6 +6,7 @@
 #include "crowdy/client.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/replication/connection.hpp"
+#include "crowdy/session/durable.hpp"
 #include "test_util.hpp"
 
 using namespace crowdy;
@@ -56,6 +57,40 @@ class PortableTransport final : public graphql::IHttpTransport {
       return {
           200,
           R"({"data":{"serverWithLeastClients":{"serverId":"server-1","ip4":"127.0.0.1","ip6":"","clientPort":39001,"status":"READY","peers":[],"clients":"0","cpuPeakPct":0,"updatedAt":"","createdAt":""}}})"};
+    }
+    return {200, R"({"data":{"ok":true}})"};
+  }
+};
+
+class DurableTransport final : public graphql::IHttpTransport {
+ public:
+  int updates = 0;
+  graphql::HttpResponse send(const graphql::HttpRequest& request) override {
+    if (request.body.find("UserAppState") != std::string::npos &&
+        request.body.find("UpdateUserAppState") == std::string::npos) {
+      return {200,
+              R"({"data":{"userAppState":{"appId":"42","userId":"7","state":"AQI=","createdAt":"","updatedAt":""}}})"};
+    }
+    if (request.body.find("UpdateUserAppState") != std::string::npos) {
+      ++updates;
+      return {200,
+              R"({"data":{"updateUserAppState":{"appId":"42","userId":"7","state":"AwQ=","createdAt":"","updatedAt":""}}})"};
+    }
+    if (request.body.find(R"("operationName":"AvatarById")") !=
+        std::string::npos) {
+      return {200,
+              R"({"data":{"avatar":{"avatarId":"9","userId":"7","name":"Hero","publicState":"AQ==","privateState":"AgM=","createdAt":""}}})"};
+    }
+    if (request.body.find(R"("operationName":"AvatarAppState")") !=
+        std::string::npos) {
+      return {200,
+              R"({"data":{"avatarAppState":{"appId":"42","avatarId":"9","state":"BA==","createdAt":"","updatedAt":""}}})"};
+    }
+    if (request.body.find(R"("operationName":"UpdateAvatarState")") !=
+        std::string::npos) {
+      ++updates;
+      return {200,
+              R"({"data":{"updateAvatarState":{"avatarId":"9","userId":"7","name":"Hero","publicState":"AQ==","privateState":"BQY=","createdAt":""}}})"};
     }
     return {200, R"({"data":{"ok":true}})"};
   }
@@ -287,6 +322,42 @@ void testAsyncRefreshFailureUsesPollAndRetainsOldToken() {
   CHECK_EQ(connection->state(), replication::ConnState::Closed);
 }
 
+void testDurableStoreObservability() {
+  auto transport = std::make_shared<DurableTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.invalid";
+  config.transport = transport;
+  CrowdyClient client(std::move(config));
+
+  session::SaveStateStore save(client, "42");
+  CHECK_EQ(save.load().size(), std::size_t{2});
+  CHECK(!save.dirty());
+  CHECK(!save.lastSavedAt().has_value());
+  const std::uint8_t replacement[] = {3, 4};
+  save.set(Bytes(replacement, sizeof(replacement)));
+  CHECK(save.dirty());
+  CHECK_EQ(save.snapshot().at(0), std::uint8_t{3});
+  save.save();
+  CHECK(!save.dirty());
+  CHECK(save.lastSavedAt().has_value());
+  const auto updatesAfterSave = transport->updates;
+  const std::uint8_t patch[] = {9};
+  save.patch(1, Bytes(patch, sizeof(patch)));
+  CHECK(save.dirty());
+  CHECK_EQ(save.snapshot().at(1), std::uint8_t{9});
+  CHECK_EQ(transport->updates, updatesAfterSave);
+
+  session::AvatarStateStore avatar(client, "42", "9");
+  avatar.load();
+  const auto privateState = avatar.privateState();
+  CHECK_EQ(privateState.size(), std::size_t{2});
+  CHECK_EQ(privateState.at(0), std::uint8_t{2});
+  const std::uint8_t privateReplacement[] = {5, 6};
+  avatar.setPrivateState(
+      Bytes(privateReplacement, sizeof(privateReplacement)));
+  CHECK_EQ(avatar.privateState().at(1), std::uint8_t{6});
+}
+
 }  // namespace
 
 int main() {
@@ -296,6 +367,7 @@ int main() {
   testReconnectFailureRetainsFreshToken();
   testAsyncGameplayRefreshUsesPoll();
   testAsyncRefreshFailureUsesPollAndRetainsOldToken();
+  testDurableStoreObservability();
   std::puts("client_portable_test OK");
   return 0;
 }

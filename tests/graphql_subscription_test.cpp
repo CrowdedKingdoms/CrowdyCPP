@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "crowdy/agent/transport.hpp"
 #include "crowdy/client.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
 #include "crowdy/graphql/websocket.hpp"
@@ -636,6 +637,86 @@ void testCrowdyClientInjectionAndPoll() {
   CHECK(handle.active());
 }
 
+void testTypedGameModelContainerChanged() {
+  auto webSocket = std::make_shared<FakeTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.example.test";
+  config.transport = std::make_shared<FakeHttpTransport>();
+  config.webSocketTransport = webSocket;
+  CrowdyClient client(std::move(config));
+
+  bool called = false;
+  domains::GameModelContainerChange received;
+  domains::GameModelContainerChangedCallbacks callbacks;
+  callbacks.next = [&](domains::GameModelContainerChange value) {
+    called = true;
+    received = std::move(value);
+  };
+  callbacks.error = [](GraphQLSubscriptionError) { CHECK(false); };
+  auto handle = client.gameModel().containerChanged(
+      "42", "SharedDoor", "session-1", std::move(callbacks));
+  const auto connection = webSocket->connection(0);
+  acknowledge(connection);
+  const Json subscribe = parseSentText(connection, 1);
+  CHECK(subscribe["payload"]["operationName"].asString() ==
+        "GameModelContainerChanged");
+  CHECK(subscribe["payload"]["variables"]["appId"].asString() == "42");
+  CHECK(subscribe["payload"]["variables"]["typeName"].asString() ==
+        "SharedDoor");
+
+  connection->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"gameModelContainerChanged":{"appId":"42","containerId":"container-1","typeName":"SharedDoor","sessionId":"session-1","source":"function","functionName":"open","changedKeys":["open"],"occurredAt":"2026-07-24T00:00:00.000Z"}}}})");
+  CHECK(!called);
+  client.poll();
+  CHECK(called);
+  CHECK(received.appId == "42");
+  CHECK(received.containerId == "container-1");
+  CHECK(received.typeName == "SharedDoor");
+  CHECK_EQ(received.changedKeys.size(), std::size_t{1});
+  CHECK(handle.active());
+}
+
+void testTypedAgentGraphqlSubscription() {
+  auto webSocket = std::make_shared<FakeTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.example.test";
+  config.transport = std::make_shared<FakeHttpTransport>();
+  config.webSocketTransport = webSocket;
+  CrowdyClient client(std::move(config));
+  agent::CrowdyStudioAgentGraphQLTransport transport(
+      client.crowdyStudioAgent(), client.subscriptions());
+
+  bool called = false;
+  bool failed = false;
+  agent::AgentEvent event;
+  auto handle = transport.subscribeEvents(
+      {"session-1", "0", "1"},
+      {[&](agent::AgentEvent value) {
+         called = true;
+         event = std::move(value);
+       },
+       [&](agent::AgentError) { failed = true; },
+       [] {},
+       [] {}});
+  const auto connection = webSocket->connection(0);
+  acknowledge(connection);
+  const Json subscribe = parseSentText(connection, 1);
+  CHECK(subscribe["payload"]["operationName"].asString() ==
+        "CrowdyStudioAgentEvents");
+  CHECK(subscribe["payload"]["variables"]["clientEpoch"].asString() == "1");
+
+  connection->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"crowdyStudioAgentEvents":{"__typename":"AgentLifecycleEvent","protocolVersion":"crowdy.agent-event/1","eventId":"event-1","sessionId":"session-1","seq":"1","type":"MODE_SELECTED","runId":null,"version":"crowdy.agent-event/1","createdAt":"2026-07-24T00:00:00.000Z","lifecycleMode":"ASK","lifecycleClientEpoch":null,"lifecycleReplayAfterSeq":null,"lifecycleReason":null,"lifecycleContextVersion":null}}}})");
+  CHECK(!called);
+  transport.poll();
+  CHECK(called);
+  CHECK(!failed);
+  CHECK(event.seq == "1");
+  CHECK(event.type == agent::AgentEventType::ModeSelected);
+  handle->close();
+  client.poll();
+}
+
 }  // namespace
 
 int main() {
@@ -650,6 +731,8 @@ int main() {
   testFrameAndUtf8Limits();
   testAcknowledgementTimeoutAndReconnectCap();
   testCrowdyClientInjectionAndPoll();
+  testTypedGameModelContainerChanged();
+  testTypedAgentGraphqlSubscription();
   std::printf("graphql_subscription_test passed\n");
   return 0;
 }

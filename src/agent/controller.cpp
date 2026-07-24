@@ -87,8 +87,14 @@ CrowdyStudioAgentController::CrowdyStudioAgentController(
   options_.maxRetainedEvents =
       std::clamp<std::size_t>(options_.maxRetainedEvents, 1, 10'000);
   lifetime_->owner = this;
-  if (options_.subscriptionAdapter) {
+  if (options_.subscriptionAdapter &&
+      options_.subscriptionAdapter->available()) {
     subscriptionAdapter_ = options_.subscriptionAdapter;
+  } else if (auto* transportAdapter =
+                 dynamic_cast<IAgentEventSubscriptionAdapter*>(
+                     options_.transport);
+             transportAdapter && transportAdapter->available()) {
+    subscriptionAdapter_ = transportAdapter;
   } else {
     pollingAdapter_ = std::make_unique<PollingAgentEventSubscriptionAdapter>(
         transport_, options_.historyPageSize);
@@ -114,6 +120,7 @@ std::function<void()> CrowdyStudioAgentController::subscribe(
 std::size_t CrowdyStudioAgentController::poll() {
   if (destroyed_) return 0;
   subscriptionAdapter_->poll();
+  if (options_.browserDispatcher) options_.browserDispatcher->tick();
   const auto first = dispatcher_->drain();
   checkTimers();
   const auto second = dispatcher_->drain();
@@ -388,6 +395,15 @@ void CrowdyStudioAgentController::openSubscription(
           generation);
     });
   };
+  callbacks.reconnect = [lifetime, dispatcher, generation] {
+    dispatcher->post([lifetime, generation] {
+      const auto locked = lifetime.lock();
+      if (!locked || !locked->alive.load() || !locked->owner) return;
+      auto& owner = *locked->owner;
+      if (generation != owner.generation_ || owner.destroyed_) return;
+      owner.recoverGap(generation, false);
+    });
+  };
   try {
     subscription_ = subscriptionAdapter_->subscribe(
         AgentEventSubscriptionRequest{requireSession().sessionId,
@@ -467,13 +483,13 @@ void CrowdyStudioAgentController::drainBuffered(
 }
 
 void CrowdyStudioAgentController::recoverGap(
-    std::uint64_t generation) {
+    std::uint64_t generation, bool requireAdvance) {
   if (generation != generation_ || gapRecoveryInFlight_ || destroyed_) return;
   gapRecoveryInFlight_ = true;
   const auto before = state_.lastContiguousSeq;
   transport_.history(
       requireSession().sessionId, before, options_.historyPageSize,
-      deliver([generation, before](
+      deliver([generation, before, requireAdvance](
                   CrowdyStudioAgentController& self,
                   AgentOutcome<AgentHistoryPage> page) mutable {
         if (generation != self.generation_) return;
@@ -487,7 +503,8 @@ void CrowdyStudioAgentController::recoverGap(
             self.bufferEvent(std::move(event));
           }
           const auto next = incrementDecimal(self.state_.lastContiguousSeq);
-          if (self.buffered_.find(next) == self.buffered_.end() &&
+          if (requireAdvance &&
+              self.buffered_.find(next) == self.buffered_.end() &&
               before == self.state_.lastContiguousSeq) {
             throw CrowdyAgentError(
                 "AGENT_EVENT_GAP",

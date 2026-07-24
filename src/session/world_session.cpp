@@ -27,7 +27,8 @@ void WorldSession::installHandlers() {
   replication::Handlers handlers;
   handlers.actorUpdate = [this](const replication::SpatialNotification& n) {
     if (n.uuidArray() == uuid_) {
-      self_->recordAck(n.sequence, n.epochMillis, n.payload);
+      self_->recordAck(n.sequence, n.epochMillis, n.payload,
+                       core::systemClock().monotonicMillis());
       return;
     }
     actors_->ingest(n, core::systemClock().monotonicMillis());
@@ -45,7 +46,9 @@ void WorldSession::installHandlers() {
     events_.ingest(n, payload, /*fromServer=*/true, core::systemClock().monotonicMillis());
   };
   handlers.genericError = [this](const replication::GenericError& e) {
-    errors_.ingest(e, core::systemClock().monotonicMillis());
+    const auto now = core::systemClock().monotonicMillis();
+    self_->recordError(e, now);
+    errors_.ingest(e, now);
   };
   handlers.channelMessage = [this](const replication::ChannelNotification& n) {
     InboxMessage m;
@@ -135,6 +138,7 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
     if (voxels && voxels->size() == c.voxels.size()) {
       std::memcpy(c.voxels.data(), voxels->data(), c.voxels.size());
     }
+    touch(c);
     ++hydrated;
   });
   return hydrated;
@@ -149,8 +153,9 @@ bool ChunkStore::flushOne(ChunkData& chunk) {
         domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
     input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
     chunksApi_->update(input);
-    chunk.dirty = false;
+    setDirty(chunk, false);
     chunk.storedOnServer = true;
+    touch(chunk);
     return true;
   } catch (const std::exception&) {
     return false;  // leave dirty; retried later

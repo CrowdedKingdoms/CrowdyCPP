@@ -51,13 +51,17 @@ class GraphQLClient {
                 std::shared_ptr<AuthState> auth)
       : config_(std::move(config)), transport_(std::move(transport)), auth_(std::move(auth)) {}
 
-#ifndef CROWDY_NO_EXCEPTIONS
   /// Execute an operation and return the `data` value. Blocking.
+#ifndef CROWDY_NO_EXCEPTIONS
   /// Throws CrowdyHttpError / CrowdyGraphQLError / CrowdyNetworkError /
   /// CrowdyTimeoutError / CrowdyProtocolError. Prefer requestAsync in engines.
+#else
+  /// Exception-disabled compatibility path: returns an invalid Json on any
+  /// HTTP/GraphQL/protocol/transport failure. Prefer requestAsync when the
+  /// typed failure details are required.
+#endif
   Json request(std::string_view document, const JVal& variables = JVal(),
                std::string_view operationName = {});
-#endif
 
   /// Execute an operation without blocking or throwing. `cb` is invoked once
   /// with the outcome. When an async transport is set the request runs on it;

@@ -1,5 +1,38 @@
 # CrowdyCPP migration notes
 
+## 0.14.0 strict parity
+
+0.14.0 is additive. It closes every portable CrowdyJS v12 parity gap and adds
+typed wrappers for current platform SDL additions that postdate the pinned JS
+release.
+
+- Prefer `client.createCrowdyStudioAgentController(options)` for production
+  agent construction. It owns `CrowdyStudioAgentGraphQLTransport`, the
+  GraphQL-WS event adapter, and the controller in a safe lifetime order.
+- Replace custom local-tool glue with
+  `NativeBrowserToolDispatcherAdapter`. It maps controller invocations to
+  `NativeToolDispatcherV1`, pumps native deadlines from `controller.poll()`,
+  and propagates cancellation, context, timing, output, and typed errors.
+- `AgentControlLeaseManager::revoke(reason)` is an exact alias of the
+  synchronous intent-first `preempt(reason)` path.
+- Use `gameModel().containerChanged(...)` instead of a raw subscription for
+  the typed metadata feed. The returned `SubscriptionHandle` cancels on
+  destruction.
+- `gameModel().ensureContainer(input)` and the `bindingKey` list filter require
+  the current Game API. `marketplace().appListingVersions(vars)` is a
+  Management API studio read.
+- `SaveStateStore::set` and `patch` now update the local cache and mark it
+  dirty; call `save()` to persist. `dirty()` and `lastSavedAt()` expose the
+  save lifecycle. This corrects the old C++ `patch` behavior, which persisted
+  immediately.
+- Store revision, queue, error, local-actor, and private-avatar observability
+  are real bounded snapshots/counters; lifetime totals are not reset by
+  clearing retained rings.
+
+No provider API key or provider client was added. Agent providers remain a
+server-side platform concern. See
+[`docs/compatibility.md`](docs/compatibility.md) for server requirements.
+
 ## Crowdy Studio portable parity
 
 This phase is additive. Native integrations can now use

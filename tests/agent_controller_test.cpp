@@ -463,6 +463,12 @@ void testReconnectFencesStaleEpoch() {
   Harness harness;
   harness.initialize();
   CHECK(harness.controller->state().clientEpoch == "1");
+  harness.subscriptions.slots[0]->callbacks.reconnect();
+  pump(*harness.controller);
+  CHECK(harness.controller->state().connection ==
+        agent::AgentConnectionState::Connected);
+  CHECK(!harness.controller->state().lastError);
+
   harness.controller->reconnect();
   pump(*harness.controller);
   CHECK(harness.controller->state().clientEpoch == "2");
@@ -658,6 +664,7 @@ void testPollingFallbackAndLifecycleControls() {
          CHECK(event.seq == "1");
        },
        [&](agent::AgentError) { CHECK(false); },
+       [] {},
        [] {}});
   polling.poll();
   polling.poll();

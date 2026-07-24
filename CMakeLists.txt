@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrowdyCPP VERSION 0.13.0 LANGUAGES C CXX)
+project(CrowdyCPP VERSION 0.14.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,8 @@ option(CROWDY_WITH_CURL "Build the default libcurl HTTP transport" ON)
 option(CROWDY_WITH_CURL_WEBSOCKETS
        "Build the optional libcurl GraphQL-WebSocket transport when supported" ON)
 option(CROWDY_WITH_OPENSSL "Build the default OpenSSL crypto provider" ON)
+option(CROWDY_NO_EXCEPTIONS
+       "Use non-throwing GraphQL request compatibility paths" OFF)
 
 if(MSVC)
   add_compile_options(/W4)
@@ -163,6 +165,9 @@ target_include_directories(crowdy_graphql PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(crowdy_graphql PUBLIC cxx_std_20)
 target_link_libraries(crowdy_graphql PUBLIC crowdy_core crowdy_yyjson)
+if(CROWDY_NO_EXCEPTIONS)
+  target_compile_definitions(crowdy_graphql PUBLIC CROWDY_NO_EXCEPTIONS=1)
+endif()
 
 if(CROWDY_WITH_CURL)
   add_library(crowdy_http_curl STATIC src/graphql/http_curl.cpp)

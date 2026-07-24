@@ -267,6 +267,17 @@ class MarketplaceAPI {
     management_.runAsync("MarketplaceAppListings", vars, std::move(cb));
   }
 
+  /// Immutable versions of one listing in the studio administration view.
+  /// This is a Management API operation requiring view_compute_diagnostics.
+  graphql::Json appListingVersions(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceAppListingVersions", vars);
+  }
+  void appListingVersionsAsync(const graphql::JVal& vars,
+                               graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceAppListingVersions", vars,
+                         std::move(cb));
+  }
+
   /// All acquisitions in the app (studio audit view).
   graphql::Json appAcquisitions(const graphql::JVal& vars) const {
     return management_.run("MarketplaceAppAcquisitions", vars);

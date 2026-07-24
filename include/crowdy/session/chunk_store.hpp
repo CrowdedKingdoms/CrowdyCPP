@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -91,7 +92,11 @@ class ChunkStore {
   /// Mark a chunk dirty so the write-back loop persists it.
   void markDirty(const ChunkCoord& coord) {
     auto it = chunks_.find(coord);
-    if (it != chunks_.end() && options_.writeBackIntervalMs > 0) it->second.dirty = true;
+    if (it != chunks_.end() && options_.writeBackIntervalMs > 0 &&
+        !it->second.dirty) {
+      setDirty(it->second, true);
+      touch(it->second);
+    }
   }
 
   /// Alias of insertGenerated (worldgen naming parity).
@@ -106,8 +111,12 @@ class ChunkStore {
     std::size_t pruned = 0;
     for (auto it = chunks_.begin(); it != chunks_.end();) {
       if (chebyshev(it->first, center) > distance) {
-        if (it->second.dirty) flushOne(it->second);
+        if (it->second.dirty && !flushOne(it->second)) {
+          ++it;
+          continue;
+        }
         it = chunks_.erase(it);
+        revision_.fetch_add(1, std::memory_order_relaxed);
         ++pruned;
       } else {
         ++it;
@@ -140,7 +149,8 @@ class ChunkStore {
     c.coord = coord;
     c.voxels = voxels;
     c.storedOnServer = false;
-    c.dirty = options_.writeBackIntervalMs > 0;
+    setDirty(c, options_.writeBackIntervalMs > 0);
+    touch(c);
     return c;
   }
 
@@ -168,6 +178,12 @@ class ChunkStore {
   void tick(std::int64_t nowMs);
 
   std::size_t size() const { return chunks_.size(); }
+  std::uint64_t revision() const {
+    return revision_.load(std::memory_order_relaxed);
+  }
+  std::size_t pendingWriteBacks() const {
+    return pendingWriteBacks_.load(std::memory_order_relaxed);
+  }
 
  private:
   void applyLocal(const ChunkCoord& coord, int x, int y, int z, std::int16_t voxelType,
@@ -183,8 +199,25 @@ class ChunkStore {
       vs.voxelType = voxelType;
       vs.state.assign(state.begin(), state.end());
     }
-    if (shouldMarkDirty && options_.writeBackIntervalMs > 0) c.dirty = true;
-    if (onChunkChanged_) onChunkChanged_(c);
+    if (shouldMarkDirty && options_.writeBackIntervalMs > 0) {
+      setDirty(c, true);
+    }
+    touch(c);
+  }
+
+  void setDirty(ChunkData& chunk, bool dirty) {
+    if (chunk.dirty == dirty) return;
+    chunk.dirty = dirty;
+    if (dirty) {
+      pendingWriteBacks_.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      pendingWriteBacks_.fetch_sub(1, std::memory_order_relaxed);
+    }
+  }
+
+  void touch(ChunkData& chunk) {
+    revision_.fetch_add(1, std::memory_order_relaxed);
+    if (onChunkChanged_) onChunkChanged_(chunk);
   }
 
   /// Persist one chunk through the durable store; defined in
@@ -198,6 +231,8 @@ class ChunkStore {
   std::unordered_map<ChunkCoord, ChunkData, ChunkCoordHash> chunks_;
   std::int64_t lastWriteBackMs_ = 0;
   std::function<void(const ChunkData&)> onChunkChanged_;
+  std::atomic<std::uint64_t> revision_{0};
+  std::atomic<std::size_t> pendingWriteBacks_{0};
 };
 
 }  // namespace crowdy::session

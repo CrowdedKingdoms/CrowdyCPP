@@ -123,6 +123,9 @@ void run() {
   auto parsedJoin = wire::parseLongSpatial(Bytes(joinMsg.data(), joinMsg.size()));
   CHECK(parsedJoin.ok());
   CHECK(std::memcmp(parsedJoin->uuid, session.actorUuid().data(), 32) == 0);
+  CHECK(session.self().lastSent().has_value());
+  CHECK_EQ(session.self().state().len, sizeof(pose));
+  CHECK_EQ(session.self().status(), LocalActorStatus::Pending);
 
   // --- Send-on-change: unchanged state does not resend before the keyframe.
   session.tick();
@@ -161,6 +164,8 @@ void run() {
   CHECK_EQ(remote->samples.size(), 2u);                          // history kept
   CHECK_EQ(remote->lastServerEpochMs, 1700000000100LL);          // newest first
   CHECK_EQ(remote->state().size(), 2u);
+  CHECK(session.actors().revision() >= 2);
+  CHECK_EQ(session.self().status(), LocalActorStatus::Acked);
 
   // --- Voxel merge into the chunk cache.
   std::uint8_t voxelPayload[wire::voxel::kFixedSize + 2];
@@ -228,6 +233,7 @@ void run() {
   CHECK_EQ(dms[0].payload.size(), 2u);
 
   CHECK(!session.errors().recent().empty());
+  CHECK_EQ(session.errors().total(), std::uint64_t{1});
   const AttributedError& err = session.errors().recent().back();
   CHECK_EQ(static_cast<int>(err.code), 7);
   CHECK_EQ(static_cast<int>(err.kind), static_cast<int>(SendKind::ActorUpdate));
@@ -239,6 +245,8 @@ void run() {
   CHECK(seq.ok());
   const ChunkData* edited = session.chunks().find({2, 0, 0});
   CHECK_EQ(edited->voxels[static_cast<std::size_t>(voxelIndex(1, 1, 1))], 3u);
+  CHECK(session.chunks().revision() >= 2);
+  CHECK_EQ(session.chunks().pendingWriteBacks(), std::size_t{1});
   // Drain until we see the voxel request (actor keyframes may interleave).
   bool sawVoxel = false;
   for (int i = 0; i < 5 && !sawVoxel; ++i) sawVoxel = server.recvOne()[0] == 131;
@@ -280,6 +288,7 @@ void run() {
   }
   CHECK_EQ(laneJoins, 1);
   CHECK(mobLane.find(mob) != nullptr);
+  CHECK(mobLane.revision() >= 1);
   CHECK_EQ(routedEvents, 1);
   CHECK(session.events().lastEvent(42) != nullptr);
   CHECK(session.events().lastEvent(43) == nullptr);
@@ -299,6 +308,10 @@ void run() {
   CHECK_EQ(session.actors().size(), 0u);
   CHECK_EQ(mobLane.size(), 0u);
   CHECK_EQ(laneLeaves, 1);
+  CHECK(mobLane.revision() >= 2);
+  session.errors().clear();
+  CHECK(session.errors().recent().empty());
+  CHECK_EQ(session.errors().total(), std::uint64_t{1});
 
   session.dispose();
 }

@@ -1,10 +1,15 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "crowdy/domains/domain_base.hpp"
 #include "crowdy/generated/operations.hpp"
+#include "crowdy/graphql/subscription_client.hpp"
 
 /// client.gameModel() — the abstract game model: containers, properties,
 /// functions with invoke policies, sessions, edges, events, and automations
@@ -15,9 +20,32 @@
 /// https://docs.crowdedkingdoms.com/game-api/autonomous-processes.
 namespace crowdy::domains {
 
+struct GameModelContainerChange {
+  std::string appId;
+  std::string containerId;
+  std::optional<std::string> typeName;
+  std::optional<std::string> sessionId;
+  std::string source;
+  std::optional<std::string> functionName;
+  std::vector<std::string> changedKeys;
+  std::string occurredAt;
+};
+
+struct GameModelContainerChangedCallbacks {
+  std::function<void(GameModelContainerChange)> next;
+  std::function<void(graphql::GraphQLSubscriptionError)> error;
+  std::function<void()> complete;
+  std::function<void(graphql::GraphQLReconnectInfo)> reconnect;
+};
+
 class GameModelAPI : public DomainBase {
  public:
   using DomainBase::DomainBase;
+  GameModelAPI(
+      std::shared_ptr<graphql::GraphQLClient> gql,
+      std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions)
+      : DomainBase(std::move(gql)),
+        subscriptions_(std::move(subscriptions)) {}
 
   // ----- Studio authoring (requires manage_apps) ----------------------------
 
@@ -212,6 +240,15 @@ class GameModelAPI : public DomainBase {
   void createContainerAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
     runtimeAsync("GameModelCreateContainer", input, std::move(cb));
   }
+  /// Atomic get-or-create by bindingKey. Creation-only fields are ignored
+  /// when the key already exists; inspect `created` in the typed result row.
+  graphql::Json ensureContainer(const graphql::JVal& input) const {
+    return runtime("GameModelEnsureContainer", input);
+  }
+  void ensureContainerAsync(const graphql::JVal& input,
+                            graphql::GraphQLCallback cb) const {
+    runtimeAsync("GameModelEnsureContainer", input, std::move(cb));
+  }
   graphql::Json deleteContainer(std::string_view appId, std::string_view containerId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
@@ -277,22 +314,41 @@ class GameModelAPI : public DomainBase {
     execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainer",
                     std::move(cb));
   }
-  graphql::Json containers(std::string_view appId, std::string_view typeName = {},
-                           std::string_view sessionId = {}) const {
+  graphql::Json containers(std::string_view appId,
+                           std::string_view typeName = {},
+                           std::string_view sessionId = {},
+                           std::string_view bindingKey = {}) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
     return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers");
   }
   void containersAsync(std::string_view appId, std::string_view typeName,
                        std::string_view sessionId, graphql::GraphQLCallback cb) const {
+    containersAsync(appId, typeName, sessionId, {}, std::move(cb));
+  }
+  void containersAsync(std::string_view appId, std::string_view typeName,
+                       std::string_view sessionId,
+                       std::string_view bindingKey,
+                       graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
     execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers",
                     std::move(cb));
+  }
+  /// Get-by-key convenience. The schema uniqueness constraint means this
+  /// returns either one container or null.
+  graphql::Json containerByBindingKey(
+      std::string_view appId, std::string_view typeName,
+      std::string_view bindingKey,
+      std::string_view sessionId = {}) const {
+    const auto rows = containers(appId, typeName, sessionId, bindingKey);
+    return rows.isArray() && rows.size() > 0 ? rows.at(0) : graphql::Json();
   }
   /// Filtered/paged container list (2026-07+ servers): `where` is an array of
   /// up to 8 AND-combined `{key, op, valueJson}` predicates (ops ==, !=, <,
@@ -301,11 +357,13 @@ class GameModelAPI : public DomainBase {
   /// after filtering over the stable created-at ordering (pass -1 to omit).
   graphql::Json containersWhere(std::string_view appId, std::string_view typeName,
                                 const graphql::JVal& where, int limit = -1, int offset = -1,
-                                std::string_view sessionId = {}) const {
+                                std::string_view sessionId = {},
+                                std::string_view bindingKey = {}) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
     if (!where.isNull()) vars["where"] = where;
     if (limit >= 0) vars["limit"] = limit;
     if (offset >= 0) vars["offset"] = offset;
@@ -314,15 +372,130 @@ class GameModelAPI : public DomainBase {
   void containersWhereAsync(std::string_view appId, std::string_view typeName,
                             const graphql::JVal& where, int limit, int offset,
                             std::string_view sessionId, graphql::GraphQLCallback cb) const {
+    containersWhereAsync(appId, typeName, where, limit, offset, sessionId, {},
+                         std::move(cb));
+  }
+  void containersWhereAsync(std::string_view appId, std::string_view typeName,
+                            const graphql::JVal& where, int limit, int offset,
+                            std::string_view sessionId,
+                            std::string_view bindingKey,
+                            graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
     if (!where.isNull()) vars["where"] = where;
     if (limit >= 0) vars["limit"] = limit;
     if (offset >= 0) vars["offset"] = offset;
     execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers",
                     std::move(cb));
+  }
+
+  /// Typed GraphQL-WS wrapper for the notify-to-pull container feed.
+  graphql::SubscriptionHandle containerChanged(
+      std::string_view appId, std::string_view typeName,
+      std::string_view sessionId,
+      GameModelContainerChangedCallbacks callbacks) const {
+    if (!subscriptions_) {
+      if (callbacks.error) {
+        graphql::GraphQLSubscriptionError error;
+        error.status = Errc::NotConnected;
+        error.kind =
+            graphql::GraphQLSubscriptionErrorKind::TransportUnavailable;
+        error.code = "WEBSOCKET_TRANSPORT_UNAVAILABLE";
+        error.message =
+            "GameModelAPI has no GraphQL subscription client";
+        callbacks.error(std::move(error));
+      }
+      return {};
+    }
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    if (!typeName.empty()) vars["typeName"] = typeName;
+    if (!sessionId.empty()) vars["sessionId"] = sessionId;
+    auto shared =
+        std::make_shared<GameModelContainerChangedCallbacks>(
+            std::move(callbacks));
+    graphql::GraphQLSubscriptionCallbacks graph;
+    graph.onNext =
+        [shared](graphql::GraphQLSubscriptionOutcome outcome) mutable {
+          if (!outcome.ok()) {
+            if (shared->error) {
+              graphql::GraphQLSubscriptionError error;
+              error.status = outcome.status;
+              error.kind =
+                  graphql::GraphQLSubscriptionErrorKind::GraphQL;
+              error.errors = outcome.errors;
+              error.code = outcome.errors.empty()
+                               ? "GRAPHQL_SUBSCRIPTION_ERROR"
+                               : outcome.errors.front().code;
+              error.message =
+                  outcome.errors.empty()
+                      ? "Container-change subscription failed"
+                      : outcome.errors.front().message;
+              error.terminal = true;
+              shared->error(std::move(error));
+            }
+            return;
+          }
+          const auto row = outcome.data["gameModelContainerChanged"];
+          if (!row.isObject()) {
+            if (shared->error) {
+              graphql::GraphQLSubscriptionError error;
+              error.status = Errc::Malformed;
+              error.kind =
+                  graphql::GraphQLSubscriptionErrorKind::Protocol;
+              error.code = "INVALID_CONTAINER_CHANGE";
+              error.message =
+                  "Container-change subscription payload is malformed";
+              error.terminal = true;
+              shared->error(std::move(error));
+            }
+            return;
+          }
+          GameModelContainerChange change;
+          change.appId = row["appId"].isString()
+                             ? row["appId"].asString()
+                             : row["appId"].dump();
+          change.containerId = row["containerId"].asString();
+          if (row["typeName"].isString()) {
+            change.typeName = row["typeName"].asString();
+          }
+          if (row["sessionId"].isString()) {
+            change.sessionId = row["sessionId"].asString();
+          }
+          change.source = row["source"].asString();
+          if (row["functionName"].isString()) {
+            change.functionName = row["functionName"].asString();
+          }
+          if (row["changedKeys"].isArray()) {
+            row["changedKeys"].forEach([&](graphql::Json key) {
+              if (key.isString()) change.changedKeys.push_back(key.asString());
+            });
+          }
+          change.occurredAt = row["occurredAt"].asString();
+          if (shared->next) shared->next(std::move(change));
+        };
+    graph.onError =
+        [shared](graphql::GraphQLSubscriptionError error) mutable {
+          if (shared->error) shared->error(std::move(error));
+        };
+    graph.onComplete = [shared] {
+      if (shared->complete) shared->complete();
+    };
+    graph.onReconnect =
+        [shared](graphql::GraphQLReconnectInfo info) mutable {
+          if (shared->reconnect) shared->reconnect(std::move(info));
+        };
+    return subscriptions_->subscribe(
+        gen::gameModel::kGameModelRuntimeDocument, vars,
+        "GameModelContainerChanged", std::move(graph));
+  }
+  graphql::SubscriptionHandle containerChanged(
+      std::string_view appId,
+      GameModelContainerChangedCallbacks callbacks) const {
+    return containerChanged(appId, {}, {}, std::move(callbacks));
   }
   graphql::Json containerState(std::string_view appId, std::string_view containerId) const {
     graphql::JVal vars;
@@ -646,6 +819,8 @@ class GameModelAPI : public DomainBase {
     vars["input"] = input;
     execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, op, std::move(cb));
   }
+
+  std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions_;
 };
 
 }  // namespace crowdy::domains

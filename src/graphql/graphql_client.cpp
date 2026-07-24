@@ -156,6 +156,14 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
   if (!out.ok()) throwOutcome(out);
   return out.data;
 }
+#else
+Json GraphQLClient::request(std::string_view document, const JVal& variables,
+                            std::string_view operationName) {
+  const HttpRequest request =
+      buildHttpRequest(document, variables, operationName);
+  GraphQLOutcome outcome = outcomeFromHttp(sendInline(request));
+  return outcome.ok() ? outcome.data : Json{};
+}
 #endif
 
 void GraphQLClient::requestAsync(std::string_view document, const JVal& variables,

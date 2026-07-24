@@ -30,6 +30,82 @@ AgentError graphFailure(const graphql::GraphQLOutcome& outcome) {
       true);
 }
 
+AgentError subscriptionFailure(
+    const graphql::GraphQLSubscriptionError& source) {
+  std::string code = source.code;
+  if (!code.starts_with("AGENT_") &&
+      code != "CROWDY_STUDIO_REVISION_CONFLICT") {
+    switch (source.kind) {
+      case graphql::GraphQLSubscriptionErrorKind::Authentication:
+        code = "AGENT_UNAUTHENTICATED";
+        break;
+      case graphql::GraphQLSubscriptionErrorKind::Authorization:
+      case graphql::GraphQLSubscriptionErrorKind::AppScope:
+        code = "AGENT_PERMISSION_DENIED";
+        break;
+      case graphql::GraphQLSubscriptionErrorKind::StaleClientEpoch:
+        code = "AGENT_CLIENT_EPOCH_STALE";
+        break;
+      default:
+        code = "AGENT_DISCONNECTED";
+        break;
+    }
+  }
+  AgentError result = makeAgentError(
+      code,
+      source.message.empty() ? "Agent GraphQL subscription failed"
+                             : source.message,
+      source.retryable);
+  if (!source.errors.empty() &&
+      !source.errors.front().remediation.empty()) {
+    result.remediation = source.errors.front().remediation;
+  }
+  return result;
+}
+
+AgentError subscriptionFailure(
+    const graphql::GraphQLSubscriptionOutcome& source) {
+  if (!source.errors.empty()) {
+    graphql::GraphQLSubscriptionError error;
+    error.kind = graphql::GraphQLSubscriptionErrorKind::GraphQL;
+    error.code = source.errors.front().code;
+    error.message = source.errors.front().message;
+    error.errors = source.errors;
+    error.retryable = false;
+    error.terminal = true;
+    if (graphql::isTerminalSubscriptionErrorCode(error.code)) {
+      if (error.code.find("EPOCH") != std::string::npos) {
+        error.kind =
+            graphql::GraphQLSubscriptionErrorKind::StaleClientEpoch;
+      }
+    }
+    return subscriptionFailure(error);
+  }
+  return makeAgentError(
+      "AGENT_DISCONNECTED",
+      "Agent GraphQL subscription returned an unsuccessful payload", true);
+}
+
+class ClosedAgentEventSubscription final
+    : public IAgentEventSubscription {
+ public:
+  void close() override {}
+};
+
+class GraphQLAgentEventSubscription final
+    : public IAgentEventSubscription {
+ public:
+  explicit GraphQLAgentEventSubscription(
+      graphql::SubscriptionHandle handle)
+      : handle_(std::move(handle)) {}
+  ~GraphQLAgentEventSubscription() override { close(); }
+
+  void close() override { handle_.cancel(); }
+
+ private:
+  graphql::SubscriptionHandle handle_;
+};
+
 template <typename T, typename Parser>
 void parseGraph(graphql::GraphQLOutcome outcome, AgentCallback<T> callback,
                 Parser parser) {
@@ -75,6 +151,109 @@ AgentToolCallAck parseToolAck(const graphql::Json& value) {
 }
 
 }  // namespace
+
+std::unique_ptr<IAgentEventSubscription>
+GraphQLAgentEventSubscriptionAdapter::subscribe(
+    AgentEventSubscriptionRequest request,
+    AgentEventSubscriptionCallbacks callbacks) {
+  if (request.sessionId.empty() || request.sessionId.size() > 128 ||
+      !isNonNegativeSequence(request.afterSeq) ||
+      !isNonNegativeSequence(request.clientEpoch)) {
+    if (callbacks.error) {
+      callbacks.error(makeAgentError(
+          "AGENT_EVENT_CURSOR_INVALID",
+          "Agent subscription received an invalid session, cursor, or epoch"));
+    }
+    return std::make_unique<ClosedAgentEventSubscription>();
+  }
+
+  graphql::JVal variables;
+  variables["sessionId"] = request.sessionId;
+  variables["afterSeq"] = request.afterSeq;
+  variables["clientEpoch"] = request.clientEpoch;
+  auto sharedCallbacks =
+      std::make_shared<AgentEventSubscriptionCallbacks>(
+          std::move(callbacks));
+
+  graphql::GraphQLSubscriptionCallbacks graphCallbacks;
+  graphCallbacks.onNext =
+      [sharedCallbacks](
+          graphql::GraphQLSubscriptionOutcome outcome) mutable {
+        if (!outcome.ok()) {
+          if (sharedCallbacks->error) {
+            sharedCallbacks->error(subscriptionFailure(outcome));
+          }
+          return;
+        }
+        const auto value = outcome.data["crowdyStudioAgentEvents"];
+        if (!value.ok() || value.isNull()) {
+          if (sharedCallbacks->error) {
+            sharedCallbacks->error(makeAgentError(
+                "AGENT_EVENT_CURSOR_INVALID",
+                "Agent subscription payload omitted its durable event"));
+          }
+          return;
+        }
+        try {
+          if (sharedCallbacks->next) {
+            sharedCallbacks->next(parseAgentEvent(value));
+          }
+        } catch (const CrowdyAgentError& error) {
+          if (sharedCallbacks->error) {
+            sharedCallbacks->error(error.value());
+          }
+        } catch (const std::exception& error) {
+          if (sharedCallbacks->error) {
+            sharedCallbacks->error(toAgentError(
+                error, "AGENT_EVENT_CURSOR_INVALID"));
+          }
+        }
+      };
+  graphCallbacks.onError =
+      [sharedCallbacks](
+          graphql::GraphQLSubscriptionError error) mutable {
+        if (sharedCallbacks->error) {
+          sharedCallbacks->error(subscriptionFailure(error));
+        }
+      };
+  graphCallbacks.onComplete = [sharedCallbacks] {
+    if (sharedCallbacks->complete) sharedCallbacks->complete();
+  };
+  graphCallbacks.onReconnect =
+      [sharedCallbacks](graphql::GraphQLReconnectInfo) {
+        if (sharedCallbacks->reconnect) sharedCallbacks->reconnect();
+      };
+
+  auto handle = subscriptions_.subscribe(
+      gen::crowdyStudioAgent::kCrowdyStudioAgentDocument, variables,
+      "CrowdyStudioAgentEvents", std::move(graphCallbacks));
+  return std::make_unique<GraphQLAgentEventSubscription>(
+      std::move(handle));
+}
+
+void GraphQLAgentEventSubscriptionAdapter::poll() {
+  subscriptions_.poll();
+}
+
+std::unique_ptr<IAgentEventSubscription>
+CrowdyStudioAgentGraphQLTransport::subscribeEvents(
+    AgentEventSubscriptionRequest request,
+    AgentEventSubscriptionCallbacks callbacks) {
+  if (!eventSubscriptions_) {
+    if (callbacks.error) {
+      callbacks.error(makeAgentError(
+          "AGENT_HOST_UNAVAILABLE",
+          "Agent event subscriptions require a GraphQLSubscriptionClient"));
+    }
+    return std::make_unique<ClosedAgentEventSubscription>();
+  }
+  return eventSubscriptions_->subscribe(std::move(request),
+                                        std::move(callbacks));
+}
+
+void CrowdyStudioAgentGraphQLTransport::poll() {
+  if (eventSubscriptions_) eventSubscriptions_->poll();
+}
 
 void CrowdyStudioAgentGraphQLTransport::getSession(
     std::string sessionId, AgentCallback<AgentSession> callback) {
@@ -437,6 +616,7 @@ class PollingSubscription final : public IAgentEventSubscription {
       std::weak_ptr<PollingAgentEventSubscriptionAdapter::Shared::Record>
           record)
       : shared_(std::move(shared)), record_(std::move(record)) {}
+  ~PollingSubscription() override { close(); }
 
   void close() override {
     if (const auto record = record_.lock()) record->closed = true;

@@ -10,7 +10,8 @@ provider client, unrestricted SDK bridge, or raw network/tool authority.
   the Game API. App policy, sanitized usage, and operator policy/kill
   operations use the Management API.
 - `crowdy::agent::CrowdyStudioAgentGraphQLTransport` maps those documents onto
-  the typed `IAgentTransport` contract.
+  the typed `IAgentTransport` contract. Its `subscribeEvents` method uses the
+  committed GraphQL-WS document and emits only typed durable events.
 - `crowdy::agent::CrowdyStudioAgentController` owns attach epochs, durable
   replay, gap filling, acknowledgements, reducer state, policy/registry
   repinning, approvals, leases, budgets, heartbeat renewal, reconnect fencing,
@@ -22,24 +23,18 @@ provider client, unrestricted SDK bridge, or raw network/tool authority.
 ## Minimal native loop
 
 ```cpp
-auto transport =
-    crowdy::agent::CrowdyStudioAgentGraphQLTransport(
-        client.crowdyStudioAgent());
-
 crowdy::agent::CrowdyStudioAgentControllerOptions options;
-options.transport = &transport;
-options.dispatcher = client.crowdyStudioAgent().dispatcher();
 options.sessionId = savedSessionId;
 options.onStateChange = [](const auto& state) {
   // Copy state into engine/UI models on the poll thread.
 };
 
-crowdy::agent::CrowdyStudioAgentController agent(std::move(options));
-agent.initialize();
+auto agent =
+    client.createCrowdyStudioAgentController(std::move(options));
+agent->controller().initialize();
 
 while (running) {
-  client.poll();  // HTTP completions
-  agent.poll();   // subscriptions/fallback replay, timers, reducer callbacks
+  agent->poll();  // HTTP/WS, gap fill, timers, tools, reducer callbacks
 }
 ```
 
@@ -56,10 +51,11 @@ The GraphQL-WS integration implements `IAgentEventSubscriptionAdapter`.
 - the exclusive `afterSeq` durable cursor
 - the exact attached `clientEpoch`
 
-It emits typed `AgentEvent` values and returns a closeable handle. Delivery may
-be at least once; the controller deduplicates, orders, fills gaps through
-`history`, and acknowledges only contiguous sequences. Adapter callbacks may
-arrive on any thread because the controller posts them to its dispatcher.
+It emits typed `AgentEvent` values and returns an RAII closeable handle.
+Delivery may be at least once; the controller deduplicates, orders, fills gaps
+through `history`, and acknowledges only contiguous sequences. A GraphQL-WS
+reconnect callback starts durable gap fill before the operation replay.
+Adapter callbacks land through the shared dispatcher.
 
 When no realtime adapter is supplied, the controller owns a
 `PollingAgentEventSubscriptionAdapter`. It replays the same durable history
@@ -68,7 +64,9 @@ WebSocket implementation.
 
 ## Studio and player-host seams
 
-Native Studio and game hosts implement `IAgentBrowserToolDispatcher`:
+Native Studio and game hosts use
+`NativeBrowserToolDispatcherAdapter`, the concrete
+`IAgentBrowserToolDispatcher` bridge over `NativeToolDispatcherV1`:
 
 - `dispatch(invocation, callback)` executes one exact descriptor-pinned
   `BROWSER` invocation through an allowlisted host service.
@@ -77,13 +75,14 @@ Native Studio and game hosts implement `IAgentBrowserToolDispatcher`:
 - `clearClosedSession()` may release execute-once records only after the
   session is closed/fenced.
 
-The host implementation must revalidate descriptor digest, epoch, context,
-lease, approval, input/output schema, deadline, and execute-once identity.
-Ambiguous effects return `OUTCOME_UNKNOWN` and are never retried. Studio
-project edits and player commands must route through the same intent services
-as human actions. They must not receive a raw `CrowdyClient`, GraphQL executor,
-UDP connection, provider credential, shell, filesystem, or generic tool
-callback.
+The bridge revalidates descriptor digest, epoch, context, lease, approval,
+input/output schema, deadline, and execute-once identity. It converts generic
+event JSON field-by-field into closed native variants and canonicalizes the
+typed result JSON. Ambiguous effects return `OUTCOME_UNKNOWN` and are never
+retried. Studio project edits and player commands route through the same
+intent services as human actions. They never receive a raw `CrowdyClient`,
+GraphQL executor, UDP connection, provider credential, shell, filesystem, or
+generic tool callback.
 
 Studio should also provide:
 
@@ -92,8 +91,8 @@ Studio should also provide:
 - `onPreempt(reason)` to stop local effects before best-effort server cleanup;
 - `onLeaseChanged(lease)` to bind/release visible workspace or Play authority.
 
-This phase defines these interfaces only. Project/editor effects and native
-player-host command execution belong in their host integrations.
+See [Native player-host integration](native-player-host.md) for a complete
+construction and game-loop example.
 
 ## Safety controls
 

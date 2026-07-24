@@ -31,6 +31,10 @@ namespace domains {
 class AdminAPI;
 class OperatorAPI;
 }  // namespace domains
+namespace agent {
+struct CrowdyStudioAgentControllerOptions;
+class CrowdyStudioAgentControllerRuntime;
+}  // namespace agent
 namespace graphql {
 class Dispatcher;
 }
@@ -182,6 +186,11 @@ class CrowdyClient {
   domains::CrowdyStudioAgentAPI& crowdyStudioAgent() {
     return *crowdyStudioAgent_;
   }
+  /// Own the production typed HTTP + GraphQL-WS transports alongside the
+  /// controller, preventing dangling adapter references.
+  std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
+  createCrowdyStudioAgentController(
+      agent::CrowdyStudioAgentControllerOptions options);
 
   // ----- Gameplay-token lifecycle ----------------------------------------------
   /// Safely rotate the app-scoped bearer used by GraphQL and native UDP.

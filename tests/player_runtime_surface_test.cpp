@@ -269,6 +269,78 @@ void testMarketplaceChunkClaimsUseAppTokenGamePlane() {
   CHECK(releaseAsyncCalled);
 }
 
+void testCurrentPlatformContainerAndMarketplaceAdditions() {
+  auto transport = std::make_shared<CaptureTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.invalid";
+  config.managementUrl = "https://management.invalid";
+  config.transport = transport;
+  CrowdyClient client(std::move(config));
+
+  graphql::JVal ensure;
+  ensure["appId"] = "2";
+  ensure["typeName"] = "SharedDoor";
+  ensure["bindingKey"] = "spawn:door";
+  ensure["displayName"] = "Spawn door";
+  transport->response = {
+      200,
+      R"({"data":{"gameModelEnsureContainer":{"container":{"containerId":"container-1","appId":"2","sessionId":null,"typeName":"SharedDoor","displayName":"Spawn door","description":null,"ownerUserId":null,"metadataJson":"{}","bindingKey":"spawn:door"},"created":true}}})"};
+  const auto ensured = client.gameModel().ensureContainer(ensure);
+  CHECK(ensured["created"].asBool());
+  CHECK(ensured["container"]["bindingKey"].asString() == "spawn:door");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
+  CHECK(transport->last.body.find("GameModelEnsureContainer") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(R"("bindingKey":"spawn:door")") !=
+        std::string::npos);
+
+  bool ensuredAsync = false;
+  client.gameModel().ensureContainerAsync(
+      ensure, [&](graphql::GraphQLOutcome outcome) {
+        ensuredAsync = true;
+        CHECK(outcome.ok());
+        CHECK(outcome.data["created"].asBool());
+      });
+  CHECK(!ensuredAsync);
+  client.poll();
+  CHECK(ensuredAsync);
+
+  transport->response = {
+      200,
+      R"({"data":{"gameModelContainers":[{"containerId":"container-1","appId":"2","sessionId":null,"typeName":"SharedDoor","displayName":"Spawn door","description":null,"ownerUserId":null,"metadataJson":"{}","bindingKey":"spawn:door"}]}})"};
+  const auto byKey =
+      client.gameModel().containers("2", "SharedDoor", {}, "spawn:door");
+  CHECK_EQ(byKey.size(), std::size_t{1});
+  CHECK(transport->last.body.find(R"("bindingKey":"spawn:door")") !=
+        std::string::npos);
+  const auto single = client.gameModel().containerByBindingKey(
+      "2", "SharedDoor", "spawn:door");
+  CHECK(single["containerId"].asString() == "container-1");
+
+  transport->response = {
+      200,
+      R"({"data":{"appPlayerCodeListingVersions":[{"versionId":"version-1","listingId":"listing-1","appId":"2","versionNo":1,"serverArtifactHashes":[],"clientArtifactHashes":[],"requirements":[],"capabilitySummaryJson":"{}","capabilityHash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","openSource":false,"licenseText":null,"createdAt":"2026-07-24T00:00:00.000Z"}]}})"};
+  graphql::JVal vars;
+  vars["appId"] = "2";
+  vars["listingId"] = "listing-1";
+  const auto versions = client.marketplace().appListingVersions(vars);
+  CHECK_EQ(versions.size(), std::size_t{1});
+  CHECK(transport->last.url == "https://management.invalid/graphql");
+  CHECK(transport->last.body.find("MarketplaceAppListingVersions") !=
+        std::string::npos);
+
+  bool versionsAsync = false;
+  client.marketplace().appListingVersionsAsync(
+      vars, [&](graphql::GraphQLOutcome outcome) {
+        versionsAsync = true;
+        CHECK(outcome.ok());
+        CHECK_EQ(outcome.data.size(), std::size_t{1});
+      });
+  CHECK(!versionsAsync);
+  client.poll();
+  CHECK(versionsAsync);
+}
+
 }  // namespace
 
 int main() {
@@ -278,6 +350,7 @@ int main() {
   testPlayerUsageAndSwitchesUseGamePlane();
   testPlayerWalletUsesManagementPlane();
   testMarketplaceChunkClaimsUseAppTokenGamePlane();
+  testCurrentPlatformContainerAndMarketplaceAdditions();
   std::printf("player_runtime_surface_test passed\n");
   return 0;
 }

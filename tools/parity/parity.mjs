@@ -41,6 +41,7 @@ const CATEGORY = Object.freeze({
   PORTABLE: 'portable-gap',
   NATIVE: 'native-equivalent',
   BROWSER: 'browser-exclusion',
+  COVERED: 'covered-extension',
 });
 
 // The canonical API schemas currently contain ensure-container additions made
@@ -48,52 +49,38 @@ const CATEGORY = Object.freeze({
 // not omissions to hide. The entries must disappear once CrowdyJS catches up.
 const SCHEMA_BASELINE = {
   'input:EnsureContainerInput': classification(
-    CATEGORY.PORTABLE,
-    'canonical API SDL is ahead of CrowdyJS v12; no C++ domain wrapper yet',
+    CATEGORY.COVERED,
+    'current platform extension implemented by GameModelAPI.ensureContainer',
     'definition-only',
     'CrowdyCPP',
   ),
   'type:GmContainer.bindingKey': classification(
-    CATEGORY.PORTABLE,
-    'canonical API SDL is ahead of CrowdyJS v12',
+    CATEGORY.COVERED,
+    'current platform binding-key field is selected by C++ operations',
     'member-only',
     'CrowdyCPP',
   ),
   'type:GmEnsureContainerResult': classification(
-    CATEGORY.PORTABLE,
-    'canonical API SDL is ahead of CrowdyJS v12; no C++ domain wrapper yet',
+    CATEGORY.COVERED,
+    'current platform ensure result is selected by the C++ wrapper',
     'definition-only',
     'CrowdyCPP',
   ),
   'type:Mutation.gameModelEnsureContainer': classification(
-    CATEGORY.PORTABLE,
-    'canonical API SDL is ahead of CrowdyJS v12; no C++ operation yet',
+    CATEGORY.COVERED,
+    'current platform mutation is implemented by CrowdyCPP',
     'member-only',
     'CrowdyCPP',
   ),
   'type:Query.gameModelContainers': classification(
-    CATEGORY.PORTABLE,
-    'canonical API adds the bindingKey filter that CrowdyJS v12 does not expose',
+    CATEGORY.COVERED,
+    'current platform bindingKey filter is implemented by CrowdyCPP',
     'member-signature',
     'both',
   ),
 };
 
 const ROOT_CLASSIFICATIONS = {
-  ...classifyNames(
-    'Query',
-    ['appPlayerCodeListingVersions'],
-    CATEGORY.PORTABLE,
-    'portable API query newer than the wrapped CrowdyJS v12 domain surface',
-  ),
-  'Mutation.gameModelEnsureContainer': classification(
-    CATEGORY.PORTABLE,
-    'canonical API operation is newer than CrowdyJS v12 and has no C++ wrapper',
-  ),
-  'Subscription.gameModelContainerChanged': classification(
-    CATEGORY.PORTABLE,
-    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
-  ),
   ...classifyNames(
     'Mutation',
     [
@@ -177,65 +164,9 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'ArrayBuffer worker convenience; native artifact bytes are decoded directly',
   ),
-  'GameModelAPI.containerChanged': classification(
-    CATEGORY.PORTABLE,
-    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
-  ),
-  'AvatarStateStore.privateState': classification(
-    CATEGORY.PORTABLE,
-    'owner-only avatar state cache is not implemented in CrowdyCPP',
-  ),
-  'ChunkStore.pendingWriteBacks': classification(
-    CATEGORY.PORTABLE,
-    'write-back queue observability is not implemented in CrowdyCPP',
-  ),
-  'ChunkStore.revision': classification(
-    CATEGORY.PORTABLE,
-    'cache revision counter is not implemented in CrowdyCPP',
-  ),
-  'ErrorStore.total': classification(
-    CATEGORY.PORTABLE,
-    'lifetime error counter is not implemented in CrowdyCPP',
-  ),
-  'LocalActorStore.lastError': classification(
-    CATEGORY.PORTABLE,
-    'local actor send-error snapshot is not implemented in CrowdyCPP',
-  ),
-  'LocalActorStore.lastSent': classification(
-    CATEGORY.PORTABLE,
-    'typed outbound update snapshot is not implemented in CrowdyCPP',
-  ),
-  'LocalActorStore.state': classification(
-    CATEGORY.PORTABLE,
-    'read access to the current local actor state is not implemented in CrowdyCPP',
-  ),
-  'LocalActorStore.status': classification(
-    CATEGORY.PORTABLE,
-    'local actor replication lifecycle status is not implemented in CrowdyCPP',
-  ),
-  'RemoteActorLane.revision': classification(
-    CATEGORY.PORTABLE,
-    'lane revision counter is not implemented in CrowdyCPP',
-  ),
   'RemoteActorStore.decodeFailures': classification(
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
-  ),
-  'RemoteActorStore.revision': classification(
-    CATEGORY.PORTABLE,
-    'actor-registry revision counter is not implemented in CrowdyCPP',
-  ),
-  'SaveStateStore.dirty': classification(
-    CATEGORY.PORTABLE,
-    'dirty/autosave state is not implemented in CrowdyCPP',
-  ),
-  'SaveStateStore.lastSavedAt': classification(
-    CATEGORY.PORTABLE,
-    'last-save timestamp is not implemented in CrowdyCPP',
-  ),
-  'SaveStateStore.set': classification(
-    CATEGORY.PORTABLE,
-    'local dirty setter/autosave semantics are not implemented in CrowdyCPP',
   ),
 };
 
@@ -247,26 +178,6 @@ const CLASS_CLASSIFICATIONS = {
   BrowserSessionPkceStore: classification(
     CATEGORY.BROWSER,
     'browser sessionStorage helper; native applications own verifier persistence',
-  ),
-  CrowdyAgentBrowserToolDispatcher: classification(
-    CATEGORY.BROWSER,
-    'browser executor implementation is excluded; a native dispatcher is a separate portable gap',
-  ),
-  CrowdyStudioAgentController: classification(
-    CATEGORY.PORTABLE,
-    'portable durable agent controller; later agent-controller phase',
-  ),
-  CrowdyAgentGraphQLTransport: classification(
-    CATEGORY.PORTABLE,
-    'portable HTTP/GraphQL-WebSocket agent transport; later agent phases',
-  ),
-  CrowdyAgentToolRegistry: classification(
-    CATEGORY.PORTABLE,
-    'portable immutable descriptor registry; later agent-controller phase',
-  ),
-  AgentControlLeaseManager: classification(
-    CATEGORY.PORTABLE,
-    'portable native Play lease gate and synchronous preemption; later player-host phase',
   ),
 };
 
@@ -387,6 +298,7 @@ const CLASS_MAP = {
   CrowdyAgentGraphQLTransport: 'CrowdyStudioAgentGraphQLTransport',
   CrowdyAgentToolRegistry: 'AgentToolRegistry',
   AgentControlLeaseManager: 'AgentControlLeaseManager',
+  CrowdyAgentBrowserToolDispatcher: 'NativeBrowserToolDispatcherAdapter',
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [];
@@ -418,6 +330,7 @@ const state = {
   portable: [],
   native: [],
   browser: [],
+  covered: [],
   deprecated: [],
   usedSchemaClassifications: new Set(),
   usedRootClassifications: new Set(),
@@ -566,6 +479,7 @@ report += `- Semantic schema differences: ${schemaDifferences.length}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
+report += `- Covered schema extensions: ${state.covered.length}\n`;
 report += `- Deprecated waivers: ${state.deprecated.length}\n`;
 report += `- Unclassified differences: ${state.unclassified.length}\n`;
 report += `- Stale classifications: ${state.stale.length}\n\n`;
@@ -666,13 +580,15 @@ function classifyNames(rootName, names, category, reason) {
 function renderClassification(value) {
   if (value.category === CATEGORY.PORTABLE) return `portable gap — ${value.reason}`;
   if (value.category === CATEGORY.NATIVE) return `native equivalent — ${value.reason}`;
-  return `browser exclusion — ${value.reason}`;
+  if (value.category === CATEGORY.BROWSER) return `browser exclusion — ${value.reason}`;
+  return `covered — ${value.reason}`;
 }
 
 function recordClassification(state, value, id) {
   if (value.category === CATEGORY.PORTABLE) state.portable.push(id);
   else if (value.category === CATEGORY.NATIVE) state.native.push(id);
   else if (value.category === CATEGORY.BROWSER) state.browser.push(id);
+  else if (value.category === CATEGORY.COVERED) state.covered.push(id);
   else state.unclassified.push(`${id} (unknown classification ${value.category})`);
 }
 

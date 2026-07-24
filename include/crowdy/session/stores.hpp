@@ -1,8 +1,11 @@
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -44,6 +47,32 @@ struct StateBlob {
 // LocalActorStore — your own actor: presence loop with send-on-change
 // ---------------------------------------------------------------------------
 
+enum class LocalActorSendReason {
+  Join,
+  Move,
+  Interval,
+  Keyframe,
+  Manual,
+  Refresh,
+};
+
+enum class LocalActorStatus { Idle, Pending, Acked, Error };
+
+struct SentActorUpdate {
+  StateBlob state;
+  ChunkCoord chunk{};
+  std::optional<std::uint8_t> sequence;
+  std::int64_t sentAtMs = 0;
+  LocalActorSendReason reason = LocalActorSendReason::Interval;
+};
+
+struct LocalActorSendError {
+  Status status = Errc::Rejected;
+  std::optional<wire::ErrorCode> serverCode;
+  std::optional<std::uint8_t> sequence;
+  std::int64_t receivedAtMs = 0;
+};
+
 /// Drives the local actor's presence: joins by sending the first actor
 /// update, then re-sends at a fixed rate with send-on-change dedup and
 /// periodic keyframes, and falls back to cheap heartbeats while idle.
@@ -70,15 +99,19 @@ class LocalActorStore {
 
   /// Join the world: set the starting chunk and send the first actor update.
   Status join(const ChunkCoord& chunk, Bytes initialState) {
-    chunk_ = chunk;
-    state_.assign(initialState);
-    dirty_ = true;
-    joined_ = true;
-    return sendNow(/*nowMs=*/0);
+    {
+      std::lock_guard lock(observationMutex_);
+      chunk_ = chunk;
+      state_.assign(initialState);
+      dirty_ = true;
+      joined_ = true;
+    }
+    return sendNow(/*nowMs=*/0, LocalActorSendReason::Join);
   }
 
   /// Update the actor's chunk (as it moves across chunk boundaries).
   void setChunk(const ChunkCoord& chunk) {
+    std::lock_guard lock(observationMutex_);
     if (!(chunk == chunk_)) {
       chunk_ = chunk;
       dirty_ = true;
@@ -89,14 +122,27 @@ class LocalActorStore {
   /// slot) — crossing a chunk boundary should never lag a send interval.
   Status moveTo(const ChunkCoord& chunk) {
     setChunk(chunk);
-    return sendNow(lastSendMs_);
+    std::int64_t now = 0;
+    {
+      std::lock_guard lock(observationMutex_);
+      now = lastSendMs_;
+    }
+    return sendNow(now, LocalActorSendReason::Move);
   }
 
   /// Force a full resend now (e.g. after regaining focus or reconnecting).
-  Status refresh() { return sendNow(lastSendMs_); }
+  Status refresh() {
+    std::int64_t now = 0;
+    {
+      std::lock_guard lock(observationMutex_);
+      now = lastSendMs_;
+    }
+    return sendNow(now, LocalActorSendReason::Refresh);
+  }
 
   /// Replace the replicated state; a change is sent on the next tick slot.
   void setState(Bytes state) {
+    std::lock_guard lock(observationMutex_);
     if (!state_.equals(state)) {
       state_.assign(state);
       dirty_ = true;
@@ -107,53 +153,143 @@ class LocalActorStore {
   struct Ack {
     std::uint8_t sequence = 0;
     std::int64_t serverEpochMs = 0;
+    std::int64_t receivedAtMs = 0;
     StateBlob state;
   };
-  const std::optional<Ack>& lastAck() const { return lastAck_; }
+  std::optional<Ack> lastAck() const {
+    std::lock_guard lock(observationMutex_);
+    return lastAck_;
+  }
+
+  /// Thread-safe immutable snapshots for render/diagnostic threads.
+  StateBlob state() const {
+    std::lock_guard lock(observationMutex_);
+    return state_;
+  }
+  std::optional<SentActorUpdate> lastSent() const {
+    std::lock_guard lock(observationMutex_);
+    return lastSent_;
+  }
+  std::optional<LocalActorSendError> lastError() const {
+    std::lock_guard lock(observationMutex_);
+    return lastError_;
+  }
+  LocalActorStatus status() const {
+    std::lock_guard lock(observationMutex_);
+    if (!lastSent_) return LocalActorStatus::Idle;
+    if (lastError_ &&
+        lastError_->receivedAtMs >= lastSent_->sentAtMs) {
+      return LocalActorStatus::Error;
+    }
+    if (lastAck_ && lastAck_->receivedAtMs >= lastSent_->sentAtMs) {
+      return LocalActorStatus::Acked;
+    }
+    return LocalActorStatus::Pending;
+  }
 
   /// Record a self-echo notification (called by WorldSession when an actor
   /// update for our own uuid arrives).
-  void recordAck(std::uint8_t sequence, std::int64_t serverEpochMs, Bytes state) {
+  void recordAck(std::uint8_t sequence, std::int64_t serverEpochMs,
+                 Bytes state, std::int64_t receivedAtMs) {
+    std::lock_guard lock(observationMutex_);
     Ack ack;
     ack.sequence = sequence;
     ack.serverEpochMs = serverEpochMs;
+    ack.receivedAtMs = receivedAtMs;
     ack.state.assign(state);
     lastAck_ = std::move(ack);
+    inFlight_[sequence] = false;
+  }
+
+  void recordError(const replication::GenericError& error,
+                   std::int64_t receivedAtMs) {
+    std::lock_guard lock(observationMutex_);
+    if (!inFlight_[error.sequence]) return;
+    inFlight_[error.sequence] = false;
+    lastError_ = LocalActorSendError{
+        .status = Errc::Rejected,
+        .serverCode = error.code,
+        .sequence = error.sequence,
+        .receivedAtMs = receivedAtMs};
   }
 
   /// Drive the send loop. Call every frame with a monotonic clock.
   void tick(std::int64_t nowMs) {
-    if (!joined_) return;
+    bool joined = false;
+    bool dirty = false;
+    std::int64_t lastSend = 0;
+    std::int64_t lastFullSend = 0;
+    std::int64_t lastHeartbeat = 0;
+    {
+      std::lock_guard lock(observationMutex_);
+      joined = joined_;
+      dirty = dirty_;
+      lastSend = lastSendMs_;
+      lastFullSend = lastFullSendMs_;
+      lastHeartbeat = lastHeartbeatMs_;
+    }
+    if (!joined) return;
     const std::int64_t interval = 1000 / (options_.sendHz > 0 ? options_.sendHz : 5);
-    if (nowMs - lastSendMs_ < interval) return;
+    if (nowMs - lastSend < interval) return;
 
-    const bool keyframeDue = nowMs - lastFullSendMs_ >= options_.keyframeIntervalMs;
-    if (dirty_ || keyframeDue) {
-      sendNow(nowMs);
+    const bool keyframeDue =
+        nowMs - lastFullSend >= options_.keyframeIntervalMs;
+    if (dirty || keyframeDue) {
+      sendNow(nowMs, dirty ? LocalActorSendReason::Interval
+                           : LocalActorSendReason::Keyframe);
     } else if (options_.heartbeatIntervalMs > 0 &&
-               nowMs - lastHeartbeatMs_ >= options_.heartbeatIntervalMs) {
-      conn_.sendHeartbeat(chunk_, uuid_);
+               nowMs - lastHeartbeat >= options_.heartbeatIntervalMs) {
+      ChunkCoord chunk;
+      {
+        std::lock_guard lock(observationMutex_);
+        chunk = chunk_;
+      }
+      conn_.sendHeartbeat(chunk, uuid_);
+      std::lock_guard lock(observationMutex_);
       lastHeartbeatMs_ = nowMs;
       lastSendMs_ = nowMs;
     }
   }
 
-  std::optional<std::uint8_t> lastSequence() const { return lastSequence_; }
+  std::optional<std::uint8_t> lastSequence() const {
+    std::lock_guard lock(observationMutex_);
+    return lastSequence_;
+  }
 
  private:
-  Status sendNow(std::int64_t nowMs) {
+  Status sendNow(std::int64_t nowMs, LocalActorSendReason reason) {
+    ChunkCoord chunk;
+    StateBlob state;
+    {
+      std::lock_guard lock(observationMutex_);
+      chunk = chunk_;
+      state = state_;
+    }
     replication::SpatialSend p;
-    p.chunk = chunk_;
+    p.chunk = chunk;
     p.uuid = uuid_;
-    p.payload = state_.bytes();
+    p.payload = state.bytes();
     p.distance = options_.distance;
     p.decay = options_.decay;
     auto seq = conn_.sendActorUpdate(p);
+    std::lock_guard lock(observationMutex_);
+    lastSent_ = SentActorUpdate{
+        state, chunk,
+        seq.ok() ? std::optional<std::uint8_t>(seq.value())
+                 : std::nullopt,
+        nowMs, reason};
     if (seq.ok()) {
       lastSequence_ = seq.value();
+      inFlight_[seq.value()] = true;
       dirty_ = false;
       lastSendMs_ = nowMs;
       lastFullSendMs_ = nowMs;
+    } else {
+      lastError_ = LocalActorSendError{
+          .status = Status(seq.error()),
+          .serverCode = std::nullopt,
+          .sequence = std::nullopt,
+          .receivedAtMs = nowMs};
     }
     return seq.ok() ? Status(Errc::Ok) : Status(seq.error());
   }
@@ -170,6 +306,10 @@ class LocalActorStore {
   std::int64_t lastHeartbeatMs_ = 0;
   std::optional<std::uint8_t> lastSequence_;
   std::optional<Ack> lastAck_;
+  std::optional<SentActorUpdate> lastSent_;
+  std::optional<LocalActorSendError> lastError_;
+  std::array<bool, 256> inFlight_{};
+  mutable std::mutex observationMutex_;
 };
 
 // ---------------------------------------------------------------------------
@@ -208,6 +348,27 @@ class RemoteActorLane {
   };
 
   explicit RemoteActorLane(Options options) : options_(std::move(options)) {}
+  RemoteActorLane(const RemoteActorLane&) = delete;
+  RemoteActorLane& operator=(const RemoteActorLane&) = delete;
+  RemoteActorLane(RemoteActorLane&& other) noexcept
+      : options_(std::move(other.options_)),
+        actors_(std::move(other.actors_)),
+        onJoin_(std::move(other.onJoin_)),
+        onLeave_(std::move(other.onLeave_)),
+        onUpdate_(std::move(other.onUpdate_)),
+        revision_(other.revision_.load(std::memory_order_relaxed)) {}
+  RemoteActorLane& operator=(RemoteActorLane&& other) noexcept {
+    if (this != &other) {
+      options_ = std::move(other.options_);
+      actors_ = std::move(other.actors_);
+      onJoin_ = std::move(other.onJoin_);
+      onLeave_ = std::move(other.onLeave_);
+      onUpdate_ = std::move(other.onUpdate_);
+      revision_.store(other.revision_.load(std::memory_order_relaxed),
+                      std::memory_order_relaxed);
+    }
+    return *this;
+  }
 
   /// Feed one (already self-filtered) update; returns true when accepted.
   bool apply(const replication::SpatialNotification& n, std::int64_t nowMs) {
@@ -228,6 +389,7 @@ class RemoteActorLane {
     if (actor.samples.size() > static_cast<std::size_t>(options_.historySize))
       actor.samples.resize(static_cast<std::size_t>(options_.historySize));
 
+    revision_.fetch_add(1, std::memory_order_relaxed);
     if (inserted && onJoin_) onJoin_(actor);
     if (onUpdate_) onUpdate_(actor);
     return true;
@@ -239,6 +401,7 @@ class RemoteActorLane {
       if (nowMs - it->second.lastSeenMs > options_.staleAfterMs) {
         if (onLeave_) onLeave_(it->second);
         it = actors_.erase(it);
+        revision_.fetch_add(1, std::memory_order_relaxed);
       } else {
         ++it;
       }
@@ -258,8 +421,15 @@ class RemoteActorLane {
     return out;
   }
 
-  void clear() { actors_.clear(); }
+  void clear() {
+    const auto removed = actors_.size();
+    actors_.clear();
+    revision_.fetch_add(removed, std::memory_order_relaxed);
+  }
   std::size_t size() const { return actors_.size(); }
+  std::uint64_t revision() const {
+    return revision_.load(std::memory_order_relaxed);
+  }
 
   template <typename Fn>
   void forEach(Fn&& fn) const {
@@ -276,6 +446,7 @@ class RemoteActorLane {
   std::function<void(const RemoteActor&)> onJoin_;
   std::function<void(const RemoteActor&)> onLeave_;
   std::function<void(const RemoteActor&)> onUpdate_;
+  std::atomic<std::uint64_t> revision_{0};
 };
 
 /// The remote-actor registry: a default lane holding everyone, plus optional
@@ -326,6 +497,14 @@ class RemoteActorStore {
     for (auto& [name, lane] : lanes_) lane.clear();
   }
   std::size_t size() const { return defaultLane_.size(); }
+  std::uint64_t revision() const {
+    std::uint64_t value = defaultLane_.revision();
+    for (const auto& [name, lane] : lanes_) {
+      (void)name;
+      value += lane.revision();
+    }
+    return value;
+  }
 
   template <typename Fn>
   void forEach(Fn&& fn) const {
@@ -381,6 +560,7 @@ class ErrorStore {
     AttributedError err{e.code, e.sequence, sent_[e.sequence], nowMs};
     recent_.push_back(err);
     if (recent_.size() > kMaxErrors) recent_.pop_front();
+    total_.fetch_add(1, std::memory_order_relaxed);
     if (onError_) onError_(recent_.back());
   }
 
@@ -398,12 +578,17 @@ class ErrorStore {
   void onError(std::function<void(const AttributedError&)> cb) { onError_ = std::move(cb); }
 
   void clear() { recent_.clear(); }
+  /// Lifetime count; clear() intentionally only clears the retained ring.
+  std::uint64_t total() const {
+    return total_.load(std::memory_order_relaxed);
+  }
 
  private:
   static constexpr std::size_t kMaxErrors = 64;
   SendKind sent_[256] = {};
   std::deque<AttributedError> recent_;
   std::function<void(const AttributedError&)> onError_;
+  std::atomic<std::uint64_t> total_{0};
 };
 
 // ---------------------------------------------------------------------------

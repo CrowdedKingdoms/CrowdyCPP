@@ -30,6 +30,10 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `gamer-journey` | `e2e_gamer_journey` | ported |
 | gameplay-token rotation | `e2e_gameplay_token_refresh` | ported (native UDP; preserves the same connection/handlers) |
 | marketplace chunk claim/release | `e2e_marketplace_claims` | ported (optional; needs a reserved free chunk and `SELF_CLAIM`) |
+| Crowdy Studio project CRUD/patch/draft | `e2e_crowdy_studio` | ported (optional; needs an owned Studio grid) |
+| Agentic Studio ASK/BUILD | `e2e_agentic_studio` | ported (optional; server owns provider credentials) |
+| Agentic Studio Play lease/takeover | `e2e_agentic_studio` | ported when an engine host capability/entity is configured |
+| Agentic Studio operator kill | `e2e_agentic_studio` | ported behind an explicit destructive-test flag; kill is released in-test |
 | `new-app-default-access` | `e2e_studio_admin` (default-access scenario) | ported |
 | `new-app-grid-creation` | `e2e_studio_admin` (grid-creation scenario) | ported |
 | `studio-admin` | `e2e_studio_admin` | ported |
@@ -51,7 +55,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teams / channels | `e2e_teams_channels` | ported |
 | game model + automations | `e2e_game_model`, plus every `e2e_kit_*` (model composition) | ported |
 | compute modules | `e2e_compute` (author → deploy → compile → enable → invoke → observe → delete) | mirrors CrowdyJS `compute-module` e2e |
-| player compute + grid ownership | `player_runtime_surface_test` (offline routing/variables) | live player-compute e2e pending a deployed P1 player-runtime environment |
+| player compute + grid ownership | `player_runtime_surface_test` + `e2e_crowdy_studio` (draft submission) | typed surface offline; optional live draft on an owned grid |
 | player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | ported (exact documents/output mapping offline; app-token round trip optional live) |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
@@ -64,6 +68,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | organizations | `e2e_studio_admin` | ported |
 | apps | `e2e_studio_admin` | ported |
 | app code admission | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
+| Agentic Studio app/operator policy | `agent_api_test` + `e2e_agentic_studio` | typed routing offline; operator kill/release optional live |
 | app-access (tiers + grants) | `e2e_studio_admin` | ported |
 | billing | `e2e_billing_quotas` | ported |
 | quotas | `e2e_billing_quotas` | ported |
@@ -107,6 +112,7 @@ a shipped game renders from.
 | local actor loop + acks, remote-actor lanes, EventRouter, AndWait | `e2e_stores_live` |
 | chunk cache: hydrate, optimistic edit + write-back, seed, prune, flush | `e2e_chunk_store_live` |
 | SaveState / AvatarState stores, ContainerMirror (notify-to-pull), UUID persistence | `e2e_durable_mirror` |
+| revisions, pending write-backs, dirty/save timestamps, error totals, local actor status, private avatar snapshots | `session_test` + `client_portable_test` |
 
 ## Game Kit (no JS e2e source; mirrors the `smoke-mmo` / `smoke-plots` samples)
 

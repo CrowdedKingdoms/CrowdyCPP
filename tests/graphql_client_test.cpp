@@ -178,6 +178,7 @@ void testInlineFallback() {
   CHECK_EQ(got.data["n"].asInt64(), 42);
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testInlineFallbackTransportThrow() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->throwTimeout = true;
@@ -189,6 +190,7 @@ void testInlineFallbackTransportThrow() {
   CHECK(!got.ok());
   CHECK(got.kind == GraphQLErrorKind::Timeout);
 }
+#endif
 
 // The blocking request() still works and still throws, derived from the same
 // logic as the async path.
@@ -201,6 +203,7 @@ void testSyncRequestReturnsData() {
   CHECK(data["v"].asString() == "hello");
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testSyncRequestThrowsGraphql() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->response = HttpResponse{200, R"({"errors":[{"message":"denied","extensions":{"code":"UNAUTHENTICATED"}}]})"};
@@ -215,7 +218,20 @@ void testSyncRequestThrowsGraphql() {
   }
   CHECK(threw);
 }
+#else
+void testSyncRequestReturnsInvalidOnFailure() {
+  auto sync = std::make_shared<FakeSyncTransport>();
+  sync->response = HttpResponse{
+      200,
+      R"({"errors":[{"message":"denied","extensions":{"code":"UNAUTHENTICATED"}}]})"};
+  auto client = makeClient(sync);
+  CHECK(!client->request("query").ok());
+  sync->response = HttpResponse{503, "unavailable"};
+  CHECK(!client->request("query").ok());
+}
+#endif
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testSyncRequestThrowsHttp() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->response = HttpResponse{503, "unavailable"};
@@ -230,6 +246,7 @@ void testSyncRequestThrowsHttp() {
   }
   CHECK(threw);
 }
+#endif
 
 }  // namespace
 
@@ -241,10 +258,16 @@ int main() {
   testAsyncTransportFailure();
   testDispatcherDefersDelivery();
   testInlineFallback();
+#ifndef CROWDY_NO_EXCEPTIONS
   testInlineFallbackTransportThrow();
+#endif
   testSyncRequestReturnsData();
+#ifndef CROWDY_NO_EXCEPTIONS
   testSyncRequestThrowsGraphql();
   testSyncRequestThrowsHttp();
+#else
+  testSyncRequestReturnsInvalidOnFailure();
+#endif
   std::printf("graphql_client_test passed\n");
   return 0;
 }

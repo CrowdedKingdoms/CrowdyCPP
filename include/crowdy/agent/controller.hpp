@@ -52,6 +52,8 @@ class IAgentBrowserToolDispatcher {
                         AgentCallback<AgentToolResult> callback) = 0;
   virtual void cancelActive(AgentPreemptionReason reason) = 0;
   virtual void clearClosedSession() = 0;
+  /// Game-thread lifecycle pump for native deadline enforcement.
+  virtual void tick() {}
 };
 
 struct CrowdyStudioAgentControllerOptions {
@@ -170,7 +172,7 @@ class CrowdyStudioAgentController {
   void enqueueEvent(AgentEvent event, std::uint64_t generation);
   void bufferEvent(AgentEvent event);
   void drainBuffered(std::uint64_t generation);
-  void recoverGap(std::uint64_t generation);
+  void recoverGap(std::uint64_t generation, bool requireAdvance = true);
   void applyEvent(AgentEvent event, std::uint64_t generation);
   void dispatchBrowserTool(AgentToolInvocation invocation,
                            std::uint64_t connectionGeneration,

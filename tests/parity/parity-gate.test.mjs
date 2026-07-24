@@ -29,10 +29,10 @@ test('reviewed parity baseline and generated matrix pass', () => {
   assert.match(result.stdout, /unclassified=0 stale=0/u);
 });
 
-test('strict mode rejects the visible portable gaps', () => {
+test('strict mode accepts the zero-gap implementation', () => {
   const result = runParity('--strict');
-  assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stdout, /portable gaps=[1-9][0-9]*/u);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /portable gaps=0/u);
 });
 
 test('matrix drift is a gate failure', () => {

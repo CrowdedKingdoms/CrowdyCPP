@@ -24,6 +24,12 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
+| `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
+| `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
+| `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
+| `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
+| `CROWDY_E2E_AGENT_PLAY=1` | no | enable Play lease grant/takeover; also set controlled-entity and host-capability vars |
+| `CROWDY_E2E_AGENT_POLICY_KILL=1` | no | explicitly allow a temporary operator app kill/release; requires operator email |
 | `CROWDY_E2E_SLOW=1` | no | enable long-running suites (soak, cache-TTL waits) |
 
 \* a few legacy suites can run with pre-entitled fixed accounts
@@ -63,7 +69,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_cross_server`, `e2e_marketplace_claims`, `e2e_operator` | multi-server flag / free claim coordinate / operator account |
+| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_cross_server`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid / multi-server / claim coordinate / operator |
 
 ## Notes for reruns
 
@@ -76,6 +82,11 @@ Run a single suite directly for its per-subtest output:
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.
+- `e2e_crowdy_studio` archives its unique project after submitting the exact
+  saved revision as a draft player-compute version.
+- `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
+  asks the configured server-side provider to run; policy-kill coverage is a
+  separate explicit opt-in and releases the kill before asserting.
 - `assignServer failed: No available servers found` during connect is
   transient on small deployments (server-status heartbeats briefly lapse) and
   is absorbed by the harness's assignment retry — not a failure.

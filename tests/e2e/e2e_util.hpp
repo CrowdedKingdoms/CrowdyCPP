@@ -35,6 +35,12 @@
 ///   CROWDY_E2E_MULTI_SERVER=1   deployment runs 2+ replication servers
 ///   CROWDY_E2E_CLAIM_CHUNK_X/Y/Z
 ///                               reserved free chunk for SELF_CLAIM coverage
+///   CROWDY_E2E_STUDIO_GRID_ID   owned grid for Studio draft coverage
+///   CROWDY_E2E_AGENT=1          enable Agentic Studio public-API coverage
+///   CROWDY_E2E_AGENT_PROJECT_ID saved project for BUILD-mode coverage
+///   CROWDY_E2E_AGENT_PLAY=1     enable Play lease grant/revoke coverage
+///   CROWDY_E2E_AGENT_POLICY_KILL=1
+///                               explicitly enable temporary operator kill
 ///   CROWDY_E2E_SLOW=1           enable slow suites (soak, TTL waits)
 ///
 /// The server must run with DEV_AUTH_BYPASS (dev sign-in); production-style
@@ -289,6 +295,9 @@ inline Player provisionPlayerEmail(const E2eConfig& cfg, const std::string& emai
   crowdy::ClientConfig gameCfg;
   gameCfg.httpUrl = gameUrl;
   gameCfg.managementUrl = cfg.managementUrl;
+  if (!p.appToken.gameApiWsUrl.empty()) {
+    gameCfg.wsUrl = p.appToken.gameApiWsUrl;
+  }
   p.game = std::make_unique<crowdy::CrowdyClient>(std::move(gameCfg));
   p.game->setToken(p.appToken.token);
   return p;

@@ -31,6 +31,18 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.14.0 strict parity:** the generated matrix now reports zero portable
+gaps, unclassified differences, and stale classifications against CrowdyJS
+12.0.0. Production Agentic Studio uses typed GraphQL-WS durable events,
+reconnect gap-fill, and lifetime-safe controller construction; the native
+player-host dispatcher has an exact `IAgentBrowserToolDispatcher` bridge.
+Game-model container changes have a typed subscription, and current platform
+extensions add keyed container ensure/filter plus app listing-version
+administration. Session stores expose real revision, dirty/save, queue, error,
+local-actor, and owner-private avatar observability. See the
+[compatibility matrix](docs/compatibility.md) and
+[0.14 migration notes](MIGRATION.md).
+
 **v0.10.0:** operator compute-ceilings coverage (`operator_().computePlatformCeilings()`
 / `setComputePlatformCeilings(input)` — the Track F platform-ceilings surface;
 patch semantics: omit = unchanged, explicit null = clear, value = set; requires
@@ -158,6 +170,11 @@ transports continue to work on Linux, macOS, and Windows. The factory also
 checks that the linked libcurl actually advertises both `ws` and `wss`, since
 some distributions expose the APIs while compiling those protocols out.
 
+`CROWDY_NO_EXCEPTIONS=ON` enables the non-throwing compatibility path for
+blocking GraphQL requests (failures return an invalid `Json`); use `*Async`
+callbacks when typed failure details are required. Injected transports in this
+mode must not throw across the SDK boundary.
+
 ## Quick start
 
 ```cpp
@@ -238,9 +255,12 @@ while (running) game.poll();  // all callbacks are delivered here
 // subscription.cancel() is explicit; destruction also cancels.
 ```
 
-The client exposes raw documents and JSON intentionally. Crowdy Studio, agent,
-or game-specific reducers can consume these primitives without putting their
-event semantics into the transport layer.
+Use the typed wrappers where available:
+`game.gameModel().containerChanged(...)` maps container metadata pushes, and
+`client.createCrowdyStudioAgentController(...)` owns the durable Agentic Studio
+event adapter and replay/gap-fill lifecycle. The generic client remains for
+application-specific subscriptions. See
+[GraphQL WebSocket examples](docs/graphql-websocket.md).
 
 ## Sub-clients at a glance
 
@@ -353,12 +373,12 @@ World coordinates, distances, health values, fuel, revisions, and other
 contract values that may exceed a native or JSON number remain decimal
 strings. The typed schemas reject non-canonical forms before an adapter runs.
 
-The future native Agent Controller integration is intentionally narrow: pass
-its validated typed tool-call envelope to `NativeToolDispatcherV1::dispatch`,
-provide its canonical argument-hash and exact approval-grant validators,
-forward the returned `NativeToolResultV1` callback to the controller's result
-acknowledgement path, call `cancelActive(reason)` on controller preemption, and
-clear execute-once records only after the attached session is closed.
+`NativeBrowserToolDispatcherAdapter` is the narrow Agent Controller bridge. It
+validates canonical JSON, converts into closed native variants, forwards
+`NativeToolResultV1` output/error/timing/context, maps cancellation reasons,
+and pumps deadlines from the controller loop. Clear execute-once records only
+after the attached session is closed. See the
+[native player-host example](docs/native-player-host.md).
 
 ## The native replication client
 
@@ -705,6 +725,8 @@ external CMake build.
 - [Wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats) · [HMAC](https://docs.crowdedkingdoms.com/replication-api/hmac)
 - [Management API](https://docs.crowdedkingdoms.com/management-api/intro) · [Game API](https://docs.crowdedkingdoms.com/game-api/intro)
 - [Native Agentic Studio](docs/native-agent-api.md)
+- [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
+- [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
 - [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)
 - [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS) — the TypeScript SDK this API surface mirrors
 - Agent index: [llms.txt](https://docs.crowdedkingdoms.com/llms.txt)

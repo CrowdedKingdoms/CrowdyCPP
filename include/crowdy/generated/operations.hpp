@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
-// operations sha256: 7eae511da23bb976186c81a7182d2882ffb2b0386a40619e9c3f6e5324082de2
+// operations sha256: af339642db8e246eea392541eb44bde8aa95ee96851cd0d2ced5483f60ad5382
 
 #pragma once
 
@@ -3714,6 +3714,7 @@ fragment GmContainerFields on GmContainer {
   description
   ownerUserId
   metadataJson
+  bindingKey
 }
 
 fragment GmInvokeResultFields on GmInvokeResult {
@@ -3757,6 +3758,15 @@ mutation GameModelCreateContainer($input: CreateContainerInput!) {
   }
 }
 
+mutation GameModelEnsureContainer($input: EnsureContainerInput!) {
+  gameModelEnsureContainer(input: $input) {
+    container {
+      ...GmContainerFields
+    }
+    created
+  }
+}
+
 mutation GameModelDeleteContainer($appId: BigInt!, $containerId: String!) {
   gameModelDeleteContainer(appId: $appId, containerId: $containerId)
 }
@@ -3797,6 +3807,7 @@ query GameModelContainers(
   $appId: BigInt!
   $typeName: String
   $sessionId: String
+  $bindingKey: String
   $where: [GmPropertyPredicateInput!]
   $limit: Int
   $offset: Int
@@ -3805,6 +3816,7 @@ query GameModelContainers(
     appId: $appId
     typeName: $typeName
     sessionId: $sessionId
+    bindingKey: $bindingKey
     where: $where
     limit: $limit
     offset: $offset
@@ -4012,11 +4024,33 @@ query GameModelFlow($appId: BigInt!, $flowId: String!) {
       circuitAction
     }
   }
+}
+
+subscription GameModelContainerChanged(
+  $appId: BigInt!
+  $typeName: String
+  $sessionId: String
+) {
+  gameModelContainerChanged(
+    appId: $appId
+    typeName: $typeName
+    sessionId: $sessionId
+  ) {
+    appId
+    containerId
+    typeName
+    sessionId
+    source
+    functionName
+    changedKeys
+    occurredAt
+  }
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
 inline constexpr std::string_view kGameModelJoinSessionOperationName = "GameModelJoinSession";
 inline constexpr std::string_view kGameModelSetSessionTurnOperationName = "GameModelSetSessionTurn";
 inline constexpr std::string_view kGameModelCreateContainerOperationName = "GameModelCreateContainer";
+inline constexpr std::string_view kGameModelEnsureContainerOperationName = "GameModelEnsureContainer";
 inline constexpr std::string_view kGameModelDeleteContainerOperationName = "GameModelDeleteContainer";
 inline constexpr std::string_view kGameModelSetPropertyOperationName = "GameModelSetProperty";
 inline constexpr std::string_view kGameModelAddEdgeOperationName = "GameModelAddEdge";
@@ -4031,6 +4065,7 @@ inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSe
 inline constexpr std::string_view kGameModelEventsOperationName = "GameModelEvents";
 inline constexpr std::string_view kGameModelEventsConnectionOperationName = "GameModelEventsConnection";
 inline constexpr std::string_view kGameModelFlowOperationName = "GameModelFlow";
+inline constexpr std::string_view kGameModelContainerChangedOperationName = "GameModelContainerChanged";
 
 /// gameModel/GameModelStudio.graphql
 inline constexpr std::string_view kGameModelStudioDocument = R"gql(fragment GmFunctionFields on GmFunction {
@@ -4309,6 +4344,24 @@ inline constexpr std::string_view kMarketplaceDocument = R"gql(fragment PlayerCo
 fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
   versionId
   listingId
+  versionNo
+  serverArtifactHashes
+  clientArtifactHashes
+  requirements {
+    serverArtifactHash
+    clientArtifactHash
+  }
+  capabilitySummaryJson
+  capabilityHash
+  openSource
+  licenseText
+  createdAt
+}
+
+fragment AppPlayerCodeVersionFields on PlayerCodeVersion {
+  versionId
+  listingId
+  appId
   versionNo
   serverArtifactHashes
   clientArtifactHashes
@@ -4609,6 +4662,12 @@ query MarketplaceAppListings($appId: BigInt!, $includeDelisted: Boolean) {
   }
 }
 
+query MarketplaceAppListingVersions($appId: BigInt!, $listingId: String!) {
+  appPlayerCodeListingVersions(appId: $appId, listingId: $listingId) {
+    ...AppPlayerCodeVersionFields
+  }
+}
+
 query MarketplaceAppAcquisitions($appId: BigInt!) {
   appPlayerCodeAcquisitions(appId: $appId) {
     ...PlayerCodeAcquisitionFields
@@ -4822,6 +4881,7 @@ inline constexpr std::string_view kMarketplaceDecideGridClaimOperationName = "Ma
 inline constexpr std::string_view kMarketplaceIssueGridClaimInviteOperationName = "MarketplaceIssueGridClaimInvite";
 inline constexpr std::string_view kMarketplaceAdmissionQueueOperationName = "MarketplaceAdmissionQueue";
 inline constexpr std::string_view kMarketplaceAppListingsOperationName = "MarketplaceAppListings";
+inline constexpr std::string_view kMarketplaceAppListingVersionsOperationName = "MarketplaceAppListingVersions";
 inline constexpr std::string_view kMarketplaceAppAcquisitionsOperationName = "MarketplaceAppAcquisitions";
 inline constexpr std::string_view kMarketplaceTransferListingOperationName = "MarketplaceTransferListing";
 inline constexpr std::string_view kMarketplaceSetListingStatusOperationName = "MarketplaceSetListingStatus";

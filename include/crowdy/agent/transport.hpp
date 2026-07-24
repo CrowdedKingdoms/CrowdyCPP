@@ -8,6 +8,7 @@
 
 #include "crowdy/agent/registry.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
+#include "crowdy/graphql/subscription_client.hpp"
 
 namespace crowdy::agent {
 
@@ -126,6 +127,10 @@ struct AgentEventSubscriptionCallbacks {
   std::function<void(AgentEvent)> next;
   std::function<void(AgentError)> error;
   std::function<void()> complete;
+  /// A graphql-transport-ws connection was replaced and the durable stream is
+  /// about to be replayed. Controllers use this to start an explicit history
+  /// gap-fill before replayed push events arrive.
+  std::function<void()> reconnect;
 };
 
 class IAgentEventSubscription {
@@ -144,6 +149,26 @@ class IAgentEventSubscriptionAdapter {
       AgentEventSubscriptionRequest request,
       AgentEventSubscriptionCallbacks callbacks) = 0;
   virtual void poll() {}
+  virtual bool available() const { return true; }
+};
+
+/// Typed `crowdyStudioAgentEvents` adapter over the portable
+/// GraphQLSubscriptionClient. The underlying subscription handle provides
+/// execute-once RAII cancellation and Dispatcher-thread delivery.
+class GraphQLAgentEventSubscriptionAdapter final
+    : public IAgentEventSubscriptionAdapter {
+ public:
+  explicit GraphQLAgentEventSubscriptionAdapter(
+      graphql::GraphQLSubscriptionClient& subscriptions)
+      : subscriptions_(subscriptions) {}
+
+  std::unique_ptr<IAgentEventSubscription> subscribe(
+      AgentEventSubscriptionRequest request,
+      AgentEventSubscriptionCallbacks callbacks) override;
+  void poll() override;
+
+ private:
+  graphql::GraphQLSubscriptionClient& subscriptions_;
 };
 
 /// Deterministic no-thread replay fallback. poll() requests durable history
@@ -169,15 +194,39 @@ class PollingAgentEventSubscriptionAdapter final
 /// Typed generated-document adapter from CrowdyStudioAgentAPI to the
 /// controller transport. All async completions preserve the API's
 /// Dispatcher/poll delivery.
-class CrowdyStudioAgentGraphQLTransport final : public IAgentTransport {
+class CrowdyStudioAgentGraphQLTransport final
+    : public IAgentTransport,
+      public IAgentEventSubscriptionAdapter {
  public:
   explicit CrowdyStudioAgentGraphQLTransport(
       domains::CrowdyStudioAgentAPI& api)
       : api_(api) {}
+  CrowdyStudioAgentGraphQLTransport(
+      domains::CrowdyStudioAgentAPI& api,
+      graphql::GraphQLSubscriptionClient& subscriptions)
+      : api_(api),
+        eventSubscriptions_(
+            std::make_unique<GraphQLAgentEventSubscriptionAdapter>(
+                subscriptions)) {}
 
-  /// Compatibility lifecycle hook. HTTP calls are request-scoped; realtime
-  /// subscriptions are owned by IAgentEventSubscriptionAdapter.
+  /// Compatibility lifecycle hook. HTTP calls are request-scoped and each
+  /// realtime subscription is owned by its returned RAII handle.
   void close() {}
+
+  /// Exact CrowdyJS transport spelling. This uses only the committed
+  /// CrowdyStudioAgentEvents document and cannot execute arbitrary GraphQL.
+  std::unique_ptr<IAgentEventSubscription> subscribeEvents(
+      AgentEventSubscriptionRequest request,
+      AgentEventSubscriptionCallbacks callbacks);
+  std::unique_ptr<IAgentEventSubscription> subscribe(
+      AgentEventSubscriptionRequest request,
+      AgentEventSubscriptionCallbacks callbacks) override {
+    return subscribeEvents(std::move(request), std::move(callbacks));
+  }
+  void poll() override;
+  bool available() const override {
+    return static_cast<bool>(eventSubscriptions_);
+  }
 
   void getSession(std::string sessionId,
                   AgentCallback<AgentSession> callback) override;
@@ -232,6 +281,7 @@ class CrowdyStudioAgentGraphQLTransport final : public IAgentTransport {
 
  private:
   domains::CrowdyStudioAgentAPI& api_;
+  std::unique_ptr<GraphQLAgentEventSubscriptionAdapter> eventSubscriptions_;
 };
 
 using CrowdyAgentGraphQLTransport =

@@ -614,10 +614,10 @@ class EconomyKit {
              EngineDetector* engines = nullptr)
       : appId_(std::move(appId)),
         gameModel_(gameModel),
+        orderBook_(engines, "market-engine"),
         typePrefix_(std::move(options.typePrefix)),
         currencies_(std::move(options.currencies)),
-        names_(economyNames(typePrefix_)),
-        orderBook_(engines, "market-engine") {}
+        names_(economyNames(typePrefix_)) {}
 
   const EconomyNames& names() const { return names_; }
 

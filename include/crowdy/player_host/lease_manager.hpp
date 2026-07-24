@@ -102,6 +102,12 @@ class AgentControlLeaseManager {
    * state, rates, observations, or callbacks are released.
    */
   void preempt(PreemptionReasonV1 reason);
+  /// Idiomatic CrowdyJS parity spelling for explicit lease revocation.
+  /// Semantics are exactly the same synchronous intent-first takeover path.
+  void revoke(
+      PreemptionReasonV1 reason = PreemptionReasonV1::HUMAN_STOP) {
+    preempt(reason);
+  }
   void onHumanInput() { preempt(PreemptionReasonV1::HUMAN_INPUT); }
   void onEscape() { preempt(PreemptionReasonV1::ESCAPE); }
   void onDeath() { preempt(PreemptionReasonV1::DEATH); }

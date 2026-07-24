@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "crowdy/agent/native_browser_dispatcher.hpp"
 #include "crowdy/agent/native_tool_dispatcher.hpp"
 #include "crowdy/core/clock.hpp"
 #include "crowdy/player_host/adapter.hpp"
@@ -1103,6 +1104,113 @@ void testNativeDispatcherFencesLateResultsAndStopsOffline() {
            agent::NativeToolResultStatusV1::Succeeded);
 }
 
+agent::AgentToolInvocation publicInvocation(
+    std::string name, std::string arguments, const FakeClock& clock,
+    std::string id, std::optional<std::string> lease = std::nullopt) {
+  const auto& descriptor =
+      agent::canonicalAgentToolRegistryV1().require(name, "1.0.0");
+  agent::AgentToolInvocation value;
+  value.sessionId = "session-1";
+  value.runId = "run-1";
+  value.toolCallId = std::move(id);
+  value.name = std::move(name);
+  value.version = "1.0.0";
+  value.descriptorDigest = descriptor.descriptorDigest;
+  value.argumentsJson = std::move(arguments);
+  value.arguments = graphql::Json::parse(value.argumentsJson);
+  value.argumentHash =
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  value.contextVersion = "context-1";
+  value.clientEpoch = "1";
+  value.leaseId = std::move(lease);
+  value.deadline = iso(clock.epoch + 120'000);
+  return value;
+}
+
+void testNativeBrowserDispatcherAdapterConversionAndLifecycle() {
+  ReadyHost ready;
+  FakeStudioHost studio;
+  agent::NativeAgentModeV1 mode = agent::NativeAgentModeV1::Ask;
+  agent::NativeToolDispatcherV1 native(
+      ready.manager, &studio,
+      {.clock = &ready.clock,
+       .session_id = [] { return std::optional<std::string>("session-1"); },
+       .client_epoch = [] { return std::optional<std::string>("1"); },
+       .context_version = [&] { return ready.context; },
+       .mode = [&] { return mode; },
+       .is_lease_active =
+           [](std::string_view id, LeaseKindV1 kind) {
+             return (kind == LeaseKindV1::Play && id == "lease-1") ||
+                    (kind == LeaseKindV1::Workspace &&
+                     id == "workspace-lease");
+           },
+       .validate_argument_hash = [](const auto&) { return true; },
+       .validate_approval_grant = {}});
+  agent::NativeBrowserToolDispatcherAdapter adapter(
+      native, {.clock = &ready.clock});
+
+  std::optional<agent::AgentOutcome<agent::AgentToolResult>> capabilities;
+  adapter.dispatch(
+      publicInvocation("game.capabilities.get", "{}", ready.clock,
+                       "public-capabilities"),
+      [&](auto value) { capabilities = std::move(value); });
+  CHECK(capabilities && capabilities->ok());
+  CHECK_EQ(capabilities->value->status,
+           agent::AgentToolResultStatus::Succeeded);
+  CHECK(capabilities->value->outputJson.has_value());
+  const auto capabilityJson =
+      graphql::Json::parse(*capabilities->value->outputJson);
+  CHECK(capabilityJson["contractVersion"].asString() ==
+        "crowdy.player-host/1");
+  CHECK_EQ(capabilityJson["commands"].size(), std::size_t{12});
+  CHECK(adapter.has("public-capabilities"));
+
+  mode = agent::NativeAgentModeV1::Play;
+  std::optional<agent::AgentOutcome<agent::AgentToolResult>> moved;
+  adapter.dispatch(
+      publicInvocation(
+          "game.control.move",
+          R"({"observationId":"observation-1","capabilityRevision":"capability-7","controlledEntityId":"player-7","direction":"FORWARD","intensity":1,"durationMs":100})",
+          ready.clock, "public-move", "lease-1"),
+      [&](auto value) { moved = std::move(value); });
+  CHECK(moved && moved->ok());
+  CHECK_EQ(moved->value->status,
+           agent::AgentToolResultStatus::Succeeded);
+  const auto moveJson = graphql::Json::parse(*moved->value->outputJson);
+  CHECK(moveJson["commandKind"].asString() == "MOVE");
+  CHECK(moveJson["status"].asString() == "SUCCEEDED");
+
+  auto malformed = publicInvocation(
+      "game.control.move",
+      R"({"observationId":"observation-1","capabilityRevision":"capability-7","controlledEntityId":"player-7","direction":"FORWARD","intensity":1,"durationMs":100,"appId":"2"})",
+      ready.clock, "public-malformed", "lease-1");
+  std::optional<agent::AgentOutcome<agent::AgentToolResult>> rejected;
+  adapter.dispatch(std::move(malformed),
+                   [&](auto value) { rejected = std::move(value); });
+  CHECK(rejected && rejected->ok());
+  CHECK_EQ(rejected->value->status, agent::AgentToolResultStatus::Failed);
+  CHECK_EQ(rejected->value->error->code, "AGENT_TOOL_INPUT_INVALID");
+
+  studio.hold = true;
+  mode = agent::NativeAgentModeV1::Build;
+  auto pending = publicInvocation(
+      "runtime.test_draft",
+      R"({"expectedRevision":"1","targets":["SERVER"]})", ready.clock,
+      "public-cancel");
+  pending.leaseId = "workspace-lease";
+  std::optional<agent::AgentOutcome<agent::AgentToolResult>> cancelled;
+  adapter.dispatch(std::move(pending),
+                   [&](auto value) { cancelled = std::move(value); });
+  adapter.cancelActive(agent::AgentPreemptionReason::Escape);
+  CHECK(cancelled && cancelled->ok());
+  CHECK_EQ(cancelled->value->status,
+           agent::AgentToolResultStatus::Cancelled);
+  CHECK_EQ(cancelled->value->error->code, "AGENT_CANCELLED");
+  studio.completePending();
+  adapter.tick();
+  adapter.clearClosedSession();
+}
+
 }  // namespace
 
 int main() {
@@ -1115,6 +1223,7 @@ int main() {
   testAmbiguousOutcomesExecuteOnceAndLateResults();
   testNativeDispatcherGameAndStudioRouting();
   testNativeDispatcherFencesLateResultsAndStopsOffline();
+  testNativeBrowserDispatcherAdapterConversionAndLifecycle();
   std::printf("player_host_test passed\n");
   return 0;
 }

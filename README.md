@@ -405,6 +405,11 @@ through the installed headers under `crowdy/player_host/` and
   headless Studio controller used by human actions. Engine adapters own thread
   scheduling; callbacks may complete inline or later, and cancellation tokens
   provide a cooperative stop signal while the dispatcher fences late results.
+- `CrowdyStudioControllerHostAdapter` is the concrete 11-tool controller
+  mapping. `ICrowdyStudioEditorAdapter` receives only selected/open files and
+  synchronized in-memory buffers, while `CrowdyStudioIntegration` owns the
+  controller/runtime/dispatcher/editor/optional-agent assembly. Layout and
+  human-control implementations plug into dedicated lifecycle seams.
 
 World coordinates, distances, health values, fuel, revisions, and other
 contract values that may exceed a native or JSON number remain decimal
@@ -415,7 +420,8 @@ validates canonical JSON, converts into closed native variants, forwards
 `NativeToolResultV1` output/error/timing/context, maps cancellation reasons,
 and pumps deadlines from the controller loop. Clear execute-once records only
 after the attached session is closed. See the
-[native player-host example](docs/native-player-host.md).
+[native player-host example](docs/native-player-host.md) and
+[native Studio integration guide](docs/native-studio-integration.md).
 
 ## The native replication client
 
@@ -801,7 +807,7 @@ run during a normal external CMake build.
 - [Wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats) · [HMAC](https://docs.crowdedkingdoms.com/replication-api/hmac)
 - [Management API](https://docs.crowdedkingdoms.com/management-api/intro) · [Game API](https://docs.crowdedkingdoms.com/game-api/intro)
 - [Native Agentic Studio](docs/native-agent-api.md)
-- [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
+- [Native Studio integration](docs/native-studio-integration.md) · [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
 - [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
 - [Release verification checklist](docs/release-checklist.md)
 - [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)

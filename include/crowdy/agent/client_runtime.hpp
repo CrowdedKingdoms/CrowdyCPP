@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+#include <stdexcept>
 #include <utility>
 
 #include "crowdy/agent/controller.hpp"
@@ -20,6 +22,17 @@ class CrowdyStudioAgentControllerRuntime {
       : transport_(api, subscriptions),
         controller_(bind(std::move(options), transport_, api)) {}
 
+  CrowdyStudioAgentControllerRuntime(
+      std::shared_ptr<domains::CrowdyStudioAgentAPI> api,
+      std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions,
+      CrowdyStudioAgentControllerOptions options)
+      : apiOwner_(std::move(api)),
+        subscriptionsOwner_(std::move(subscriptions)),
+        transport_(requireApi(apiOwner_),
+                   requireSubscriptions(subscriptionsOwner_)),
+        controller_(bind(std::move(options), transport_,
+                         requireApi(apiOwner_))) {}
+
   CrowdyStudioAgentController& controller() { return controller_; }
   const CrowdyStudioAgentController& controller() const {
     return controller_;
@@ -27,6 +40,25 @@ class CrowdyStudioAgentControllerRuntime {
   std::size_t poll() { return controller_.poll(); }
 
  private:
+  static domains::CrowdyStudioAgentAPI& requireApi(
+      const std::shared_ptr<domains::CrowdyStudioAgentAPI>& api) {
+    if (!api) {
+      throw std::invalid_argument(
+          "Crowdy Studio agent runtime requires its API");
+    }
+    return *api;
+  }
+
+  static graphql::GraphQLSubscriptionClient& requireSubscriptions(
+      const std::shared_ptr<graphql::GraphQLSubscriptionClient>&
+          subscriptions) {
+    if (!subscriptions) {
+      throw std::invalid_argument(
+          "Crowdy Studio agent runtime requires subscriptions");
+    }
+    return *subscriptions;
+  }
+
   static CrowdyStudioAgentControllerOptions bind(
       CrowdyStudioAgentControllerOptions options,
       CrowdyStudioAgentGraphQLTransport& transport,
@@ -37,6 +69,9 @@ class CrowdyStudioAgentControllerRuntime {
     return options;
   }
 
+  std::shared_ptr<domains::CrowdyStudioAgentAPI> apiOwner_;
+  std::shared_ptr<graphql::GraphQLSubscriptionClient>
+      subscriptionsOwner_;
   CrowdyStudioAgentGraphQLTransport transport_;
   CrowdyStudioAgentController controller_;
 };

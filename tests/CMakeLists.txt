@@ -79,6 +79,10 @@ if(NOT CROWDY_NO_EXCEPTIONS)
   add_executable(player_host_test player_host_test.cpp)
   target_link_libraries(player_host_test PRIVATE crowdy)
   add_test(NAME player_host_test COMMAND player_host_test)
+
+  add_executable(studio_integration_test studio_integration_test.cpp)
+  target_link_libraries(studio_integration_test PRIVATE crowdy)
+  add_test(NAME studio_integration_test COMMAND studio_integration_test)
 endif()
 
 add_executable(codec_struct_test codec_struct_test.cpp)

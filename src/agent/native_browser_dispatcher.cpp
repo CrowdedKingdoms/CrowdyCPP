@@ -901,6 +901,15 @@ AgentToolResultStatus publicStatus(NativeToolResultStatusV1 value) {
   return AgentToolResultStatus::Failed;
 }
 
+bool effectfulTool(std::string_view name, std::string_view version) {
+  const auto contracts = nativeLocalToolContractsV1();
+  const auto found = std::find_if(
+      contracts.begin(), contracts.end(), [&](const auto& contract) {
+        return contract.name == name && contract.version == version;
+      });
+  return found != contracts.end() && found->effectful;
+}
+
 AgentToolResult publicResult(const NativeToolResultV1& source,
                              std::string_view name,
                              std::string_view version,
@@ -967,19 +976,23 @@ void NativeBrowserToolDispatcherAdapter::dispatch(
   try {
     const std::string name = invocation.name;
     const std::string version = invocation.version;
+    const bool effectful = effectfulTool(name, version);
     auto converted = nativeInvocation(invocation, registry_);
     dispatcher_.dispatch(
         std::move(converted),
         [callback = std::move(callback), name, version,
-         registry = &registry_](NativeToolResultV1 result) mutable {
+         effectful, registry = &registry_](NativeToolResultV1 result) mutable {
           try {
             callback(AgentOutcome<AgentToolResult>::success(
                 publicResult(result, name, version, *registry)));
           } catch (const CrowdyAgentError& error) {
             AgentToolResult failed;
             failed.toolCallId = result.tool_call_id;
-            failed.status = AgentToolResultStatus::Failed;
+            failed.status = effectful
+                                ? AgentToolResultStatus::OutcomeUnknown
+                                : AgentToolResultStatus::Failed;
             failed.error = error.value();
+            if (effectful) failed.error->retryable = false;
             failed.observedContextVersion =
                 result.observed_context_version;
             failed.startedAt = result.started_at;
@@ -989,9 +1002,12 @@ void NativeBrowserToolDispatcherAdapter::dispatch(
           } catch (const std::exception& error) {
             AgentToolResult failed;
             failed.toolCallId = result.tool_call_id;
-            failed.status = AgentToolResultStatus::Failed;
+            failed.status = effectful
+                                ? AgentToolResultStatus::OutcomeUnknown
+                                : AgentToolResultStatus::Failed;
             failed.error =
                 toAgentError(error, "AGENT_TOOL_OUTPUT_INVALID");
+            if (effectful) failed.error->retryable = false;
             failed.observedContextVersion =
                 result.observed_context_version;
             failed.startedAt = result.started_at;

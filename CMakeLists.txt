@@ -38,15 +38,15 @@ endif()
 
 set(CROWDY_HAS_CURL_WEBSOCKETS OFF)
 if(CROWDY_WITH_CURL_WEBSOCKETS AND CURL_FOUND AND
-   CURL_VERSION_STRING VERSION_GREATER_EQUAL "7.86.0")
+   CURL_VERSION_STRING VERSION_GREATER_EQUAL "8.13.0")
   include(CheckCXXSourceCompiles)
   include(CheckCXXSourceRuns)
   set(_crowdy_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
   set(CMAKE_REQUIRED_LIBRARIES CURL::libcurl)
   check_cxx_source_compiles([=[
     #include <curl/curl.h>
-    #if LIBCURL_VERSION_NUM < 0x075600
-    #error libcurl WebSocket API is too old
+    #if LIBCURL_VERSION_NUM < 0x080d00
+    #error libcurl WebSocket fragmented-message semantics are too old
     #endif
     int main() {
       CURL* handle = nullptr;

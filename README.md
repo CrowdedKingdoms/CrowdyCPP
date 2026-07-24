@@ -156,19 +156,22 @@ Dependencies (all replaceable through interfaces):
 | Dependency | Used by | Replaceable via |
 |---|---|---|
 | libcurl | default HTTP transport | `crowdy::graphql::IHttpTransport` |
-| libcurl 7.86+ WebSocket APIs | optional default GraphQL subscriptions | `crowdy::graphql::IWebSocketTransport` |
+| libcurl 8.13+ WebSocket APIs | optional default GraphQL subscriptions | `crowdy::graphql::IWebSocketTransport` |
 | OpenSSL (libcrypto) | HMAC-SHA256 | `crowdy::core::ICrypto` |
 | yyjson (vendored) | JSON parse/serialize | internal only, not on the UDP path |
 
 The wire and replication layers depend only on BSD/Winsock sockets and the
 `ICrypto` interface — no libcurl, no JSON.
 
-CMake feature-detects libcurl's WebSocket symbols. If they are absent (or
+CMake requires libcurl 8.13+ and feature-detects its WebSocket symbols because
+older releases do not provide the fragmented-message semantics this backend
+needs. If support is absent (or
 `CROWDY_WITH_CURL_WEBSOCKETS=OFF`), the SDK builds with a clear no-default
 fallback and `makeCurlWebSocketTransport()` returns null; injected engine
 transports continue to work on Linux, macOS, and Windows. The factory also
-checks that the linked libcurl actually advertises both `ws` and `wss`, since
-some distributions expose the APIs while compiling those protocols out.
+checks that the linked libcurl is 8.13+ and actually advertises both `ws` and
+`wss`, since some distributions expose the APIs while compiling those
+protocols out.
 
 `CROWDY_NO_EXCEPTIONS=ON` enables the non-throwing compatibility path for
 blocking GraphQL requests (failures return an invalid `Json`); use `*Async`

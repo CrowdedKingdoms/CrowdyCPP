@@ -218,7 +218,7 @@ class CrowdyStudioAgentController {
   bool pageVisible_ = true;
   bool historyInFlight_ = false;
   bool gapRecoveryInFlight_ = false;
-  bool acknowledgeInFlight_ = false;
+  std::optional<std::uint64_t> acknowledgeGeneration_;
   bool heartbeatInFlight_ = false;
   bool workspaceHeartbeatInFlight_ = false;
   std::string pendingAcknowledge_ = "0";

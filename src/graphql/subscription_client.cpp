@@ -295,7 +295,8 @@ std::shared_ptr<Dispatcher> ensureDispatcher(GraphQLClient& client) {
 
 }  // namespace
 
-Result<std::string> normalizeGraphQLWebSocketUrl(std::string_view endpoint) {
+Result<std::string> normalizeGraphQLWebSocketUrl(
+    std::string_view endpoint, GraphQLWebSocketEndpointKind kind) {
   if (endpoint.empty()) return Errc::InvalidArgument;
   for (const unsigned char c : endpoint) {
     if (c <= 0x20U || c == 0x7fU) return Errc::InvalidArgument;
@@ -322,6 +323,10 @@ Result<std::string> normalizeGraphQLWebSocketUrl(std::string_view endpoint) {
   const std::size_t pathAt = address.find('/');
   const std::string_view authority = address.substr(0, pathAt);
   if (authority.empty()) return Errc::InvalidArgument;
+
+  if (kind == GraphQLWebSocketEndpointKind::Complete) {
+    return wsScheme + "://" + std::string(address) + std::string(query);
+  }
 
   std::string path =
       pathAt == std::string_view::npos ? std::string{} : std::string(address.substr(pathAt));
@@ -354,6 +359,7 @@ bool isTerminalSubscriptionErrorCode(std::string_view code) {
 struct SubscriptionHandle::Control {
   std::atomic<bool> active{true};
   std::atomic<bool> cancelled{false};
+  std::recursive_mutex deliveryMutex;
   std::function<void()> cancel;
 };
 
@@ -371,8 +377,14 @@ SubscriptionHandle& SubscriptionHandle::operator=(SubscriptionHandle&& other) no
 }
 
 void SubscriptionHandle::cancel() {
-  if (!control_ || !control_->active.exchange(false)) return;
-  control_->cancelled.store(true);
+  if (!control_) return;
+  {
+    // Synchronize with callback execution so no callback can begin after this
+    // method returns. Recursive locking permits cancellation from a callback.
+    std::lock_guard deliveryLock(control_->deliveryMutex);
+    control_->cancelled.store(true, std::memory_order_release);
+  }
+  if (!control_->active.exchange(false, std::memory_order_acq_rel)) return;
   if (control_->cancel) control_->cancel();
 }
 
@@ -396,7 +408,7 @@ class GraphQLSubscriptionClient::Impl final
                     ? std::random_device{}()
                     : config_.options.reconnectRandomSeed) {
     Result<std::string> normalized =
-        normalizeGraphQLWebSocketUrl(config_.endpoint);
+        normalizeGraphQLWebSocketUrl(config_.endpoint, config_.endpointKind);
     if (normalized.ok()) endpoint_ = std::move(normalized.value());
   }
 
@@ -1191,7 +1203,8 @@ class GraphQLSubscriptionClient::Impl final
                 GraphQLSubscriptionOutcome outcome) {
     if (!operation->callbacks.onNext) return;
     dispatcher_->post([operation, outcome = std::move(outcome)]() mutable {
-      if (!operation->control->cancelled.load() &&
+      std::lock_guard deliveryLock(operation->control->deliveryMutex);
+      if (!operation->control->cancelled.load(std::memory_order_acquire) &&
           operation->callbacks.onNext) {
         operation->callbacks.onNext(std::move(outcome));
       }
@@ -1202,7 +1215,8 @@ class GraphQLSubscriptionClient::Impl final
                  GraphQLSubscriptionError error) {
     if (!operation->callbacks.onError) return;
     dispatcher_->post([operation, error = std::move(error)]() mutable {
-      if (!operation->control->cancelled.load() &&
+      std::lock_guard deliveryLock(operation->control->deliveryMutex);
+      if (!operation->control->cancelled.load(std::memory_order_acquire) &&
           operation->callbacks.onError) {
         operation->callbacks.onError(std::move(error));
       }
@@ -1212,7 +1226,8 @@ class GraphQLSubscriptionClient::Impl final
   void postComplete(const std::shared_ptr<Operation>& operation) {
     if (!operation->callbacks.onComplete) return;
     dispatcher_->post([operation] {
-      if (!operation->control->cancelled.load() &&
+      std::lock_guard deliveryLock(operation->control->deliveryMutex);
+      if (!operation->control->cancelled.load(std::memory_order_acquire) &&
           operation->callbacks.onComplete) {
         operation->callbacks.onComplete();
       }
@@ -1222,7 +1237,8 @@ class GraphQLSubscriptionClient::Impl final
   void postReconnect(const std::shared_ptr<Operation>& operation,
                      GraphQLReconnectInfo info) {
     dispatcher_->post([operation, info = std::move(info)]() mutable {
-      if (!operation->control->cancelled.load() &&
+      std::lock_guard deliveryLock(operation->control->deliveryMutex);
+      if (!operation->control->cancelled.load(std::memory_order_acquire) &&
           operation->callbacks.onReconnect) {
         operation->callbacks.onReconnect(std::move(info));
       }

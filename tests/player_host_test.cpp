@@ -716,6 +716,9 @@ class FakeStudioHost final : public agent::CrowdyStudioHostAdapter {
   std::vector<agent::StudioNativeToolKindV1> dispatched;
   std::vector<std::string> events;
   bool hold = false;
+  bool definitive_failure = false;
+  bool ambiguous_failure = false;
+  bool invalid_output = false;
   std::optional<agent::StudioToolCallbackV1> pending;
   std::optional<agent::StudioNativeToolOutputV1> pending_output;
 
@@ -791,6 +794,28 @@ class FakeStudioHost final : public agent::CrowdyStudioHostAdapter {
             .client_stopped = true,
             .failures = {}};
         break;
+    }
+    if (definitive_failure || ambiguous_failure) {
+      callback(AdapterResultV1<agent::StudioNativeToolOutputV1>::failure(
+          {.code = ambiguous_failure ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                                     : "AGENT_TOOL_FAILED",
+           .message = ambiguous_failure ? "effect may have occurred"
+                                        : "host rejected before effect",
+           .retryable = false,
+           .remediation = std::nullopt,
+           .field = std::nullopt,
+           .required_scope = std::nullopt},
+          ambiguous_failure));
+      return;
+    }
+    if (invalid_output) {
+      if (auto* plan =
+              std::get_if<agent::StudioRuntimePlanResultV1>(&output)) {
+        plan->targets.clear();
+      } else if (auto* context =
+                     std::get_if<agent::StudioContextV1>(&output)) {
+        context->context_version.clear();
+      }
     }
     if (hold) {
       pending = std::move(callback);
@@ -1063,6 +1088,94 @@ void testNativeDispatcherFencesLateResultsAndStopsOffline() {
   ready.context = "context-1";
   mode = agent::NativeAgentModeV1::Build;
   studio.hold = true;
+  std::optional<agent::NativeToolResultV1> fenced_effect;
+  dispatcher.dispatch(
+      invocation(
+          "runtime.test_draft",
+          agent::StudioRuntimeTestDraftRequestV1{
+              .expected_revision = "1",
+              .targets = {agent::StudioTargetV1::Server}},
+          ready.clock, "fenced-effect", "workspace-lease"),
+      [&](auto result) { fenced_effect = std::move(result); });
+  CHECK(!fenced_effect);
+  ready.context = "context-2";
+  studio.completePending();
+  CHECK(fenced_effect);
+  CHECK_EQ(fenced_effect->status,
+           agent::NativeToolResultStatusV1::OutcomeUnknown);
+  CHECK_EQ(fenced_effect->error->code, "AGENT_TOOL_OUTCOME_UNKNOWN");
+  CHECK(!fenced_effect->error->retryable);
+
+  ready.context = "context-1";
+  studio.hold = false;
+  auto expired_call = invocation(
+      "runtime.test_draft",
+      agent::StudioRuntimeTestDraftRequestV1{
+          .expected_revision = "1",
+          .targets = {agent::StudioTargetV1::Server}},
+      ready.clock, "expired-before-dispatch", "workspace-lease");
+  expired_call.deadline = iso(ready.clock.epoch - 1);
+  const auto dispatches_before_expired = studio.dispatched.size();
+  std::optional<agent::NativeToolResultV1> expired;
+  dispatcher.dispatch(
+      std::move(expired_call),
+      [&](auto result) { expired = std::move(result); });
+  CHECK(expired);
+  CHECK_EQ(expired->status, agent::NativeToolResultStatusV1::Failed);
+  CHECK_EQ(expired->error->code, "AGENT_TOOL_TIMEOUT");
+  CHECK_EQ(studio.dispatched.size(), dispatches_before_expired);
+
+  studio.definitive_failure = true;
+  std::optional<agent::NativeToolResultV1> definitive;
+  dispatcher.dispatch(
+      invocation(
+          "runtime.test_draft",
+          agent::StudioRuntimeTestDraftRequestV1{
+              .expected_revision = "1",
+              .targets = {agent::StudioTargetV1::Server}},
+          ready.clock, "definitive-pre-effect", "workspace-lease"),
+      [&](auto result) { definitive = std::move(result); });
+  CHECK(definitive);
+  CHECK_EQ(definitive->status, agent::NativeToolResultStatusV1::Failed);
+  CHECK_EQ(definitive->error->code, "AGENT_TOOL_FAILED");
+  studio.definitive_failure = false;
+
+  studio.ambiguous_failure = true;
+  std::optional<agent::NativeToolResultV1> ambiguous;
+  dispatcher.dispatch(
+      invocation(
+          "runtime.test_draft",
+          agent::StudioRuntimeTestDraftRequestV1{
+              .expected_revision = "1",
+              .targets = {agent::StudioTargetV1::Server}},
+          ready.clock, "ambiguous-after-dispatch", "workspace-lease"),
+      [&](auto result) { ambiguous = std::move(result); });
+  CHECK(ambiguous);
+  CHECK_EQ(ambiguous->status,
+           agent::NativeToolResultStatusV1::OutcomeUnknown);
+  CHECK_EQ(ambiguous->error->code, "AGENT_TOOL_OUTCOME_UNKNOWN");
+  CHECK(!ambiguous->error->retryable);
+  studio.ambiguous_failure = false;
+
+  studio.invalid_output = true;
+  std::optional<agent::NativeToolResultV1> invalid_effect_output;
+  dispatcher.dispatch(
+      invocation(
+          "runtime.test_draft",
+          agent::StudioRuntimeTestDraftRequestV1{
+              .expected_revision = "1",
+              .targets = {agent::StudioTargetV1::Server}},
+          ready.clock, "invalid-effect-output", "workspace-lease"),
+      [&](auto result) { invalid_effect_output = std::move(result); });
+  CHECK(invalid_effect_output);
+  CHECK_EQ(invalid_effect_output->status,
+           agent::NativeToolResultStatusV1::OutcomeUnknown);
+  CHECK_EQ(invalid_effect_output->error->code,
+           "AGENT_TOOL_OUTPUT_INVALID");
+  CHECK(!invalid_effect_output->error->retryable);
+  studio.invalid_output = false;
+
+  studio.hold = true;
   std::optional<agent::NativeToolResultV1> cancelled;
   dispatcher.dispatch(
       invocation(
@@ -1078,7 +1191,9 @@ void testNativeDispatcherFencesLateResultsAndStopsOffline() {
   dispatcher.cancelActive(PreemptionReasonV1::ESCAPE);
   CHECK(cancelled);
   CHECK_EQ(cancelled->status,
-           agent::NativeToolResultStatusV1::Cancelled);
+           agent::NativeToolResultStatusV1::OutcomeUnknown);
+  CHECK_EQ(cancelled->error->code, "AGENT_TOOL_OUTCOME_UNKNOWN");
+  CHECK(!cancelled->error->retryable);
   const auto clear = std::find(studio.events.begin(), studio.events.end(),
                                "clear:ESCAPE");
   const auto callback =
@@ -1204,8 +1319,10 @@ void testNativeBrowserDispatcherAdapterConversionAndLifecycle() {
   adapter.cancelActive(agent::AgentPreemptionReason::Escape);
   CHECK(cancelled && cancelled->ok());
   CHECK_EQ(cancelled->value->status,
-           agent::AgentToolResultStatus::Cancelled);
-  CHECK_EQ(cancelled->value->error->code, "AGENT_CANCELLED");
+           agent::AgentToolResultStatus::OutcomeUnknown);
+  CHECK_EQ(cancelled->value->error->code,
+           "AGENT_TOOL_OUTCOME_UNKNOWN");
+  CHECK(!cancelled->value->error->retryable);
   studio.completePending();
   adapter.tick();
   adapter.clearClosedSession();

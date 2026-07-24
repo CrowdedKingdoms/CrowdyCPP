@@ -66,6 +66,15 @@ auto handle = game.subscriptions().subscribe(
     "Watch", std::move(callbacks));
 ```
 
-Engine integrations may inject `IWebSocketTransport`; libcurl WebSockets are
-optional. A curl-free build retains the same API and reports a typed transport
+Direct `GraphQLSubscriptionClient` construction treats its URL as an API base
+by default. Set `endpointKind` to
+`GraphQLWebSocketEndpointKind::Complete` for a custom route such as
+`wss://host/subscriptions/`; its path, query, and trailing slash are preserved.
+`CrowdyClient::wsEndpoint` selects this complete-endpoint behavior
+automatically.
+
+Engine integrations may inject `IWebSocketTransport`; libcurl 8.13+ WebSockets
+are optional. Older curl versions are deliberately not enabled because their
+fragmented-message metadata cannot satisfy this backend's reassembly contract.
+A curl-free build retains the same API and reports a typed transport
 unavailable error until an engine transport is supplied.

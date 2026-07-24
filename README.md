@@ -391,6 +391,12 @@ through the installed headers under `crowdy/player_host/` and
   observation, heartbeat, and command rate. Call `tick()` from the game thread.
   Human input, Escape, Stop, death, disconnect, and permission/admission/context
   changes call the corresponding synchronous preemption method.
+- `NativePlayerControlGate` is the no-DOM/no-OS CrowdyJS 12.1 control-gate
+  equivalent. Engines report keyboard, pointer, movement, background, death,
+  permission, context, and controlled-entity transitions through imperative
+  hooks. Local intent clears before best-effort remote revoke/Pause/Stop,
+  Stop works offline, and snapshots retain the 150 ms human-input-active
+  window without a timer thread.
 - `NativeToolDispatcherV1` is an execute-once callback router for the 14
   mandatory `game.*` tools and the 11 native Studio/runtime tools. It validates
   canonical v12 descriptor digests, typed input/output bounds, mode, deadline,

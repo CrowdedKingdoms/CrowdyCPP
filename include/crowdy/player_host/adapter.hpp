@@ -21,30 +21,53 @@ class CancellationTokenV1 {
   CancellationTokenV1() = default;
   bool cancelled() const noexcept {
     const auto state = state_.lock();
-    return !state || state->load(std::memory_order_acquire);
+    return !state || state->cancelled.load(std::memory_order_acquire);
+  }
+
+  /**
+   * Host adapters call this immediately before an operation can produce an
+   * externally visible effect. Dispatchers use the marker to distinguish a
+   * safely cancelled queued call from an ambiguous in-flight outcome.
+   */
+  void markEffectStarted() const noexcept {
+    const auto state = state_.lock();
+    if (state) state->effect_started.store(true, std::memory_order_release);
+  }
+  bool effectStarted() const noexcept {
+    const auto state = state_.lock();
+    return state && state->effect_started.load(std::memory_order_acquire);
   }
 
  private:
+  struct State {
+    std::atomic<bool> cancelled{false};
+    std::atomic<bool> effect_started{false};
+  };
+
   friend class CancellationSourceV1;
-  explicit CancellationTokenV1(
-      const std::shared_ptr<std::atomic<bool>>& state)
+  explicit CancellationTokenV1(const std::shared_ptr<State>& state)
       : state_(state) {}
-  std::weak_ptr<std::atomic<bool>> state_;
+  std::weak_ptr<State> state_;
 };
 
 class CancellationSourceV1 {
  public:
   CancellationSourceV1()
-      : state_(std::make_shared<std::atomic<bool>>(false)) {}
+      : state_(std::make_shared<CancellationTokenV1::State>()) {}
 
   CancellationTokenV1 token() const { return CancellationTokenV1(state_); }
-  void cancel() noexcept { state_->store(true, std::memory_order_release); }
+  void cancel() noexcept {
+    state_->cancelled.store(true, std::memory_order_release);
+  }
   bool cancelled() const noexcept {
-    return state_->load(std::memory_order_acquire);
+    return state_->cancelled.load(std::memory_order_acquire);
+  }
+  bool effectStarted() const noexcept {
+    return state_->effect_started.load(std::memory_order_acquire);
   }
 
  private:
-  std::shared_ptr<std::atomic<bool>> state_;
+  std::shared_ptr<CancellationTokenV1::State> state_;
 };
 
 template <typename T>

@@ -80,6 +80,13 @@ class NativePlayerControlGate {
   NativePlayerControlGate(NativePlayerControlGate&&) noexcept;
   NativePlayerControlGate& operator=(NativePlayerControlGate&&) noexcept;
 
+  /**
+   * Bind the exact native lease manager without a remote Agent controller.
+   * Human takeover still clears local host authority synchronously; Pause and
+   * Stop remain local-only until a controller is bound.
+   */
+  Unbind bind(AgentControlLeaseManager& lease_manager);
+
   /** Bind the exact native lease manager and production controller. */
   Unbind bind(AgentControlLeaseManager& lease_manager,
               agent::CrowdyStudioAgentController& controller);
@@ -91,6 +98,8 @@ class NativePlayerControlGate {
   NativePlayerControlGateSnapshotV1 snapshot() const;
   bool humanInputActive() const noexcept;
   Unbind subscribe(Listener listener);
+  /** Re-read bound lease/controller state and notify snapshot listeners. */
+  void refresh() noexcept;
 
   void preempt(PreemptionReasonV1 reason,
                bool notify_server = true) noexcept;

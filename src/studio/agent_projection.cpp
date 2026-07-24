@@ -126,6 +126,19 @@ agent::StudioDiagnosticSeverityV1 diagnosticSeverity(
   return agent::StudioDiagnosticSeverityV1::Info;
 }
 
+agent::StudioDiagnosticSourceV1 diagnosticSource(
+    CrowdyStudioDiagnosticSource value) {
+  switch (value) {
+    case CrowdyStudioDiagnosticSource::Rustc:
+      return agent::StudioDiagnosticSourceV1::Rustc;
+    case CrowdyStudioDiagnosticSource::LocalAdvisory:
+      return agent::StudioDiagnosticSourceV1::LocalAdvisory;
+    case CrowdyStudioDiagnosticSource::Runtime:
+      return agent::StudioDiagnosticSourceV1::Runtime;
+  }
+  return agent::StudioDiagnosticSourceV1::LocalAdvisory;
+}
+
 std::string sha256(std::string_view value, const core::ICrypto& crypto) {
   std::array<std::uint8_t, 32> digest{};
   if (!crypto.sha256(asBytes(value), digest.data())) {
@@ -229,10 +242,7 @@ agent::StudioDiagnosticsV1 crowdyStudioAgentLocalDiagnosticsV1(
   result.diagnostics.reserve(state.localDiagnostics.size());
   for (const auto& diagnostic : state.localDiagnostics) {
     agent::StudioDiagnosticV1 mapped;
-    mapped.source =
-        diagnostic.source == CrowdyStudioDiagnosticSource::Rustc
-            ? agent::StudioDiagnosticSourceV1::Rustc
-            : agent::StudioDiagnosticSourceV1::LocalAdvisory;
+    mapped.source = diagnosticSource(diagnostic.source);
     mapped.target = target(diagnostic.target);
     mapped.path = normalizeCrowdyStudioPath(diagnostic.path);
     mapped.line = diagnostic.line;

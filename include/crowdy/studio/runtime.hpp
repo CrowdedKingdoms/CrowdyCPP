@@ -184,10 +184,20 @@ class CrowdyStudioPlayerWalletProvider final
  public:
   explicit CrowdyStudioPlayerWalletProvider(
       domains::PlayerWalletAPI& playerWallet)
-      : playerWallet_(playerWallet) {}
+      : playerWallet_(&playerWallet) {}
+
+  explicit CrowdyStudioPlayerWalletProvider(
+      std::shared_ptr<domains::PlayerWalletAPI> playerWallet)
+      : playerWalletOwner_(std::move(playerWallet)),
+        playerWallet_(playerWalletOwner_.get()) {
+    if (!playerWallet_) {
+      throw std::invalid_argument(
+          "Crowdy Studio wallet provider requires PlayerWalletAPI");
+    }
+  }
 
   CrowdyStudioWalletSnapshot balance() override {
-    const graphql::Json value = playerWallet_.balance();
+    const graphql::Json value = playerWallet_->balance();
     CrowdyStudioWalletSnapshot snapshot;
     snapshot.balanceCents = scalarString(value["balanceCents"]);
     snapshot.currency = value["currency"].asString();
@@ -206,7 +216,8 @@ class CrowdyStudioPlayerWalletProvider final
     return {};
   }
 
-  domains::PlayerWalletAPI& playerWallet_;
+  std::shared_ptr<domains::PlayerWalletAPI> playerWalletOwner_;
+  domains::PlayerWalletAPI* playerWallet_ = nullptr;
 };
 
 class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {

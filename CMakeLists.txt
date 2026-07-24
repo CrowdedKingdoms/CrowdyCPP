@@ -290,7 +290,6 @@ add_library(crowdy STATIC
   ${CROWDY_KIT_SOURCES}
   ${CROWDY_STUDIO_SOURCES}
   ${CROWDY_PLAYER_HOST_SOURCES}
-  ${CROWDY_STUDIO_SOURCES}
 )
 target_include_directories(crowdy PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -366,6 +365,8 @@ if(CROWDY_NO_EXCEPTIONS)
           PATTERN "runtime.hpp" EXCLUDE
           PATTERN "models.hpp" EXCLUDE
           PATTERN "model_mirror.hpp" EXCLUDE)
+  install(FILES include/crowdy/studio/layout.hpp
+          DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/crowdy/studio)
 else()
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
   install(FILES

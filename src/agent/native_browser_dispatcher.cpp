@@ -901,13 +901,17 @@ AgentToolResultStatus publicStatus(NativeToolResultStatusV1 value) {
   return AgentToolResultStatus::Failed;
 }
 
-bool effectfulTool(std::string_view name, std::string_view version) {
+bool outcomeMayBeUnknown(std::string_view name, std::string_view version) {
   const auto contracts = nativeLocalToolContractsV1();
   const auto found = std::find_if(
       contracts.begin(), contracts.end(), [&](const auto& contract) {
         return contract.name == name && contract.version == version;
       });
-  return found != contracts.end() && found->effectful;
+  if (found == contracts.end() || !found->effectful) return false;
+  if (name.rfind("game.", 0) == 0) return true;
+  return name == "runtime.test_draft" ||
+         name == "runtime.deploy_live" ||
+         name == "runtime.invoke";
 }
 
 AgentToolResult publicResult(const NativeToolResultV1& source,
@@ -976,23 +980,27 @@ void NativeBrowserToolDispatcherAdapter::dispatch(
   try {
     const std::string name = invocation.name;
     const std::string version = invocation.version;
-    const bool effectful = effectfulTool(name, version);
+    const bool ambiguous = outcomeMayBeUnknown(name, version);
     auto converted = nativeInvocation(invocation, registry_);
     dispatcher_.dispatch(
         std::move(converted),
         [callback = std::move(callback), name, version,
-         effectful, registry = &registry_](NativeToolResultV1 result) mutable {
+         ambiguous, registry = &registry_](NativeToolResultV1 result) mutable {
           try {
             callback(AgentOutcome<AgentToolResult>::success(
                 publicResult(result, name, version, *registry)));
           } catch (const CrowdyAgentError& error) {
+            const bool outcome_unknown =
+                result.status == NativeToolResultStatusV1::OutcomeUnknown ||
+                (ambiguous &&
+                 result.status == NativeToolResultStatusV1::Succeeded);
             AgentToolResult failed;
             failed.toolCallId = result.tool_call_id;
-            failed.status = effectful
+            failed.status = outcome_unknown
                                 ? AgentToolResultStatus::OutcomeUnknown
                                 : AgentToolResultStatus::Failed;
             failed.error = error.value();
-            if (effectful) failed.error->retryable = false;
+            if (outcome_unknown) failed.error->retryable = false;
             failed.observedContextVersion =
                 result.observed_context_version;
             failed.startedAt = result.started_at;
@@ -1000,14 +1008,18 @@ void NativeBrowserToolDispatcherAdapter::dispatch(
             callback(AgentOutcome<AgentToolResult>::success(
                 std::move(failed)));
           } catch (const std::exception& error) {
+            const bool outcome_unknown =
+                result.status == NativeToolResultStatusV1::OutcomeUnknown ||
+                (ambiguous &&
+                 result.status == NativeToolResultStatusV1::Succeeded);
             AgentToolResult failed;
             failed.toolCallId = result.tool_call_id;
-            failed.status = effectful
+            failed.status = outcome_unknown
                                 ? AgentToolResultStatus::OutcomeUnknown
                                 : AgentToolResultStatus::Failed;
             failed.error =
                 toAgentError(error, "AGENT_TOOL_OUTPUT_INVALID");
-            if (effectful) failed.error->retryable = false;
+            if (outcome_unknown) failed.error->retryable = false;
             failed.observedContextVersion =
                 result.observed_context_version;
             failed.startedAt = result.started_at;

@@ -523,6 +523,13 @@ CrowdyClient::createCrowdyStudioIntegration(
   auto runtime =
       std::make_shared<studio::CrowdyStudioPlayerComputeRuntime>(
           playerCompute, options.clientRuntime);
+  if (options.observePlayerWallet && !options.walletProvider) {
+    auto playerWallet =
+        std::make_shared<domains::PlayerWalletAPI>(managementGql_);
+    options.walletProvider =
+        std::make_shared<studio::CrowdyStudioPlayerWalletProvider>(
+            std::move(playerWallet));
+  }
 
   const auto fallbackPoll = std::move(options.platformPoll);
   options.platformPoll =

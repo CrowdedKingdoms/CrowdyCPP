@@ -13,7 +13,7 @@
 namespace crowdy::studio {
 
 enum class CrowdyStudioDiagnosticSeverity { Error, Warning, Info, Hint };
-enum class CrowdyStudioDiagnosticSource { Rustc, LocalAdvisory };
+enum class CrowdyStudioDiagnosticSource { Rustc, LocalAdvisory, Runtime };
 
 inline constexpr std::string_view toString(
     CrowdyStudioDiagnosticSeverity value) {
@@ -28,8 +28,13 @@ inline constexpr std::string_view toString(
 
 inline constexpr std::string_view toString(
     CrowdyStudioDiagnosticSource value) {
-  return value == CrowdyStudioDiagnosticSource::Rustc ? "rustc"
-                                                       : "local-advisory";
+  switch (value) {
+    case CrowdyStudioDiagnosticSource::Rustc: return "rustc";
+    case CrowdyStudioDiagnosticSource::LocalAdvisory:
+      return "local-advisory";
+    case CrowdyStudioDiagnosticSource::Runtime: return "runtime";
+  }
+  return "";
 }
 
 /// One target-relative problem marker. Coordinates are one-based, matching

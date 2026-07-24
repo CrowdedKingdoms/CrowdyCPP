@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,7 +11,6 @@
 #include "crowdy/agent/native_tool_dispatcher.hpp"
 #include "crowdy/core/crypto.hpp"
 #include "crowdy/studio/controller.hpp"
-#include "crowdy/studio/editor.hpp"
 
 namespace crowdy::studio {
 
@@ -34,8 +34,13 @@ struct CrowdyStudioControllerHostAdapterOptions {
       const agent::ValidatedStudioGateV1&)>
       validateApprovalGrant;
 
-  std::function<std::vector<CrowdyStudioEditorDiagnostic>()>
-      localDiagnostics;
+  /**
+   * Optional serial execution lane for operations that may save, perform
+   * HTTP, compile/poll/sleep, invoke, or stop runtimes. The scheduler must
+   * eventually run accepted tasks and must not run them concurrently with
+   * other CrowdyStudioController access.
+   */
+  std::function<void(std::function<void()>)> schedule;
 };
 
 /**
@@ -67,9 +72,16 @@ class CrowdyStudioControllerHostAdapter final
       player_host::PreemptionReasonV1 reason) noexcept override;
 
  private:
+  struct Lifetime;
   using StudioResult = player_host::AdapterResultV1<
       agent::StudioNativeToolOutputV1>;
 
+  void dispatchNow(
+      agent::StudioNativeToolKindV1 kind,
+      agent::StudioNativeToolRequestV1 request,
+      agent::ValidatedStudioGateV1 gate,
+      player_host::CancellationTokenV1 cancellation,
+      agent::StudioToolCallbackV1 callback);
   std::optional<player_host::AgentErrorV1> validateGate(
       agent::StudioNativeToolKindV1 kind,
       const agent::StudioNativeToolRequestV1& request,
@@ -94,6 +106,7 @@ class CrowdyStudioControllerHostAdapter final
   CrowdyStudioController& controller_;
   const core::ICrypto& crypto_;
   CrowdyStudioControllerHostAdapterOptions options_;
+  std::shared_ptr<Lifetime> lifetime_;
   std::atomic<std::uint64_t> generation_{0};
   std::atomic<bool> disposed_{false};
 };

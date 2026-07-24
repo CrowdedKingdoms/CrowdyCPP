@@ -14,31 +14,9 @@
 namespace crowdy::studio {
 
 enum class CrowdyStudioEditorMode { Native, Text };
-enum class CrowdyStudioEditorDiagnosticSource {
-  LocalAdvisory,
-  Rustc,
-  Runtime,
-};
-enum class CrowdyStudioEditorDiagnosticSeverity {
-  Error,
-  Warning,
-  Info,
-  Hint,
-};
-
-struct CrowdyStudioEditorDiagnostic {
-  CrowdyStudioEditorDiagnosticSource source =
-      CrowdyStudioEditorDiagnosticSource::LocalAdvisory;
-  CrowdyStudioTarget target = CrowdyStudioTarget::Server;
-  std::string path;
-  std::uint32_t line = 1;
-  std::uint32_t column = 1;
-  CrowdyStudioEditorDiagnosticSeverity severity =
-      CrowdyStudioEditorDiagnosticSeverity::Info;
-  std::optional<std::string> code;
-  std::string message;
-  bool operator==(const CrowdyStudioEditorDiagnostic&) const = default;
-};
+using CrowdyStudioEditorDiagnosticSource = CrowdyStudioDiagnosticSource;
+using CrowdyStudioEditorDiagnosticSeverity = CrowdyStudioDiagnosticSeverity;
+using CrowdyStudioEditorDiagnostic = CrowdyStudioDiagnostic;
 
 struct CrowdyStudioEditorBuffer {
   CrowdyStudioFileRef file;

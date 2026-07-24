@@ -1,7 +1,6 @@
 #include "crowdy/studio/integration.hpp"
 
 #include <algorithm>
-#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -49,20 +48,44 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
       editorAdapter_(std::move(options.editor)),
       synchronization_(std::move(options.synchronization)),
       approval_(std::move(options.approval)),
-      layout_(std::move(options.layout)),
-      control_(std::move(options.control)),
+      walletProvider_(std::move(options.walletProvider)),
+      layoutStorageOwner_(std::move(options.layoutStorage)),
+      playerHost_(options.playerHost),
       leaseManager_(options.leaseManager),
       platformPoll_(std::move(options.platformPoll)) {
-  if (!projectProvider_ || !runtime_ || !crypto_ || !leaseManager_) {
+  if (!projectProvider_ || !runtime_ || !crypto_ ||
+      (!playerHost_ && !leaseManager_) ||
+      (playerHost_ && leaseManager_)) {
     throw std::invalid_argument(
         "Crowdy Studio integration requires owned project/runtime/crypto "
-        "services and an external lease manager");
+        "services and exactly one player host or external lease manager");
   }
 
   controller_ = std::make_unique<CrowdyStudioController>(
       std::move(options.studio), *projectProvider_, *runtime_, *crypto_,
       options.clock ? *options.clock : core::systemClock(),
-      synchronization_.get(), approval_.get());
+      synchronization_.get(), approval_.get(), walletProvider_.get());
+  auto layoutOptions = std::move(options.layout);
+  if (layoutStorageOwner_) {
+    layoutOptions.storage = layoutStorageOwner_.get();
+  }
+  layoutController_ =
+      std::make_unique<StudioLayoutController>(std::move(layoutOptions));
+
+  if (playerHost_) {
+    auto leaseOptions = std::move(options.controlLeases);
+    if (!leaseOptions.clock) leaseOptions.clock = options.clock;
+    const auto fallbackContext = std::move(leaseOptions.context_version);
+    leaseOptions.context_version = [this, fallbackContext] {
+      const std::string current = currentContextVersion();
+      if (!current.empty()) return current;
+      return fallbackContext ? fallbackContext() : std::string{};
+    };
+    ownedLeaseManager_ =
+        std::make_unique<player_host::AgentControlLeaseManager>(
+            *playerHost_, std::move(leaseOptions));
+    leaseManager_ = ownedLeaseManager_.get();
+  }
   if (editorAdapter_) {
     editorBridge_ = std::make_unique<CrowdyStudioEditorBridge>(
         *controller_, editorAdapter_);
@@ -76,7 +99,6 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
   const auto fallbackHostCapability =
       hostOptions.hostCapabilityRevision;
   const auto fallbackHostLeaseActive = hostOptions.isLeaseActive;
-  const auto fallbackDiagnostics = hostOptions.localDiagnostics;
 
   hostOptions.sessionId = [this, fallbackHostSession] {
     auto current = currentSessionId();
@@ -127,19 +149,12 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
         return fallbackHostLeaseActive &&
                fallbackHostLeaseActive(id, kind);
       };
-  hostOptions.localDiagnostics =
-      [this, fallbackDiagnostics] {
-        std::vector<CrowdyStudioEditorDiagnostic> diagnostics;
-        if (editorBridge_) diagnostics = editorBridge_->localDiagnostics();
-        if (fallbackDiagnostics) {
-          auto fallback = fallbackDiagnostics();
-          diagnostics.insert(
-              diagnostics.end(),
-              std::make_move_iterator(fallback.begin()),
-              std::make_move_iterator(fallback.end()));
-        }
-        return diagnostics;
-      };
+  if (!hostOptions.schedule) {
+    hostOptions.schedule = [this](std::function<void()> task) {
+      std::lock_guard lock(maintenanceMutex_);
+      maintenanceTasks_.push_back(std::move(task));
+    };
+  }
 
   studioHost_ =
       std::make_unique<CrowdyStudioControllerHostAdapter>(
@@ -237,6 +252,18 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
     }
   }
 
+  auto controlOptions = std::move(options.controlGate);
+  if (!controlOptions.clock) controlOptions.clock = options.clock;
+  controlGate_ =
+      std::make_unique<player_host::NativePlayerControlGate>(
+          std::function<void(player_host::PreemptionReasonV1)>{},
+          std::move(controlOptions));
+  controlGateUnbind_ =
+      agentRuntime_
+          ? controlGate_->bind(
+                *leaseManager_, agentRuntime_->controller())
+          : controlGate_->bind(*leaseManager_);
+
   stateSubscription_ = controller_->subscribe(
       [this](const CrowdyStudioState& state) {
         if (!disposed_) stateChanged(state);
@@ -285,18 +312,41 @@ void CrowdyStudioIntegration::initialize() {
 
 std::size_t CrowdyStudioIntegration::poll() {
   if (disposed_) return 0;
-  if (agentRuntime_) return agentRuntime_->poll();
-  return platformPoll_ ? platformPoll_() : 0;
+  std::size_t callbacks = platformPoll_ ? platformPoll_() : 0;
+  if (agentRuntime_) {
+    callbacks += agentRuntime_->poll();
+  } else {
+    nativeDispatcher_->tick();
+  }
+  return callbacks;
 }
 
 std::size_t CrowdyStudioIntegration::tick() {
+  return poll();
+}
+
+std::size_t CrowdyStudioIntegration::runStudioMaintenance(
+    std::size_t maxTasks) {
   if (disposed_) return 0;
-  const std::size_t callbacks = poll();
+  std::size_t completed = 0;
+  while (completed < maxTasks) {
+    std::function<void()> task;
+    {
+      std::lock_guard lock(maintenanceMutex_);
+      if (maintenanceTasks_.empty()) break;
+      task = std::move(maintenanceTasks_.front());
+      maintenanceTasks_.pop_front();
+    }
+    if (task) task();
+    ++completed;
+  }
   controller_->tick();
-  if (!agentRuntime_) nativeDispatcher_->tick();
-  if (layout_) layout_->tick();
-  if (control_) control_->tick();
-  return callbacks;
+  return completed;
+}
+
+std::size_t CrowdyStudioIntegration::pendingStudioMaintenance() const {
+  std::lock_guard lock(maintenanceMutex_);
+  return maintenanceTasks_.size();
 }
 
 void CrowdyStudioIntegration::setPageVisible(bool visible) {
@@ -308,7 +358,6 @@ void CrowdyStudioIntegration::setPageVisible(bool visible) {
 void CrowdyStudioIntegration::relayout() {
   if (disposed_) return;
   if (editorBridge_) editorBridge_->relayout();
-  if (layout_) layout_->relayout();
 }
 
 void CrowdyStudioIntegration::dispose() noexcept {
@@ -322,8 +371,14 @@ void CrowdyStudioIntegration::dispose() noexcept {
     controller_->unsubscribeHumanEdit(humanEditSubscription_);
     humanEditSubscription_ = 0;
   }
-  if (control_) control_->dispose();
-  if (layout_) layout_->dispose();
+  if (controlGateUnbind_) {
+    controlGateUnbind_();
+    controlGateUnbind_ = {};
+  }
+  if (controlGate_) {
+    controlGate_->destroy();
+    controlGate_.reset();
+  }
   if (agentRuntime_) {
     agentRuntime_->controller().destroy();
     agentRuntime_.reset();
@@ -334,6 +389,10 @@ void CrowdyStudioIntegration::dispose() noexcept {
         player_host::PreemptionReasonV1::SESSION_CLOSED);
     nativeDispatcher_.reset();
   }
+  {
+    std::lock_guard lock(maintenanceMutex_);
+    maintenanceTasks_.clear();
+  }
   if (studioHost_) {
     studioHost_->clearAgentOperation(
         player_host::PreemptionReasonV1::SESSION_CLOSED);
@@ -343,10 +402,16 @@ void CrowdyStudioIntegration::dispose() noexcept {
     editorBridge_->dispose();
     editorBridge_.reset();
   }
+  if (ownedLeaseManager_) {
+    ownedLeaseManager_->disconnect();
+    ownedLeaseManager_.reset();
+    leaseManager_ = nullptr;
+  }
   if (controller_) {
     controller_->destroy();
     controller_.reset();
   }
+  layoutController_.reset();
 }
 
 std::optional<std::string>
@@ -439,21 +504,36 @@ CrowdyStudioIntegration::prepareForAgentWork(agent::AgentMode) {
 }
 
 void CrowdyStudioIntegration::epochAttached(std::string_view epoch) {
-  if (const auto failure = leaseManager_->attach(std::string(epoch))) {
-    leaseManager_->preempt(
-        player_host::PreemptionReasonV1::CLIENT_REATTACHED);
+  const auto previous = leaseManager_->snapshot().client_epoch;
+  if (previous && *previous != epoch && controlGate_) {
+    controlGate_->onClientReattached();
   }
-  if (control_) control_->onEpochAttached(epoch, *leaseManager_);
+  if (const auto failure = leaseManager_->attach(std::string(epoch))) {
+    if (controlGate_) {
+      controlGate_->onClientReattached();
+    } else {
+      leaseManager_->preempt(
+          player_host::PreemptionReasonV1::CLIENT_REATTACHED);
+    }
+  }
+  if (controlGate_) controlGate_->refresh();
 }
 
 void CrowdyStudioIntegration::leaseChanged(
-    const agent::AgentLease& lease) {
-  if (control_) control_->onLeaseChanged(lease, *leaseManager_);
+    const agent::AgentLease&) {
+  if (controlGate_) controlGate_->refresh();
 }
 
 void CrowdyStudioIntegration::preempted(
     agent::AgentPreemptionReason reason) {
-  if (control_) control_->onPreempt(reason, *leaseManager_);
+  const auto native =
+      gen::crowdyStudioAgentPreemptionReasonFromString(
+          agent::toString(reason));
+  if (native && controlGate_) {
+    controlGate_->preempt(*native, false);
+  } else if (native) {
+    leaseManager_->preempt(*native);
+  }
 }
 
 void CrowdyStudioIntegration::stateChanged(

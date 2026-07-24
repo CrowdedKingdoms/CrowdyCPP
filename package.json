@@ -8,6 +8,7 @@
     "codegen": "node scripts/codegen.mjs",
     "check:agent-fixtures": "node tools/parity/agent-fixtures.mjs",
     "check:codegen": "node scripts/codegen.mjs --check",
+    "check:operations": "node --test tests/parity/codegen-operation-isolation.test.mjs",
     "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
     "test": "node --test tests/parity/*.test.mjs"
   },

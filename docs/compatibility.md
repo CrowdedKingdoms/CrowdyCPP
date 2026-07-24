@@ -2,7 +2,7 @@
 
 CrowdyCPP 0.14.0 is the strict portable/native counterpart to CrowdyJS 12.0.0.
 The parity gate pins CrowdyJS commit
-`a9c620c021c83c39f630dca4bb3e46b76691ac2d`; see
+`a4624c9193cb943b8a922ecea5013a9e48dcc2fb`; see
 [`parity-matrix.md`](parity-matrix.md) for the generated method-by-method
 evidence.
 
@@ -18,6 +18,12 @@ evidence.
 | Agentic Studio HTTP + event stream | Typed controller, GraphQL-WS replay/gap-fill | Typed controller and transport | `crowdy.studio-agent/1` |
 | Local Play/Studio tools | Native player-host + closed typed dispatcher | Browser dispatcher + player host | Agent descriptor contract v1 |
 
+`schema.management.gql` and `schema.game.gql` are exact committed snapshots of
+the published endpoint SDLs. Codegen isolates every operation with only its
+transitive fragments and validates it independently against those endpoint
+schemas; the merged `schema.gql` is never accepted as proof that an operation
+can be sent to either plane.
+
 Older servers reject only operations they do not know. A client can continue
 using older surfaces by not calling the newer methods. There is no provider
 key or provider client in CrowdyCPP: Agentic Studio provider selection and
@@ -25,5 +31,8 @@ credentials remain server-side.
 
 The only intentional parity waivers are generated in the parity matrix:
 native equivalents for browser UDP/runtime behavior and browser exclusions
-for inherently browser-owned PKCE persistence or byte-buffer conveniences.
+for inherently browser-owned PKCE persistence and DOM/UI behavior. CLIENT
+artifact-byte decoding is portable and is available through
+`playerCompute().artifactBytes(...)` and
+`marketplace().clientArtifactBytes(...)`.
 Portable gaps, unclassified differences, and stale classifications are zero.

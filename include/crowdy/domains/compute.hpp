@@ -3,7 +3,9 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 
@@ -92,7 +94,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["name"] = name;
     vars["enabled"] = enabled;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeSetModuleEnabled");
+    return execUnwrap(gen::compute::documentFor("ComputeSetModuleEnabled"), vars, "ComputeSetModuleEnabled");
   }
   void setModuleEnabledAsync(std::string_view appId, std::string_view name, bool enabled,
                              graphql::GraphQLCallback cb) const {
@@ -100,7 +102,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["name"] = name;
     vars["enabled"] = enabled;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeSetModuleEnabled",
+    execUnwrapAsync(gen::compute::documentFor("ComputeSetModuleEnabled"), vars, "ComputeSetModuleEnabled",
                     std::move(cb));
   }
 
@@ -110,14 +112,14 @@ class ComputeAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeDeleteModule");
+    return execUnwrap(gen::compute::documentFor("ComputeDeleteModule"), vars, "ComputeDeleteModule");
   }
   void deleteModuleAsync(std::string_view appId, std::string_view name,
                          graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeDeleteModule",
+    execUnwrapAsync(gen::compute::documentFor("ComputeDeleteModule"), vars, "ComputeDeleteModule",
                     std::move(cb));
   }
 
@@ -137,14 +139,14 @@ class ComputeAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["triggerId"] = triggerId;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeDeleteTrigger");
+    return execUnwrap(gen::compute::documentFor("ComputeDeleteTrigger"), vars, "ComputeDeleteTrigger");
   }
   void deleteTriggerAsync(std::string_view appId, std::string_view triggerId,
                           graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["triggerId"] = triggerId;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeDeleteTrigger",
+    execUnwrapAsync(gen::compute::documentFor("ComputeDeleteTrigger"), vars, "ComputeDeleteTrigger",
                     std::move(cb));
   }
 
@@ -171,7 +173,7 @@ class ComputeAPI : public DomainBase {
     vars["moduleName"] = moduleName;
     vars["exportName"] = exportName;
     if (!paramsJson.empty()) vars["paramsJson"] = paramsJson;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeInvoke");
+    return execUnwrap(gen::compute::documentFor("ComputeInvoke"), vars, "ComputeInvoke");
   }
   void invokeAsync(std::string_view appId, std::string_view moduleName,
                    std::string_view exportName, std::string_view paramsJson,
@@ -181,7 +183,7 @@ class ComputeAPI : public DomainBase {
     vars["moduleName"] = moduleName;
     vars["exportName"] = exportName;
     if (!paramsJson.empty()) vars["paramsJson"] = paramsJson;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeInvoke", std::move(cb));
+    execUnwrapAsync(gen::compute::documentFor("ComputeInvoke"), vars, "ComputeInvoke", std::move(cb));
   }
 
   // ----- Monitoring (requires view_compute_diagnostics) ------------------------
@@ -199,14 +201,14 @@ class ComputeAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModule");
+    return execUnwrap(gen::compute::documentFor("ComputeModule"), vars, "ComputeModule");
   }
   void moduleAsync(std::string_view appId, std::string_view name,
                    graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModule", std::move(cb));
+    execUnwrapAsync(gen::compute::documentFor("ComputeModule"), vars, "ComputeModule", std::move(cb));
   }
 
   /// List a module's source versions, newest first, including compile
@@ -216,12 +218,12 @@ class ComputeAPI : public DomainBase {
   graphql::Json templates(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeTemplates");
+    return execUnwrap(gen::compute::documentFor("ComputeTemplates"), vars, "ComputeTemplates");
   }
   void templatesAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeTemplates", std::move(cb));
+    execUnwrapAsync(gen::compute::documentFor("ComputeTemplates"), vars, "ComputeTemplates", std::move(cb));
   }
 
   /// Deploy a named engine template from the platform registry — one call
@@ -233,7 +235,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["templateName"] = templateName;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeDeployTemplate");
+    return execUnwrap(gen::compute::documentFor("ComputeDeployTemplate"), vars, "ComputeDeployTemplate");
   }
   void deployTemplateAsync(std::string_view appId, std::string_view templateName,
                            std::string_view moduleName, graphql::GraphQLCallback cb) const {
@@ -241,7 +243,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["templateName"] = templateName;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeDeployTemplate",
+    execUnwrapAsync(gen::compute::documentFor("ComputeDeployTemplate"), vars, "ComputeDeployTemplate",
                     std::move(cb));
   }
 
@@ -251,7 +253,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["moduleName"] = moduleName;
     if (limit > 0) vars["limit"] = std::int64_t{limit};
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModuleVersions");
+    return execUnwrap(gen::compute::documentFor("ComputeModuleVersions"), vars, "ComputeModuleVersions");
   }
   void moduleVersionsAsync(std::string_view appId, std::string_view moduleName, int limit,
                            graphql::GraphQLCallback cb) const {
@@ -259,7 +261,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     vars["moduleName"] = moduleName;
     if (limit > 0) vars["limit"] = std::int64_t{limit};
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModuleVersions",
+    execUnwrapAsync(gen::compute::documentFor("ComputeModuleVersions"), vars, "ComputeModuleVersions",
                     std::move(cb));
   }
 
@@ -292,20 +294,41 @@ class ComputeAPI : public DomainBase {
       std::this_thread::sleep_for(interval);
     }
   }
+  /// Non-blocking compile waiter. Poll responses and the final callback are
+  /// delivered through the GraphQL dispatcher when one is configured.
+  void waitForCompileAsync(
+      std::string_view appId, std::string_view moduleName,
+      std::chrono::milliseconds timeout, std::chrono::milliseconds interval,
+      graphql::GraphQLCallback cb) const {
+    auto state = std::make_shared<CompileWaitState>();
+    state->client = gql_;
+    state->appId = appId;
+    state->moduleName = moduleName;
+    state->deadline = std::chrono::steady_clock::now() + timeout;
+    state->interval = interval;
+    state->callback = std::move(cb);
+    pollCompile(std::move(state));
+  }
+  void waitForCompileAsync(std::string_view appId,
+                           std::string_view moduleName,
+                           graphql::GraphQLCallback cb) const {
+    waitForCompileAsync(appId, moduleName, std::chrono::seconds(120),
+                        std::chrono::seconds(2), std::move(cb));
+  }
 
   /// List trigger bindings, optionally filtered to one module.
   graphql::Json moduleTriggers(std::string_view appId, std::string_view moduleName = {}) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModuleTriggers");
+    return execUnwrap(gen::compute::documentFor("ComputeModuleTriggers"), vars, "ComputeModuleTriggers");
   }
   void moduleTriggersAsync(std::string_view appId, std::string_view moduleName,
                            graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModuleTriggers",
+    execUnwrapAsync(gen::compute::documentFor("ComputeModuleTriggers"), vars, "ComputeModuleTriggers",
                     std::move(cb));
   }
 
@@ -321,10 +344,10 @@ class ComputeAPI : public DomainBase {
   /// healthy ticks aggregate into per-minute usage instead of run rows).
   /// vars: appId (required), moduleName, success, limit, offset.
   graphql::Json moduleRuns(const graphql::JVal& vars) const {
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModuleRuns");
+    return execUnwrap(gen::compute::documentFor("ComputeModuleRuns"), vars, "ComputeModuleRuns");
   }
   void moduleRunsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModuleRuns",
+    execUnwrapAsync(gen::compute::documentFor("ComputeModuleRuns"), vars, "ComputeModuleRuns",
                     std::move(cb));
   }
 
@@ -333,14 +356,14 @@ class ComputeAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (windowMinutes > 0) vars["windowMinutes"] = std::int64_t{windowMinutes};
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModuleStats");
+    return execUnwrap(gen::compute::documentFor("ComputeModuleStats"), vars, "ComputeModuleStats");
   }
   void moduleStatsAsync(std::string_view appId, int windowMinutes,
                         graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (windowMinutes > 0) vars["windowMinutes"] = std::int64_t{windowMinutes};
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModuleStats",
+    execUnwrapAsync(gen::compute::documentFor("ComputeModuleStats"), vars, "ComputeModuleStats",
                     std::move(cb));
   }
 
@@ -351,7 +374,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
     if (limit > 0) vars["limit"] = std::int64_t{limit};
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, "ComputeModuleLogs");
+    return execUnwrap(gen::compute::documentFor("ComputeModuleLogs"), vars, "ComputeModuleLogs");
   }
   void moduleLogsAsync(std::string_view appId, std::string_view moduleName, int limit,
                        graphql::GraphQLCallback cb) const {
@@ -359,7 +382,7 @@ class ComputeAPI : public DomainBase {
     vars["appId"] = appId;
     if (!moduleName.empty()) vars["moduleName"] = moduleName;
     if (limit > 0) vars["limit"] = std::int64_t{limit};
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, "ComputeModuleLogs",
+    execUnwrapAsync(gen::compute::documentFor("ComputeModuleLogs"), vars, "ComputeModuleLogs",
                     std::move(cb));
   }
 
@@ -372,27 +395,110 @@ class ComputeAPI : public DomainBase {
   }
 
  private:
+  struct CompileWaitState {
+    std::shared_ptr<graphql::GraphQLClient> client;
+    std::string appId;
+    std::string moduleName;
+    std::chrono::steady_clock::time_point deadline;
+    std::chrono::milliseconds interval{0};
+    std::string lastStatus = "no version found";
+    graphql::GraphQLCallback callback;
+  };
+
+  static void pollCompile(std::shared_ptr<CompileWaitState> state) {
+    graphql::JVal vars;
+    vars["appId"] = state->appId;
+    vars["moduleName"] = state->moduleName;
+    vars["limit"] = std::int64_t{1};
+    state->client->requestAsync(
+        gen::compute::documentFor("ComputeModuleVersions"), vars,
+        "ComputeModuleVersions",
+        [state = std::move(state)](
+            graphql::GraphQLOutcome outcome) mutable {
+          if (!outcome.ok()) {
+            finishCompileWait(std::move(state), std::move(outcome));
+            return;
+          }
+          const auto versions = outcome.data["computeModuleVersions"];
+          if (versions.isArray() && versions.size() > 0) {
+            const auto latest = versions.at(0);
+            state->lastStatus = latest["compileStatus"].asString();
+            if (state->lastStatus == "succeeded") {
+              outcome.data = latest;
+              finishCompileWait(std::move(state), std::move(outcome));
+              return;
+            }
+            if (state->lastStatus == "failed") {
+              outcome.status = Errc::Rejected;
+              outcome.kind = graphql::GraphQLErrorKind::Protocol;
+              outcome.errorMessage =
+                  "compute module '" + state->moduleName +
+                  "' compile failed:\n" +
+                  latest["compileLog"].asString("(no log)");
+              finishCompileWait(std::move(state), std::move(outcome));
+              return;
+            }
+          }
+          if (std::chrono::steady_clock::now() + state->interval >
+              state->deadline) {
+            outcome.status = Errc::Timeout;
+            outcome.kind = graphql::GraphQLErrorKind::Timeout;
+            outcome.errorMessage =
+                "compute module '" + state->moduleName +
+                "' compile did not settle within budget (status: " +
+                state->lastStatus + ")";
+            finishCompileWait(std::move(state), std::move(outcome));
+            return;
+          }
+          scheduleCompilePoll(std::move(state));
+        });
+  }
+
+  static void scheduleCompilePoll(
+      std::shared_ptr<CompileWaitState> state) {
+    std::thread([state = std::move(state)]() mutable {
+      if (state->interval.count() > 0) {
+        std::this_thread::sleep_for(state->interval);
+      }
+      if (auto dispatcher = state->client->dispatcher()) {
+        dispatcher->post(
+            [state = std::move(state)]() mutable {
+              pollCompile(std::move(state));
+            });
+      } else {
+        pollCompile(std::move(state));
+      }
+    }).detach();
+  }
+
+  static void finishCompileWait(
+      std::shared_ptr<CompileWaitState> state,
+      graphql::GraphQLOutcome outcome) {
+    auto callback = std::move(state->callback);
+    if (callback) callback(std::move(outcome));
+  }
+
   graphql::Json byInput(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, op);
+    return execUnwrap(gen::compute::documentFor(op), vars, op);
   }
   void byInputAsync(std::string_view op, const graphql::JVal& input,
                     graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::compute::documentFor(op), vars, op, std::move(cb));
   }
   graphql::Json byApp(std::string_view op, std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::compute::kComputeModulesDocument, vars, op);
+    return execUnwrap(gen::compute::documentFor(op), vars, op);
   }
   void byAppAsync(std::string_view op, std::string_view appId,
                   graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::compute::kComputeModulesDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::compute::documentFor(op), vars, op, std::move(cb));
   }
 };
 

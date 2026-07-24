@@ -25,6 +25,7 @@ import {
 import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildSchema, Kind, parse, validate } from 'graphql';
 import {
   compareSchemaSurfaces,
   parseSchemaSurface,
@@ -43,9 +44,9 @@ const CATEGORY = Object.freeze({
   COVERED: 'covered-extension',
 });
 
-// The canonical API schemas currently contain ensure-container additions made
-// after the pinned CrowdyJS v12 snapshot. These are real portable differences,
-// not omissions to hide. The entries must disappear once CrowdyJS catches up.
+// The published API schemas currently contain additions made after the pinned
+// CrowdyJS v12 snapshot. They stay classified only while exact endpoint
+// validation proves they are shipped public operations.
 const SCHEMA_BASELINE = {
   'input:EnsureContainerInput': classification(
     CATEGORY.COVERED,
@@ -155,14 +156,6 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'WorldSession channel inbox / Connection channel handler',
   ),
-  'PlayerComputeAPI.artifactBytes': classification(
-    CATEGORY.BROWSER,
-    'ArrayBuffer worker convenience; native artifact bytes are decoded directly',
-  ),
-  'MarketplaceAPI.clientArtifactBytes': classification(
-    CATEGORY.BROWSER,
-    'ArrayBuffer worker convenience; native artifact bytes are decoded directly',
-  ),
   'RemoteActorStore.decodeFailures': classification(
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
@@ -231,6 +224,17 @@ const METHOD_ALIASES = {
   'RemoteActorStore.get': 'find',
 };
 
+const ASYNC_TWIN_WAIVERS = {
+  'AuthAPI.getToken':
+    'local AuthState read completes synchronously without transport work',
+  'AuthAPI.setToken':
+    'local AuthState write completes synchronously without transport work',
+  'GameModelAPI.containerChanged':
+    'returns an asynchronous subscription handle rather than a one-shot callback',
+  'PortalAPI.beginEntry':
+    'native PKCE generation and URL construction are synchronous local work',
+};
+
 const CLASS_MAP = {
   AuthAPI: 'AuthAPI',
   UsersAPI: 'UsersAPI',
@@ -245,9 +249,13 @@ const CLASS_MAP = {
   TeleportAPI: 'TeleportAPI',
   TeamsAPI: 'TeamsAPI',
   ChannelsAPI: 'ChannelsAPI',
+  ComputeAPI: 'ComputeAPI',
   GameModelAPI: 'GameModelAPI',
   GameAppsAPI: 'GameAppsAPI',
+  MarketplaceAPI: 'MarketplaceAPI',
   PlayerComputeAPI: 'PlayerComputeAPI',
+  PlayerModelAPI: 'PlayerModelAPI',
+  PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
   AppsAPI: 'AppsAPI',
@@ -322,6 +330,9 @@ const schemaDifferences = compareSchemaSurfaces(
 );
 const usedFields = operationRootFields();
 for (const field of inlineRootFields()) usedFields.add(field);
+const endpointOperationContracts = operationEndpointContracts();
+const keyDtoContracts = keyDtoContractResults();
+const endpointPlaneParity = endpointPlaneParityResults();
 
 const state = {
   unclassified: [],
@@ -335,7 +346,20 @@ const state = {
   usedRootClassifications: new Set(),
   usedMethodClassifications: new Set(),
   usedClassClassifications: new Set(),
+  usedAsyncTwinWaivers: new Set(),
+  asyncTwinsChecked: 0,
+  dtoFieldsChecked: keyDtoContracts.checked,
+  endpointPlanesChecked: endpointPlaneParity.checked,
 };
+for (const contract of endpointOperationContracts) {
+  if (contract.validEndpoints.length === 0) {
+    state.unclassified.push(
+      `operation:${contract.domain}/${contract.file}:${contract.name}`,
+    );
+  }
+}
+state.unclassified.push(...keyDtoContracts.failures);
+state.unclassified.push(...endpointPlaneParity.failures);
 
 const targetVersion = JSON.parse(
   readFileSync(join(crowdyjsPath, 'package.json'), 'utf8'),
@@ -380,6 +404,30 @@ for (const difference of schemaDifferences) {
 }
 report += '\n';
 
+const endpointCounts = {
+  management: endpointOperationContracts.filter(
+    ({ validEndpoints }) =>
+      validEndpoints.length === 1 && validEndpoints[0] === 'management',
+  ).length,
+  game: endpointOperationContracts.filter(
+    ({ validEndpoints }) =>
+      validEndpoints.length === 1 && validEndpoints[0] === 'game',
+  ).length,
+  both: endpointOperationContracts.filter(
+    ({ validEndpoints }) => validEndpoints.length === 2,
+  ).length,
+  invalid: endpointOperationContracts.filter(
+    ({ validEndpoints }) => validEndpoints.length === 0,
+  ).length,
+};
+report += '## Exact endpoint operation validation\n\n';
+report +=
+  `- Isolated generated operations: ${endpointOperationContracts.length}\n` +
+  `- Management-only: ${endpointCounts.management}\n` +
+  `- Game-only: ${endpointCounts.game}\n` +
+  `- Valid on both endpoints: ${endpointCounts.both}\n` +
+  `- Invalid on both endpoints: ${endpointCounts.invalid}\n\n`;
+
 report += '## GraphQL root-field implementation\n\n';
 for (const rootName of ['Query', 'Mutation', 'Subscription']) {
   const cppFields = new Map(
@@ -397,6 +445,9 @@ for (const rootName of ['Query', 'Mutation', 'Subscription']) {
     const cppField = cppFields.get(name);
     const jsField = jsFields.get(name);
     const key = `${rootName}.${name}`;
+    const schemaDifference = schemaDifferences.find(
+      ({ id }) => id === `type:${key}`,
+    );
     const schemaStatus =
       cppField && jsField
         ? cppField.signature === jsField.signature
@@ -407,7 +458,12 @@ for (const rootName of ['Query', 'Mutation', 'Subscription']) {
           : 'CrowdyJS only';
     let status;
     if (usedFields.has(name)) {
-      status = 'covered';
+      const reviewed = SCHEMA_BASELINE[`type:${key}`];
+      status = schemaDifference
+        ? reviewed
+          ? `covered operation; ${renderClassification(reviewed)}`
+          : '**UNCLASSIFIED ROOT SIGNATURE DIFFERENCE**'
+        : 'covered';
     } else if ((cppField ?? jsField)?.deprecated) {
       status = 'deprecated waiver';
       state.deprecated.push(`root:${key}`);
@@ -440,14 +496,31 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
   if (classClassification) {
     state.usedClassClassifications.add(tsClass);
   }
-  const cppMethods = new Set((cppAll[cppName] ?? []).map(normalizeName));
+  const cppMethodNames = cppAll[cppName] ?? [];
+  const cppMethods = new Set(cppMethodNames.map(normalizeName));
   report += `### ${tsClass} -> ${cppName}\n\n`;
   report += '| CrowdyJS method | Status |\n|---|---|\n';
   for (const method of methods) {
     const key = `${tsClass}.${method}`;
+    const cppMethod = METHOD_ALIASES[key] ?? method;
     let status;
-    if (cppMethods.has(normalizeName(METHOD_ALIASES[key] ?? method))) {
+    if (cppMethods.has(normalizeName(cppMethod))) {
       status = 'covered';
+      if (
+        tsClass.endsWith('API') &&
+        !cppMethods.has(normalizeName(`${cppMethod}Async`))
+      ) {
+        const waiver = ASYNC_TWIN_WAIVERS[key];
+        if (waiver) {
+          state.usedAsyncTwinWaivers.add(key);
+          status = `covered; async-twin waiver — ${waiver}`;
+        } else {
+          status = '**MISSING ASYNC TWIN**';
+          state.unclassified.push(`method-twin:${key}`);
+        }
+      } else if (tsClass.endsWith('API')) {
+        state.asyncTwinsChecked++;
+      }
     } else {
       const expected = METHOD_CLASSIFICATIONS[key] ?? classClassification;
       if (expected) {
@@ -475,6 +548,17 @@ checkStaleClassifications(state);
 
 report += '## Summary\n\n';
 report += `- Semantic schema differences: ${schemaDifferences.length}\n`;
+report +=
+  `- Schema signature differences: ${
+    schemaDifferences.filter(({ kind }) => kind.includes('signature')).length
+  }\n`;
+report += `- Endpoint-invalid generated operations: ${endpointCounts.invalid}\n`;
+report +=
+  `- Cross-SDK endpoint planes checked: ${state.endpointPlanesChecked}\n`;
+report += `- C++ sync/async method twins checked: ${state.asyncTwinsChecked}\n`;
+report +=
+  `- Reviewed async-twin waivers: ${state.usedAsyncTwinWaivers.size}\n`;
+report += `- Key DTO fields type-checked: ${state.dtoFieldsChecked}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
@@ -612,6 +696,245 @@ function checkStaleClassifications(state) {
       state.stale.push(`class:${key}`);
     }
   }
+  for (const key of Object.keys(ASYNC_TWIN_WAIVERS)) {
+    if (!state.usedAsyncTwinWaivers.has(key)) {
+      state.stale.push(`async-twin:${key}`);
+    }
+  }
+}
+
+function operationEndpointContracts() {
+  const endpointSchemas = {
+    management: buildSchema(
+      readFileSync(join(root, 'schema.management.gql'), 'utf8'),
+    ),
+    game: buildSchema(readFileSync(join(root, 'schema.game.gql'), 'utf8')),
+  };
+  const contracts = [];
+  const operations = join(root, 'operations');
+  for (const domain of readdirSync(operations).sort()) {
+    const directory = join(operations, domain);
+    if (!statSync(directory).isDirectory()) continue;
+    for (const file of readdirSync(directory).sort()) {
+      if (!file.endsWith('.graphql')) continue;
+      const document = parse(readFileSync(join(directory, file), 'utf8'), {
+        noLocation: true,
+      });
+      const fragments = new Map(
+        document.definitions
+          .filter(
+            (definition) => definition.kind === Kind.FRAGMENT_DEFINITION,
+          )
+          .map((definition) => [definition.name.value, definition]),
+      );
+      for (const operation of document.definitions.filter(
+        (definition) => definition.kind === Kind.OPERATION_DEFINITION,
+      )) {
+        if (!operation.name) {
+          throw new Error(`${domain}/${file}: anonymous operation`);
+        }
+        const names = new Set();
+        collectOperationSpreads(operation, names);
+        const selected = [];
+        const pending = [...names];
+        while (pending.length > 0) {
+          const name = pending.shift();
+          if (selected.some((fragment) => fragment.name.value === name)) {
+            continue;
+          }
+          const fragment = fragments.get(name);
+          if (!fragment) {
+            throw new Error(
+              `${domain}/${file}:${operation.name.value} missing fragment ${name}`,
+            );
+          }
+          selected.push(fragment);
+          const nested = new Set();
+          collectOperationSpreads(fragment, nested);
+          pending.push(...nested);
+        }
+        const isolated = {
+          kind: Kind.DOCUMENT,
+          definitions: [operation, ...selected],
+        };
+        const validEndpoints = Object.entries(endpointSchemas)
+          .filter(([, schema]) => validate(schema, isolated).length === 0)
+          .map(([plane]) => plane);
+        contracts.push({
+          domain,
+          file,
+          name: operation.name.value,
+          validEndpoints,
+        });
+      }
+    }
+  }
+  return contracts;
+}
+
+function collectOperationSpreads(node, names) {
+  if (!node || typeof node !== 'object') return;
+  if (node.kind === Kind.FRAGMENT_SPREAD) names.add(node.name.value);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) collectOperationSpreads(entry, names);
+    } else {
+      collectOperationSpreads(value, names);
+    }
+  }
+}
+
+function endpointPlaneParityResults() {
+  const failures = [];
+  const cppSource = readFileSync(
+    join(root, 'include', 'crowdy', 'domains', 'marketplace.hpp'),
+    'utf8',
+  );
+  const jsSource = readFileSync(
+    join(crowdyjsPath, 'src', 'domains', 'marketplace.ts'),
+    'utf8',
+  );
+  const cppRoutes = new Map();
+  for (const match of cppSource.matchAll(
+    /\b(game_|management_)\.run(?:Async)?\(\s*"([A-Za-z_]\w*)"/gu,
+  )) {
+    const plane = match[1] === 'game_' ? 'game' : 'management';
+    const previous = cppRoutes.get(match[2]);
+    if (previous && previous !== plane) {
+      failures.push(`endpoint-plane:CrowdyCPP.${match[2]} is routed to both planes`);
+    }
+    cppRoutes.set(match[2], plane);
+  }
+  const jsRoutes = new Map();
+  for (const match of jsSource.matchAll(
+    /\bthis\.(game|management)\.request\(\s*([A-Za-z_]\w*)Document/gu,
+  )) {
+    const previous = jsRoutes.get(match[2]);
+    if (previous && previous !== match[1]) {
+      failures.push(`endpoint-plane:CrowdyJS.${match[2]} is routed to both planes`);
+    }
+    jsRoutes.set(match[2], match[1]);
+  }
+
+  let checked = 0;
+  for (const [operation, jsPlane] of jsRoutes) {
+    const cppPlane = cppRoutes.get(operation);
+    if (!cppPlane) continue;
+    checked++;
+    if (cppPlane !== jsPlane) {
+      failures.push(
+        `endpoint-plane:${operation} (CrowdyCPP=${cppPlane}, CrowdyJS=${jsPlane})`,
+      );
+    }
+  }
+  if (checked === 0) {
+    failures.push('endpoint-plane:MarketplaceAPI (no comparable routes found)');
+  }
+  return { checked, failures };
+}
+
+function keyDtoContractResults() {
+  const failures = [];
+  let checked = 0;
+  const cppTypes = readFileSync(
+    join(root, 'include', 'crowdy', 'domains', 'types.hpp'),
+    'utf8',
+  );
+  const tsAuth = readFileSync(
+    join(crowdyjsPath, 'src', 'domains', 'auth.ts'),
+    'utf8',
+  );
+  const cppAuthFields = dataFields(
+    declarationBlock(cppTypes, /struct\s+AuthResponse\s*\{/gu),
+  );
+  const cppArtifactFields = dataFields(
+    declarationBlock(cppTypes, /struct\s+ClientArtifactBytes\s*\{/gu),
+  );
+  const tsAuthFields = dataFields(
+    declarationBlock(tsAuth, /export\s+interface\s+AuthResponse\s*\{/gu),
+    true,
+  );
+
+  const assertField = (label, fields, name, type) => {
+    checked++;
+    const actual = fields.get(name);
+    if (normalizeType(actual) !== normalizeType(type)) {
+      failures.push(
+        `dto:${label}.${name} (expected ${type}, got ${actual ?? 'missing'})`,
+      );
+    }
+  };
+  assertField('CrowdyCPP.AuthResponse', cppAuthFields, 'token', 'std::string');
+  assertField(
+    'CrowdyCPP.AuthResponse',
+    cppAuthFields,
+    'gameTokenId',
+    'std::string',
+  );
+  assertField('CrowdyJS.AuthResponse', tsAuthFields, 'token', 'string');
+  assertField(
+    'CrowdyJS.AuthResponse',
+    tsAuthFields,
+    'gameTokenId',
+    'string',
+  );
+  assertField(
+    'CrowdyCPP.ClientArtifactBytes',
+    cppArtifactFields,
+    'bytes',
+    'std::vector<std::uint8_t>',
+  );
+  assertField(
+    'CrowdyCPP.ClientArtifactBytes',
+    cppArtifactFields,
+    'artifactHash',
+    'std::string',
+  );
+  assertField(
+    'CrowdyCPP.ClientArtifactBytes',
+    cppArtifactFields,
+    'fuelPerDispatch',
+    'std::string',
+  );
+  assertField(
+    'CrowdyCPP.ClientArtifactBytes',
+    cppArtifactFields,
+    'contractJson',
+    'std::optional<std::string>',
+  );
+  assertField(
+    'CrowdyCPP.ClientArtifactBytes',
+    cppArtifactFields,
+    'versionId',
+    'std::string',
+  );
+  return { checked, failures };
+}
+
+function declarationBlock(source, pattern) {
+  const match = pattern.exec(source);
+  if (!match) return '';
+  return balancedBlock(source, pattern.lastIndex - 1);
+}
+
+function dataFields(body, typescript = false) {
+  const fields = new Map();
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.replace(/\/\/.*$/u, '').trim();
+    if (!line.endsWith(';')) continue;
+    const match = typescript
+      ? line.match(/^([A-Za-z_]\w*)\??\s*:\s*(.+);$/u)
+      : line.match(/^(.+?)\s+([A-Za-z_]\w*)\s*(?:=[^;]+)?;$/u);
+    if (!match) continue;
+    const name = typescript ? match[1] : match[2];
+    const type = typescript ? match[2] : match[1];
+    fields.set(name, type.trim());
+  }
+  return fields;
+}
+
+function normalizeType(value) {
+  return String(value ?? '').replace(/\s+/gu, '');
 }
 
 function operationRootFields() {

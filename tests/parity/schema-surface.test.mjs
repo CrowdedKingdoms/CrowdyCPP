@@ -84,6 +84,43 @@ test('reports additions in both directions and signature changes', () => {
   );
 });
 
+test('signatures include argument defaults, nullability, and return types', () => {
+  const baseline = parseSchemaSurface(`
+    type Query {
+      value(limit: Int = 10, filter: String): [String!]!
+    }
+  `);
+  const changedDefault = parseSchemaSurface(`
+    type Query {
+      value(limit: Int = 20, filter: String): [String!]!
+    }
+  `);
+  const changedArgumentNullability = parseSchemaSurface(`
+    type Query {
+      value(limit: Int! = 10, filter: String): [String!]!
+    }
+  `);
+  const changedReturnType = parseSchemaSurface(`
+    type Query {
+      value(limit: Int = 10, filter: String): [String]
+    }
+  `);
+
+  for (const changed of [
+    changedDefault,
+    changedArgumentNullability,
+    changedReturnType,
+  ]) {
+    assert.deepEqual(
+      compareSchemaSurfaces(baseline, changed).map(({ id, kind }) => ({
+        id,
+        kind,
+      })),
+      [{ id: 'type:Query.value', kind: 'member-signature' }],
+    );
+  }
+});
+
 test('extracts enum vocabularies deterministically', () => {
   const surface = parseSchemaSurface(`
     enum Reason {

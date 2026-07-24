@@ -22,6 +22,10 @@ add_executable(player_runtime_surface_test player_runtime_surface_test.cpp)
 target_link_libraries(player_runtime_surface_test PRIVATE crowdy)
 add_test(NAME player_runtime_surface_test COMMAND player_runtime_surface_test)
 
+add_executable(public_api_parity_test public_api_parity_test.cpp)
+target_link_libraries(public_api_parity_test PRIVATE crowdy)
+add_test(NAME public_api_parity_test COMMAND public_api_parity_test)
+
 add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)

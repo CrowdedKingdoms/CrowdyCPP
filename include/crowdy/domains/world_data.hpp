@@ -169,25 +169,25 @@ class VoxelsAPI : public DomainBase {
   graphql::Json history(const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::voxels::kVoxelUpdateHistoryDocument, vars,
+    return execUnwrap(gen::voxels::documentFor("VoxelUpdateHistory"), vars,
                       "VoxelUpdateHistory");
   }
 
   void historyAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::voxels::kVoxelUpdateHistoryDocument, vars, "VoxelUpdateHistory",
+    execUnwrapAsync(gen::voxels::documentFor("VoxelUpdateHistory"), vars, "VoxelUpdateHistory",
                     std::move(cb));
   }
 
   /// Relay cursor pagination variant of history().
   graphql::Json historyConnection(const graphql::JVal& vars) const {
-    return execUnwrap(gen::voxels::kVoxelUpdateHistoryDocument, vars,
+    return execUnwrap(gen::voxels::documentFor("VoxelUpdateHistoryConnection"), vars,
                       "VoxelUpdateHistoryConnection");
   }
 
   void historyConnectionAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::voxels::kVoxelUpdateHistoryDocument, vars, "VoxelUpdateHistoryConnection",
+    execUnwrapAsync(gen::voxels::documentFor("VoxelUpdateHistoryConnection"), vars, "VoxelUpdateHistoryConnection",
                     std::move(cb));
   }
 
@@ -226,13 +226,13 @@ class ActorsAPI : public DomainBase {
   graphql::Json list(const graphql::JVal& filter = graphql::JVal()) const {
     graphql::JVal vars;
     if (!filter.isNull()) vars["filter"] = filter;
-    return execUnwrap(gen::actors::kActorsDocument, vars, "Actors");
+    return execUnwrap(gen::actors::documentFor("Actors"), vars, "Actors");
   }
 
   void listAsync(const graphql::JVal& filter, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     if (!filter.isNull()) vars["filter"] = filter;
-    execUnwrapAsync(gen::actors::kActorsDocument, vars, "Actors", std::move(cb));
+    execUnwrapAsync(gen::actors::documentFor("Actors"), vars, "Actors", std::move(cb));
   }
 
   /// Relay cursor pagination variant of list().
@@ -242,7 +242,7 @@ class ActorsAPI : public DomainBase {
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
     if (!filter.isNull()) vars["filter"] = filter;
-    return execUnwrap(gen::actors::kActorsDocument, vars, "ActorsConnection");
+    return execUnwrap(gen::actors::documentFor("ActorsConnection"), vars, "ActorsConnection");
   }
 
   void listConnectionAsync(int first, std::string_view after, const graphql::JVal& filter,
@@ -251,7 +251,7 @@ class ActorsAPI : public DomainBase {
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
     if (!filter.isNull()) vars["filter"] = filter;
-    execUnwrapAsync(gen::actors::kActorsDocument, vars, "ActorsConnection", std::move(cb));
+    execUnwrapAsync(gen::actors::documentFor("ActorsConnection"), vars, "ActorsConnection", std::move(cb));
   }
 
   graphql::Json batchLookup(const std::vector<std::string>& uuids) const {
@@ -335,42 +335,42 @@ class AvatarsAPI : public DomainBase {
   using DomainBase::DomainBase;
 
   graphql::Json mine() const {
-    return execUnwrap(gen::avatars::kAvatarsDocument, graphql::JVal(), "MyAvatars");
+    return execUnwrap(gen::avatars::documentFor("MyAvatars"), graphql::JVal(), "MyAvatars");
   }
 
   void mineAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, graphql::JVal(), "MyAvatars", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("MyAvatars"), graphql::JVal(), "MyAvatars", std::move(cb));
   }
 
   graphql::Json listForUser(std::string_view userId) const {
     graphql::JVal vars;
     vars["userId"] = userId;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "UserAvatars");
+    return execUnwrap(gen::avatars::documentFor("UserAvatars"), vars, "UserAvatars");
   }
 
   void listForUserAsync(std::string_view userId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["userId"] = userId;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "UserAvatars", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("UserAvatars"), vars, "UserAvatars", std::move(cb));
   }
 
   graphql::Json get(std::string_view id) const {
     graphql::JVal vars;
     vars["id"] = id;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "AvatarById");
+    return execUnwrap(gen::avatars::documentFor("AvatarById"), vars, "AvatarById");
   }
 
   void getAsync(std::string_view id, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["id"] = id;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "AvatarById", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("AvatarById"), vars, "AvatarById", std::move(cb));
   }
 
   graphql::Json appState(std::string_view appId, std::string_view avatarId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["avatarId"] = avatarId;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "AvatarAppState");
+    return execUnwrap(gen::avatars::documentFor("AvatarAppState"), vars, "AvatarAppState");
   }
 
   void appStateAsync(std::string_view appId, std::string_view avatarId,
@@ -378,7 +378,7 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["avatarId"] = avatarId;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "AvatarAppState", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("AvatarAppState"), vars, "AvatarAppState", std::move(cb));
   }
 
   graphql::Json appStates(std::string_view appId, const std::vector<std::string>& avatarIds) const {
@@ -387,7 +387,7 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["avatarIds"] = graphql::JVal(std::move(arr));
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "AvatarAppStates");
+    return execUnwrap(gen::avatars::documentFor("AvatarAppStates"), vars, "AvatarAppStates");
   }
 
   void appStatesAsync(std::string_view appId, const std::vector<std::string>& avatarIds,
@@ -397,26 +397,26 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["avatarIds"] = graphql::JVal(std::move(arr));
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "AvatarAppStates", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("AvatarAppStates"), vars, "AvatarAppStates", std::move(cb));
   }
 
   graphql::Json create(const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "CreateAvatar");
+    return execUnwrap(gen::avatars::documentFor("CreateAvatar"), vars, "CreateAvatar");
   }
 
   void createAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "CreateAvatar", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("CreateAvatar"), vars, "CreateAvatar", std::move(cb));
   }
 
   graphql::Json update(std::string_view id, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["id"] = id;
     vars["input"] = input;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "UpdateAvatar");
+    return execUnwrap(gen::avatars::documentFor("UpdateAvatar"), vars, "UpdateAvatar");
   }
 
   void updateAsync(std::string_view id, const graphql::JVal& input,
@@ -424,14 +424,14 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["id"] = id;
     vars["input"] = input;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "UpdateAvatar", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("UpdateAvatar"), vars, "UpdateAvatar", std::move(cb));
   }
 
   graphql::Json remove(std::string_view id, std::string_view idempotencyKey = {}) const {
     graphql::JVal vars;
     vars["id"] = id;
     if (!idempotencyKey.empty()) vars["idempotencyKey"] = idempotencyKey;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "DeleteAvatar");
+    return execUnwrap(gen::avatars::documentFor("DeleteAvatar"), vars, "DeleteAvatar");
   }
 
   void removeAsync(std::string_view id, std::string_view idempotencyKey,
@@ -439,14 +439,14 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["id"] = id;
     if (!idempotencyKey.empty()) vars["idempotencyKey"] = idempotencyKey;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "DeleteAvatar", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("DeleteAvatar"), vars, "DeleteAvatar", std::move(cb));
   }
 
   graphql::Json updateState(std::string_view id, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["id"] = id;
     vars["input"] = input;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "UpdateAvatarState");
+    return execUnwrap(gen::avatars::documentFor("UpdateAvatarState"), vars, "UpdateAvatarState");
   }
 
   void updateStateAsync(std::string_view id, const graphql::JVal& input,
@@ -454,19 +454,19 @@ class AvatarsAPI : public DomainBase {
     graphql::JVal vars;
     vars["id"] = id;
     vars["input"] = input;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "UpdateAvatarState", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("UpdateAvatarState"), vars, "UpdateAvatarState", std::move(cb));
   }
 
   graphql::Json updateAppState(const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::avatars::kAvatarsDocument, vars, "UpdateAvatarAppState");
+    return execUnwrap(gen::avatars::documentFor("UpdateAvatarAppState"), vars, "UpdateAvatarAppState");
   }
 
   void updateAppStateAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::avatars::kAvatarsDocument, vars, "UpdateAvatarAppState", std::move(cb));
+    execUnwrapAsync(gen::avatars::documentFor("UpdateAvatarAppState"), vars, "UpdateAvatarAppState", std::move(cb));
   }
 };
 
@@ -528,26 +528,26 @@ class HostAPI : public DomainBase {
   graphql::Json get(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::host::kHostDocument, vars, "GameHost");
+    return execUnwrap(gen::host::documentFor("GameHost"), vars, "GameHost");
   }
 
   void getAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::host::kHostDocument, vars, "GameHost", std::move(cb));
+    execUnwrapAsync(gen::host::documentFor("GameHost"), vars, "GameHost", std::move(cb));
   }
 
   bool amIHost(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::host::kHostDocument, vars, "AmIGameHost").asBool();
+    return execUnwrap(gen::host::documentFor("AmIGameHost"), vars, "AmIGameHost").asBool();
   }
 
   void amIHostAsync(std::string_view appId,
                     std::function<void(graphql::GraphQLOutcome outcome, bool amHost)> cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::host::kHostDocument, vars, "AmIGameHost",
+    execUnwrapAsync(gen::host::documentFor("AmIGameHost"), vars, "AmIGameHost",
                     [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
                       bool amHost = false;
                       if (out.ok()) amHost = out.data.asBool();
@@ -560,13 +560,13 @@ class HostAPI : public DomainBase {
   graphql::Json heartbeat(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::host::kHostDocument, vars, "ActorHeartbeat");
+    return execUnwrap(gen::host::documentFor("ActorHeartbeat"), vars, "ActorHeartbeat");
   }
 
   void heartbeatAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::host::kHostDocument, vars, "ActorHeartbeat", std::move(cb));
+    execUnwrapAsync(gen::host::documentFor("ActorHeartbeat"), vars, "ActorHeartbeat", std::move(cb));
   }
 };
 

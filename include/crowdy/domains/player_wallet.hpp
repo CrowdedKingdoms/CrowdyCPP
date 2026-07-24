@@ -199,11 +199,11 @@ class PlayerWalletAPI : public DomainBase {
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-    return execUnwrap(gen::playerWallet::kPlayerWalletDocument, vars, op);
+    return execUnwrap(gen::playerWallet::documentFor(op), vars, op);
   }
   void runAsync(std::string_view op, const graphql::JVal& vars,
                 graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::playerWallet::kPlayerWalletDocument, vars, op,
+    execUnwrapAsync(gen::playerWallet::documentFor(op), vars, op,
                     std::move(cb));
   }
 };

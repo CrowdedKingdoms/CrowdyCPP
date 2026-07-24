@@ -381,7 +381,7 @@ class CrowdyStudioAPI final : public DomainBase,
   T request(std::string_view operation, const graphql::JVal& variables,
             Mapper mapper) {
     try {
-      return mapper(execUnwrap(gen::crowdyStudio::kCrowdyStudioDocument,
+      return mapper(execUnwrap(gen::crowdyStudio::documentFor(operation),
                                variables, operation));
     } catch (const graphql::CrowdyGraphQLError& error) {
       throwMapped(error);
@@ -402,7 +402,7 @@ class CrowdyStudioAPI final : public DomainBase,
                     const graphql::JVal& variables, Mapper mapper,
                     Callback callback) {
     execUnwrapAsync(
-        gen::crowdyStudio::kCrowdyStudioDocument, variables, operation,
+        gen::crowdyStudio::documentFor(operation), variables, operation,
         [mapper = std::move(mapper), callback = std::move(callback)](
             graphql::GraphQLOutcome outcome) mutable {
           T value{};

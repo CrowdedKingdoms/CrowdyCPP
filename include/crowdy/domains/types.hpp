@@ -3,7 +3,10 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "crowdy/core/base64.hpp"
 #include "crowdy/graphql/json.hpp"
 
 /// Typed results for the hot game-client paths. Long-tail / studio-admin
@@ -56,6 +59,7 @@ struct AppTokenResponse {
 /// Result of the passwordless sign-in mutations.
 struct AuthResponse {
   std::string token;  ///< identity SESSION token (management-plane only)
+  std::string gameTokenId;
   std::string userId;
   std::string email;
   std::string gamertag;
@@ -63,12 +67,47 @@ struct AuthResponse {
   static AuthResponse fromJson(const graphql::Json& j) {
     AuthResponse r;
     r.token = j["token"].asString();
+    r.gameTokenId = j["gameTokenId"].asString();
     r.userId = j["user"]["userId"].asString();
     r.email = j["user"]["email"].asString();
     r.gamertag = j["user"]["gamertag"].asString();
     return r;
   }
 };
+
+/// Decoded CLIENT artifact ready for a native sandbox/runtime. GraphQL BigInt
+/// fuel remains a decimal string so native engines can choose their own width.
+struct ClientArtifactBytes {
+  std::vector<std::uint8_t> bytes;
+  std::string artifactHash;
+  std::string fuelPerDispatch;
+  std::optional<std::string> contractJson;
+  std::string versionId;
+};
+
+/// Decode the common playerCompute/marketplace artifact response shape.
+inline std::optional<ClientArtifactBytes> decodeClientArtifactBytes(
+    const graphql::Json& artifact) {
+  if (!artifact.isObject() || !artifact["artifactBase64"].isString() ||
+      !artifact["artifactHash"].isString() ||
+      !artifact["clientFuelPerDispatch"].isString() ||
+      !artifact["versionId"].isString()) {
+    return std::nullopt;
+  }
+  auto bytes = core::base64Decode(artifact["artifactBase64"].asStringView());
+  if (!bytes) return std::nullopt;
+
+  ClientArtifactBytes decoded;
+  decoded.bytes = std::move(*bytes);
+  decoded.artifactHash = artifact["artifactHash"].asString();
+  decoded.fuelPerDispatch =
+      artifact["clientFuelPerDispatch"].asString();
+  if (artifact["contractJson"].isString()) {
+    decoded.contractJson = artifact["contractJson"].asString();
+  }
+  decoded.versionId = artifact["versionId"].asString();
+  return decoded;
+}
 
 /// Result of serverStatus.serverWithLeastClients — the Buddy-server
 /// assignment for native UDP (calling it also installs the UDP session

@@ -15,7 +15,7 @@ this does not claim identical transports or browser behavior.
 | Game-model container feed | Typed `gameModel().containerChanged` | Typed `containerChanged` | Game API 2026-07+ |
 | Keyed container ensure/filter | `ensureContainer`, `bindingKey` filter | Not present in pinned v12 | Game API 2026-07-24+ |
 | App listing-version administration | `marketplace().appListingVersions` | Not present in pinned v12 | Management API 2026-07-24+ |
-| Crowdy Studio projects/runtime | Headless native controller | Browser/headless controller | Game API Crowdy Studio roots |
+| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation | Browser/headless controller | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Agentic Studio HTTP + event stream | Typed controller, GraphQL-WS replay/gap-fill | Typed controller and transport | `crowdy.studio-agent/1` |
 | Local Play/Studio tools | Native player-host + closed typed dispatcher | Browser dispatcher + player host | Agent descriptor contract v1 |

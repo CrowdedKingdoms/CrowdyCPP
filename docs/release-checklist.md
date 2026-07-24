@@ -16,6 +16,7 @@ node tools/parity/parity.mjs \
   --strict
 node tools/parity/agent-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 node tools/parity/layout-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/studio-state-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 npm test
 ```
 

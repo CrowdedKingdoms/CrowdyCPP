@@ -11,6 +11,7 @@
 
 #include "crowdy/core/base64.hpp"
 #include "crowdy/domains/player_compute.hpp"
+#include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/graphql/json.hpp"
 #include "crowdy/studio/models.hpp"
 
@@ -80,6 +81,22 @@ struct CrowdyStudioUsageSnapshot {
   int maxCompilesPerHour = 0;
   std::string gateStatus;
   std::optional<std::string> gateReason;
+};
+
+struct CrowdyStudioWalletSnapshot {
+  std::string balanceCents;
+  std::string currency;
+
+  bool operator==(const CrowdyStudioWalletSnapshot&) const = default;
+};
+
+/// Optional, viewer-scoped wallet observation seam. It deliberately exposes
+/// only the caller's current balance and cannot spend, recharge, mutate billing
+/// policy, or act for another user.
+class ICrowdyStudioWalletProvider {
+ public:
+  virtual ~ICrowdyStudioWalletProvider() = default;
+  virtual CrowdyStudioWalletSnapshot balance() = 0;
 };
 
 /// Engine-owned execution of an already authorized, exact CLIENT artifact.
@@ -158,6 +175,38 @@ class ICrowdyStudioApprovalGate {
   virtual void requireRestoreApproval(
       const CrowdyStudioRestoreApprovalRequest& request,
       std::string_view approvalGrant) = 0;
+};
+
+/// Minimal production adapter over the public viewer-scoped PlayerWalletAPI
+/// balance read. No billing/provider authority crosses this interface.
+class CrowdyStudioPlayerWalletProvider final
+    : public ICrowdyStudioWalletProvider {
+ public:
+  explicit CrowdyStudioPlayerWalletProvider(
+      domains::PlayerWalletAPI& playerWallet)
+      : playerWallet_(playerWallet) {}
+
+  CrowdyStudioWalletSnapshot balance() override {
+    const graphql::Json value = playerWallet_.balance();
+    CrowdyStudioWalletSnapshot snapshot;
+    snapshot.balanceCents = scalarString(value["balanceCents"]);
+    snapshot.currency = value["currency"].asString();
+    if (snapshot.balanceCents.empty() || snapshot.currency.empty()) {
+      throw std::runtime_error(
+          "Player wallet balance response is incomplete");
+    }
+    return snapshot;
+  }
+
+ private:
+  static std::string scalarString(const graphql::Json& value) {
+    if (!value.ok() || value.isNull()) return {};
+    if (value.isString()) return value.asString();
+    if (value.isNumber()) return std::to_string(value.asInt64());
+    return {};
+  }
+
+  domains::PlayerWalletAPI& playerWallet_;
 };
 
 class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {

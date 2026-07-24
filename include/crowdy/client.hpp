@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
+#include "crowdy/core/result.hpp"
 #include "crowdy/domains/auth.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
@@ -17,6 +20,7 @@
 #include "crowdy/domains/users.hpp"
 #include "crowdy/domains/world_data.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/replication/types.hpp"
 
 namespace crowdy {
 
@@ -41,7 +45,8 @@ struct ClientConfig {
   /// Management API base URL (sign-in, portal, studio admin). Falls back to
   /// httpUrl when empty (single-endpoint deployments).
   std::string managementUrl;
-  /// Path appended to the base URLs.
+  /// Game GraphQL path appended to httpUrl, or an explicitly complete custom
+  /// endpoint URL. Base URLs already ending in /graphql are not duplicated.
   std::string graphqlEndpoint = "/graphql";
   long timeoutMs = 60000;
   /// Token persistence; in-memory when null.
@@ -53,7 +58,68 @@ struct ClientConfig {
   /// *Async calls run on it and their callbacks are delivered from poll();
   /// engines inject their own here (FHttpModule, UnityWebRequest, HTTPRequest).
   std::shared_ptr<graphql::IAsyncHttpTransport> asyncTransport;
+  /// Routed Game API WebSocket base URL. CrowdyCPP does not emulate the
+  /// browser UDP proxy; this normalized endpoint is retained for portable
+  /// GraphQL-WebSocket consumers.
+  std::string wsUrl;
+  /// Optional Management GraphQL path or explicitly complete endpoint.
+  /// Falls back to graphqlEndpoint for legacy single-path deployments.
+  std::string managementGraphqlEndpoint;
+  /// Optional explicitly complete WebSocket endpoint (or a path relative to
+  /// wsUrl). When empty, wsUrl is normalized to exactly one /graphql.
+  std::string wsEndpoint;
 };
+
+/// Ordered stage reached by refreshGameplayToken(). Complete is the only
+/// successful terminal stage; every other value identifies where rotation
+/// stopped.
+enum class GameplayTokenRefreshStage : std::uint8_t {
+  Quiesce = 0,
+  Refresh,
+  Install,
+  Reconnect,
+  Complete,
+};
+
+inline const char* gameplayTokenRefreshStageName(
+    GameplayTokenRefreshStage stage) {
+  switch (stage) {
+    case GameplayTokenRefreshStage::Quiesce: return "Quiesce";
+    case GameplayTokenRefreshStage::Refresh: return "Refresh";
+    case GameplayTokenRefreshStage::Install: return "Install";
+    case GameplayTokenRefreshStage::Reconnect: return "Reconnect";
+    case GameplayTokenRefreshStage::Complete: return "Complete";
+  }
+  return "?";
+}
+
+/// Typed result of safe gameplay-token rotation. On a refresh-stage failure
+/// the old bearer remains installed. On a reconnect-stage failure
+/// tokenInstalled stays true and the fresh bearer is retained so callers can
+/// retry Connection::connect() without rotating again.
+struct GameplayTokenRefreshResult {
+  GameplayTokenRefreshStage stage = GameplayTokenRefreshStage::Quiesce;
+  Status status = Errc::Rejected;
+  domains::AppTokenResponse token;
+  std::string errorCode;
+  std::string errorMessage;
+
+  bool hadActiveReplication = false;
+  bool tokenInstalled = false;
+  bool reconnectAttempted = false;
+  bool reconnected = false;
+  replication::ConnState previousReplicationState =
+      replication::ConnState::Idle;
+  replication::Assignment previousReplicationEndpoint;
+  replication::Assignment replicationEndpoint;
+
+  bool ok() const {
+    return stage == GameplayTokenRefreshStage::Complete && status.ok();
+  }
+};
+
+using GameplayTokenRefreshCallback =
+    std::function<void(GameplayTokenRefreshResult)>;
 
 /// The Crowded Kingdoms client. Domain accessors mirror CrowdyJS sub-clients;
 /// replication() is the native-UDP replacement for CrowdyJS's client.udp /
@@ -100,6 +166,21 @@ class CrowdyClient {
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
 
+  // ----- Gameplay-token lifecycle ----------------------------------------------
+  /// Safely rotate the app-scoped bearer used by GraphQL and native UDP.
+  /// Captures the active native connection, handlers, mode, and endpoint;
+  /// quiesces it under the old token; refreshes through portal(); installs the
+  /// new token while the socket is closed; then reconnects the same Connection
+  /// so handlers remain registered exactly once. No browser UDP-proxy
+  /// operations are issued.
+  GameplayTokenRefreshResult refreshGameplayToken();
+
+  /// Non-throwing async twin. The portal request uses the configured async
+  /// transport and the callback is delivered from poll(). Quiesce happens
+  /// before the request starts; reconnect uses the preserved native
+  /// Connection.
+  void refreshGameplayTokenAsync(GameplayTokenRefreshCallback cb);
+
   // ----- Async API completion --------------------------------------------------
   /// Drain finished async API callbacks on the calling thread. Call once per
   /// tick from the game thread so *Async callbacks fire where engine objects
@@ -123,6 +204,10 @@ class CrowdyClient {
   graphql::GraphQLClient& graphqlClient() { return *gameGql_; }
   /// Raw GraphQL against the Management API endpoint.
   graphql::GraphQLClient& managementClient() { return *managementGql_; }
+  /// Normalized routed WebSocket endpoint reserved for portable
+  /// GraphQL-WebSocket consumers. Empty when neither wsUrl nor wsEndpoint was
+  /// configured.
+  const std::string& websocketEndpoint() const { return websocketEndpoint_; }
 
   const ClientConfig& config() const { return config_; }
 
@@ -136,6 +221,7 @@ class CrowdyClient {
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
   std::shared_ptr<graphql::GraphQLClient> gameGql_;
   std::shared_ptr<graphql::GraphQLClient> managementGql_;
+  std::string websocketEndpoint_;
 
   std::unique_ptr<domains::AuthAPI> authApi_;
   std::unique_ptr<domains::UsersAPI> users_;

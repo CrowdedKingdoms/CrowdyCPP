@@ -51,6 +51,15 @@ per-author capability hashes; `marketplace().trustGridAuthor(...)` records the
 visitor's capability-bound grant. Native clients fetch attachment artifacts
 through `clientArtifact` and own their local sandbox/lifecycle implementation.
 
+**Portable gameplay lifecycle:** `marketplace().claimGridChunk(...)` and
+`releaseClaimedGrid(...)` mirror CrowdyJS's app-token SELF_CLAIM flow with
+decimal-string BigInts. `refreshGameplayToken()` safely quiesces an active
+native UDP connection, rotates the portal token, and reconnects the same
+connection with its handlers preserved; its staged result distinguishes
+refresh failure (old token retained) from reconnect failure (fresh token
+retained). Routed HTTP and WebSocket bases normalize to one `/graphql`, while
+explicit complete custom endpoints are preserved.
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics
@@ -186,6 +195,7 @@ app-scoped token):
 | `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
+| `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
@@ -383,8 +393,11 @@ CrowdyCPP follows the platform's
    the Management API (account, studio admin, minting).
 2. Gameplay requires a short-lived **app-scoped token** per app
    (`portal().mintAppToken(appId)`), which is also the 64-octet HMAC key for
-   native UDP. Refresh it with `portal().refresh()` before expiry; the
-   replication client does this automatically while connected.
+   native UDP. With an active native connection, rotate it through
+   `refreshGameplayToken()` so the old socket is quiesced before the bearer
+   changes and the same handlers reconnect under the fresh token. Use
+   `portal().refresh()` directly only when no replication lifecycle needs to
+   be preserved.
 3. Build one identity client and one client per game. All world/UDP calls run
    on the game client.
 
@@ -397,7 +410,9 @@ deployments:
   as `FORBIDDEN` GraphQL errors; newer builds resolve them as
   `success: false` invoke results (with a failure event). The kit's
   `kitInvoke` maps both onto `KitInvokeResult{success:false, errorMessage}`,
-  so kit code behaves identically on either generation.
+  so kit code behaves identically on either generation. A `BAD_REQUEST` whose
+  message begins with the stable `Invoke params violate` contract prefix is
+  also a typed unsuccessful verdict; unrelated BAD_REQUESTs still throw.
 - **`userAppState` round-trip:** older game-api builds stored the base64
   `state` input verbatim and re-encoded on read (reads returned
   base64(base64(bytes))); newer builds round-trip symmetrically. Decode
@@ -517,7 +532,8 @@ external CMake build.
   parsing, malformed-input fuzz, codec round-trips). Offline.
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
-  refresh/reconnect) that run against a deployment you configure via
+  refresh/reconnect, opt-in marketplace chunk claim/release) that run against
+  a deployment you configure via
   environment variables (`CROWDY_E2E_MANAGEMENT_URL`, `CROWDY_E2E_HTTP_URL`,
   `CROWDY_E2E_EMAIL`, `CROWDY_E2E_APP_ID`, …). Skipped when unset.
 - `benchmarks/` — codec ns/op, HMAC throughput, and end-to-end echo latency

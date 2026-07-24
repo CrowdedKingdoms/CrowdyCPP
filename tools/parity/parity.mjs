@@ -104,15 +104,6 @@ const ROOT_CLASSIFICATIONS = {
   ...classifyNames(
     'Mutation',
     [
-      'claimGridChunk',
-      'releaseClaimedGrid',
-    ],
-    CATEGORY.PORTABLE,
-    'portable gameplay domain operation; later portable-gaps phase',
-  ),
-  ...classifyNames(
-    'Mutation',
-    [
       'crowdyStudioProjectCreate',
       'crowdyStudioProjectSaveMetadata',
       'crowdyStudioProjectSave',
@@ -250,14 +241,6 @@ const METHOD_CLASSIFICATIONS = {
   'GameModelAPI.containerChanged': classification(
     CATEGORY.PORTABLE,
     'portable GraphQL-WebSocket stream; later graphql-ws phase',
-  ),
-  'MarketplaceAPI.claimGridChunk': classification(
-    CATEGORY.PORTABLE,
-    'portable gameplay wrapper; later portable-gaps phase',
-  ),
-  'MarketplaceAPI.releaseClaimedGrid': classification(
-    CATEGORY.PORTABLE,
-    'portable gameplay wrapper; later portable-gaps phase',
   ),
   'AvatarStateStore.privateState': classification(
     CATEGORY.PORTABLE,
@@ -475,7 +458,6 @@ const CLASS_MAP = {
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [
-  'Gameplay: claim/release grid chunks, safe gameplay-token rotation, /graphql endpoint normalization, and kit verdict-error mapping.',
   'Crowdy Studio: cloud project/library/common-file domain plus headless revision, checkpoint, patch, and runtime controller.',
   'Realtime: pluggable graphql-transport-ws client with RAII subscriptions, reconnect, replay, and game-thread dispatch.',
   'Agentic Studio: generated operations, descriptor validation, durable controller, approvals, budgets, heartbeat, and epoch fencing.',

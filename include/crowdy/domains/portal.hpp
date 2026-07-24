@@ -62,24 +62,31 @@ class PortalAPI : public DomainBase {
 
   /// Same-app refresh: rotate the CURRENT app token (send it as the bearer on
   /// this client) for a fresh one and store it. Call before expiresAt to keep
-  /// playing without re-portaling.
-  AppTokenResponse refresh() const {
+  /// playing without re-portaling. `install=false` is for lifecycle
+  /// coordinators such as CrowdyClient::refreshGameplayToken(), which must
+  /// validate and install GraphQL + native-UDP token material together after
+  /// quiescing the old connection.
+  AppTokenResponse refresh(bool install = true) const {
     auto r = AppTokenResponse::fromJson(execUnwrap(
         "mutation RefreshAppToken { refreshAppToken {"
         " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }"));
-    if (!r.token.empty()) auth_->setToken(r.token);
+    if (install && !r.token.empty()) auth_->setToken(r.token);
     return r;
   }
 
-  void refreshAsync(std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb) const {
+  void refreshAsync(
+      std::function<void(graphql::GraphQLOutcome, AppTokenResponse)> cb,
+      bool install = true) const {
     execUnwrapAsync(
         "mutation RefreshAppToken { refreshAppToken {"
         " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
-        graphql::JVal(), {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        graphql::JVal(), {},
+        [this, install, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AppTokenResponse r{};
           if (out.ok()) {
             r = AppTokenResponse::fromJson(out.data);
-            if (!r.token.empty()) auth_->setToken(r.token);
+            if (install && !r.token.empty()) auth_->setToken(r.token);
           }
           cb(std::move(out), r);
         });

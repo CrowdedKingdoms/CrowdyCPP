@@ -28,6 +28,8 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `two-client-channel` | `e2e_two_client_messaging` (channel) | ported |
 | `two-client-cross-app` | `e2e_cross_app` | ported (needs a 2nd app; skips otherwise) |
 | `gamer-journey` | `e2e_gamer_journey` | ported |
+| gameplay-token rotation | `e2e_gameplay_token_refresh` | ported (native UDP; preserves the same connection/handlers) |
+| marketplace chunk claim/release | `e2e_marketplace_claims` | ported (optional; needs a reserved free chunk and `SELF_CLAIM`) |
 | `new-app-default-access` | `e2e_studio_admin` (default-access scenario) | ported |
 | `new-app-grid-creation` | `e2e_studio_admin` (grid-creation scenario) | ported |
 | `studio-admin` | `e2e_studio_admin` | ported |
@@ -49,7 +51,8 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teams / channels | `e2e_teams_channels` | ported |
 | game model + automations | `e2e_game_model`, plus every `e2e_kit_*` (model composition) | ported |
 | compute modules | `e2e_compute` (author → deploy → compile → enable → invoke → observe → delete) | mirrors CrowdyJS `compute-module` e2e |
-| player compute + grid ownership | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
+| player compute + grid ownership | `player_runtime_surface_test` (offline routing/variables) | live player-compute e2e pending a deployed P1 player-runtime environment |
+| player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | ported (exact documents/output mapping offline; app-token round trip optional live) |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
 ## Management API e2e (public `test/auth` + `test/sdk`)
@@ -88,6 +91,7 @@ docs (wire formats, HMAC, operations, troubleshooting).
 | client-event replication | `e2e_stores_live` (EventRouter) | ported |
 | negative auth (bad HMAC / wrong app / garbage) | `e2e_negative_auth` | ported |
 | permission refresh (grant/revoke on a live session) | `e2e_permission_refresh` | ported (slow) |
+| app-token refresh + reconnect | `client_portable_test` + `e2e_gameplay_token_refresh` | ported (staged failures offline; fresh-token HMAC self-echo live) |
 | cross-server replication | `e2e_cross_server` | ported (optional; needs 2+ servers) |
 | soak / sustained two-client | `e2e_soak_two_clients` | ported (slow) |
 | `COMMAND_RECONNECT` load-shed | — | excluded: server-side trigger; client handling is covered by the offline `replication_test` fake-server unit test |

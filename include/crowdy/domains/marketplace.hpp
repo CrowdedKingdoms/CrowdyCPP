@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "crowdy/domains/domain_base.hpp"
+#include "crowdy/domains/types.hpp"
 #include "crowdy/generated/operations.hpp"
 
 /// client.marketplace() — the P4a player-code marketplace (free mode).
@@ -179,6 +180,56 @@ class MarketplaceAPI {
   void claimGridOwnershipAsync(const graphql::JVal& vars,
                                graphql::GraphQLCallback cb) const {
     game_.runAsync("MarketplaceClaimGridOwnership", vars, std::move(cb));
+  }
+
+  /// Atomically create and claim one chunk under SELF_CLAIM. This is a
+  /// player/app-token operation on the Game API; it never requires
+  /// manage_apps. BigInt variables must be decimal strings.
+  graphql::Json claimGridChunk(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceClaimGridChunk", vars);
+  }
+  void claimGridChunkAsync(const graphql::JVal& vars,
+                           graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceClaimGridChunk", vars, std::move(cb));
+  }
+  graphql::Json claimGridChunk(std::string_view appId,
+                               const ChunkRef& chunk) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["chunk"] = chunk.toInput();
+    return claimGridChunk(vars);
+  }
+  void claimGridChunkAsync(std::string_view appId, const ChunkRef& chunk,
+                           graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["chunk"] = chunk.toInput();
+    claimGridChunkAsync(vars, std::move(cb));
+  }
+
+  /// Release an eligible one-chunk grid previously created by
+  /// claimGridChunk. The authenticated app-token user must still own it.
+  graphql::Json releaseClaimedGrid(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceReleaseClaimedGrid", vars);
+  }
+  void releaseClaimedGridAsync(const graphql::JVal& vars,
+                               graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceReleaseClaimedGrid", vars, std::move(cb));
+  }
+  graphql::Json releaseClaimedGrid(std::string_view appId,
+                                   std::string_view gridId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    return releaseClaimedGrid(vars);
+  }
+  void releaseClaimedGridAsync(std::string_view appId,
+                               std::string_view gridId,
+                               graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    releaseClaimedGridAsync(vars, std::move(cb));
   }
 
   /// Approve or deny a pending claim request (approvers/staff).

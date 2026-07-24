@@ -1,4 +1,11 @@
+#include <algorithm>
+#include <chrono>
+#include <functional>
+#include <optional>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "e2e_util.hpp"
 
@@ -6,57 +13,145 @@ using namespace crowdy;
 
 namespace {
 
-struct AttachedSession {
-  std::string sessionId;
-  std::string clientEpoch;
-};
-
-AttachedSession createAndAttach(
-    domains::CrowdyStudioAgentAPI& api, std::string_view appId,
-    std::string_view mode, std::string_view suffix,
-    std::optional<std::string> projectId = std::nullopt,
-    std::optional<std::string> gridId = std::nullopt) {
-  graphql::JVal create;
-  create["appId"] = appId;
-  create["mode"] = mode;
-  create["providerDataConsent"] = false;
-  create["idempotencyKey"] =
-      "cpp-agent-create-" + std::string(mode) + "-" + std::string(suffix);
-  if (projectId) create["projectId"] = *projectId;
-  if (gridId) create["gridId"] = *gridId;
-  const auto session = api.createSession(create);
-  AttachedSession result;
-  result.sessionId = session["sessionId"].asString();
-  E2E_CHECK(!result.sessionId.empty());
-
-  graphql::JVal attach;
-  attach["sessionId"] = result.sessionId;
-  attach["clientInstanceId"] =
-      mode == "ASK"
-          ? "11111111-2222-4333-8444-555555555555"
-          : mode == "BUILD"
-                ? "22222222-3333-4444-8555-666666666666"
-                : "33333333-4444-4555-8666-777777777777";
-  attach["idempotencyKey"] =
-      "cpp-agent-attach-" + std::string(mode) + "-" + std::string(suffix);
-  const auto attached = api.attachClient(attach);
-  result.clientEpoch = attached["clientEpoch"].isString()
-                           ? attached["clientEpoch"].asString()
-                           : attached["clientEpoch"].dump();
-  E2E_CHECK(!result.clientEpoch.empty());
-  return result;
+bool decimalAtLeast(std::string_view left, std::string_view right) {
+  if (left.size() != right.size()) return left.size() > right.size();
+  return left >= right;
 }
 
-void closeSession(domains::CrowdyStudioAgentAPI& api,
-                  const AttachedSession& session,
-                  std::string_view suffix) {
-  graphql::JVal close;
-  close["sessionId"] = session.sessionId;
-  close["clientEpoch"] = session.clientEpoch;
-  close["idempotencyKey"] =
-      "cpp-agent-close-" + std::string(suffix) + "-" + session.sessionId;
-  const auto closed = api.closeSession(close);
-  E2E_CHECK(closed["status"].asString() == "CLOSED");
+template <typename Predicate>
+bool pumpUntil(agent::CrowdyStudioAgentControllerRuntime& runtime,
+               Predicate&& done, int timeoutMs = 10'000) {
+  const auto started = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - started <
+         std::chrono::milliseconds(timeoutMs)) {
+    runtime.poll();
+    if (done()) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  runtime.poll();
+  return done();
+}
+
+template <typename Start>
+bool waitForAgentVoid(agent::CrowdyStudioAgentControllerRuntime& runtime,
+                      Start&& start, const char* context,
+                      int timeoutMs = 10'000) {
+  bool finished = false;
+  std::optional<agent::AgentError> failure;
+  std::forward<Start>(start)(
+      [&](agent::AgentOutcome<agent::AgentVoid> outcome) {
+        if (!outcome.ok()) failure = *outcome.error;
+        finished = true;
+      });
+  if (!pumpUntil(runtime, [&] { return finished; }, timeoutMs)) {
+    std::fprintf(stderr, "%s timed out\n", context);
+    return false;
+  }
+  if (failure) {
+    e2e::printAgentError(*failure, context);
+    return false;
+  }
+  return true;
+}
+
+agent::CrowdyStudioAgentControllerOptions createOptions(
+    agent::AgentMode mode, std::string_view appId, std::string_view suffix,
+    std::optional<std::string> projectId = std::nullopt,
+    std::optional<std::string> gridId = std::nullopt) {
+  const std::string modeName(agent::toString(mode));
+  agent::AgentCreateSessionInput input;
+  input.appId = appId;
+  input.projectId = std::move(projectId);
+  input.gridId = std::move(gridId);
+  input.mode = mode;
+  input.providerDataConsent = false;
+  input.idempotencyKey =
+      "cpp-agent-create-" + modeName + "-" + std::string(suffix);
+
+  agent::CrowdyStudioAgentControllerOptions options;
+  options.createSession = std::move(input);
+  options.clientInstanceId = e2e::clientInstanceUuid();
+  options.heartbeatIntervalMs = 100;
+  options.heartbeatStaleMs = 2'000;
+  options.workspaceRenewIntervalMs = 1'000;
+  options.createIdempotencyKey =
+      [prefix = "cpp-agent-" + modeName + "-" + std::string(suffix),
+       sequence = 0U](std::string_view operation) mutable {
+        return prefix + "-" + std::string(operation) + "-" +
+               std::to_string(++sequence);
+      };
+  return options;
+}
+
+agent::CrowdyStudioAgentControllerOptions attachOptions(
+    std::string sessionId, std::string_view suffix) {
+  agent::CrowdyStudioAgentControllerOptions options;
+  options.sessionId = std::move(sessionId);
+  options.clientInstanceId = e2e::clientInstanceUuid();
+  options.heartbeatIntervalMs = 100;
+  options.heartbeatStaleMs = 2'000;
+  options.workspaceRenewIntervalMs = 1'000;
+  options.createIdempotencyKey =
+      [prefix = "cpp-agent-replay-" + std::string(suffix),
+       sequence = 0U](std::string_view operation) mutable {
+        return prefix + "-" + std::string(operation) + "-" +
+               std::to_string(++sequence);
+      };
+  return options;
+}
+
+class PendingPlayerHost final : public player_host::PlayerHostAdapterV1 {
+ public:
+  std::vector<std::string> events;
+  std::optional<player_host::PreemptionReasonV1> clearedReason;
+  player_host::CapabilitiesCallbackV1 pendingCapabilities;
+  player_host::CancellationTokenV1 cancellation;
+
+  void capabilities(
+      player_host::CancellationTokenV1 token,
+      player_host::CapabilitiesCallbackV1 callback) override {
+    events.push_back("dispatch");
+    cancellation = token;
+    pendingCapabilities = std::move(callback);
+  }
+
+  void observe(const player_host::ObserveRequestV1&,
+               player_host::CancellationTokenV1,
+               player_host::ObservationCallbackV1 callback) override {
+    player_host::AgentErrorV1 error;
+    error.code = "AGENT_HOST_UNAVAILABLE";
+    error.message = "unexpected observe in cancellation e2e";
+    callback(player_host::AdapterResultV1<
+             player_host::GameObservationV1>::failure(
+        std::move(error)));
+  }
+
+  void dispatch(const player_host::GameCommandV1&,
+                const player_host::ValidatedGateV1&,
+                player_host::CancellationTokenV1,
+                player_host::CommandCallbackV1 callback) override {
+    player_host::AgentErrorV1 error;
+    error.code = "AGENT_HOST_UNAVAILABLE";
+    error.message = "unexpected command in cancellation e2e";
+    callback(player_host::AdapterResultV1<
+             player_host::GameCommandResultV1>::failure(
+        std::move(error)));
+  }
+
+  void clearAgentIntent(
+      player_host::PreemptionReasonV1 reason) noexcept override {
+    events.push_back("clear");
+    clearedReason = reason;
+  }
+};
+
+const agent::NativeLocalToolContractV1* nativeContract(
+    std::string_view name) {
+  const auto contracts = agent::nativeLocalToolContractsV1();
+  const auto found = std::find_if(
+      contracts.begin(), contracts.end(),
+      [&](const auto& value) { return value.name == name; });
+  return found == contracts.end() ? nullptr : &*found;
 }
 
 }  // namespace
@@ -74,27 +169,235 @@ int main() try {
     return 77;
   }
 
-  auto& api = e2e::ownerGame(cfg).crowdyStudioAgent();
+  auto& game = e2e::ownerGame(cfg);
+  if (!game.config().webSocketTransport &&
+      !graphql::curlWebSocketTransportAvailable()) {
+    std::puts(
+        "No injected or default GraphQL WebSocket transport is available for "
+        "the live Agent Controller; skipping");
+    return 77;
+  }
   const std::string suffix = e2e::runSuffix();
 
-  E2E_SUBTEST("create, attach, and close ASK");
-  const auto ask = createAndAttach(api, cfg.appId, "ASK", suffix);
-  if (e2e::envFlag("CROWDY_E2E_AGENT_RUN")) {
-    graphql::JVal message;
-    message["sessionId"] = ask.sessionId;
-    message["clientEpoch"] = ask.clientEpoch;
-    message["idempotencyKey"] = "cpp-agent-ask-run-" + suffix;
-    message["content"] = "Reply with one short readiness sentence.";
-    const auto run = api.sendMessage(message);
-    E2E_CHECK(!run["runId"].asString().empty());
-  }
-  closeSession(api, ask, suffix + "-ask");
+  E2E_SUBTEST("controller factory creates, attaches, replays, and heartbeats");
+  std::string liveSessionId;
+  std::string liveClientEpoch;
+  std::string liveContextVersion;
+  std::optional<player_host::AgentErrorV1> hostAttachError;
+  PendingPlayerHost host;
+  player_host::AgentControlLeaseManagerOptionsV1 managerOptions;
+  managerOptions.context_version = [&] { return liveContextVersion; };
+  player_host::AgentControlLeaseManager manager(host,
+                                                 std::move(managerOptions));
 
-  E2E_SUBTEST("create and attach BUILD to an exact saved project");
-  const auto build = createAndAttach(api, cfg.appId, "BUILD", suffix,
-                                     projectId, gridId);
-  E2E_CHECK(api.session(build.sessionId)["mode"].asString() == "BUILD");
-  closeSession(api, build, suffix + "-build");
+  agent::NativeToolDispatcherOptionsV1 nativeOptions;
+  nativeOptions.session_id = [&]() -> std::optional<std::string> {
+    return liveSessionId.empty()
+               ? std::nullopt
+               : std::optional<std::string>(liveSessionId);
+  };
+  nativeOptions.client_epoch = [&]() -> std::optional<std::string> {
+    return liveClientEpoch.empty()
+               ? std::nullopt
+               : std::optional<std::string>(liveClientEpoch);
+  };
+  nativeOptions.context_version = [&] { return liveContextVersion; };
+  nativeOptions.mode = [] { return agent::NativeAgentModeV1::Ask; };
+  nativeOptions.validate_argument_hash = [](const auto&) { return true; };
+  agent::NativeToolDispatcherV1 nativeDispatcher(
+      manager, nullptr, std::move(nativeOptions));
+  agent::NativeBrowserToolDispatcherAdapter browserDispatcher(
+      nativeDispatcher);
+
+  auto askOptions =
+      createOptions(agent::AgentMode::Ask, cfg.appId, suffix + "-ask");
+  E2E_CHECK(askOptions.clientInstanceId.size() == 36);
+  E2E_CHECK(askOptions.clientInstanceId[14] == '4');
+  E2E_CHECK(askOptions.clientInstanceId[19] == '8' ||
+            askOptions.clientInstanceId[19] == '9' ||
+            askOptions.clientInstanceId[19] == 'a' ||
+            askOptions.clientInstanceId[19] == 'b');
+  askOptions.browserDispatcher = &browserDispatcher;
+  askOptions.onStateChange =
+      [&](const agent::CrowdyStudioAgentState& state) {
+        if (!state.session) return;
+        liveSessionId = state.session->sessionId;
+        liveContextVersion = state.session->contextVersion;
+      };
+  askOptions.onEpochAttached = [&](std::string_view epoch) {
+    liveClientEpoch = epoch;
+    hostAttachError = manager.attach(liveClientEpoch);
+  };
+
+  auto askRuntime =
+      game.createCrowdyStudioAgentController(std::move(askOptions));
+  E2E_CHECK(waitForAgentVoid(
+      *askRuntime,
+      [&](auto callback) {
+        askRuntime->controller().initialize(std::move(callback));
+      },
+      "initialize ASK controller"));
+  if (hostAttachError) {
+    std::fprintf(stderr, "native host attach: code=%s message=%s\n",
+                 hostAttachError->code.c_str(),
+                 hostAttachError->message.c_str());
+  }
+  E2E_CHECK(!hostAttachError);
+  E2E_CHECK(askRuntime->controller().state().connection ==
+            agent::AgentConnectionState::Connected);
+  E2E_CHECK(askRuntime->controller().state().session.has_value());
+  E2E_CHECK(askRuntime->controller().state().session->mode ==
+            agent::AgentMode::Ask);
+  E2E_CHECK(pumpUntil(
+      *askRuntime,
+      [&] {
+        return askRuntime->controller().state().lastHeartbeatAt.has_value();
+      },
+      5'000));
+
+  E2E_SUBTEST(
+      "live epoch binds native dispatcher cancellation to human takeover");
+  const auto* capabilityContract = nativeContract("game.capabilities.get");
+  E2E_CHECK(capabilityContract != nullptr);
+  agent::NativeToolInvocationV1 capabilityCall;
+  capabilityCall.session_id = liveSessionId;
+  capabilityCall.run_id = "cpp-e2e-local-run-" + suffix;
+  capabilityCall.tool_call_id = "cpp-e2e-capabilities-" + suffix;
+  capabilityCall.name = std::string(capabilityContract->name);
+  capabilityCall.version = std::string(capabilityContract->version);
+  capabilityCall.descriptor_digest =
+      std::string(capabilityContract->descriptor_digest);
+  capabilityCall.arguments = agent::NoArgumentsV1{};
+  capabilityCall.argument_hash =
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  capabilityCall.context_version = liveContextVersion;
+  capabilityCall.client_epoch = liveClientEpoch;
+  capabilityCall.deadline = "2099-01-01T00:00:00.000Z";
+
+  std::optional<agent::NativeToolResultV1> cancelledCapability;
+  nativeDispatcher.dispatch(
+      std::move(capabilityCall),
+      [&](agent::NativeToolResultV1 result) {
+        host.events.push_back("callback");
+        cancelledCapability = std::move(result);
+      });
+  E2E_CHECK(!cancelledCapability);
+  E2E_CHECK(host.events.size() == 1 && host.events[0] == "dispatch");
+  askRuntime->controller().preemptForHumanEdit();
+  E2E_CHECK(cancelledCapability.has_value());
+  E2E_CHECK(cancelledCapability->status ==
+            agent::NativeToolResultStatusV1::Cancelled);
+  E2E_CHECK(cancelledCapability->error.has_value());
+  E2E_CHECK(cancelledCapability->error->code == "AGENT_CANCELLED");
+  E2E_CHECK(host.cancellation.cancelled());
+  E2E_CHECK(host.clearedReason ==
+            player_host::PreemptionReasonV1::HUMAN_EDIT);
+  E2E_CHECK(host.events.size() >= 3);
+  E2E_CHECK(host.events[1] == "clear");
+  E2E_CHECK(host.events[2] == "callback");
+
+  const std::string firstEpoch =
+      *askRuntime->controller().state().clientEpoch;
+  E2E_CHECK(waitForAgentVoid(
+      *askRuntime,
+      [&](auto callback) {
+        askRuntime->controller().reconnect(std::move(callback));
+      },
+      "reattach ASK controller"));
+  const std::string reattachedEpoch =
+      *askRuntime->controller().state().clientEpoch;
+  E2E_CHECK(reattachedEpoch != firstEpoch);
+  E2E_CHECK(decimalAtLeast(reattachedEpoch, firstEpoch));
+
+  E2E_CHECK(waitForAgentVoid(
+      *askRuntime,
+      [&](auto callback) {
+        askRuntime->controller().pause(std::move(callback));
+      },
+      "pause ASK controller"));
+  E2E_CHECK(waitForAgentVoid(
+      *askRuntime,
+      [&](auto callback) {
+        askRuntime->controller().resume(std::move(callback));
+      },
+      "resume ASK controller"));
+  E2E_CHECK(pumpUntil(
+      *askRuntime,
+      [&] {
+        return askRuntime->controller().state().lastContiguousSeq != "0";
+      },
+      5'000));
+  const std::string replayFloor =
+      askRuntime->controller().state().lastContiguousSeq;
+  const std::string askSessionId =
+      askRuntime->controller().state().session->sessionId;
+  askRuntime.reset();
+
+  auto replayOptions = attachOptions(askSessionId, suffix + "-ask");
+  auto replayRuntime =
+      game.createCrowdyStudioAgentController(std::move(replayOptions));
+  E2E_CHECK(waitForAgentVoid(
+      *replayRuntime,
+      [&](auto callback) {
+        replayRuntime->controller().initialize(std::move(callback));
+      },
+      "initialize replay controller"));
+  E2E_CHECK(replayRuntime->controller().state().connection ==
+            agent::AgentConnectionState::Connected);
+  E2E_CHECK(replayRuntime->controller().state().clientEpoch.has_value());
+  E2E_CHECK(*replayRuntime->controller().state().clientEpoch !=
+            reattachedEpoch);
+  E2E_CHECK(decimalAtLeast(
+      replayRuntime->controller().state().lastContiguousSeq, replayFloor));
+
+  if (e2e::envFlag("CROWDY_E2E_AGENT_RUN")) {
+    bool finished = false;
+    std::optional<agent::AgentError> failure;
+    std::optional<agent::AgentRun> run;
+    replayRuntime->controller().sendMessage(
+        "Reply with one short readiness sentence.",
+        [&](agent::AgentOutcome<agent::AgentRun> outcome) {
+          if (outcome.ok()) {
+            run = std::move(*outcome.value);
+          } else {
+            failure = *outcome.error;
+          }
+          finished = true;
+        });
+    E2E_CHECK(pumpUntil(*replayRuntime, [&] { return finished; }, 30'000));
+    if (failure) e2e::printAgentError(*failure, "send ASK message");
+    E2E_CHECK(!failure);
+    E2E_CHECK(run && !run->runId.empty());
+  }
+  E2E_CHECK(waitForAgentVoid(
+      *replayRuntime,
+      [&](auto callback) {
+        replayRuntime->controller().close(std::move(callback));
+      },
+      "close ASK controller"));
+
+  E2E_SUBTEST("controller factory binds BUILD to an exact saved project");
+  auto buildOptions = createOptions(
+      agent::AgentMode::Build, cfg.appId, suffix + "-build", projectId,
+      gridId);
+  auto buildRuntime =
+      game.createCrowdyStudioAgentController(std::move(buildOptions));
+  E2E_CHECK(waitForAgentVoid(
+      *buildRuntime,
+      [&](auto callback) {
+        buildRuntime->controller().initialize(std::move(callback));
+      },
+      "initialize BUILD controller"));
+  E2E_CHECK(buildRuntime->controller().state().session->mode ==
+            agent::AgentMode::Build);
+  E2E_CHECK(buildRuntime->controller().state().session->projectId ==
+            projectId);
+  E2E_CHECK(waitForAgentVoid(
+      *buildRuntime,
+      [&](auto callback) {
+        buildRuntime->controller().close(std::move(callback));
+      },
+      "close BUILD controller"));
 
   if (e2e::envFlag("CROWDY_E2E_AGENT_PLAY")) {
     const std::string controlled =
@@ -105,32 +408,55 @@ int main() try {
       std::puts(
           "Play host entity/capability vars missing; skipping Play subtest");
     } else {
-      E2E_SUBTEST("grant Play observe/control then human-takeover revoke");
-      const auto play =
-          createAndAttach(api, cfg.appId, "PLAY", suffix, std::nullopt, gridId);
-      graphql::JVal grant;
-      grant["sessionId"] = play.sessionId;
-      grant["clientEpoch"] = play.clientEpoch;
-      grant["idempotencyKey"] = "cpp-agent-play-grant-" + suffix;
-      grant["scopes"] =
-          graphql::JVal::array({graphql::JVal("observe"),
-                                graphql::JVal("locomotion")});
-      grant["durationSeconds"] = 30;
-      grant["controlledEntityId"] = controlled;
-      grant["hostCapabilityRevision"] = capability;
-      const auto lease = api.grantLease(grant);
-      E2E_CHECK(lease["status"].asString() == "ACTIVE");
+      E2E_SUBTEST(
+          "controller factory grants Play then performs takeover revoke");
+      auto playOptions = createOptions(
+          agent::AgentMode::Play, cfg.appId, suffix + "-play", std::nullopt,
+          gridId);
+      auto playRuntime =
+          game.createCrowdyStudioAgentController(std::move(playOptions));
+      E2E_CHECK(waitForAgentVoid(
+          *playRuntime,
+          [&](auto callback) {
+            playRuntime->controller().initialize(std::move(callback));
+          },
+          "initialize PLAY controller"));
 
-      graphql::JVal revoke;
-      revoke["sessionId"] = play.sessionId;
-      revoke["clientEpoch"] = play.clientEpoch;
-      revoke["idempotencyKey"] = "cpp-agent-play-revoke-" + suffix;
-      revoke["leaseId"] = lease["leaseId"].asString();
-      revoke["reason"] = "HUMAN_INPUT";
-      const auto revoked = api.revokeLease(revoke);
-      E2E_CHECK(revoked["status"].asString() == "REVOKED");
-      E2E_CHECK(revoked["revokedReason"].asString() == "HUMAN_INPUT");
-      closeSession(api, play, suffix + "-play");
+      bool granted = false;
+      std::optional<agent::AgentError> grantFailure;
+      std::optional<agent::AgentLease> lease;
+      playRuntime->controller().grantPlayLease(
+          {"observe", "locomotion"}, 30, controlled, capability,
+          [&](agent::AgentOutcome<agent::AgentLease> outcome) {
+            if (outcome.ok()) {
+              lease = std::move(*outcome.value);
+            } else {
+              grantFailure = *outcome.error;
+            }
+            granted = true;
+          });
+      E2E_CHECK(pumpUntil(*playRuntime, [&] { return granted; }));
+      if (grantFailure) {
+        e2e::printAgentError(*grantFailure, "grant Play lease");
+      }
+      E2E_CHECK(!grantFailure);
+      E2E_CHECK(lease &&
+                lease->status == agent::AgentLeaseStatus::Active);
+
+      E2E_CHECK(waitForAgentVoid(
+          *playRuntime,
+          [&](auto callback) {
+            playRuntime->controller().revokeLease(
+                lease->leaseId, agent::AgentPreemptionReason::HumanInput,
+                std::move(callback));
+          },
+          "revoke Play lease for human takeover"));
+      E2E_CHECK(waitForAgentVoid(
+          *playRuntime,
+          [&](auto callback) {
+            playRuntime->controller().close(std::move(callback));
+          },
+          "close PLAY controller"));
     }
   }
 
@@ -169,13 +495,14 @@ int main() try {
   std::puts("e2e_agentic_studio passed");
   return 0;
 } catch (const graphql::CrowdyGraphQLError& error) {
-  std::fprintf(stderr, "GraphQL error");
-  for (const auto& detail : error.errors()) {
-    std::fprintf(stderr, ": %s (%s, path=%s, remediation=%s)",
-                 detail.message.c_str(), detail.code.c_str(),
-                 detail.path.c_str(), detail.remediation.c_str());
-  }
-  std::fputc('\n', stderr);
+  e2e::printGraphQLError(error, "Agentic Studio GraphQL error");
+  return 1;
+} catch (const agent::CrowdyAgentError& error) {
+  e2e::printAgentError(error.value(), "Agentic Studio controller error");
+  return 1;
+} catch (const graphql::CrowdyError& error) {
+  std::fprintf(stderr, "SDK error: code=%s message=%s\n",
+               error.code().c_str(), error.what());
   return 1;
 } catch (const std::exception& error) {
   std::fprintf(stderr, "exception: %s\n", error.what());

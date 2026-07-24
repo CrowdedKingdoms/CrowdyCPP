@@ -18,11 +18,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Read pinned CrowdyJS parity target
+        id: crowdyjs-target
+        run: echo "commit=$(jq -r '.crowdyjsParityTarget.commit' package.json)" >> "$GITHUB_OUTPUT"
       - name: Check out pinned CrowdyJS parity target
         uses: actions/checkout@v4
         with:
           repository: CrowdedKingdoms/CrowdyJS
-          ref: a9c620c021c83c39f630dca4bb3e46b76691ac2d
+          ref: ${{ steps.crowdyjs-target.outputs.commit }}
           path: CrowdyJS
       - uses: actions/setup-node@v4
         with:
@@ -47,6 +50,7 @@ jobs:
           node tools/parity/parity.mjs
           --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
           --check docs/parity-matrix.md
+          --strict
       - name: Check agent descriptor and preemption fixtures
         run: >
           node tools/parity/agent-fixtures.mjs

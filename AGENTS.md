@@ -23,8 +23,9 @@ When a Management/Game GraphQL surface changes:
    only for an intentional coordinated fixture update.
 7. Run the blueprint structural gate documented in `README.md`.
 
-The CI CrowdyJS commit is deliberately pinned. Update that SHA, the generated
-matrix, and any descriptor/preemption fixtures in one reviewed change.
+The CrowdyJS commit in `package.json` is deliberately pinned and consumed by
+CI. Update that target, the generated matrix, and any
+descriptor/preemption fixtures in one reviewed change.
 
 Parity classifications are strict:
 
@@ -37,4 +38,4 @@ Parity classifications are strict:
 Do not label planned native WebSockets, Crowdy Studio, agent control, leases, or
 player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
-strict parity complete.
+strict portable parity complete.

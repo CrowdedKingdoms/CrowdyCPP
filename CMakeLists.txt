@@ -293,7 +293,9 @@ configure_package_config_file(
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)
 write_basic_package_version_file(
   ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfigVersion.cmake
-  COMPATIBILITY SameMajorVersion)
+  # CrowdyCPP is pre-1.0: patch releases preserve source/ABI compatibility,
+  # while each minor may break it. Do not accept every 0.x package.
+  COMPATIBILITY SameMinorVersion)
 install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfig.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfigVersion.cmake

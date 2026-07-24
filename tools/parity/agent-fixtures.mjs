@@ -13,11 +13,15 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import { enumValues, parseSchemaSurface } from './schema-surface.mjs';
-import { resolveCrowdyJsPath } from './crowdyjs-path.mjs';
+import {
+  assertCrowdyJsParityTarget,
+  resolveCrowdyJsPath,
+} from './crowdyjs-path.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = parseArgs(process.argv.slice(2));
 const crowdyjs = resolveCrowdyJsPath(root, args.crowdyjs);
+assertCrowdyJsParityTarget(root, crowdyjs);
 const fixtureDirectory = join(root, 'tools', 'parity', 'fixtures');
 const cppDescriptorPath = join(
   fixtureDirectory,

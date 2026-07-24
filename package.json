@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",
+  "crowdyjsParityTarget": {
+    "version": "12.0.0",
+    "commit": "a9c620c021c83c39f630dca4bb3e46b76691ac2d"
+  },
   "scripts": {
     "codegen": "node scripts/codegen.mjs",
     "check:agent-fixtures": "node tools/parity/agent-fixtures.mjs",
     "check:codegen": "node scripts/codegen.mjs --check",
     "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
+    "check:release": "npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm test",
     "test": "node --test tests/parity/*.test.mjs"
   },
   "license": "MIT",

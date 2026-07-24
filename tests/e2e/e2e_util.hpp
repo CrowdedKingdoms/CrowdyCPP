@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -41,6 +43,7 @@
 ///   CROWDY_E2E_AGENT_PLAY=1     enable Play lease grant/revoke coverage
 ///   CROWDY_E2E_AGENT_POLICY_KILL=1
 ///                               explicitly enable temporary operator kill
+///   CROWDY_E2E_WEBSOCKET=1      enable optional live GraphQL-WS coverage
 ///   CROWDY_E2E_SLOW=1           enable slow suites (soak, TTL waits)
 ///
 /// The server must run with DEV_AUTH_BYPASS (dev sign-in); production-style
@@ -67,6 +70,70 @@ inline std::string envOr(const char* name, const char* fallback = "") {
 inline bool envFlag(const char* name) {
   const std::string v = envOr(name);
   return v == "1" || v == "true" || v == "yes";
+}
+
+/// Generate a canonical RFC 4122 version-4 UUID for APIs whose UUID inputs are
+/// distinct from the Replication API's 32-character ActorUuid.
+inline std::string clientInstanceUuid() {
+  std::array<unsigned char, 16> bytes{};
+  std::random_device random;
+  for (auto& byte : bytes) {
+    byte = static_cast<unsigned char>(random());
+  }
+  bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0fU) | 0x40U);
+  bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3fU) | 0x80U);
+
+  constexpr char hex[] = "0123456789abcdef";
+  std::string uuid;
+  uuid.reserve(36);
+  for (std::size_t index = 0; index < bytes.size(); ++index) {
+    if (index == 4 || index == 6 || index == 8 || index == 10) {
+      uuid.push_back('-');
+    }
+    uuid.push_back(hex[(bytes[index] >> 4U) & 0x0fU]);
+    uuid.push_back(hex[bytes[index] & 0x0fU]);
+  }
+  return uuid;
+}
+
+inline void printGraphQLError(
+    const crowdy::graphql::CrowdyGraphQLError& error,
+    const char* context = "GraphQL error") {
+  std::fprintf(stderr, "%s: %s\n", context, error.what());
+  for (const auto& detail : error.errors()) {
+    std::fprintf(stderr,
+                 "  code=%s path=%s message=%s remediation=%s\n",
+                 detail.code.c_str(), detail.path.c_str(),
+                 detail.message.c_str(), detail.remediation.c_str());
+  }
+}
+
+inline void printSubscriptionError(
+    const crowdy::graphql::GraphQLSubscriptionError& error,
+    const char* context = "GraphQL subscription error") {
+  std::fprintf(stderr,
+               "%s: code=%s kind=%d retryable=%s terminal=%s message=%s\n",
+               context, error.code.c_str(), static_cast<int>(error.kind),
+               error.retryable ? "true" : "false",
+               error.terminal ? "true" : "false", error.message.c_str());
+  for (const auto& detail : error.errors) {
+    std::fprintf(stderr,
+                 "  code=%s path=%s message=%s remediation=%s\n",
+                 detail.code.c_str(), detail.path.c_str(),
+                 detail.message.c_str(), detail.remediation.c_str());
+  }
+}
+
+inline void printAgentError(const crowdy::agent::AgentError& error,
+                            const char* context = "Agent error") {
+  std::fprintf(
+      stderr,
+      "%s: code=%s retryable=%s message=%s remediation=%s field=%s scope=%s\n",
+      context, error.code.c_str(), error.retryable ? "true" : "false",
+      error.message.c_str(),
+      error.remediation ? error.remediation->c_str() : "",
+      error.field ? error.field->c_str() : "",
+      error.requiredScope ? error.requiredScope->c_str() : "");
 }
 
 struct E2eConfig {

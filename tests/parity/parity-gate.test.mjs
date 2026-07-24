@@ -8,13 +8,24 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { resolveCrowdyJsPath } from '../../tools/parity/crowdyjs-path.mjs';
+import {
+  assertCrowdyJsParityTarget,
+  resolveCrowdyJsPath,
+} from '../../tools/parity/crowdyjs-path.mjs';
 
 const repo = resolve(import.meta.dirname, '..', '..');
 const crowdyjs = resolveCrowdyJsPath(repo);
 
-test('reviewed parity baseline and generated matrix pass', () => {
-  const result = runParity('--check', 'docs/parity-matrix.md');
+test('pinned strict parity target and generated matrix pass', () => {
+  assert.deepEqual(assertCrowdyJsParityTarget(repo, crowdyjs), {
+    version: '12.0.0',
+    commit: 'a9c620c021c83c39f630dca4bb3e46b76691ac2d',
+  });
+  const result = runParity(
+    '--check',
+    'docs/parity-matrix.md',
+    '--strict',
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /unclassified=0 stale=0/u);
 });

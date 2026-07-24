@@ -30,11 +30,15 @@ import {
   parseSchemaSurface,
   rootFieldEntries,
 } from './schema-surface.mjs';
-import { resolveCrowdyJsPath } from './crowdyjs-path.mjs';
+import {
+  assertCrowdyJsParityTarget,
+  resolveCrowdyJsPath,
+} from './crowdyjs-path.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const options = parseArgs(process.argv.slice(2));
 const crowdyjsPath = resolveCrowdyJsPath(root, options.crowdyjs);
+assertCrowdyJsParityTarget(root, crowdyjsPath);
 
 const CATEGORY = Object.freeze({
   PORTABLE: 'portable-gap',
@@ -350,7 +354,9 @@ report +=
 report += '## Target\n\n';
 report += `- CrowdyJS: \`${targetVersion}\` at \`${targetCommit}\`\n`;
 report += '- CrowdyCPP schema: current canonical Management + Game SDL merge\n';
-report += '- Gate mode: reviewed baseline (use `--strict` to reject every portable gap)\n\n';
+report += options.strict
+  ? '- Gate mode: strict portable parity (every portable gap is release-blocking)\n\n'
+  : '- Gate mode: reviewed baseline (use `--strict` to reject every portable gap)\n\n';
 
 report += '## Bidirectional schema comparison\n\n';
 report +=

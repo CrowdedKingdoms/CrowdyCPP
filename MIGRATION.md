@@ -1,10 +1,11 @@
 # CrowdyCPP migration notes
 
-## 0.14.0 strict parity
+## 0.14.0 strict portable-parity release
 
-0.14.0 is additive. It closes every portable CrowdyJS v12 parity gap and adds
-typed wrappers for current platform SDL additions that postdate the pinned JS
-release.
+0.14.0 is not purely additive. It closes every portable gap against the pinned
+CrowdyJS 12.0.0 target and adds typed wrappers for current platform SDL
+extensions, but it also changes `SaveStateStore::patch` persistence timing and
+introduces non-copyable owning runtime types.
 
 - Prefer `client.createCrowdyStudioAgentController(options)` for production
   agent construction. It owns `CrowdyStudioAgentGraphQLTransport`, the
@@ -21,13 +22,27 @@ release.
 - `gameModel().ensureContainer(input)` and the `bindingKey` list filter require
   the current Game API. `marketplace().appListingVersions(vars)` is a
   Management API studio read.
-- `SaveStateStore::set` and `patch` now update the local cache and mark it
-  dirty; call `save()` to persist. `dirty()` and `lastSavedAt()` expose the
-  save lifecycle. This corrects the old C++ `patch` behavior, which persisted
-  immediately.
+- `SaveStateStore::patch` no longer performs a network write. It updates the
+  local cache and marks it dirty; code that relied on the old immediate
+  persistence must call `save()` explicitly. The new `set` method has the same
+  local-only behavior. `dirty()` and `lastSavedAt()` expose the save lifecycle,
+  and persistence failures now occur at `save()`, not at `patch()`.
 - Store revision, queue, error, local-actor, and private-avatar observability
   are real bounded snapshots/counters; lifetime totals are not reset by
   clearing retained rings.
+
+### Runtime ownership and copyability
+
+The new runtime objects own callbacks, protocol state, or host authority and
+must not be copied:
+
+- `graphql::SubscriptionHandle`, `graphql::GraphQLSubscriptionClient`,
+  `player_host::AgentControlLeaseManager`, and
+  `agent::NativeToolDispatcherV1` are move-only.
+- `agent::CrowdyStudioAgentController` and
+  `agent::CrowdyStudioAgentControllerRuntime` are non-copyable and
+  non-movable. Keep the factory result in its returned `std::unique_ptr`
+  rather than storing either object in a container that relocates values.
 
 No provider API key or provider client was added. Agent providers remain a
 server-side platform concern. See
@@ -35,7 +50,7 @@ server-side platform concern. See
 
 ## Crowdy Studio portable parity
 
-This phase is additive. Native integrations can now use
+The Crowdy Studio API surface adds
 `client.crowdyStudio()` for the current CrowdyJS v12 project, personal-library,
 and common-file GraphQL surface, and
 `crowdy::studio::CrowdyStudioController` for the portable headless state

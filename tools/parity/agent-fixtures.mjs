@@ -26,6 +26,10 @@ const cppPreemptionPath = join(
   fixtureDirectory,
   'crowdyjs-preemption-reasons.v1.json',
 );
+const cppToolsPath = join(
+  fixtureDirectory,
+  'crowdyjs-agent-tools.v1.json',
+);
 const jsDescriptorPath = join(
   crowdyjs,
   'src',
@@ -68,7 +72,6 @@ if (args.write) {
     cppPreemptionPath,
     `${JSON.stringify(preemptionFixture, null, 2)}\n`,
   );
-  console.log('agent fixtures synchronized from CrowdyJS');
 }
 
 const cppDescriptorFixture = JSON.parse(
@@ -134,6 +137,23 @@ assertEqual(
   subsetRegistry.registryDigest,
   jsDescriptorFixture.gameApiSubsetRegistryDigest,
 );
+const toolsFixture = {
+  contractVersion: 'crowdy.agent-tools/1',
+  registryDigest: subsetRegistry.registryDigest,
+  tools: subsetRegistry.list().map(({ descriptor, descriptorDigest }) => ({
+    descriptor,
+    descriptorDigest,
+  })),
+};
+if (args.write) {
+  writeFileSync(cppToolsPath, `${JSON.stringify(toolsFixture, null, 2)}\n`);
+  console.log('agent fixtures synchronized from CrowdyJS');
+}
+if (!existsSync(cppToolsPath)) {
+  throw new Error(`required CrowdyCPP agent tools fixture is missing: ${cppToolsPath}`);
+}
+const cppToolsFixture = JSON.parse(readFileSync(cppToolsPath, 'utf8'));
+assertDeepEqual('canonical Game API agent tools', cppToolsFixture, toolsFixture);
 
 console.log(
   `agent fixtures match CrowdyJS: ${subset.length} descriptors, ` +

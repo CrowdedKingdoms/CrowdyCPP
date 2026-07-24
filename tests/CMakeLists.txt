@@ -30,6 +30,18 @@ add_executable(crowdy_studio_test crowdy_studio_test.cpp)
 target_link_libraries(crowdy_studio_test PRIVATE crowdy)
 add_test(NAME crowdy_studio_test COMMAND crowdy_studio_test)
 
+add_executable(agent_registry_test agent_registry_test.cpp)
+target_link_libraries(agent_registry_test PRIVATE crowdy)
+add_test(NAME agent_registry_test COMMAND agent_registry_test)
+
+add_executable(agent_api_test agent_api_test.cpp)
+target_link_libraries(agent_api_test PRIVATE crowdy)
+add_test(NAME agent_api_test COMMAND agent_api_test)
+
+add_executable(agent_controller_test agent_controller_test.cpp)
+target_link_libraries(agent_controller_test PRIVATE crowdy)
+add_test(NAME agent_controller_test COMMAND agent_controller_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

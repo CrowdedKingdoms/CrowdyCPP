@@ -10,6 +10,9 @@
 ///   crowdy::kit                 — Game Kit (blueprints + runtime helpers)
 
 #include "crowdy/client.hpp"
+#include "crowdy/agent/controller.hpp"
+#include "crowdy/agent/registry.hpp"
+#include "crowdy/agent/transport.hpp"
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
 #include "crowdy/generated/enums.hpp"

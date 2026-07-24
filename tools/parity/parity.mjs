@@ -82,45 +82,9 @@ const SCHEMA_BASELINE = {
 const ROOT_CLASSIFICATIONS = {
   ...classifyNames(
     'Query',
-    [
-      'appPlayerCodeListingVersions',
-      'cpCrowdyStudioAgentPlatformPolicy',
-      'crowdyStudioAgentBudget',
-      'crowdyStudioAgentEffectivePolicy',
-      'crowdyStudioAgentHistory',
-      'crowdyStudioAgentPolicy',
-      'crowdyStudioAgentSession',
-      'crowdyStudioAgentSessions',
-      'crowdyStudioAgentToolDescriptors',
-      'crowdyStudioAgentUsage',
-    ],
+    ['appPlayerCodeListingVersions'],
     CATEGORY.PORTABLE,
-    'portable Crowdy Studio/agent query; later strict-parity phase',
-  ),
-  ...classifyNames(
-    'Mutation',
-    [
-      'crowdyStudioAgentCreateSession',
-      'crowdyStudioAgentAttachClient',
-      'crowdyStudioAgentSetMode',
-      'crowdyStudioAgentAcknowledgeEvents',
-      'crowdyStudioAgentHeartbeat',
-      'crowdyStudioAgentSendMessage',
-      'crowdyStudioAgentApproveTool',
-      'crowdyStudioAgentRejectTool',
-      'crowdyStudioAgentToolResult',
-      'crowdyStudioAgentGrantLease',
-      'crowdyStudioAgentRevokeLease',
-      'crowdyStudioAgentPause',
-      'crowdyStudioAgentResume',
-      'crowdyStudioAgentCancelRun',
-      'crowdyStudioAgentCloseSession',
-      'setCrowdyStudioAgentPolicy',
-      'cpSetCrowdyStudioAgentPlatformPolicy',
-      'cpSetCrowdyStudioAgentAppKill',
-    ],
-    CATEGORY.PORTABLE,
-    'portable Agentic Studio mutation; later agent-controller phase',
+    'portable API query newer than the wrapped CrowdyJS v12 domain surface',
   ),
   'Mutation.gameModelEnsureContainer': classification(
     CATEGORY.PORTABLE,
@@ -129,10 +93,6 @@ const ROOT_CLASSIFICATIONS = {
   'Subscription.gameModelContainerChanged': classification(
     CATEGORY.PORTABLE,
     'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
-  ),
-  'Subscription.crowdyStudioAgentEvents': classification(
-    CATEGORY.PORTABLE,
-    'generic GraphQLSubscriptionClient transport is available; typed agent controller and reduction remain',
   ),
   ...classifyNames(
     'Mutation',
@@ -321,6 +281,7 @@ const METHOD_ALIASES = {
   'GameModelAPI.automations': 'automationsList',
   'GameModelAPI.getFunction': 'function',
   'OperatorAPI.usage': 'usageSummary',
+  'CrowdyAgentGraphQLTransport.toolResult': 'browserToolResult',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -423,13 +384,12 @@ const CLASS_MAP = {
   CrowdyStudioAPI: 'CrowdyStudioAPI',
   CrowdyStudioController: 'CrowdyStudioController',
   CrowdyStudioAgentController: 'CrowdyStudioAgentController',
-  CrowdyAgentGraphQLTransport: 'CrowdyAgentGraphQLTransport',
-  CrowdyAgentToolRegistry: 'CrowdyAgentToolRegistry',
+  CrowdyAgentGraphQLTransport: 'CrowdyStudioAgentGraphQLTransport',
+  CrowdyAgentToolRegistry: 'AgentToolRegistry',
   AgentControlLeaseManager: 'AgentControlLeaseManager',
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [
-  'Agentic Studio: generated operations, descriptor validation, durable controller, approvals, budgets, heartbeat, and epoch fencing.',
   'Native player host: tool dispatcher, Studio/player-host adapters, lease manager, immediate human preemption, and late-result fencing.',
 ];
 
@@ -965,7 +925,7 @@ function cppClassMethods() {
         }
         if (!visible) continue;
         const methodMatch = rawLine.match(
-          /^\s{2}[\w:<>&,*\s]+?[&*\s](\w+)\s*\(/u,
+          /^\s{2}[^=;{}]+?[&*\s](\w+)\s*\(/u,
         );
         if (
           methodMatch &&

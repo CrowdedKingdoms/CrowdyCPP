@@ -69,6 +69,15 @@ Engines inject synchronization, approval, crypto, clock, and CLIENT artifact
 runtime seams; CrowdyCPP does not ship DOM, Monaco, CSS, a Rust worker, or an
 engine renderer.
 
+**Native Agentic Studio:** `client.crowdyStudioAgent()` exposes the exact
+`crowdy.studio-agent/1` Game/Management operations, while
+`crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
+epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
+tool seam. The immutable 28-tool registry is verified against CrowdyJS v12
+canonical SHA-256 fixtures. There is no provider client, DOM driver, raw
+GraphQL/UDP executor, or generic tool authority in this surface. See
+[Native Agentic Studio](docs/native-agent-api.md).
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics
@@ -252,9 +261,9 @@ app-scoped token):
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
 | `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves, metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
-| `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
+| `client.crowdyStudioAgent()` | Exact Agentic Studio sessions/history/descriptors/budgets/control operations on Game API plus policy/usage/operator controls on Management API. Pair with `crowdy::agent::CrowdyStudioAgentController`; see [native agent integration](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
@@ -655,6 +664,7 @@ external CMake build.
 - [Replication API (native UDP)](https://docs.crowdedkingdoms.com/replication-api/intro)
 - [Wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats) · [HMAC](https://docs.crowdedkingdoms.com/replication-api/hmac)
 - [Management API](https://docs.crowdedkingdoms.com/management-api/intro) · [Game API](https://docs.crowdedkingdoms.com/game-api/intro)
+- [Native Agentic Studio](docs/native-agent-api.md)
 - [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)
 - [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS) — the TypeScript SDK this API surface mirrors
 - Agent index: [llms.txt](https://docs.crowdedkingdoms.com/llms.txt)

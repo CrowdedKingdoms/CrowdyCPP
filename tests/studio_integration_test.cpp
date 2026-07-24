@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <optional>
 #include <string>
@@ -263,6 +264,8 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
   std::shared_ptr<std::vector<std::string>> events;
   std::vector<std::string> calls;
   std::function<void()> onVersions;
+  bool failEnable = false;
+  bool failInvoke = false;
 
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
@@ -292,6 +295,10 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
   void setEnabled(const CrowdyStudioProjectScope&,
                   std::string_view, bool enabled) override {
     calls.push_back(enabled ? "enable" : "disable");
+    if (failEnable && enabled) {
+      throw std::runtime_error(
+          "server enable response was lost");
+    }
   }
 
   void setRequires(
@@ -314,6 +321,10 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
       const CrowdyStudioProjectScope&, std::string_view,
       std::string_view, const std::optional<std::string>& params) override {
     calls.push_back("invoke:" + params.value_or(""));
+    if (failInvoke) {
+      throw std::runtime_error(
+          "runtime invoke response was lost");
+    }
     return {std::nullopt, R"({"ok":true})", "4", 2};
   }
 };
@@ -321,16 +332,61 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
 class FakeApproval final : public ICrowdyStudioApprovalGate {
  public:
   int live = 0;
+  bool failLive = false;
+  bool failRestore = false;
   void requireLiveApproval(
       const CrowdyStudioLiveApprovalRequest& request,
       std::string_view grant) override {
     CHECK(request.projectContentHash.rfind("sha256:", 0) == 0);
     CHECK(grant == "approved");
+    if (failLive) {
+      throw std::runtime_error(
+          "approval provider validation failed");
+    }
     ++live;
   }
   void requireRestoreApproval(
       const CrowdyStudioRestoreApprovalRequest&,
-      std::string_view) override {}
+      std::string_view) override {
+    if (failRestore) {
+      throw std::runtime_error(
+          "restore approval provider validation failed");
+    }
+  }
+};
+
+class FakeSynchronization final
+    : public ICrowdyStudioSynchronizationProvider {
+ public:
+  CrowdyStudioAtomicPatchResult applyAtomicPatch(
+      const CrowdyStudioProjectScope&, std::string_view,
+      const CrowdyStudioAtomicPatchInput&) override {
+    return {};
+  }
+  std::vector<CrowdyStudioCheckpointMetadata> listCheckpoints(
+      const CrowdyStudioProjectScope&, std::string_view) override {
+    return {};
+  }
+  CrowdyStudioCheckpointRestoreResult restoreCheckpoint(
+      const CrowdyStudioCheckpointRestoreInput&) override {
+    ++restores;
+    throw std::runtime_error(
+        "restore response was lost");
+  }
+
+  int restores = 0;
+};
+
+class FakeWallet final : public ICrowdyStudioWalletProvider {
+ public:
+  CrowdyStudioWalletSnapshot balance() override {
+    ++reads;
+    if (fail) throw std::runtime_error("wallet unavailable");
+    return {"1234", "USD"};
+  }
+
+  int reads = 0;
+  bool fail = false;
 };
 
 class FakeEditor final : public ICrowdyStudioEditorAdapter {
@@ -380,6 +436,10 @@ class FakeClientRuntime final : public ICrowdyStudioClientRuntime {
 
 class FakePlayerHost final : public PlayerHostAdapterV1 {
  public:
+  explicit FakePlayerHost(
+      std::shared_ptr<std::vector<std::string>> eventLog = {})
+      : events(std::move(eventLog)) {}
+
   void capabilities(CancellationTokenV1,
                     CapabilitiesCallbackV1 callback) override {
     PlayerHostCapabilitiesV1 value;
@@ -413,7 +473,9 @@ class FakePlayerHost final : public PlayerHostAdapterV1 {
   }
   void clearAgentIntent(PreemptionReasonV1) noexcept override {
     ++clears;
+    if (events) events->push_back("host-clear");
   }
+  std::shared_ptr<std::vector<std::string>> events;
   int clears = 0;
 };
 
@@ -423,36 +485,6 @@ class FakeHttpTransport final : public graphql::IHttpTransport {
       const graphql::HttpRequest&) override {
     return {503, R"({"errors":[{"message":"offline"}]})"};
   }
-};
-
-class FakeLayout final : public ICrowdyStudioIntegrationLayout {
- public:
-  explicit FakeLayout(
-      std::shared_ptr<std::vector<std::string>> eventLog)
-      : events(std::move(eventLog)) {}
-  ~FakeLayout() override { events->push_back("layout-destroy"); }
-  void relayout() override { ++relayouts; }
-  void tick() override { ++ticks; }
-  void dispose() noexcept override {
-    events->push_back("layout-dispose");
-  }
-  std::shared_ptr<std::vector<std::string>> events;
-  int relayouts = 0;
-  int ticks = 0;
-};
-
-class FakeControl final : public ICrowdyStudioIntegrationControl {
- public:
-  explicit FakeControl(
-      std::shared_ptr<std::vector<std::string>> eventLog)
-      : events(std::move(eventLog)) {}
-  ~FakeControl() override { events->push_back("control-destroy"); }
-  void tick() override { ++ticks; }
-  void dispose() noexcept override {
-    events->push_back("control-dispose");
-  }
-  std::shared_ptr<std::vector<std::string>> events;
-  int ticks = 0;
 };
 
 CrowdyStudioControllerOptions controllerOptions(FakeClock& clock) {
@@ -466,6 +498,55 @@ CrowdyStudioControllerOptions controllerOptions(FakeClock& clock) {
   options.sleep = [](std::int64_t) {};
   (void)clock;
   return options;
+}
+
+std::string iso(std::int64_t epochMs) {
+  const std::time_t seconds =
+      static_cast<std::time_t>(epochMs / 1'000);
+  std::tm utc{};
+#if defined(_WIN32)
+  gmtime_s(&utc, &seconds);
+#else
+  gmtime_r(&seconds, &utc);
+#endif
+  char buffer[64];
+  std::snprintf(buffer, sizeof(buffer),
+                "%04d-%02d-%02dT%02d:%02d:%02d.%03lldZ",
+                utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
+                utc.tm_hour, utc.tm_min, utc.tm_sec,
+                static_cast<long long>(epochMs % 1'000));
+  return buffer;
+}
+
+const NativeLocalToolContractV1& localContract(
+    std::string_view name) {
+  const auto contracts = nativeLocalToolContractsV1();
+  const auto found = std::find_if(
+      contracts.begin(), contracts.end(),
+      [&](const auto& value) { return value.name == name; });
+  CHECK(found != contracts.end());
+  return *found;
+}
+
+NativeToolInvocationV1 nativeInvocation(
+    std::string name, NativeToolArgumentsV1 arguments,
+    const FakeClock& clock, std::string id) {
+  const auto& descriptor = localContract(name);
+  NativeToolInvocationV1 value;
+  value.session_id = "session-1";
+  value.run_id = "run-1";
+  value.tool_call_id = std::move(id);
+  value.name = std::move(name);
+  value.version = std::string(descriptor.version);
+  value.descriptor_digest =
+      std::string(descriptor.descriptor_digest);
+  value.arguments = std::move(arguments);
+  value.argument_hash =
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  value.context_version = "context-1";
+  value.client_epoch = "1";
+  value.deadline = iso(clock.epoch + 10);
+  return value;
 }
 
 ValidatedStudioGateV1 gate(
@@ -499,8 +580,7 @@ AdapterResultV1<StudioNativeToolOutputV1> dispatch(
   return std::move(*result);
 }
 
-CrowdyStudioControllerHostAdapterOptions hostOptions(
-    FakeEditor* editor = nullptr) {
+CrowdyStudioControllerHostAdapterOptions hostOptions() {
   CrowdyStudioControllerHostAdapterOptions options;
   options.sessionId =
       [] { return std::optional<std::string>("session-1"); };
@@ -524,12 +604,6 @@ CrowdyStudioControllerHostAdapterOptions hostOptions(
          const ValidatedStudioGateV1& value) {
         return value.approval_grant == "approved";
       };
-  if (editor) {
-    options.localDiagnostics = [editor] {
-      (void)editor;
-      return std::vector<CrowdyStudioEditorDiagnostic>{};
-    };
-  }
   return options;
 }
 
@@ -546,19 +620,20 @@ void testEveryStudioToolMapping() {
   controller.initialize();
 
   std::vector<CrowdyStudioEditorDiagnostic> diagnostics{{
-      .source = CrowdyStudioEditorDiagnosticSource::Rustc,
-      .target = CrowdyStudioTarget::Server,
-      .path = "src/lib.rs",
+      .target = CrowdyStudioTarget::Client,
+      .path = "src/client.rs",
       .line = 3,
       .column = 5,
+      .endLine = 4,
+      .endColumn = 9,
       .severity = CrowdyStudioEditorDiagnosticSeverity::Warning,
-      .code = "unused",
       .message = "unused value",
+      .code = "unused",
+      .source = CrowdyStudioEditorDiagnosticSource::Runtime,
   }};
-  auto optionsForHost = hostOptions();
-  optionsForHost.localDiagnostics = [&] { return diagnostics; };
+  controller.setLocalDiagnostics(diagnostics);
   CrowdyStudioControllerHostAdapter host(
-      controller, *crypto, std::move(optionsForHost));
+      controller, *crypto, hostOptions());
 
   std::size_t mapped = 0;
   auto context = dispatch(
@@ -598,12 +673,24 @@ void testEveryStudioToolMapping() {
   CHECK(closed.ok());
   ++mapped;
 
+  controller.setLocalDiagnostics(diagnostics);
   auto local = dispatch(
       host, StudioNativeToolKindV1::DiagnosticsLocalGet,
       NoArgumentsV1{});
   CHECK(local.ok());
-  CHECK_EQ(std::get<StudioDiagnosticsV1>(*local.value).diagnostics.size(),
-           1U);
+  const auto& projected =
+      std::get<StudioDiagnosticsV1>(*local.value).diagnostics;
+  CHECK_EQ(projected.size(), 1U);
+  CHECK_EQ(controller.getState().localDiagnostics, diagnostics);
+  CHECK_EQ(projected.front().source,
+           StudioDiagnosticSourceV1::Runtime);
+  CHECK_EQ(projected.front().target, StudioTargetV1::Client);
+  CHECK_EQ(projected.front().path, "src/client.rs");
+  CHECK_EQ(projected.front().line, 3U);
+  CHECK_EQ(projected.front().column, 5U);
+  CHECK_EQ(projected.front().severity,
+           StudioDiagnosticSeverityV1::Warning);
+  CHECK(projected.front().code == std::optional<std::string>("unused"));
   ++mapped;
 
   auto status = dispatch(
@@ -671,6 +758,116 @@ void testEveryStudioToolMapping() {
   CHECK(liveInvoke.ok());
 
   CHECK_EQ(mapped, 11U);
+}
+
+void testHostOutcomeBoundaries() {
+  FakeClock clock;
+  auto crypto = std::make_shared<FakeCrypto>();
+  FakeProjectProvider provider;
+  FakeRuntime runtime;
+  FakeApproval approval;
+  CrowdyStudioController controller(
+      controllerOptions(clock), provider, runtime, *crypto, clock,
+      nullptr, &approval);
+  controller.initialize();
+
+  auto throwingGateOptions = hostOptions();
+  throwingGateOptions.sessionId =
+      []() -> std::optional<std::string> {
+    throw std::runtime_error("session provider failed");
+  };
+  CrowdyStudioControllerHostAdapter throwingGateHost(
+      controller, *crypto, std::move(throwingGateOptions));
+  const auto gateFailure = dispatch(
+      throwingGateHost, StudioNativeToolKindV1::StateGet,
+      NoArgumentsV1{});
+  CHECK(!gateFailure.ok());
+  CHECK(!gateFailure.outcome_unknown);
+  CHECK_EQ(gateFailure.error->code, "AGENT_TOOL_FAILED");
+
+  CrowdyStudioControllerHostAdapter host(
+      controller, *crypto, hostOptions());
+  const auto exact = controller.makeDeploymentPlan();
+  const StudioRuntimeDeployLiveRequestV1 request{
+      .expected_revision = exact.expectedRevisionId,
+      .project_content_hash = *exact.projectContentHash,
+      .targets = {StudioTargetV1::Server},
+      .pairing_preference = StudioPairingPreferenceV1::None,
+      .draft = false,
+  };
+
+  approval.failLive = true;
+  const auto callsBeforeApproval = runtime.calls.size();
+  const auto approvalFailure = dispatch(
+      host, StudioNativeToolKindV1::RuntimeDeployLive, request,
+      gate("context-1", "approved"));
+  CHECK(!approvalFailure.ok());
+  CHECK(!approvalFailure.outcome_unknown);
+  CHECK_EQ(approvalFailure.error->code, "AGENT_TOOL_FAILED");
+  CHECK_EQ(runtime.calls.size(), callsBeforeApproval);
+
+  approval.failLive = false;
+  runtime.failEnable = true;
+  const auto enableFailure = dispatch(
+      host, StudioNativeToolKindV1::RuntimeDeployLive, request,
+      gate("context-1", "approved"));
+  CHECK(!enableFailure.ok());
+  CHECK(enableFailure.outcome_unknown);
+  CHECK_EQ(enableFailure.error->code,
+           "AGENT_TOOL_OUTCOME_UNKNOWN");
+  CHECK(std::find(runtime.calls.begin(), runtime.calls.end(), "enable") !=
+        runtime.calls.end());
+
+  FakeProjectProvider invokeProvider;
+  FakeRuntime invokeRuntime;
+  CrowdyStudioController invokeController(
+      controllerOptions(clock), invokeProvider, invokeRuntime, *crypto,
+      clock);
+  invokeController.initialize();
+  CHECK(invokeController.testDraft().status ==
+        CrowdyStudioDeployResult::Status::Running);
+  invokeRuntime.failInvoke = true;
+  CrowdyStudioControllerHostAdapter invokeHost(
+      invokeController, *crypto, hostOptions());
+  const auto invokeFailure = dispatch(
+      invokeHost, StudioNativeToolKindV1::RuntimeInvoke,
+      StudioRuntimeInvokeRequestV1{
+          .export_name = "invoke",
+          .environment = StudioRuntimeEnvironmentV1::Draft,
+          .params = {}});
+  CHECK(!invokeFailure.ok());
+  CHECK(invokeFailure.outcome_unknown);
+  CHECK_EQ(invokeFailure.error->code,
+           "AGENT_TOOL_OUTCOME_UNKNOWN");
+
+  FakeProjectProvider restoreProvider;
+  FakeRuntime restoreRuntime;
+  FakeApproval restoreApproval;
+  FakeSynchronization synchronization;
+  CrowdyStudioController restoreController(
+      controllerOptions(clock), restoreProvider, restoreRuntime, *crypto,
+      clock, &synchronization, &restoreApproval);
+  restoreController.initialize();
+  bool restoreEffectStarted = false;
+  restoreApproval.failRestore = true;
+  try {
+    (void)restoreController.restoreCheckpoint(
+        "checkpoint-1", "approved", std::nullopt,
+        [&] { restoreEffectStarted = true; });
+    CHECK(false);
+  } catch (const std::runtime_error&) {
+  }
+  CHECK(!restoreEffectStarted);
+  restoreApproval.failRestore = false;
+  try {
+    (void)restoreController.restoreCheckpoint(
+        "checkpoint-1", "approved", std::nullopt,
+        [&] { restoreEffectStarted = true; });
+    CHECK(false);
+  } catch (const std::runtime_error&) {
+  }
+  CHECK(restoreEffectStarted);
+  CHECK_EQ(synchronization.restores, 1);
 }
 
 void testGateCancellationHashAndPreemptionFencing() {
@@ -755,6 +952,69 @@ void testGateCancellationHashAndPreemptionFencing() {
         CrowdyStudioAgentActivity::Paused);
 }
 
+void testNonblockingPollAndScheduledDeadlineProgress() {
+  FakeClock clock;
+  auto crypto = std::make_shared<FakeCrypto>();
+  auto provider = std::make_shared<FakeProjectProvider>();
+  auto runtime = std::make_shared<FakeRuntime>();
+  FakePlayerHost playerHost;
+  int platformPolls = 0;
+
+  CrowdyStudioIntegrationOptions options;
+  options.studio = controllerOptions(clock);
+  options.crypto = crypto;
+  options.clock = &clock;
+  options.playerHost = &playerHost;
+  options.platformPoll = [&] {
+    ++platformPolls;
+    return std::size_t{1};
+  };
+  options.nativeTools.clock = &clock;
+  options.nativeTools.session_id =
+      [] { return std::optional<std::string>("session-1"); };
+  options.nativeTools.client_epoch =
+      [] { return std::optional<std::string>("1"); };
+  options.nativeTools.context_version =
+      [] { return std::string("context-1"); };
+  options.nativeTools.mode =
+      [] { return NativeAgentModeV1::Ask; };
+  options.nativeTools.validate_argument_hash =
+      [](const NativeToolInvocationV1&) { return true; };
+  options.studioHost = hostOptions();
+
+  auto integration = CrowdyStudioIntegration::create(
+      std::move(options), provider, runtime);
+  integration->initialize();
+
+  std::optional<NativeToolResultV1> result;
+  integration->nativeTools().dispatch(
+      nativeInvocation(
+          "project.select",
+          StudioProjectSelectRequestV1{.project_ref = "project-2"},
+          clock, "scheduled-project-select"),
+      [&](NativeToolResultV1 value) { result = std::move(value); });
+  CHECK(!result);
+  CHECK_EQ(integration->pendingStudioMaintenance(), 1U);
+
+  CHECK_EQ(integration->poll(), std::size_t{1});
+  CHECK(!result);
+  clock.epoch += 20;
+  clock.monotonic += 20;
+  CHECK_EQ(integration->poll(), std::size_t{1});
+  CHECK(result.has_value());
+  CHECK_EQ(result->status, NativeToolResultStatusV1::TimedOut);
+  CHECK_EQ(result->error->code, "AGENT_TOOL_TIMEOUT");
+  CHECK_EQ(integration->studio().getState().project->projectId,
+           "project-1");
+  CHECK_EQ(platformPolls, 2);
+
+  CHECK_EQ(integration->runStudioMaintenance(), 1U);
+  CHECK_EQ(integration->pendingStudioMaintenance(), 0U);
+  CHECK_EQ(integration->studio().getState().project->projectId,
+           "project-1");
+  CHECK_EQ(result->status, NativeToolResultStatusV1::TimedOut);
+}
+
 void testEditorRoundTripsPollTickAndRelayout() {
   FakeClock clock;
   auto crypto = std::make_shared<FakeCrypto>();
@@ -762,14 +1022,13 @@ void testEditorRoundTripsPollTickAndRelayout() {
   auto runtime = std::make_shared<FakeRuntime>();
   auto editor = std::make_shared<FakeEditor>();
   FakePlayerHost playerHost;
-  AgentControlLeaseManager leases(playerHost);
 
   CrowdyStudioIntegrationOptions options;
   options.studio = controllerOptions(clock);
   options.crypto = crypto;
   options.clock = &clock;
   options.editor = editor;
-  options.leaseManager = &leases;
+  options.playerHost = &playerHost;
   options.nativeTools.clock = &clock;
   options.nativeTools.session_id =
       [] { return std::optional<std::string>("session-1"); };
@@ -781,7 +1040,7 @@ void testEditorRoundTripsPollTickAndRelayout() {
       [] { return NativeAgentModeV1::Build; };
   options.nativeTools.is_lease_active =
       [](std::string_view, LeaseKindV1) { return true; };
-  options.studioHost = hostOptions(editor.get());
+  options.studioHost = hostOptions();
   int polls = 0;
   options.platformPoll = [&] {
     ++polls;
@@ -790,6 +1049,9 @@ void testEditorRoundTripsPollTickAndRelayout() {
 
   auto integration = CrowdyStudioIntegration::create(
       std::move(options), provider, runtime);
+  CHECK(integration->controlSnapshot().bound);
+  CHECK(integration->layoutSnapshot().isVisible(
+      StudioPaneId::Explorer));
   integration->initialize();
   CHECK(!editor->snapshots.empty());
   const auto& initial = editor->snapshots.back();
@@ -821,17 +1083,29 @@ void testEditorRoundTripsPollTickAndRelayout() {
   CHECK_EQ(integration->studio().getState().openFiles.size(), 1U);
 
   editor->callbacks.onLocalDiagnostics({{
-      .source = CrowdyStudioEditorDiagnosticSource::LocalAdvisory,
-      .target = CrowdyStudioTarget::Server,
-      .path = "src/lib.rs",
-      .line = 1,
-      .column = 1,
+      .target = CrowdyStudioTarget::Client,
+      .path = "./src/client.rs",
+      .line = 7,
+      .column = 11,
+      .endLine = 8,
+      .endColumn = 13,
       .severity = CrowdyStudioEditorDiagnosticSeverity::Hint,
-      .code = std::nullopt,
       .message = "consider a comment",
+      .code = "native-hint",
+      .source = CrowdyStudioEditorDiagnosticSource::Runtime,
   }});
   CHECK_EQ(integration->editor()->localDiagnostics().size(), 1U);
   CHECK_EQ(integration->studio().getState().localDiagnostics.size(), 1U);
+  const auto& diagnostic =
+      integration->studio().getState().localDiagnostics.front();
+  CHECK_EQ(diagnostic.target, CrowdyStudioTarget::Client);
+  CHECK_EQ(diagnostic.path, "src/client.rs");
+  CHECK_EQ(diagnostic.line, 7U);
+  CHECK_EQ(diagnostic.column, 11U);
+  CHECK(diagnostic.endLine == std::optional<std::uint32_t>(8));
+  CHECK(diagnostic.endColumn == std::optional<std::uint32_t>(13));
+  CHECK_EQ(diagnostic.source, CrowdyStudioDiagnosticSource::Runtime);
+  CHECK(diagnostic.code == std::optional<std::string>("native-hint"));
 
   integration->relayout();
   CHECK_EQ(editor->relayouts, 1);
@@ -839,15 +1113,58 @@ void testEditorRoundTripsPollTickAndRelayout() {
   CHECK_EQ(polls, 1);
   clock.monotonic = 6;
   CHECK_EQ(integration->tick(), std::size_t{2});
-  CHECK_EQ(provider->saves, 1);
+  CHECK_EQ(provider->saves, 0);
   CHECK_EQ(polls, 2);
+  CHECK_EQ(integration->runStudioMaintenance(), std::size_t{0});
+  CHECK_EQ(provider->saves, 1);
+
+  integration->controlGate().stop();
+  CHECK_EQ(playerHost.clears, 1);
 
   integration->dispose();
   CHECK(editor->disposed);
   CHECK(!editor->callbacks.onProjectFileChange);
 }
 
-void testIntegrationOwnershipAndExtensionSlots() {
+void testOwnedWalletProviderIsNonfatal() {
+  FakeClock clock;
+  auto crypto = std::make_shared<FakeCrypto>();
+  auto provider = std::make_shared<FakeProjectProvider>();
+  auto runtime = std::make_shared<FakeRuntime>();
+  auto wallet = std::make_shared<FakeWallet>();
+  std::weak_ptr<FakeWallet> walletWeak = wallet;
+  FakePlayerHost playerHost;
+
+  CrowdyStudioIntegrationOptions options;
+  options.studio = controllerOptions(clock);
+  options.crypto = crypto;
+  options.clock = &clock;
+  options.walletProvider = wallet;
+  options.playerHost = &playerHost;
+  auto integration = CrowdyStudioIntegration::create(
+      std::move(options), provider, runtime);
+  wallet.reset();
+  CHECK(!walletWeak.expired());
+
+  integration->initialize();
+  integration->studio().setSurfaceVisible(
+      CrowdyStudioPolledSurface::Usage, true);
+  CHECK(integration->studio().getState().wallet ==
+        std::optional<CrowdyStudioWalletSnapshot>(
+            CrowdyStudioWalletSnapshot{"1234", "USD"}));
+  CHECK_EQ(walletWeak.lock()->reads, 1);
+
+  walletWeak.lock()->fail = true;
+  integration->studio().refreshSurface(
+      CrowdyStudioPolledSurface::Usage);
+  CHECK(!integration->studio().getState().wallet);
+  CHECK_EQ(walletWeak.lock()->reads, 2);
+
+  integration.reset();
+  CHECK(walletWeak.expired());
+}
+
+void testConcreteIntegrationOwnershipAndDestructionOrder() {
   auto events = std::make_shared<std::vector<std::string>>();
   FakeClock clock;
   auto crypto = std::make_shared<FakeCrypto>();
@@ -855,14 +1172,15 @@ void testIntegrationOwnershipAndExtensionSlots() {
   auto runtime = std::make_shared<FakeRuntime>(events);
   auto editor = std::make_shared<FakeEditor>(events);
   auto clientRuntime = std::make_shared<FakeClientRuntime>(events);
-  auto layout = std::make_shared<FakeLayout>(events);
-  auto control = std::make_shared<FakeControl>(events);
+  auto layoutStorage =
+      std::make_shared<InMemoryCrowdyStudioLayoutStorage>();
   std::weak_ptr<FakeProjectProvider> providerWeak = provider;
   std::weak_ptr<FakeRuntime> runtimeWeak = runtime;
   std::weak_ptr<FakeEditor> editorWeak = editor;
   std::weak_ptr<FakeClientRuntime> clientRuntimeWeak = clientRuntime;
-  FakePlayerHost playerHost;
-  AgentControlLeaseManager leases(playerHost);
+  std::weak_ptr<InMemoryCrowdyStudioLayoutStorage>
+      layoutStorageWeak = layoutStorage;
+  FakePlayerHost playerHost(events);
 
   CrowdyStudioIntegrationOptions options;
   options.studio = controllerOptions(clock);
@@ -870,9 +1188,11 @@ void testIntegrationOwnershipAndExtensionSlots() {
   options.clock = &clock;
   options.editor = editor;
   options.clientRuntime = clientRuntime;
-  options.leaseManager = &leases;
-  options.layout = layout;
-  options.control = control;
+  options.layoutStorage = layoutStorage;
+  options.playerHost = &playerHost;
+  options.controlGate.on_preempt = [events](PreemptionReasonV1) {
+    events->push_back("control-preempt");
+  };
   options.nativeTools.clock = &clock;
   options.nativeTools.session_id =
       [] { return std::optional<std::string>("session-1"); };
@@ -880,7 +1200,7 @@ void testIntegrationOwnershipAndExtensionSlots() {
       [] { return std::optional<std::string>("1"); };
   options.nativeTools.context_version =
       [] { return std::string("context-1"); };
-  options.studioHost = hostOptions(editor.get());
+  options.studioHost = hostOptions();
 
   auto integration = CrowdyStudioIntegration::create(
       std::move(options), provider, runtime);
@@ -888,17 +1208,24 @@ void testIntegrationOwnershipAndExtensionSlots() {
   runtime.reset();
   editor.reset();
   clientRuntime.reset();
-  layout.reset();
-  control.reset();
+  layoutStorage.reset();
   crypto.reset();
   CHECK(!providerWeak.expired());
   CHECK(!runtimeWeak.expired());
   CHECK(!editorWeak.expired());
   CHECK(!clientRuntimeWeak.expired());
+  CHECK(!layoutStorageWeak.expired());
 
   integration->initialize();
+  CHECK(integration->controlSnapshot().bound);
+  integration->layout().setVisible(StudioPaneId::Settings, true);
+  CHECK(integration->layoutSnapshot().isVisible(
+      StudioPaneId::Settings));
+  CHECK(layoutStorageWeak.lock()->getItem(
+            STUDIO_LAYOUT_STORAGE_KEY)
+            .has_value());
   integration->relayout();
-  integration->tick();
+  integration->poll();
   events->clear();
   integration.reset();
 
@@ -906,20 +1233,17 @@ void testIntegrationOwnershipAndExtensionSlots() {
   CHECK(runtimeWeak.expired());
   CHECK(editorWeak.expired());
   CHECK(clientRuntimeWeak.expired());
-  const auto controlDispose =
-      std::find(events->begin(), events->end(), "control-dispose");
-  const auto layoutDispose =
-      std::find(events->begin(), events->end(), "layout-dispose");
+  CHECK(layoutStorageWeak.expired());
+  const auto controlPreempt =
+      std::find(events->begin(), events->end(), "control-preempt");
   const auto editorDispose =
       std::find(events->begin(), events->end(), "editor-dispose");
   const auto runtimeStop =
       std::find(events->begin(), events->end(), "runtime-stop");
-  CHECK(controlDispose != events->end());
-  CHECK(layoutDispose != events->end());
+  CHECK(controlPreempt != events->end());
   CHECK(editorDispose != events->end());
   CHECK(runtimeStop != events->end());
-  CHECK(controlDispose < editorDispose);
-  CHECK(layoutDispose < editorDispose);
+  CHECK(controlPreempt < editorDispose);
   CHECK(editorDispose < runtimeStop);
 }
 
@@ -928,8 +1252,8 @@ void testCrowdyClientConstructionHelper() {
   auto transport = std::make_shared<FakeHttpTransport>();
   FakeClock clock;
   FakePlayerHost playerHost;
-  AgentControlLeaseManager leases(playerHost);
   std::unique_ptr<CrowdyStudioIntegration> integration;
+  int platformPolls = 0;
   {
     ClientConfig config;
     config.httpUrl = "https://game.invalid";
@@ -942,7 +1266,11 @@ void testCrowdyClientConstructionHelper() {
     options.studio = controllerOptions(clock);
     options.crypto = crypto;
     options.clock = &clock;
-    options.leaseManager = &leases;
+    options.playerHost = &playerHost;
+    options.platformPoll = [&] {
+      ++platformPolls;
+      return std::size_t{3};
+    };
     CrowdyStudioAgentControllerOptions agentOptions;
     agentOptions.sessionId = "session-1";
     options.agent = std::move(agentOptions);
@@ -950,9 +1278,16 @@ void testCrowdyClientConstructionHelper() {
         client.createCrowdyStudioIntegration(std::move(options));
     CHECK(integration);
     CHECK(integration->agentController() != nullptr);
+    CHECK(integration->controlSnapshot().bound);
+    CHECK(dynamic_cast<CrowdyStudioPlayerWalletProvider*>(
+              integration->walletProvider()) != nullptr);
+    CHECK(integration->poll() >= std::size_t{3});
+    CHECK_EQ(platformPolls, 1);
   }
   CHECK(integration->agentController() != nullptr);
+  CHECK(integration->walletProvider() != nullptr);
   (void)integration->tick();
+  CHECK_EQ(platformPolls, 2);
   integration->dispose();
 }
 
@@ -960,9 +1295,12 @@ void testCrowdyClientConstructionHelper() {
 
 int main() {
   testEveryStudioToolMapping();
+  testHostOutcomeBoundaries();
   testGateCancellationHashAndPreemptionFencing();
+  testNonblockingPollAndScheduledDeadlineProgress();
   testEditorRoundTripsPollTickAndRelayout();
-  testIntegrationOwnershipAndExtensionSlots();
+  testOwnedWalletProviderIsNonfatal();
+  testConcreteIntegrationOwnershipAndDestructionOrder();
   testCrowdyClientConstructionHelper();
   std::printf("studio_integration_test passed\n");
   return 0;

@@ -35,6 +35,14 @@ if(CROWDY_NO_EXCEPTIONS)
   add_executable(no_exceptions_umbrella_test no_exceptions_umbrella_test.cpp)
   target_link_libraries(no_exceptions_umbrella_test PRIVATE crowdy)
   add_test(NAME no_exceptions_umbrella_test COMMAND no_exceptions_umbrella_test)
+  add_test(
+    NAME no_exceptions_install_test
+    COMMAND "${CMAKE_COMMAND}"
+      "-DCROWDY_BUILD_DIR=${PROJECT_BINARY_DIR}"
+      "-DCROWDY_CMAKE_COMMAND=${CMAKE_COMMAND}"
+      "-DCROWDY_CONFIG=$<CONFIG>"
+      "-DCROWDY_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
+      -P "${PROJECT_SOURCE_DIR}/tests/no_exceptions_install_test.cmake")
 endif()
 
 if(NOT CROWDY_NO_EXCEPTIONS)

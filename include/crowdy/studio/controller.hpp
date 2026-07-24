@@ -864,7 +864,8 @@ class CrowdyStudioController {
 
   CrowdyStudioCheckpointMetadata restoreCheckpoint(
       std::string_view checkpointId, std::string_view approvalGrant,
-      std::optional<std::string> expectedRevisionId = std::nullopt) {
+      std::optional<std::string> expectedRevisionId = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     if (!saveNow()) {
       throw std::runtime_error(
           "Resolve the current project save before restoring a checkpoint");
@@ -890,6 +891,7 @@ class CrowdyStudioController {
     approvalGate_->requireRestoreApproval(
         {scope(), current.projectId, std::string(checkpointId), expected},
         approvalGrant);
+    if (onEffectStart) onEffectStart();
     CrowdyStudioCheckpointRestoreResult restored =
         synchronizationProvider_->restoreCheckpoint(
             {scope(), current.projectId, std::string(checkpointId), expected,
@@ -917,30 +919,36 @@ class CrowdyStudioController {
   }
 
   CrowdyStudioDeployResult testDraft(
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
-    return testDraftPlan(makeDeploymentPlan(), agentOperation);
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
+    return testDraftPlan(
+        makeDeploymentPlan(), agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult testDraftPlan(
       const CrowdyStudioDeploymentPlan& plan,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     return deployProject(CrowdyStudioDeployment::Draft, plan, {},
-                         agentOperation);
+                         agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult deployLive(
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
-    return deployLivePlan(plan, approvalGrant, agentOperation);
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
+    return deployLivePlan(
+        plan, approvalGrant, agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult deployLivePlan(
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     return deployProject(CrowdyStudioDeployment::Live, plan, approvalGrant,
-                         agentOperation);
+                         agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioStopResult stopProject() {
@@ -990,7 +998,8 @@ class CrowdyStudioController {
       std::optional<std::string> paramsJson = std::nullopt,
       std::optional<CrowdyStudioDeployment> expectedDeployment =
           std::nullopt,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     checkAgentOperation(agentOperation);
     const CrowdyStudioProject& project = requireProject();
     if (!containsTarget(projectTargets(project.kind),
@@ -1014,6 +1023,7 @@ class CrowdyStudioController {
     std::string selected(exportName);
     trim(selected);
     if (selected.empty()) selected = "invoke";
+    if (onEffectStart) onEffectStart();
     CrowdyStudioInvokeResult result = runtime_.invoke(
         scope(), *state_.runtimeSync.runningServerModuleName, selected,
         paramsJson);
@@ -1068,8 +1078,9 @@ class CrowdyStudioController {
     notify();
   }
 
-  /// Native autosave/retry/poll pump. Engines call this from their normal tick;
-  /// CrowdyCPP never creates a UI or background controller thread.
+  /// Potentially blocking autosave/retry/monitor maintenance. This may call
+  /// injected storage/HTTP/runtime providers; integrations run it only from
+  /// their explicit serialized Studio maintenance lane.
   void tick() {
     ensureAlive();
     const std::int64_t now = clock_.monotonicMillis();
@@ -1185,7 +1196,8 @@ class CrowdyStudioController {
       CrowdyStudioDeployment deployment,
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation) {
+      std::optional<std::uint64_t> agentOperation,
+      std::function<void()> onEffectStart) {
     checkAgentOperation(agentOperation);
     if (!saveNow()) {
       return failedDeployment(deployment, plan,
@@ -1215,10 +1227,17 @@ class CrowdyStudioController {
     state_.buildOutput.clear();
     state_.authoritativeDiagnostics.clear();
     notify();
+    bool effectStarted = false;
+    const auto markEffectStarted = [&] {
+      if (effectStarted) return;
+      effectStarted = true;
+      if (onEffectStart) onEffectStart();
+    };
     try {
       if (plan.targets.size() == 1) {
         const auto compiled =
-            compileTarget(project, plan.targets.front(), deployment, operation);
+            compileTarget(project, plan.targets.front(), deployment, operation,
+                          markEffectStarted);
         if (!compiled) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
@@ -1229,12 +1248,14 @@ class CrowdyStudioController {
         }
       } else {
         const auto client = compileTarget(
-            project, CrowdyStudioTarget::Client, deployment, operation);
+            project, CrowdyStudioTarget::Client, deployment, operation,
+            markEffectStarted);
         if (!client) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
         const auto server = compileTarget(
-            project, CrowdyStudioTarget::Server, deployment, operation);
+            project, CrowdyStudioTarget::Server, deployment, operation,
+            markEffectStarted);
         if (!server) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
@@ -1291,7 +1312,8 @@ class CrowdyStudioController {
 
   std::optional<CompiledTarget> compileTarget(
       const CrowdyStudioProject& project, CrowdyStudioTarget target,
-      CrowdyStudioDeployment deployment, std::uint64_t operation) {
+      CrowdyStudioDeployment deployment, std::uint64_t operation,
+      const std::function<void()>& onEffectStart) {
     assertTargetWritable(target);
     const std::string name = moduleName(project, target);
     std::vector<CrowdyStudioProjectFile> files;
@@ -1304,6 +1326,7 @@ class CrowdyStudioController {
     state_.runtime = {CrowdyStudioPhase::Compiling, target,
                       "Submitting " + name};
     notify();
+    if (onEffectStart) onEffectStart();
     const CrowdyStudioDeploySubmission submitted = runtime_.deploy(
         {scope(), target, name, files, project.sdkVersion,
          project.abiVersion, deployment});

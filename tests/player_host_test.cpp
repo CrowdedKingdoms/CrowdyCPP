@@ -725,7 +725,7 @@ class FakeStudioHost final : public agent::CrowdyStudioHostAdapter {
   void dispatch(agent::StudioNativeToolKindV1 kind,
                 const agent::StudioNativeToolRequestV1& request,
                 const agent::ValidatedStudioGateV1&,
-                CancellationTokenV1,
+                CancellationTokenV1 cancellation,
                 agent::StudioToolCallbackV1 callback) override {
     dispatched.push_back(kind);
     events.push_back("dispatch");
@@ -794,6 +794,12 @@ class FakeStudioHost final : public agent::CrowdyStudioHostAdapter {
             .client_stopped = true,
             .failures = {}};
         break;
+    }
+    if (!definitive_failure &&
+        (kind == agent::StudioNativeToolKindV1::RuntimeTestDraft ||
+         kind == agent::StudioNativeToolKindV1::RuntimeDeployLive ||
+         kind == agent::StudioNativeToolKindV1::RuntimeInvoke)) {
+      cancellation.markEffectStarted();
     }
     if (definitive_failure || ambiguous_failure) {
       callback(AdapterResultV1<agent::StudioNativeToolOutputV1>::failure(

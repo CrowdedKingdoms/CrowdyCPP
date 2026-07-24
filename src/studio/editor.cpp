@@ -44,30 +44,6 @@ CrowdyStudioFileRef referenceFileRef(
   };
 }
 
-std::string diagnosticSummary(
-    const CrowdyStudioEditorDiagnostic& diagnostic) {
-  std::string summary = diagnostic.path + ":" +
-                        std::to_string(diagnostic.line) + ":" +
-                        std::to_string(diagnostic.column) + ": ";
-  switch (diagnostic.severity) {
-    case CrowdyStudioEditorDiagnosticSeverity::Error:
-      summary += "error";
-      break;
-    case CrowdyStudioEditorDiagnosticSeverity::Warning:
-      summary += "warning";
-      break;
-    case CrowdyStudioEditorDiagnosticSeverity::Info:
-      summary += "info";
-      break;
-    case CrowdyStudioEditorDiagnosticSeverity::Hint:
-      summary += "hint";
-      break;
-  }
-  if (diagnostic.code) summary += "[" + *diagnostic.code + "]";
-  summary += ": " + diagnostic.message;
-  return summary;
-}
-
 }  // namespace
 
 CrowdyStudioEditorBridge::CrowdyStudioEditorBridge(
@@ -211,23 +187,26 @@ void CrowdyStudioEditorBridge::acceptLocalDiagnostics(
       throw std::invalid_argument(
           "Native editor returned more than 256 diagnostics");
     }
-    std::vector<std::string> summaries;
-    summaries.reserve(diagnostics.size());
     for (auto& diagnostic : diagnostics) {
       diagnostic.path = normalizeCrowdyStudioPath(diagnostic.path);
       if (diagnostic.line == 0 || diagnostic.column == 0 ||
           diagnostic.line > 1'000'000 ||
           diagnostic.column > 1'000'000 ||
+          (diagnostic.endLine &&
+           (*diagnostic.endLine == 0 ||
+            *diagnostic.endLine > 1'000'000)) ||
+          (diagnostic.endColumn &&
+           (*diagnostic.endColumn == 0 ||
+            *diagnostic.endColumn > 1'000'000)) ||
           diagnostic.message.empty() ||
           diagnostic.message.size() > 2'048 ||
           (diagnostic.code && diagnostic.code->size() > 64)) {
         throw std::invalid_argument(
             "Native editor diagnostic is outside contract bounds");
       }
-      summaries.push_back(diagnosticSummary(diagnostic));
     }
-    localDiagnostics_ = std::move(diagnostics);
-    controller_.setLocalDiagnostics(std::move(summaries));
+    localDiagnostics_ = diagnostics;
+    controller_.setLocalDiagnostics(std::move(diagnostics));
   } catch (const std::exception& error) {
     acceptFailure(error.what());
   } catch (...) {

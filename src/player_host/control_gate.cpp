@@ -63,7 +63,7 @@ struct NativePlayerControlGate::Impl
     std::function<void()> stop;
 
     explicit operator bool() const noexcept {
-      return identity && leases && revoke && pause && stop;
+      return identity != nullptr;
     }
   };
 
@@ -134,7 +134,7 @@ struct NativePlayerControlGate::Impl
 
   NativePlayerControlGateSnapshotV1 snapshot() const {
     NativePlayerControlGateSnapshotV1 value;
-    value.bound = lease_manager && static_cast<bool>(controller);
+    value.bound = lease_manager != nullptr;
     try {
       value.active_lease = activeLease();
     } catch (...) {
@@ -365,6 +365,11 @@ NativePlayerControlGate& NativePlayerControlGate::operator=(
 }
 
 NativePlayerControlGate::Unbind NativePlayerControlGate::bind(
+    AgentControlLeaseManager& lease_manager) {
+  return impl_->bind(lease_manager, {});
+}
+
+NativePlayerControlGate::Unbind NativePlayerControlGate::bind(
     AgentControlLeaseManager& lease_manager,
     agent::CrowdyStudioAgentController& controller) {
   Impl::ControllerOps operations;
@@ -407,6 +412,10 @@ bool NativePlayerControlGate::humanInputActive() const noexcept {
 NativePlayerControlGate::Unbind NativePlayerControlGate::subscribe(
     Listener listener) {
   return impl_->subscribe(std::move(listener));
+}
+
+void NativePlayerControlGate::refresh() noexcept {
+  if (impl_) impl_->emit();
 }
 
 void NativePlayerControlGate::preempt(PreemptionReasonV1 reason,

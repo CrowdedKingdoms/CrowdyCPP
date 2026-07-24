@@ -440,8 +440,13 @@ through the installed headers under `crowdy/player_host/` and
 - `CrowdyStudioControllerHostAdapter` is the concrete 11-tool controller
   mapping. `ICrowdyStudioEditorAdapter` receives only selected/open files and
   synchronized in-memory buffers, while `CrowdyStudioIntegration` owns the
-  controller/runtime/dispatcher/editor/optional-agent assembly. Layout and
-  human-control implementations plug into dedicated lifecycle seams.
+  controller/runtime/dispatcher/editor/optional-agent assembly plus the
+  concrete layout, lease-manager, and human-control gate. Engines inject
+  layout storage, the typed player host, and input/lifecycle events.
+- Integration `poll()` is a nonblocking platform + Agent callback/deadline
+  pump. Autosave, monitoring HTTP, compile polling/sleep, and scheduled
+  effectful Studio tools run only from the explicit serialized
+  `runStudioMaintenance()` lane (or an injected `studioHost.schedule` lane).
 
 World coordinates, distances, health values, fuel, revisions, and other
 contract values that may exceed a native or JSON number remain decimal

@@ -4,18 +4,24 @@
 #include <array>
 #include <iomanip>
 #include <limits>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
 #include "crowdy/core/clock.hpp"
 #include "crowdy/graphql/json.hpp"
+#include "crowdy/studio/agent_projection.hpp"
 
 namespace crowdy::studio {
+
+struct CrowdyStudioControllerHostAdapter::Lifetime {
+  std::recursive_mutex mutex;
+  CrowdyStudioControllerHostAdapter* owner = nullptr;
+};
+
 namespace {
 
-using agent::StudioDiagnosticSeverityV1;
-using agent::StudioDiagnosticSourceV1;
 using agent::StudioFileSourceV1;
 using agent::StudioNativeToolKindV1;
 using agent::StudioNativeToolOutputV1;
@@ -191,34 +197,6 @@ CrowdyStudioFileRef::Source source(StudioFileSourceV1 value) {
   return CrowdyStudioFileRef::Source::Project;
 }
 
-StudioDiagnosticSourceV1 diagnosticSource(
-    CrowdyStudioEditorDiagnosticSource value) {
-  switch (value) {
-    case CrowdyStudioEditorDiagnosticSource::LocalAdvisory:
-      return StudioDiagnosticSourceV1::LocalAdvisory;
-    case CrowdyStudioEditorDiagnosticSource::Rustc:
-      return StudioDiagnosticSourceV1::Rustc;
-    case CrowdyStudioEditorDiagnosticSource::Runtime:
-      return StudioDiagnosticSourceV1::Runtime;
-  }
-  return StudioDiagnosticSourceV1::LocalAdvisory;
-}
-
-StudioDiagnosticSeverityV1 diagnosticSeverity(
-    CrowdyStudioEditorDiagnosticSeverity value) {
-  switch (value) {
-    case CrowdyStudioEditorDiagnosticSeverity::Error:
-      return StudioDiagnosticSeverityV1::Error;
-    case CrowdyStudioEditorDiagnosticSeverity::Warning:
-      return StudioDiagnosticSeverityV1::Warning;
-    case CrowdyStudioEditorDiagnosticSeverity::Info:
-      return StudioDiagnosticSeverityV1::Info;
-    case CrowdyStudioEditorDiagnosticSeverity::Hint:
-      return StudioDiagnosticSeverityV1::Hint;
-  }
-  return StudioDiagnosticSeverityV1::Info;
-}
-
 std::vector<CrowdyStudioTarget> targets(
     const std::vector<StudioTargetV1>& values) {
   std::vector<CrowdyStudioTarget> mapped;
@@ -270,11 +248,12 @@ bool approvalRequired(StudioNativeToolKindV1 kind,
          invocation->environment == StudioRuntimeEnvironmentV1::Live;
 }
 
-bool effectful(StudioNativeToolKindV1 kind) {
-  return kind != StudioNativeToolKindV1::ContextGet &&
-         kind != StudioNativeToolKindV1::StateGet &&
-         kind != StudioNativeToolKindV1::DiagnosticsLocalGet &&
-         kind != StudioNativeToolKindV1::RuntimeStatusGet;
+bool potentiallyBlocking(StudioNativeToolKindV1 kind) {
+  return kind == StudioNativeToolKindV1::ProjectSelect ||
+         kind == StudioNativeToolKindV1::RuntimeTestDraft ||
+         kind == StudioNativeToolKindV1::RuntimeDeployLive ||
+         kind == StudioNativeToolKindV1::RuntimeInvoke ||
+         kind == StudioNativeToolKindV1::RuntimeStop;
 }
 
 std::string preemptionMessage(player_host::PreemptionReasonV1 reason) {
@@ -289,10 +268,17 @@ CrowdyStudioControllerHostAdapter::CrowdyStudioControllerHostAdapter(
     CrowdyStudioControllerHostAdapterOptions options)
     : controller_(controller),
       crypto_(crypto),
-      options_(std::move(options)) {}
+      options_(std::move(options)),
+      lifetime_(std::make_shared<Lifetime>()) {
+  lifetime_->owner = this;
+}
 
 CrowdyStudioControllerHostAdapter::~CrowdyStudioControllerHostAdapter() {
   disposed_.store(true, std::memory_order_release);
+  {
+    std::lock_guard lock(lifetime_->mutex);
+    lifetime_->owner = nullptr;
+  }
   clearAgentOperation(player_host::PreemptionReasonV1::SESSION_CLOSED);
 }
 
@@ -301,16 +287,66 @@ void CrowdyStudioControllerHostAdapter::dispatch(
     const agent::ValidatedStudioGateV1& gate,
     player_host::CancellationTokenV1 cancellation,
     agent::StudioToolCallbackV1 callback) {
-  const auto initialGeneration =
-      generation_.load(std::memory_order_acquire);
-  if (const auto validation =
-          validateGate(kind, request, gate, cancellation)) {
-    callback(StudioResult::failure(*validation));
+  if (options_.schedule && potentiallyBlocking(kind)) {
+    const std::weak_ptr<Lifetime> weak = lifetime_;
+    const auto completed =
+        std::make_shared<std::atomic<bool>>(false);
+    agent::StudioToolCallbackV1 complete =
+        [completed, callback = std::move(callback)](
+            StudioResult result) mutable {
+          if (!completed->exchange(true, std::memory_order_acq_rel)) {
+            callback(std::move(result));
+          }
+        };
+    try {
+      options_.schedule(
+          [weak, kind, request, gate, cancellation,
+           complete]() mutable {
+            const auto lifetime = weak.lock();
+            if (!lifetime) {
+              complete(StudioResult::failure(
+                  error("AGENT_HOST_UNAVAILABLE",
+                        "native Studio host is no longer available")));
+              return;
+            }
+            std::lock_guard lock(lifetime->mutex);
+            if (!lifetime->owner) {
+              complete(StudioResult::failure(
+                  error("AGENT_HOST_UNAVAILABLE",
+                        "native Studio host is no longer available")));
+              return;
+            }
+            lifetime->owner->dispatchNow(
+                kind, std::move(request), std::move(gate), cancellation,
+                std::move(complete));
+          });
+    } catch (const std::exception& failure) {
+      complete(StudioResult::failure(
+          error("AGENT_TOOL_FAILED", failure.what())));
+    } catch (...) {
+      complete(StudioResult::failure(error(
+          "AGENT_TOOL_FAILED",
+          "native Studio scheduling failed before execution")));
+    }
     return;
   }
+  dispatchNow(kind, request, gate, cancellation, std::move(callback));
+}
 
+void CrowdyStudioControllerHostAdapter::dispatchNow(
+    StudioNativeToolKindV1 kind, StudioNativeToolRequestV1 request,
+    agent::ValidatedStudioGateV1 gate,
+    player_host::CancellationTokenV1 cancellation,
+    agent::StudioToolCallbackV1 callback) {
+  const auto initialGeneration =
+      generation_.load(std::memory_order_acquire);
   bool effectStarted = false;
   try {
+    if (const auto validation =
+            validateGate(kind, request, gate, cancellation)) {
+      callback(StudioResult::failure(*validation));
+      return;
+    }
     StudioNativeToolOutputV1 output =
         execute(kind, request, gate, cancellation, effectStarted);
     const bool cancelled = cancellation.cancelled();
@@ -320,7 +356,7 @@ void CrowdyStudioControllerHostAdapter::dispatch(
         kind != StudioNativeToolKindV1::ProjectSelect &&
         !gateStillCurrent(gate);
     if (cancelled || preempted || stale) {
-      const bool ambiguous = effectStarted || effectful(kind);
+      const bool ambiguous = effectStarted;
       callback(StudioResult::failure(
           error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
                           : cancelled ? "AGENT_CANCELLED"
@@ -335,15 +371,22 @@ void CrowdyStudioControllerHostAdapter::dispatch(
     }
     callback(StudioResult::success(std::move(output)));
   } catch (const AdapterFailure& failure) {
-    const bool fenced =
+    bool fenced =
         cancellation.cancelled() ||
-        initialGeneration != generation_.load(std::memory_order_acquire) ||
-        (kind != StudioNativeToolKindV1::ProjectSelect &&
-         !gateStillCurrent(gate));
-    if (effectStarted && fenced) {
+        initialGeneration != generation_.load(std::memory_order_acquire);
+    if (!fenced && kind != StudioNativeToolKindV1::ProjectSelect) {
+      try {
+        fenced = !gateStillCurrent(gate);
+      } catch (...) {
+        fenced = effectStarted;
+      }
+    }
+    if (effectStarted && (fenced || failure.ambiguous())) {
       callback(StudioResult::failure(
           error("AGENT_TOOL_OUTCOME_UNKNOWN",
-                "native Studio result was fenced after an effect"),
+                failure.ambiguous()
+                    ? failure.what()
+                    : "native Studio result was fenced after an effect"),
           true));
     } else {
       callback(StudioResult::failure(
@@ -464,6 +507,14 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
     const agent::ValidatedStudioGateV1& gate,
     const player_host::CancellationTokenV1& cancellation,
     bool& effectStarted) {
+  const auto markEffectStarted = [&] {
+    if (cancellation.cancelled()) {
+      fail("AGENT_CANCELLED",
+           "native Studio operation was cancelled before its effect");
+    }
+    effectStarted = true;
+    cancellation.markEffectStarted();
+  };
   switch (kind) {
     case StudioNativeToolKindV1::ContextGet:
       return contextProjection();
@@ -476,7 +527,6 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
         fail("AGENT_TOOL_INPUT_INVALID",
              "project.select requires a project reference");
       }
-      effectStarted = true;
       controller_.switchProject(input->project_ref);
       const auto& project = controller_.getState().project;
       if (!project) {
@@ -499,7 +549,6 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
       CrowdyStudioFileRef reference{
           source(input->source), target(input->target), input->path,
           input->reference_ref};
-      effectStarted = true;
       if (kind == StudioNativeToolKindV1::WorkspaceTabOpen) {
         controller_.openFile(reference);
       } else {
@@ -536,10 +585,15 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
         controller_.cancelAgentOperation();
         fail("AGENT_CANCELLED", "draft test was cancelled");
       }
-      effectStarted = true;
-      const auto result = controller_.testDraftPlan(exact, operation);
+      const auto result = controller_.testDraftPlan(
+          exact, operation, markEffectStarted);
       if (result.status != CrowdyStudioDeployResult::Status::Running) {
-        fail("AGENT_TOOL_FAILED", result.message);
+        const bool ambiguous =
+            effectStarted &&
+            result.status == CrowdyStudioDeployResult::Status::Failed;
+        fail(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                       : "AGENT_TOOL_FAILED",
+             result.message, ambiguous);
       }
       return agent::StudioRuntimePlanResultV1{
           .runtime = runtimeProjection(),
@@ -577,11 +631,16 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
         controller_.cancelAgentOperation();
         fail("AGENT_CANCELLED", "live deployment was cancelled");
       }
-      effectStarted = true;
       const auto result = controller_.deployLivePlan(
-          exact, gate.approval_grant.value_or(""), operation);
+          exact, gate.approval_grant.value_or(""), operation,
+          markEffectStarted);
       if (result.status != CrowdyStudioDeployResult::Status::Running) {
-        fail("AGENT_TOOL_FAILED", result.message);
+        const bool ambiguous =
+            effectStarted &&
+            result.status == CrowdyStudioDeployResult::Status::Failed;
+        fail(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                       : "AGENT_TOOL_FAILED",
+             result.message, ambiguous);
       }
       return agent::StudioRuntimePlanResultV1{
           .runtime = runtimeProjection(),
@@ -619,9 +678,9 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
         controller_.cancelAgentOperation();
         fail("AGENT_CANCELLED", "runtime invocation was cancelled");
       }
-      effectStarted = true;
       const auto result = controller_.invoke(
-          input->export_name, params.dump(), deployment, operation);
+          input->export_name, params.dump(), deployment, operation,
+          markEffectStarted);
       if (result.durationUs < 0 ||
           static_cast<std::uint64_t>(result.durationUs) >
               std::numeric_limits<std::uint32_t>::max()) {
@@ -643,7 +702,6 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
       return mapped;
     }
     case StudioNativeToolKindV1::RuntimeStop: {
-      effectStarted = true;
       const auto result = controller_.stopProject();
       return agent::StudioRuntimeStopResultV1{
           .server_stopped = result.serverStopped.value_or(true),
@@ -750,23 +808,7 @@ CrowdyStudioControllerHostAdapter::runtimeProjection() const {
 
 agent::StudioDiagnosticsV1
 CrowdyStudioControllerHostAdapter::diagnosticsProjection() const {
-  agent::StudioDiagnosticsV1 value;
-  if (!options_.localDiagnostics) return value;
-  const auto diagnostics = options_.localDiagnostics();
-  value.diagnostics.reserve(diagnostics.size());
-  for (const auto& diagnostic : diagnostics) {
-    value.diagnostics.push_back({
-        .source = diagnosticSource(diagnostic.source),
-        .target = target(diagnostic.target),
-        .path = diagnostic.path,
-        .line = diagnostic.line,
-        .column = diagnostic.column,
-        .severity = diagnosticSeverity(diagnostic.severity),
-        .code = diagnostic.code,
-        .message = diagnostic.message,
-    });
-  }
-  return value;
+  return crowdyStudioAgentLocalDiagnosticsV1(controller_.getState());
 }
 
 std::string CrowdyStudioControllerHostAdapter::sha256(

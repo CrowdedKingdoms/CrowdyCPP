@@ -50,7 +50,8 @@ crowdy::studio::CrowdyStudioIntegrationOptions options;
 options.studio = {.appId = appId, .gridId = gridId};
 options.editor = std::make_shared<EngineEditor>();
 options.clientRuntime = engineClientArtifactRuntime;
-options.leaseManager = &leaseManager;  // externally owned, outlives assembly
+options.layoutStorage = engineSettingsStore;
+options.playerHost = &enginePlayerHost;  // externally owned, outlives assembly
 options.crypto = engineCryptoOwner;    // shared ownership
 
 crowdy::agent::CrowdyStudioAgentControllerOptions agent;
@@ -62,9 +63,21 @@ auto studio =
 studio->initialize();
 
 while (running) {
-  studio->tick();  // platform/agent poll, native deadlines, Studio autosave
+  studio->poll();  // nonblocking callbacks + Agent/native deadlines
+  if (engineStudioMaintenancePhase) {
+    studio->runStudioMaintenance();  // save/HTTP/compile polling may block
+  }
 }
 ```
+
+`poll()` always pumps both the client/platform dispatcher and the optional
+Agent runtime. It never runs Studio autosave, monitor HTTP, compile polling, or
+sleep. `runStudioMaintenance()` is the explicit serialized maintenance lane.
+Call it from a deliberately blocking engine phase, or from a worker only when
+all Studio controller access is serialized onto that worker; never run it
+concurrently with editor/controller access. Potentially blocking native Studio
+tools use the same lane by default; advanced hosts can inject
+`studioHost.schedule` to route them onto their own serial executor.
 
 Keep `CrowdyClient` open while the assembly uses its shared HTTP/GraphQL
 dispatcher. Destroying the client first remains memory-safe but closes those
@@ -88,16 +101,24 @@ Session, epoch, context, lease, cancellation, and approval metadata are
 revalidated at the final host boundary. Draft/live plans use the controller's
 current complete plan; live deployment additionally binds the exact revision,
 target set, pairing preference, and project content hash. LIVE invoke requires
-an explicit final approval validator. Once an effect starts, preemption, a
-late context change, or an ambiguous exception is reported as
-`OUTCOME_UNKNOWN` and is not retried.
+an explicit final approval validator. Provider/gate failures before an external
+effect are `FAILED`. Only a deploy, invoke, or restore that reached its exact
+effect boundary can become `OUTCOME_UNKNOWN`; those results are never retried.
 
-## Layout and control phases
+## Concrete layout, wallet, and control ownership
 
-`ICrowdyStudioIntegrationLayout` and
-`ICrowdyStudioIntegrationControl` are ownership/injection seams for the native
-layout controller and human-takeover gate. The assembly forwards relayout,
-tick, epoch, lease, and preemption transitions without reproducing either
-component's policy. Both extensions are disposed before Agent, editor, and
-Studio controller teardown.
+The integration owns `StudioLayoutController`, its exact
+`AgentControlLeaseManager` on the `playerHost` path, and
+`NativePlayerControlGate`. Engines inject layout storage and the typed player
+host, then forward keyboard, pointer, movement, lifecycle, permission, and
+controlled-entity events through `controlGate()`. Use `layout()`,
+`layoutSnapshot()`, `leaseSnapshot()`, and `controlSnapshot()` for typed state.
+The gate is unbound and destroyed before the optional Agent controller; native
+dispatch is destroyed before the lease manager and Studio controller.
+
+`CrowdyClient::createCrowdyStudioIntegration()` also installs the owned
+read-only PlayerWallet adapter when `observePlayerWallet` is true (the
+default). Supply `walletProvider` to override it or set the flag false to omit
+wallet observation. Wallet read failures only clear the optional snapshot;
+they never block editing, saving, compilation, or deployment.
 

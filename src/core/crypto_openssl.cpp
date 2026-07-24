@@ -42,4 +42,6 @@ const ICrypto& opensslCrypto() {
   return crypto;
 }
 
+const ICrypto& defaultCrypto() { return opensslCrypto(); }
+
 }  // namespace crowdy::core

@@ -102,7 +102,9 @@ void run() {
   cfg.token = TokenInfo{kToken, 42, 0};
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
-  auto conn = std::make_shared<Connection>(cfg, std::make_shared<StubProvider>(server.port));
+  auto conn = std::make_shared<Connection>(
+      cfg, std::make_shared<StubProvider>(server.port),
+      core::defaultCrypto());
   CHECK(conn->connect().ok());
 
   WorldSessionConfig sess;

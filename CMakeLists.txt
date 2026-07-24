@@ -19,12 +19,56 @@ option(CROWDY_WITH_CURL_WEBSOCKETS
        "Build the optional libcurl GraphQL-WebSocket transport when supported" ON)
 option(CROWDY_WITH_OPENSSL "Build the default OpenSSL crypto provider" ON)
 option(CROWDY_NO_EXCEPTIONS
-       "Use non-throwing GraphQL request compatibility paths" OFF)
+       "Build CrowdyCPP with non-throwing GraphQL paths and compiler exceptions disabled" OFF)
+option(CROWDY_ENABLE_ASAN
+       "Instrument CrowdyCPP and its tests with AddressSanitizer" OFF)
+
+if(CROWDY_NO_EXCEPTIONS)
+  include(CheckCXXCompilerFlag)
+  if(MSVC)
+    set(CROWDY_NO_EXCEPTIONS_FLAG "/EHs-c-")
+  else()
+    check_cxx_compiler_flag("-fno-exceptions"
+                           CROWDY_COMPILER_SUPPORTS_NO_EXCEPTIONS)
+    if(NOT CROWDY_COMPILER_SUPPORTS_NO_EXCEPTIONS)
+      message(FATAL_ERROR
+        "CROWDY_NO_EXCEPTIONS requires compiler support for -fno-exceptions")
+    endif()
+    set(CROWDY_NO_EXCEPTIONS_FLAG "-fno-exceptions")
+  endif()
+endif()
+
+function(crowdy_configure_exception_mode target)
+  get_target_property(_crowdy_target_type ${target} TYPE)
+  if(_crowdy_target_type STREQUAL "INTERFACE_LIBRARY")
+    set(_crowdy_scope INTERFACE)
+  else()
+    set(_crowdy_scope PUBLIC)
+  endif()
+  if(CROWDY_NO_EXCEPTIONS)
+    target_compile_definitions(${target} ${_crowdy_scope}
+      CROWDY_NO_EXCEPTIONS=1)
+    target_compile_options(${target} ${_crowdy_scope}
+      "${CROWDY_NO_EXCEPTIONS_FLAG}")
+  endif()
+endfunction()
 
 if(MSVC)
   add_compile_options(/W4)
 else()
   add_compile_options(-Wall -Wextra -Wshadow -Wconversion)
+endif()
+
+if(CROWDY_ENABLE_ASAN)
+  if(MSVC)
+    add_compile_options(/fsanitize=address)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+  else()
+    message(FATAL_ERROR
+      "CROWDY_ENABLE_ASAN is unsupported by this compiler")
+  endif()
 endif()
 
 find_package(Threads REQUIRED)
@@ -117,14 +161,20 @@ set_target_properties(crowdy_yyjson PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(crowdy_core STATIC
   src/core/base64.cpp
   src/core/clock.cpp
+  src/core/crypto_unavailable.cpp
   src/core/logger.cpp
   src/core/uuid.cpp
 )
+if(NOT CROWDY_WITH_OPENSSL)
+  target_sources(crowdy_core PRIVATE
+    src/core/crypto_default_unavailable.cpp)
+endif()
 target_include_directories(crowdy_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(crowdy_core PUBLIC cxx_std_20)
 target_link_libraries(crowdy_core PUBLIC Threads::Threads)
+crowdy_configure_exception_mode(crowdy_core)
 
 # wire is header-only; provide an interface target for consumers
 add_library(crowdy_wire INTERFACE)
@@ -133,6 +183,7 @@ target_include_directories(crowdy_wire INTERFACE
   $<INSTALL_INTERFACE:include>)
 target_compile_features(crowdy_wire INTERFACE cxx_std_20)
 target_link_libraries(crowdy_wire INTERFACE crowdy_core)
+crowdy_configure_exception_mode(crowdy_wire)
 
 # ---- default crypto provider (OpenSSL)
 if(CROWDY_WITH_OPENSSL)
@@ -143,6 +194,7 @@ if(CROWDY_WITH_OPENSSL)
   $<INSTALL_INTERFACE:include>)
   target_compile_features(crowdy_crypto_openssl PUBLIC cxx_std_20)
   target_link_libraries(crowdy_crypto_openssl PUBLIC OpenSSL::Crypto crowdy_core)
+  crowdy_configure_exception_mode(crowdy_crypto_openssl)
 endif()
 
 # ---- GraphQL core + generated surface + domains
@@ -165,9 +217,7 @@ target_include_directories(crowdy_graphql PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(crowdy_graphql PUBLIC cxx_std_20)
 target_link_libraries(crowdy_graphql PUBLIC crowdy_core crowdy_yyjson)
-if(CROWDY_NO_EXCEPTIONS)
-  target_compile_definitions(crowdy_graphql PUBLIC CROWDY_NO_EXCEPTIONS=1)
-endif()
+crowdy_configure_exception_mode(crowdy_graphql)
 
 if(CROWDY_WITH_CURL)
   add_library(crowdy_http_curl STATIC src/graphql/http_curl.cpp)
@@ -176,6 +226,7 @@ if(CROWDY_WITH_CURL)
   $<INSTALL_INTERFACE:include>)
   target_compile_features(crowdy_http_curl PUBLIC cxx_std_20)
   target_link_libraries(crowdy_http_curl PUBLIC CURL::libcurl crowdy_graphql)
+  crowdy_configure_exception_mode(crowdy_http_curl)
 endif()
 
 if(CROWDY_HAS_CURL_WEBSOCKETS)
@@ -187,6 +238,7 @@ if(CROWDY_HAS_CURL_WEBSOCKETS)
   target_link_libraries(crowdy_websocket_curl PUBLIC CURL::libcurl crowdy_graphql)
   target_compile_definitions(crowdy_websocket_curl
     PUBLIC CROWDY_HAS_CURL_WEBSOCKETS=1)
+  crowdy_configure_exception_mode(crowdy_websocket_curl)
 endif()
 
 # ---- replication (native UDP client)
@@ -199,16 +251,25 @@ target_include_directories(crowdy_replication PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(crowdy_replication PUBLIC cxx_std_20)
 target_link_libraries(crowdy_replication PUBLIC crowdy_wire crowdy_core)
+crowdy_configure_exception_mode(crowdy_replication)
 if(WIN32)
   target_link_libraries(crowdy_replication PUBLIC ws2_32)
 endif()
 
 # ---- client facade + domains + session + kit
 file(GLOB CROWDY_DOMAIN_SOURCES CONFIGURE_DEPENDS src/domains/*.cpp)
-file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
 file(GLOB CROWDY_SESSION_SOURCES CONFIGURE_DEPENDS src/session/*.cpp)
 file(GLOB CROWDY_KIT_SOURCES CONFIGURE_DEPENDS src/kit/*.cpp)
-file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
+if(CROWDY_NO_EXCEPTIONS)
+  # Agent controllers and the native player-host adapter intentionally expose
+  # exception-based validation APIs. They remain available in the normal
+  # build; the strict no-exception facade omits those optional layers.
+  set(CROWDY_AGENT_SOURCES)
+  set(CROWDY_PLAYER_HOST_SOURCES)
+else()
+  file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
+  file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
+endif()
 add_library(crowdy STATIC
   src/client.cpp
   ${CROWDY_AGENT_SOURCES}
@@ -224,6 +285,7 @@ target_compile_features(crowdy PUBLIC cxx_std_20)
 target_include_directories(crowdy PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(crowdy PUBLIC crowdy_graphql crowdy_replication)
+crowdy_configure_exception_mode(crowdy)
 if(CROWDY_WITH_CURL)
   target_link_libraries(crowdy PUBLIC crowdy_http_curl)
 endif()
@@ -232,10 +294,11 @@ if(CROWDY_HAS_CURL_WEBSOCKETS)
 endif()
 if(CROWDY_WITH_OPENSSL)
   target_link_libraries(crowdy PUBLIC crowdy_crypto_openssl)
+  target_compile_definitions(crowdy PRIVATE CROWDY_HAS_OPENSSL=1)
 endif()
 
 # ---- maintainer parity tools (never required by external builds)
-if(CROWDY_BUILD_PARITY_TOOLS)
+if(CROWDY_BUILD_PARITY_TOOLS AND NOT CROWDY_NO_EXCEPTIONS)
   add_executable(crowdy_blueprint_dump tools/parity/dump_blueprints.cpp)
   target_link_libraries(crowdy_blueprint_dump PRIVATE crowdy)
 endif()
@@ -246,11 +309,11 @@ if(CROWDY_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(CROWDY_BUILD_BENCHMARKS)
+if(CROWDY_BUILD_BENCHMARKS AND NOT CROWDY_NO_EXCEPTIONS)
   add_subdirectory(benchmarks)
 endif()
 
-if(CROWDY_BUILD_EXAMPLES)
+if(CROWDY_BUILD_EXAMPLES AND NOT CROWDY_NO_EXCEPTIONS)
   add_subdirectory(examples)
 endif()
 

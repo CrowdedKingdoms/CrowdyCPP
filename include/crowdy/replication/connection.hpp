@@ -36,7 +36,7 @@ namespace crowdy::replication {
 class Connection {
  public:
   Connection(Config config, std::shared_ptr<ISessionProvider> provider,
-             const core::ICrypto& crypto = core::opensslCrypto(),
+             const core::ICrypto& crypto,
              const core::IClock& clock = core::systemClock(),
              const core::ILogger& logger = core::defaultLogger());
   ~Connection();
@@ -267,8 +267,9 @@ class Connection {
 /// provider). One Connection per app.
 class ReplicationClient {
  public:
-  explicit ReplicationClient(std::shared_ptr<ISessionProvider> provider)
-      : provider_(std::move(provider)) {}
+  ReplicationClient(std::shared_ptr<ISessionProvider> provider,
+                    const core::ICrypto& crypto)
+      : provider_(std::move(provider)), crypto_(crypto) {}
 
   /// Create and connect a Connection for `config` (token material may be
   /// omitted when the session provider refreshes it — but the initial token
@@ -285,6 +286,7 @@ class ReplicationClient {
 
  private:
   std::shared_ptr<ISessionProvider> provider_;
+  const core::ICrypto& crypto_;
   mutable std::mutex connectionMutex_;
   std::weak_ptr<Connection> activeConnection_;
 };

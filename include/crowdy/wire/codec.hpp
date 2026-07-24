@@ -84,6 +84,8 @@ inline Result<std::size_t> encodeLongSpatial(const core::ICrypto& crypto,
   if (p.payload.size() > kMaxLongSpatialPayload) return Errc::InvalidArgument;
   const std::size_t total = longSpatialSize(p.payload.size());
   if (out.size() < total) return Errc::BufferTooSmall;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus.code;
 
   std::uint8_t* b = out.data();
   b[offsets::kType] = static_cast<std::uint8_t>(p.type);
@@ -158,6 +160,8 @@ inline Status verifyLongSpatial(const core::ICrypto& crypto, Bytes datagram,
                                 const Token64& token) {
   if (datagram.size() < kMinLongSpatialNoHmac) return Errc::Malformed;
   if (datagram[offsets::kContainsAuth] == 0) return Errc::Ok;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus;
   if (datagram.size() < kMinLongSpatialWithHmac) return Errc::Malformed;
   const std::size_t prefixLen = datagram.size() - kTailWithHmac;
   std::uint8_t expected[kHmacTagSize];
@@ -255,6 +259,8 @@ inline Result<std::size_t> encodeChannelMessage(const core::ICrypto& crypto,
   if (p.payload.size() > channel::kMaxPayload) return Errc::InvalidArgument;
   const std::size_t total = channelRequestSize(p.payload.size());
   if (out.size() < total) return Errc::BufferTooSmall;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus.code;
 
   std::uint8_t* b = out.data();
   b[0] = static_cast<std::uint8_t>(MessageType::ChannelMessageRequest);
@@ -329,6 +335,8 @@ inline Status verifyCommandReconnect(const core::ICrypto& crypto, Bytes datagram
   if (datagram.size() != kCommandReconnectSize ||
       datagram[0] != static_cast<std::uint8_t>(MessageType::CommandReconnect))
     return Errc::Malformed;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus;
   std::uint8_t typeByte = datagram[0];
   std::uint8_t msg[1 + kTokenOctets];
   msg[0] = typeByte;

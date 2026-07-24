@@ -7,10 +7,8 @@
 
 #include "crowdy/core/result.hpp"
 #include "crowdy/domains/auth.hpp"
-#include "crowdy/domains/crowdy_studio.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
-#include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
 #include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
@@ -25,6 +23,11 @@
 #include "crowdy/replication/types.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
 
+#ifndef CROWDY_NO_EXCEPTIONS
+#include "crowdy/domains/compute.hpp"
+#include "crowdy/domains/crowdy_studio.hpp"
+#endif
+
 namespace crowdy {
 
 namespace domains {
@@ -32,8 +35,10 @@ class AdminAPI;
 class OperatorAPI;
 }  // namespace domains
 namespace agent {
+#ifndef CROWDY_NO_EXCEPTIONS
 struct CrowdyStudioAgentControllerOptions;
 class CrowdyStudioAgentControllerRuntime;
+#endif
 }  // namespace agent
 namespace graphql {
 class Dispatcher;
@@ -61,6 +66,11 @@ struct ClientConfig {
   /// HTTP transport; the default libcurl transport when null. Engine
   /// wrappers inject their own here.
   std::shared_ptr<graphql::IHttpTransport> transport;
+  /// Crypto provider used by portal PKCE and native replication. The provider
+  /// must outlive the client. Defaults to OpenSSL when that provider is built;
+  /// otherwise to an explicit unavailable provider whose operations return
+  /// Errc::CryptoUnavailable.
+  const core::ICrypto* crypto = nullptr;
   /// Optional async HTTP transport for the non-blocking API path. When set,
   /// *Async calls run on it and their callbacks are delivered from poll();
   /// engines inject their own here (FHttpModule, UnityWebRequest, HTTPRequest).
@@ -171,26 +181,32 @@ class CrowdyClient {
   domains::TeamsAPI& teams() { return *teams_; }
   domains::ChannelsAPI& channels() { return *channels_; }
   domains::GameModelAPI& gameModel() { return *gameModel_; }
+#ifndef CROWDY_NO_EXCEPTIONS
   domains::ComputeAPI& compute() { return *compute_; }
+#endif
   domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
   domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
   domains::MarketplaceAPI& marketplace() { return *marketplace_; }
   domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
+#ifndef CROWDY_NO_EXCEPTIONS
   /// Caller-owned, app-scoped Crowdy Studio projects and reusable files.
   /// Source remains owner-private; grid affinity never grants runtime authority.
   domains::CrowdyStudioAPI& crowdyStudio() { return *crowdyStudio_; }
+#endif
   domains::PlatformAPI& platform() { return *platform_; }
   /// Durable provider-neutral Agentic Crowdy Studio runtime plus its
   /// Management policy/usage/operator controls.
   domains::CrowdyStudioAgentAPI& crowdyStudioAgent() {
     return *crowdyStudioAgent_;
   }
+#ifndef CROWDY_NO_EXCEPTIONS
   /// Own the production typed HTTP + GraphQL-WS transports alongside the
   /// controller, preventing dangling adapter references.
   std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
   createCrowdyStudioAgentController(
       agent::CrowdyStudioAgentControllerOptions options);
+#endif
 
   // ----- Gameplay-token lifecycle ----------------------------------------------
   /// Safely rotate the app-scoped bearer used by GraphQL and native UDP.
@@ -245,11 +261,14 @@ class CrowdyClient {
 
   const ClientConfig& config() const { return config_; }
 
-  /// Dispose: disconnects replication and clears in-memory auth listeners.
+  /// Terminal dispose: cancels queued/in-flight async callback delivery,
+  /// closes subscriptions, and disconnects replication. Platform HTTP
+  /// requests may still finish, but their retained completions are fenced.
   void close();
 
  private:
   ClientConfig config_;
+  const core::ICrypto* crypto_ = nullptr;
   std::shared_ptr<graphql::IHttpTransport> transport_;
   std::shared_ptr<graphql::AuthState> auth_;
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
@@ -274,13 +293,17 @@ class CrowdyClient {
   std::unique_ptr<domains::TeamsAPI> teams_;
   std::unique_ptr<domains::ChannelsAPI> channels_;
   std::unique_ptr<domains::GameModelAPI> gameModel_;
+#ifndef CROWDY_NO_EXCEPTIONS
   std::unique_ptr<domains::ComputeAPI> compute_;
+#endif
   std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
   std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
   std::unique_ptr<domains::MarketplaceAPI> marketplace_;
   std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
+#ifndef CROWDY_NO_EXCEPTIONS
   std::unique_ptr<domains::CrowdyStudioAPI> crowdyStudio_;
+#endif
   std::unique_ptr<domains::PlatformAPI> platform_;
   std::unique_ptr<domains::CrowdyStudioAgentAPI> crowdyStudioAgent_;
   std::unique_ptr<domains::AdminAPI> admin_;

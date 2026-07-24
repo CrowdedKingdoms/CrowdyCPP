@@ -1,5 +1,6 @@
 #include "crowdy/graphql/graphql_client.hpp"
 
+#include <atomic>
 #include <string>
 #include <utility>
 
@@ -118,29 +119,14 @@ HttpRequest GraphQLClient::buildHttpRequest(std::string_view document, const JVa
 }
 
 HttpOutcome GraphQLClient::sendInline(const HttpRequest& request) {
-  HttpOutcome out;
   if (!transport_) {
+    HttpOutcome out;
     out.status = Errc::NotConnected;
     out.errorMessage =
         "No default HTTP transport is available; inject IHttpTransport";
     return out;
   }
-#ifndef CROWDY_NO_EXCEPTIONS
-  try {
-    out.response = transport_->send(request);
-    out.status = Errc::Ok;
-  } catch (const CrowdyTimeoutError& e) {
-    out.status = Errc::Timeout;
-    out.errorMessage = e.what();
-  } catch (const std::exception& e) {
-    out.status = Errc::SocketError;
-    out.errorMessage = e.what();
-  }
-#else
-  out.response = transport_->send(request);
-  out.status = Errc::Ok;
-#endif
-  return out;
+  return transport_->sendOutcome(request);
 }
 
 #ifndef CROWDY_NO_EXCEPTIONS
@@ -151,8 +137,7 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
         "No default HTTP transport is available; inject IHttpTransport");
   }
   HttpRequest req = buildHttpRequest(document, variables, operationName);
-  HttpResponse res = transport_->send(req);
-  GraphQLOutcome out = interpret(res.status, res.body);
+  GraphQLOutcome out = outcomeFromHttp(sendInline(req));
   if (!out.ok()) throwOutcome(out);
   return out.data;
 }
@@ -171,18 +156,43 @@ void GraphQLClient::requestAsync(std::string_view document, const JVal& variable
   HttpRequest req = buildHttpRequest(document, variables, operationName);
 
   auto dispatcher = dispatcher_;
-  auto deliver = [dispatcher, cb = std::move(cb)](GraphQLOutcome out) mutable {
+  auto scope = asyncScope_;
+  auto completed = std::make_shared<std::atomic_bool>(false);
+  auto deliver = [dispatcher, scope, completed, cb = std::move(cb)](
+                     GraphQLOutcome out) mutable {
+    if (completed->exchange(true, std::memory_order_acq_rel)) return;
+    auto invoke = [scope, cb, out = std::move(out)]() mutable {
+      scope->run([&] { cb(std::move(out)); });
+    };
     if (dispatcher) {
-      dispatcher->post([cb, out = std::move(out)]() mutable { cb(std::move(out)); });
+      dispatcher->post(std::move(invoke));
     } else {
-      cb(std::move(out));
+      invoke();
     }
   };
 
   if (asyncTransport_) {
-    asyncTransport_->sendAsync(req, [deliver = std::move(deliver)](HttpOutcome http) mutable {
+    auto complete = [deliver](HttpOutcome http) mutable {
       deliver(outcomeFromHttp(std::move(http)));
-    });
+    };
+#ifndef CROWDY_NO_EXCEPTIONS
+    try {
+      asyncTransport_->sendAsync(req, std::move(complete));
+    } catch (const CrowdyTimeoutError& error) {
+      deliver(GraphQLOutcome{Errc::Timeout, GraphQLErrorKind::Timeout, {},
+                             {}, 0, error.what(), {}});
+    } catch (const std::exception& error) {
+      deliver(GraphQLOutcome{Errc::SocketError,
+                             GraphQLErrorKind::Network, {}, {}, 0,
+                             error.what(), {}});
+    } catch (...) {
+      deliver(GraphQLOutcome{
+          Errc::SocketError, GraphQLErrorKind::Network, {}, {}, 0,
+          "Async HTTP transport failed with an unknown exception", {}});
+    }
+#else
+    asyncTransport_->sendAsync(req, std::move(complete));
+#endif
   } else {
     deliver(outcomeFromHttp(sendInline(req)));
   }

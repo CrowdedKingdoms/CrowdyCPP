@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "crowdy/graphql/json.hpp"
 
@@ -14,6 +16,51 @@
 /// strings — mirrored here as std::string to avoid silent precision bugs,
 /// with int64 accessors where useful.
 namespace crowdy::domains {
+
+/// Nullable GraphQL string that preserves null versus an explicitly empty
+/// string while retaining the common std::string conveniences used by older
+/// callers (`empty()` and implicit read-only string access).
+class NullableString {
+ public:
+  NullableString() = default;
+  NullableString(std::nullopt_t) {}
+  NullableString(std::string value) : value_(std::move(value)) {}
+  NullableString(const char* value)
+      : value_(value ? std::optional<std::string>(value) : std::nullopt) {}
+
+  static NullableString fromJson(const graphql::Json& value) {
+    if (!value.ok() || value.isNull()) return {};
+    return NullableString(value.asString());
+  }
+
+  bool has_value() const { return value_.has_value(); }
+  bool isNull() const { return !value_; }
+  bool empty() const { return !value_ || value_->empty(); }
+  const std::string* get() const {
+    return value_ ? &*value_ : nullptr;
+  }
+  const std::string& valueOrEmpty() const {
+    static const std::string empty;
+    return value_ ? *value_ : empty;
+  }
+  std::string value_or(std::string fallback) const {
+    return value_.value_or(std::move(fallback));
+  }
+
+  operator const std::string&() const { return valueOrEmpty(); }
+
+  friend bool operator==(const NullableString& lhs,
+                         std::string_view rhs) {
+    return lhs.valueOrEmpty() == rhs;
+  }
+  friend bool operator==(std::string_view lhs,
+                         const NullableString& rhs) {
+    return rhs == lhs;
+  }
+
+ private:
+  std::optional<std::string> value_;
+};
 
 /// Chunk address used by GraphQL world APIs (BigInt strings on the wire).
 struct ChunkRef {
@@ -33,22 +80,27 @@ struct ChunkRef {
 /// Result of portal.mintAppToken / exchangeCode / refresh.
 struct AppTokenResponse {
   std::string token;        ///< 64-char app-scoped token (also the UDP HMAC key)
-  std::int64_t gameTokenId = 0;
+  std::string gameTokenId;  ///< decimal String scalar; never silently narrowed
   std::string appId;
   std::string expiresAt;    ///< ISO-8601; empty when non-expiring
-  std::string gameApiUrl;   ///< app's Game API endpoint when routed
-  std::string gameApiWsUrl;
-  std::string launchUrl;
+  NullableString gameApiUrl;   ///< null when no route has been assigned
+  NullableString gameApiWsUrl;
+  NullableString launchUrl;
+
+  /// Checked migration helper for the native UDP int64 wire tail.
+  std::optional<std::int64_t> gameTokenIdInt64() const {
+    return graphql::parseBigInt(gameTokenId);
+  }
 
   static AppTokenResponse fromJson(const graphql::Json& j) {
     AppTokenResponse r;
     r.token = j["token"].asString();
-    r.gameTokenId = j["gameTokenId"].asBigInt();
+    r.gameTokenId = j["gameTokenId"].asBigIntString();
     r.appId = j["appId"].asString();
     r.expiresAt = j["expiresAt"].asString();
-    r.gameApiUrl = j["gameApiUrl"].asString();
-    r.gameApiWsUrl = j["gameApiWsUrl"].asString();
-    r.launchUrl = j["launchUrl"].asString();
+    r.gameApiUrl = NullableString::fromJson(j["gameApiUrl"]);
+    r.gameApiWsUrl = NullableString::fromJson(j["gameApiWsUrl"]);
+    r.launchUrl = NullableString::fromJson(j["launchUrl"]);
     return r;
   }
 };
@@ -57,15 +109,16 @@ struct AppTokenResponse {
 struct AuthResponse {
   std::string token;  ///< identity SESSION token (management-plane only)
   std::string userId;
-  std::string email;
-  std::string gamertag;
+  NullableString email;
+  NullableString gamertag;
 
   static AuthResponse fromJson(const graphql::Json& j) {
     AuthResponse r;
     r.token = j["token"].asString();
-    r.userId = j["user"]["userId"].asString();
-    r.email = j["user"]["email"].asString();
-    r.gamertag = j["user"]["gamertag"].asString();
+    r.userId = j["user"]["userId"].asBigIntString(
+        j["user"]["userId"].asStringView());
+    r.email = NullableString::fromJson(j["user"]["email"]);
+    r.gamertag = NullableString::fromJson(j["user"]["gamertag"]);
     return r;
   }
 };

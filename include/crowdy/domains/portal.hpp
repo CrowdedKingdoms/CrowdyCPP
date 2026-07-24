@@ -23,12 +23,19 @@ struct PkcePair {
   std::string verifier;
   std::string challenge;  ///< base64url(SHA256(verifier))
   std::string method = "S256";
+  Status status;
+
+  bool ok() const { return status.ok(); }
 };
 
 class PortalAPI : public DomainBase {
  public:
-  PortalAPI(std::shared_ptr<graphql::GraphQLClient> gql, std::shared_ptr<graphql::AuthState> auth)
-      : DomainBase(std::move(gql)), auth_(std::move(auth)) {}
+  PortalAPI(std::shared_ptr<graphql::GraphQLClient> gql,
+            std::shared_ptr<graphql::AuthState> auth,
+            const core::ICrypto& crypto)
+      : DomainBase(std::move(gql)),
+        auth_(std::move(auth)),
+        crypto_(crypto) {}
 
   static constexpr std::string_view kAppTokenFields =
       "token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl";
@@ -81,12 +88,12 @@ class PortalAPI : public DomainBase {
         "mutation RefreshAppToken { refreshAppToken {"
         " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
         graphql::JVal(), {},
-        [this, install, cb = std::move(cb)](
+        [auth = auth_, install, cb = std::move(cb)](
             graphql::GraphQLOutcome out) mutable {
           AppTokenResponse r{};
           if (out.ok()) {
             r = AppTokenResponse::fromJson(out.data);
-            if (install && !r.token.empty()) auth_->setToken(r.token);
+            if (install && !r.token.empty()) auth->setToken(r.token);
           }
           cb(std::move(out), r);
         });
@@ -147,11 +154,13 @@ class PortalAPI : public DomainBase {
         "mutation ExchangePortalCode($input: ExchangePortalCodeInput!) {"
         " exchangePortalCode(input: $input) {"
         " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AppTokenResponse r{};
           if (out.ok()) {
             r = AppTokenResponse::fromJson(out.data);
-            if (!r.token.empty()) auth_->setToken(r.token);
+            if (!r.token.empty()) auth->setToken(r.token);
           }
           cb(std::move(out), r);
         });
@@ -163,6 +172,9 @@ class PortalAPI : public DomainBase {
     std::string url;
     std::string state;
     std::string verifier;
+    Status status;
+
+    bool ok() const { return status.ok(); }
   };
 
   /// Game side: begin a cross-origin portal entry. Generates PKCE material
@@ -172,12 +184,18 @@ class PortalAPI : public DomainBase {
   /// this and call createAuthorizationCode + exchangeCode directly.
   PortalEntry beginEntry(std::string_view appId, std::string_view authorizeUrl,
                          std::string_view redirectUri, std::string_view state = {}) const {
-    PkcePair pkce = generatePkce();
     PortalEntry entry;
+    PkcePair pkce = generatePkce(crypto_);
+    entry.status = pkce.status;
+    if (!entry.status.ok()) return entry;
     entry.verifier = pkce.verifier;
     if (state.empty()) {
-      std::uint8_t raw[16];
-      core::opensslCrypto().randomBytes(raw, sizeof(raw));
+      std::uint8_t raw[16]{};
+      if (!crypto_.randomBytes(raw, sizeof(raw))) {
+        entry.status = Errc::CryptoUnavailable;
+        entry.verifier.clear();
+        return entry;
+      }
       entry.state = core::base64UrlEncode(Bytes(raw, sizeof(raw)));
     } else {
       entry.state = std::string(state);
@@ -204,13 +222,23 @@ class PortalAPI : public DomainBase {
   }
 
   /// Generate a PKCE verifier + S256 challenge for the portal flow.
-  static PkcePair generatePkce(const core::ICrypto& crypto = core::opensslCrypto()) {
-    std::uint8_t raw[32];
-    crypto.randomBytes(raw, sizeof(raw));
+  static PkcePair generatePkce(const core::ICrypto& crypto) {
     PkcePair p;
+    p.status = crypto.availability();
+    if (!p.status.ok()) return p;
+
+    std::uint8_t raw[32]{};
+    if (!crypto.randomBytes(raw, sizeof(raw))) {
+      p.status = Errc::CryptoUnavailable;
+      return p;
+    }
     p.verifier = core::base64UrlEncode(Bytes(raw, sizeof(raw)));
-    std::uint8_t digest[32];
-    crypto.sha256(asBytes(p.verifier), digest);
+    std::uint8_t digest[32]{};
+    if (!crypto.sha256(asBytes(p.verifier), digest)) {
+      p.status = Errc::CryptoUnavailable;
+      p.verifier.clear();
+      return p;
+    }
     p.challenge = core::base64UrlEncode(Bytes(digest, sizeof(digest)));
     return p;
   }
@@ -329,6 +357,7 @@ class PortalAPI : public DomainBase {
   }
 
   std::shared_ptr<graphql::AuthState> auth_;
+  const core::ICrypto& crypto_;
 };
 
 }  // namespace crowdy::domains

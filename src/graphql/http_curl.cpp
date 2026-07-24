@@ -34,8 +34,31 @@ class CurlTransport final : public IHttpTransport {
   }
 
   HttpResponse send(const HttpRequest& request) override {
+    HttpOutcome outcome = perform(request);
+#ifndef CROWDY_NO_EXCEPTIONS
+    if (outcome.status.code == Errc::Timeout) {
+      throw CrowdyTimeoutError(outcome.errorMessage);
+    }
+    if (!outcome.status.ok()) {
+      throw CrowdyNetworkError(outcome.errorMessage);
+    }
+#endif
+    return outcome.status.ok() ? std::move(outcome.response) : HttpResponse{};
+  }
+
+  HttpOutcome sendOutcome(const HttpRequest& request) noexcept override {
+    return perform(request);
+  }
+
+ private:
+  HttpOutcome perform(const HttpRequest& request) noexcept {
+    HttpOutcome outcome;
     CURL* curl = curl_easy_init();
-    if (!curl) throw CrowdyNetworkError("failed to initialize HTTP handle");
+    if (!curl) {
+      outcome.status = Errc::SocketError;
+      outcome.errorMessage = "failed to initialize HTTP handle";
+      return outcome;
+    }
 
     std::string responseBody;
     curl_slist* headers = nullptr;
@@ -70,15 +93,22 @@ class CurlTransport final : public IHttpTransport {
     curl_easy_cleanup(curl);
 
     if (rc == CURLE_OPERATION_TIMEDOUT) {
-      throw CrowdyTimeoutError("HTTP request timed out: " + request.url);
+      outcome.status = Errc::Timeout;
+      outcome.errorMessage = "HTTP request timed out: " + request.url;
+      return outcome;
     }
     if (rc != CURLE_OK) {
-      throw CrowdyNetworkError(std::string("HTTP request failed: ") + curl_easy_strerror(rc));
+      outcome.status = Errc::SocketError;
+      outcome.errorMessage =
+          std::string("HTTP request failed: ") + curl_easy_strerror(rc);
+      return outcome;
     }
-    return HttpResponse{static_cast<int>(status), std::move(responseBody)};
+    outcome.status = Errc::Ok;
+    outcome.response =
+        HttpResponse{static_cast<int>(status), std::move(responseBody)};
+    return outcome;
   }
 
- private:
   static void lockCb(CURL*, curl_lock_data, curl_lock_access, void* userdata) {
     static_cast<CurlTransport*>(userdata)->shareMutex_.lock();
   }

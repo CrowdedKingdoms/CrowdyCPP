@@ -585,7 +585,7 @@ std::size_t Connection::poll(std::size_t maxEvents) {
 // ---------------------------------------------------------------------------
 
 std::shared_ptr<Connection> ReplicationClient::connect(const Config& config, Handlers handlers) {
-  auto conn = std::make_shared<Connection>(config, provider_);
+  auto conn = std::make_shared<Connection>(config, provider_, crypto_);
   conn->setHandlers(std::move(handlers));
   {
     std::lock_guard lock(connectionMutex_);

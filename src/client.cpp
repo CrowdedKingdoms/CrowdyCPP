@@ -2,7 +2,9 @@
 
 #include <cctype>
 
+#ifndef CROWDY_NO_EXCEPTIONS
 #include "crowdy/agent/client_runtime.hpp"
+#endif
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
@@ -97,28 +99,42 @@ class ClientSessionProvider final : public replication::ISessionProvider {
       : serverStatus_(serverStatus), portal_(portal), logger_(logger) {}
 
   Result<replication::Assignment> assignServer() override {
+#ifndef CROWDY_NO_EXCEPTIONS
     try {
+#endif
       domains::ServerAssignment a = serverStatus_.serverWithLeastClients();
+      if (a.clientPort <= 0 || (a.ip4.empty() && a.ip6.empty())) {
+        return Errc::Rejected;
+      }
       return replication::Assignment{a.ip4, a.ip6, a.clientPort};
+#ifndef CROWDY_NO_EXCEPTIONS
     } catch (const std::exception& e) {
       logger_.log(core::LogLevel::Error, std::string("assignServer failed: ") + e.what());
       return Errc::Rejected;
     }
+#endif
   }
 
   Result<replication::TokenInfo> refreshToken() override {
+#ifndef CROWDY_NO_EXCEPTIONS
     try {
+#endif
       domains::AppTokenResponse t = portal_.refresh();
+      if (t.token.empty()) return Errc::Rejected;
+      const auto gameTokenId = t.gameTokenIdInt64();
+      if (!gameTokenId) return Errc::InvalidArgument;
       replication::TokenInfo info;
       info.token = t.token;
-      info.gameTokenId = t.gameTokenId;
+      info.gameTokenId = *gameTokenId;
       info.expiresAtEpochMs =
           core::parseIso8601Millis(t.expiresAt.data(), t.expiresAt.size());
       return info;
+#ifndef CROWDY_NO_EXCEPTIONS
     } catch (const std::exception& e) {
       logger_.log(core::LogLevel::Error, std::string("refreshToken failed: ") + e.what());
       return Errc::Rejected;
     }
+#endif
   }
 
  private:
@@ -176,6 +192,7 @@ GameplayRefreshPreparation prepareGameplayRefresh(
   return preparation;
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void setRefreshException(GameplayTokenRefreshResult& result,
                          GameplayTokenRefreshStage stage,
                          const std::exception& error) {
@@ -189,6 +206,7 @@ void setRefreshException(GameplayTokenRefreshResult& result,
     result.errorCode = errcName(Errc::Rejected);
   }
 }
+#endif
 
 void setRefreshOutcome(GameplayTokenRefreshResult& result,
                        const graphql::GraphQLOutcome& outcome) {
@@ -231,11 +249,13 @@ void setRefreshOutcome(GameplayTokenRefreshResult& result,
   }
 }
 
-replication::TokenInfo replicationToken(
+Result<replication::TokenInfo> replicationToken(
     const domains::AppTokenResponse& token) {
+  const auto gameTokenId = token.gameTokenIdInt64();
+  if (!gameTokenId) return Errc::InvalidArgument;
   replication::TokenInfo info;
   info.token = token.token;
-  info.gameTokenId = token.gameTokenId;
+  info.gameTokenId = *gameTokenId;
   info.expiresAtEpochMs =
       core::parseIso8601Millis(token.expiresAt.data(), token.expiresAt.size());
   return info;
@@ -256,16 +276,27 @@ GameplayTokenRefreshResult installGameplayRefresh(
     return result;
   }
 
-  const replication::TokenInfo fresh = replicationToken(result.token);
+  auto fresh = replicationToken(result.token);
+  if (!fresh.ok()) {
+    result.stage = GameplayTokenRefreshStage::Install;
+    result.status = fresh.error();
+    result.errorCode = "GAME_TOKEN_ID_OUT_OF_RANGE";
+    result.errorMessage =
+        "refreshAppToken returned a gameTokenId outside the native int64 wire range";
+    return result;
+  }
+#ifndef CROWDY_NO_EXCEPTIONS
   try {
+#endif
     // The socket is closed, so installing the native HMAC key first and then
     // publishing the shared GraphQL bearer is one quiesced cutover: no send
     // can observe mixed credentials.
     if (preparation.connection) {
       preparation.connection->setHandlers(preparation.snapshot.handlers);
-      preparation.connection->setToken(fresh);
+      preparation.connection->setToken(fresh.value());
     }
     auth->setToken(result.token.token);
+#ifndef CROWDY_NO_EXCEPTIONS
   } catch (const std::exception& error) {
     if (preparation.connection) {
       preparation.connection->setToken(preparation.snapshot.config.token);
@@ -277,6 +308,7 @@ GameplayTokenRefreshResult installGameplayRefresh(
     setRefreshException(result, GameplayTokenRefreshStage::Install, error);
     return result;
   }
+#endif
   result.tokenInstalled = true;
 
   if (preparation.connection && preparation.reconnect) {
@@ -306,6 +338,14 @@ GameplayTokenRefreshResult installGameplayRefresh(
 }  // namespace
 
 CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
+  crypto_ = config_.crypto;
+  if (!crypto_) {
+#ifdef CROWDY_HAS_OPENSSL
+    crypto_ = &core::opensslCrypto();
+#else
+    crypto_ = &core::unavailableCrypto();
+#endif
+  }
   transport_ = config_.transport ? config_.transport : graphql::makeCurlTransport();
   auth_ = std::make_shared<graphql::AuthState>(config_.tokenStore);
   dispatcher_ = std::make_shared<graphql::Dispatcher>();
@@ -356,7 +396,8 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   // Management-plane domains.
   authApi_ = std::make_unique<domains::AuthAPI>(managementGql_, auth_);
   users_ = std::make_unique<domains::UsersAPI>(managementGql_);
-  portal_ = std::make_unique<domains::PortalAPI>(managementGql_, auth_);
+  portal_ =
+      std::make_unique<domains::PortalAPI>(managementGql_, auth_, *crypto_);
   platform_ = std::make_unique<domains::PlatformAPI>(managementGql_);
   operatorApi_ = std::make_unique<domains::OperatorAPI>(managementGql_);
 
@@ -373,13 +414,17 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   channels_ = std::make_unique<domains::ChannelsAPI>(gameGql_);
   gameModel_ = std::make_unique<domains::GameModelAPI>(
       gameGql_, gameSubscriptions_);
+#ifndef CROWDY_NO_EXCEPTIONS
   compute_ = std::make_unique<domains::ComputeAPI>(gameGql_);
+#endif
   playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gameGql_);
   playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(managementGql_);
   marketplace_ = std::make_unique<domains::MarketplaceAPI>(gameGql_, managementGql_);
   playerModel_ = std::make_unique<domains::PlayerModelAPI>(gameGql_);
   gameApps_ = std::make_unique<domains::GameAppsAPI>(gameGql_);
+#ifndef CROWDY_NO_EXCEPTIONS
   crowdyStudio_ = std::make_unique<domains::CrowdyStudioAPI>(gameGql_);
+#endif
   crowdyStudioAgent_ = std::make_unique<domains::CrowdyStudioAgentAPI>(
       gameGql_, managementGql_, dispatcher_);
 
@@ -389,23 +434,72 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
 CrowdyClient::~CrowdyClient() { close(); }
 
 CrowdyClient::CrowdyClient(CrowdyClient&&) noexcept = default;
-CrowdyClient& CrowdyClient::operator=(CrowdyClient&&) noexcept = default;
+CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
+  if (this == &other) return *this;
+  close();
+
+  config_ = std::move(other.config_);
+  crypto_ = other.crypto_;
+  transport_ = std::move(other.transport_);
+  auth_ = std::move(other.auth_);
+  dispatcher_ = std::move(other.dispatcher_);
+  gameGql_ = std::move(other.gameGql_);
+  managementGql_ = std::move(other.managementGql_);
+  websocketEndpoint_ = std::move(other.websocketEndpoint_);
+  webSocketTransport_ = std::move(other.webSocketTransport_);
+  gameSubscriptions_ = std::move(other.gameSubscriptions_);
+  managementSubscriptions_ = std::move(other.managementSubscriptions_);
+  authApi_ = std::move(other.authApi_);
+  users_ = std::move(other.users_);
+  portal_ = std::move(other.portal_);
+  serverStatus_ = std::move(other.serverStatus_);
+  chunks_ = std::move(other.chunks_);
+  voxels_ = std::move(other.voxels_);
+  actors_ = std::move(other.actors_);
+  avatars_ = std::move(other.avatars_);
+  state_ = std::move(other.state_);
+  host_ = std::move(other.host_);
+  teleport_ = std::move(other.teleport_);
+  teams_ = std::move(other.teams_);
+  channels_ = std::move(other.channels_);
+  gameModel_ = std::move(other.gameModel_);
+#ifndef CROWDY_NO_EXCEPTIONS
+  compute_ = std::move(other.compute_);
+#endif
+  playerCompute_ = std::move(other.playerCompute_);
+  playerWallet_ = std::move(other.playerWallet_);
+  marketplace_ = std::move(other.marketplace_);
+  playerModel_ = std::move(other.playerModel_);
+  gameApps_ = std::move(other.gameApps_);
+#ifndef CROWDY_NO_EXCEPTIONS
+  crowdyStudio_ = std::move(other.crowdyStudio_);
+#endif
+  platform_ = std::move(other.platform_);
+  crowdyStudioAgent_ = std::move(other.crowdyStudioAgent_);
+  admin_ = std::move(other.admin_);
+  operatorApi_ = std::move(other.operatorApi_);
+  replication_ = std::move(other.replication_);
+  return *this;
+}
 
 replication::ReplicationClient& CrowdyClient::replication() {
   if (!replication_) {
     auto provider = std::make_shared<ClientSessionProvider>(*serverStatus_, *portal_,
                                                             core::defaultLogger());
-    replication_ = std::make_unique<replication::ReplicationClient>(std::move(provider));
+    replication_ = std::make_unique<replication::ReplicationClient>(
+        std::move(provider), *crypto_);
   }
   return *replication_;
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
 CrowdyClient::createCrowdyStudioAgentController(
     agent::CrowdyStudioAgentControllerOptions options) {
   return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
       *crowdyStudioAgent_, *gameSubscriptions_, std::move(options));
 }
+#endif
 
 GameplayTokenRefreshResult CrowdyClient::refreshGameplayToken() {
   auto preparation = prepareGameplayRefresh(
@@ -414,15 +508,27 @@ GameplayTokenRefreshResult CrowdyClient::refreshGameplayToken() {
   if (!preparation.ready) return preparation.result;
 
   domains::AppTokenResponse token;
+#ifndef CROWDY_NO_EXCEPTIONS
   try {
+#endif
     // Defer storage until the native token has been validated and the old
     // connection is quiescent.
     token = portal_->refresh(false);
+#ifndef CROWDY_NO_EXCEPTIONS
   } catch (const std::exception& error) {
     setRefreshException(preparation.result,
                         GameplayTokenRefreshStage::Refresh, error);
     return preparation.result;
   }
+#else
+  if (token.token.empty()) {
+    preparation.result.stage = GameplayTokenRefreshStage::Refresh;
+    preparation.result.status = Errc::Rejected;
+    preparation.result.errorCode = errcName(Errc::Rejected);
+    preparation.result.errorMessage = "gameplay token refresh failed";
+    return preparation.result;
+  }
+#endif
   return installGameplayRefresh(std::move(preparation), auth_,
                                 std::move(token));
 }
@@ -444,9 +550,11 @@ void CrowdyClient::refreshGameplayTokenAsync(
       std::make_shared<GameplayRefreshPreparation>(std::move(preparation));
   auto sharedCallback =
       std::make_shared<GameplayTokenRefreshCallback>(std::move(cb));
+#ifndef CROWDY_NO_EXCEPTIONS
   try {
+#endif
     portal_->refreshAsync(
-        [this, sharedPreparation,
+        [auth = auth_, sharedPreparation,
          sharedCallback](graphql::GraphQLOutcome outcome,
                          domains::AppTokenResponse token) mutable {
           if (!outcome.ok()) {
@@ -455,9 +563,10 @@ void CrowdyClient::refreshGameplayTokenAsync(
             return;
           }
           (*sharedCallback)(installGameplayRefresh(
-              std::move(*sharedPreparation), auth_, std::move(token)));
+              std::move(*sharedPreparation), auth, std::move(token)));
         },
         false);
+#ifndef CROWDY_NO_EXCEPTIONS
   } catch (const std::exception& error) {
     setRefreshException(sharedPreparation->result,
                         GameplayTokenRefreshStage::Refresh, error);
@@ -467,6 +576,7 @@ void CrowdyClient::refreshGameplayTokenAsync(
           (*sharedCallback)(std::move(result));
         });
   }
+#endif
 }
 
 void CrowdyClient::poll() {
@@ -474,6 +584,9 @@ void CrowdyClient::poll() {
 }
 
 void CrowdyClient::close() {
+  if (dispatcher_) dispatcher_->close();
+  if (gameGql_) gameGql_->close();
+  if (managementGql_) managementGql_->close();
   replication_.reset();
   if (gameSubscriptions_) gameSubscriptions_->close();
   if (managementSubscriptions_) managementSubscriptions_->close();

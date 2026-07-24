@@ -192,7 +192,7 @@ struct Player {
   crowdy::replication::TokenInfo tokenInfo() const {
     crowdy::replication::TokenInfo t;
     t.token = appToken.token;
-    t.gameTokenId = appToken.gameTokenId;
+    t.gameTokenId = appToken.gameTokenIdInt64().value_or(0);
     t.expiresAtEpochMs =
         crowdy::core::parseIso8601Millis(appToken.expiresAt.data(), appToken.expiresAt.size());
     return t;
@@ -232,7 +232,9 @@ inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
     crowdy::ClientConfig c;
     c.httpUrl = !cfg.httpUrl.empty()
                     ? cfg.httpUrl
-                    : (!minted.gameApiUrl.empty() ? minted.gameApiUrl : cfg.managementUrl);
+                    : (!minted.gameApiUrl.empty()
+                           ? minted.gameApiUrl.valueOrEmpty()
+                           : cfg.managementUrl);
     c.managementUrl = cfg.managementUrl;
     cached = std::make_unique<crowdy::CrowdyClient>(std::move(c));
     cached->setToken(minted.token);
@@ -290,13 +292,14 @@ inline Player provisionPlayerEmail(const E2eConfig& cfg, const std::string& emai
 
   const std::string gameUrl =
       !cfg.httpUrl.empty() ? cfg.httpUrl
-                           : (!p.appToken.gameApiUrl.empty() ? p.appToken.gameApiUrl
-                                                             : cfg.managementUrl);
+                           : (!p.appToken.gameApiUrl.empty()
+                                  ? p.appToken.gameApiUrl.valueOrEmpty()
+                                  : cfg.managementUrl);
   crowdy::ClientConfig gameCfg;
   gameCfg.httpUrl = gameUrl;
   gameCfg.managementUrl = cfg.managementUrl;
   if (!p.appToken.gameApiWsUrl.empty()) {
-    gameCfg.wsUrl = p.appToken.gameApiWsUrl;
+    gameCfg.wsUrl = p.appToken.gameApiWsUrl.valueOrEmpty();
   }
   p.game = std::make_unique<crowdy::CrowdyClient>(std::move(gameCfg));
   p.game->setToken(p.appToken.token);

@@ -30,6 +30,7 @@ class PortableTransport final : public graphql::IHttpTransport {
   int refreshCalls = 0;
   bool failRefresh = false;
   bool failReconnect = false;
+  std::string refreshGameTokenId = "202";
 
   graphql::HttpResponse send(const graphql::HttpRequest& request) override {
     requests.push_back(request);
@@ -45,7 +46,8 @@ class PortableTransport final : public graphql::IHttpTransport {
           std::string(
               R"({"data":{"refreshAppToken":{"token":")") +
               kFreshToken +
-              R"(","gameTokenId":"202","appId":"42","expiresAt":"2030-01-01T00:00:00.000Z","gameApiUrl":"https://game.invalid","gameApiWsUrl":"wss://game.invalid","launchUrl":null}}})"};
+              R"(","gameTokenId":")" + refreshGameTokenId +
+              R"(","appId":"42","expiresAt":"2030-01-01T00:00:00.000Z","gameApiUrl":"https://game.invalid","gameApiWsUrl":"wss://game.invalid","launchUrl":null}}})"};
     }
     if (request.body.find("ServerWithLeastClients") != std::string::npos) {
       ++assignmentCalls;
@@ -339,6 +341,44 @@ void testAsyncRefreshFailureUsesPollAndRetainsOldToken() {
   CHECK_EQ(connection->state(), replication::ConnState::Closed);
 }
 
+void testOverflowingGameplayTokenIdIsRejectedWithoutNarrowing() {
+  auto transport = std::make_shared<PortableTransport>();
+  transport->refreshGameTokenId = "9223372036854775808";
+  CrowdyClient client(portableConfig(transport));
+  client.setToken(kOldToken);
+
+  const GameplayTokenRefreshResult result = client.refreshGameplayToken();
+  CHECK(!result.ok());
+  CHECK_EQ(result.stage, GameplayTokenRefreshStage::Install);
+  CHECK_EQ(result.status.code, Errc::InvalidArgument);
+  CHECK_EQ(result.errorCode, "GAME_TOKEN_ID_OUT_OF_RANGE");
+  CHECK_EQ(result.token.gameTokenId, "9223372036854775808");
+  CHECK(!result.token.gameTokenIdInt64().has_value());
+  CHECK_EQ(client.getToken(), kOldToken);
+}
+
+void testNullableTokenAndProfileFieldsRemainDistinct() {
+  const auto tokenJson = graphql::Json::parse(
+      R"({"token":"t","gameTokenId":"18446744073709551616","appId":"42","expiresAt":"2030-01-01T00:00:00Z","gameApiUrl":null,"gameApiWsUrl":"","launchUrl":null})");
+  const auto token = domains::AppTokenResponse::fromJson(tokenJson);
+  CHECK_EQ(token.gameTokenId, "18446744073709551616");
+  CHECK(!token.gameTokenIdInt64().has_value());
+  CHECK(!token.gameApiUrl.has_value());
+  CHECK(token.gameApiUrl.empty());
+  CHECK(token.gameApiWsUrl.has_value());
+  CHECK(token.gameApiWsUrl.empty());
+  CHECK(!token.launchUrl.has_value());
+
+  const auto authJson = graphql::Json::parse(
+      R"({"token":"identity","user":{"userId":"9223372036854775808","email":null,"gamertag":""}})");
+  const auto auth = domains::AuthResponse::fromJson(authJson);
+  CHECK_EQ(auth.userId, "9223372036854775808");
+  CHECK(!auth.email.has_value());
+  CHECK(auth.email.empty());
+  CHECK(auth.gamertag.has_value());
+  CHECK(auth.gamertag.empty());
+}
+
 void testDurableStoreObservability() {
   auto transport = std::make_shared<DurableTransport>();
   ClientConfig config;
@@ -388,6 +428,8 @@ int main() {
   testReconnectFailureRetainsFreshToken();
   testAsyncGameplayRefreshUsesPoll();
   testAsyncRefreshFailureUsesPollAndRetainsOldToken();
+  testOverflowingGameplayTokenIdIsRejectedWithoutNarrowing();
+  testNullableTokenAndProfileFieldsRemainDistinct();
   testDurableStoreObservability();
   std::puts("client_portable_test OK");
   return 0;

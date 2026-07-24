@@ -1,7 +1,7 @@
 # CrowdyCPP
 
 The official portable C++ SDK for **Crowded Kingdoms**. CrowdyCPP gives native
-games typed clients for auth, the world/replication GraphQL APIs, and — unlike
+games typed clients for auth, GraphQL HTTP and WebSocket APIs, and — unlike
 the browser-first [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS) SDK —
 a **native UDP replication client** that speaks the
 [Replication API wire protocol](https://docs.crowdedkingdoms.com/replication-api/intro)
@@ -67,9 +67,10 @@ error (everything else keeps working).
 invoke-trigger contracts (`contractJson` on compute trigger reads — typed
 params/result declarations validated server-side pre-sandbox), and the
 `crowdy::kit::run_optimistic_action` helper (the packaged optimistic apply →
-referee invoke → confirm/rollback loop with actionId receipts). The
-`gameModelContainerChanged` push subscription is waived (browser stream;
-native clients poll or ride replication events). Requires the 2026-07
+referee invoke → confirm/rollback loop with actionId receipts).
+`gameModelContainerChanged` is available through the generic
+`client.subscriptions()` GraphQL-WebSocket primitive; higher layers decide how
+to pull and reduce events. Requires the 2026-07
 `cks-game-api` dev line; older servers reject the new arguments/fields (omit
 them and everything else keeps working).
 
@@ -83,7 +84,7 @@ the hardened admin-created/server-granted stack posture.
 include/crowdy/          public headers
   core/                  bytes, endian, result, clock, logging, allocator interfaces
   wire/                  zero-copy wire codec + HMAC framing (header-only)
-  graphql/               GraphQL-over-HTTP core (IHttpTransport, JSON, errors)
+  graphql/               GraphQL HTTP + WebSocket transports, JSON, errors
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
   kit/                   Game Kit (blueprints + runtime helpers)
@@ -114,11 +115,19 @@ Dependencies (all replaceable through interfaces):
 | Dependency | Used by | Replaceable via |
 |---|---|---|
 | libcurl | default HTTP transport | `crowdy::graphql::IHttpTransport` |
+| libcurl 7.86+ WebSocket APIs | optional default GraphQL subscriptions | `crowdy::graphql::IWebSocketTransport` |
 | OpenSSL (libcrypto) | HMAC-SHA256 | `crowdy::core::ICrypto` |
 | yyjson (vendored) | JSON parse/serialize | internal only, not on the UDP path |
 
 The wire and replication layers depend only on BSD/Winsock sockets and the
 `ICrypto` interface — no libcurl, no JSON.
+
+CMake feature-detects libcurl's WebSocket symbols. If they are absent (or
+`CROWDY_WITH_CURL_WEBSOCKETS=OFF`), the SDK builds with a clear no-default
+fallback and `makeCurlWebSocketTransport()` returns null; injected engine
+transports continue to work on Linux, macOS, and Windows. The factory also
+checks that the linked libcurl actually advertises both `ws` and `wss`, since
+some distributions expose the APIs while compiling those protocols out.
 
 ## Quick start
 
@@ -167,6 +176,43 @@ refresh) is documented in
 [Authenticate and assign](https://docs.crowdedkingdoms.com/replication-api/authenticate-and-assign)
 and handled by `crowdy::replication` automatically.
 
+### Generic GraphQL subscriptions
+
+`GraphQLSubscriptionClient` implements `graphql-transport-ws` for portable
+push APIs. It normalizes an HTTP(S) API URL to one WS(S) `/graphql` endpoint,
+authenticates with the shared token in `connection_init`, bounds UTF-8 JSON
+messages, and replays active operations after capped jittered reconnects.
+
+```cpp
+crowdy::graphql::GraphQLSubscriptionCallbacks callbacks;
+callbacks.onNext = [](crowdy::graphql::GraphQLSubscriptionOutcome next) {
+  if (next.ok()) {
+    // Read next.data on the game thread.
+  }
+};
+callbacks.onError = [](crowdy::graphql::GraphQLSubscriptionError error) {
+  // Branch on error.kind / error.code; terminal auth, app-scope, and stale
+  // client-epoch failures are not reconnected.
+};
+callbacks.onReconnect = [](crowdy::graphql::GraphQLReconnectInfo replay) {
+  // Optionally start a durable gap-fill query before replayed events arrive.
+};
+
+auto subscription = game.subscriptions().subscribe(
+    "subscription Changes($appId: BigInt!) {"
+    " gameModelContainerChanged(appId: $appId) { containerId changedKeys }"
+    "}",
+    crowdy::graphql::JVal::object({{"appId", appId}}), "Changes",
+    std::move(callbacks));
+
+while (running) game.poll();  // all callbacks are delivered here
+// subscription.cancel() is explicit; destruction also cancels.
+```
+
+The client exposes raw documents and JSON intentionally. Crowdy Studio, agent,
+or game-specific reducers can consume these primitives without putting their
+event semantics into the transport layer.
+
 ## Sub-clients at a glance
 
 CrowdyCPP mirrors CrowdyJS's domain layout. Game-client surface (end-user,
@@ -187,6 +233,7 @@ app-scoped token):
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
+| `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
@@ -347,6 +394,10 @@ The design rules that make it wrappable:
      the engine's HTTP stack, proxies, and certificate handling. (Alternatively
      link the default libcurl transport; Unreal ships libcurl + OpenSSL in its
      ThirdParty tree.)
+   - `IWebSocketTransport` / `IWebSocketConnection` — create a dormant socket,
+     install its event callback in `start()`, and provide thread-safe,
+     non-blocking `send()` / `close()`. The engine may complete on any thread;
+     CrowdyCPP fences stale connections and posts user callbacks to `poll()`.
    - `ICrypto` — Unreal binds its bundled OpenSSL for HMAC-SHA256.
    - `ILogger` / `IAllocator` / `IClock` — adapters onto `UE_LOG`, `FMemory`,
      and engine time so SDK activity shows up in engine tooling.
@@ -435,6 +486,10 @@ GraphQL-layer failures throw structured exceptions mirroring CrowdyJS:
 `CrowdyHttpError`, `CrowdyGraphQLError` (preserves `extensions.code`,
 `remediation`), `CrowdyNetworkError`, `CrowdyTimeoutError`,
 `CrowdyProtocolError`. Branch on `error.code()` rather than parsing messages.
+Subscriptions are non-throwing: `onNext` receives
+`GraphQLSubscriptionOutcome`, while `onError` receives a typed terminal
+`GraphQLSubscriptionError`. Destroying its move-only handle suppresses queued
+callbacks and sends protocol `complete` when connected.
 
 The replication layer never throws on the hot path: sends return
 `crowdy::Result` codes, server-reported failures arrive as
@@ -513,8 +568,9 @@ external CMake build.
 
 ## Tests
 
-- `ctest` — unit tests (wire codec golden vectors, HMAC vectors, bundle
-  parsing, malformed-input fuzz, codec round-trips). Offline.
+- `ctest` — offline unit tests (wire codec golden vectors, HMAC vectors,
+  GraphQL-WebSocket handshake/reconnect/frame/cancellation behavior, bundle
+  parsing, malformed-input fuzz, codec round-trips).
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
   refresh/reconnect) that run against a deployment you configure via

@@ -63,28 +63,41 @@ class ClientSessionProvider final : public replication::ISessionProvider {
 CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   transport_ = config_.transport ? config_.transport : graphql::makeCurlTransport();
   auth_ = std::make_shared<graphql::AuthState>(config_.tokenStore);
+  dispatcher_ = std::make_shared<graphql::Dispatcher>();
 
   const std::string managementBase =
       config_.managementUrl.empty() ? config_.httpUrl : config_.managementUrl;
   const std::string gameBase = config_.httpUrl.empty() ? config_.managementUrl : config_.httpUrl;
+  const std::string managementEndpoint =
+      joinUrl(managementBase, config_.graphqlEndpoint);
+  const std::string gameEndpoint = joinUrl(gameBase, config_.graphqlEndpoint);
 
   managementGql_ = std::make_shared<graphql::GraphQLClient>(
-      graphql::GraphQLClientConfig{joinUrl(managementBase, config_.graphqlEndpoint),
-                                   config_.timeoutMs},
+      graphql::GraphQLClientConfig{managementEndpoint, config_.timeoutMs},
       transport_, auth_);
   gameGql_ = std::make_shared<graphql::GraphQLClient>(
-      graphql::GraphQLClientConfig{joinUrl(gameBase, config_.graphqlEndpoint), config_.timeoutMs},
+      graphql::GraphQLClientConfig{gameEndpoint, config_.timeoutMs},
       transport_, auth_);
 
   // Share one completion pump across both endpoints so poll() drains every
-  // async API callback, and wire in the engine's async transport when provided.
-  dispatcher_ = std::make_shared<graphql::Dispatcher>();
+  // async HTTP and WebSocket callback, and wire in engine transports.
   managementGql_->setDispatcher(dispatcher_);
   gameGql_->setDispatcher(dispatcher_);
   if (config_.asyncTransport) {
     managementGql_->setAsyncTransport(config_.asyncTransport);
     gameGql_->setAsyncTransport(config_.asyncTransport);
   }
+  webSocketTransport_ = config_.webSocketTransport
+                            ? config_.webSocketTransport
+                            : graphql::makeCurlWebSocketTransport();
+  managementSubscriptions_ =
+      std::make_shared<graphql::GraphQLSubscriptionClient>(
+          graphql::GraphQLSubscriptionClientConfig{
+              managementEndpoint, config_.webSocket},
+          webSocketTransport_, auth_, dispatcher_);
+  gameSubscriptions_ = std::make_shared<graphql::GraphQLSubscriptionClient>(
+      graphql::GraphQLSubscriptionClientConfig{gameEndpoint, config_.webSocket},
+      webSocketTransport_, auth_, dispatcher_);
 
   // Management-plane domains.
   authApi_ = std::make_unique<domains::AuthAPI>(managementGql_, auth_);
@@ -133,6 +146,10 @@ void CrowdyClient::poll() {
   if (dispatcher_) dispatcher_->drain();
 }
 
-void CrowdyClient::close() { replication_.reset(); }
+void CrowdyClient::close() {
+  replication_.reset();
+  if (gameSubscriptions_) gameSubscriptions_->close();
+  if (managementSubscriptions_) managementSubscriptions_->close();
+}
 
 }  // namespace crowdy

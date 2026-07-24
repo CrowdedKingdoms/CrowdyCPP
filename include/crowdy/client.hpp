@@ -17,6 +17,7 @@
 #include "crowdy/domains/users.hpp"
 #include "crowdy/domains/world_data.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/graphql/subscription_client.hpp"
 
 namespace crowdy {
 
@@ -53,6 +54,12 @@ struct ClientConfig {
   /// *Async calls run on it and their callbacks are delivered from poll();
   /// engines inject their own here (FHttpModule, UnityWebRequest, HTTPRequest).
   std::shared_ptr<graphql::IAsyncHttpTransport> asyncTransport;
+  /// WebSocket transport for GraphQL subscriptions. Uses the optional libcurl
+  /// implementation when available; engine wrappers inject their own async
+  /// socket implementation here.
+  std::shared_ptr<graphql::IWebSocketTransport> webSocketTransport;
+  /// Acknowledgement, frame, and capped reconnect limits for subscriptions.
+  graphql::GraphQLSubscriptionOptions webSocket;
 };
 
 /// The Crowded Kingdoms client. Domain accessors mirror CrowdyJS sub-clients;
@@ -123,6 +130,14 @@ class CrowdyClient {
   graphql::GraphQLClient& graphqlClient() { return *gameGql_; }
   /// Raw GraphQL against the Management API endpoint.
   graphql::GraphQLClient& managementClient() { return *managementGql_; }
+  /// Generic graphql-transport-ws subscriptions against the Game API.
+  graphql::GraphQLSubscriptionClient& subscriptions() {
+    return *gameSubscriptions_;
+  }
+  /// Generic graphql-transport-ws subscriptions against the Management API.
+  graphql::GraphQLSubscriptionClient& managementSubscriptions() {
+    return *managementSubscriptions_;
+  }
 
   const ClientConfig& config() const { return config_; }
 
@@ -136,6 +151,9 @@ class CrowdyClient {
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
   std::shared_ptr<graphql::GraphQLClient> gameGql_;
   std::shared_ptr<graphql::GraphQLClient> managementGql_;
+  std::shared_ptr<graphql::IWebSocketTransport> webSocketTransport_;
+  std::shared_ptr<graphql::GraphQLSubscriptionClient> gameSubscriptions_;
+  std::shared_ptr<graphql::GraphQLSubscriptionClient> managementSubscriptions_;
 
   std::unique_ptr<domains::AuthAPI> authApi_;
   std::unique_ptr<domains::UsersAPI> users_;

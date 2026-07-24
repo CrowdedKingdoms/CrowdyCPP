@@ -158,11 +158,11 @@ const ROOT_CLASSIFICATIONS = {
   ),
   'Subscription.gameModelContainerChanged': classification(
     CATEGORY.PORTABLE,
-    'portable GraphQL-WebSocket stream; later graphql-ws phase',
+    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
   ),
   'Subscription.crowdyStudioAgentEvents': classification(
     CATEGORY.PORTABLE,
-    'portable ordered agent event stream; later graphql-ws/agent phase',
+    'generic GraphQLSubscriptionClient transport is available; typed agent controller and reduction remain',
   ),
   ...classifyNames(
     'Mutation',
@@ -249,7 +249,7 @@ const METHOD_CLASSIFICATIONS = {
   ),
   'GameModelAPI.containerChanged': classification(
     CATEGORY.PORTABLE,
-    'portable GraphQL-WebSocket stream; later graphql-ws phase',
+    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
   ),
   'MarketplaceAPI.claimGridChunk': classification(
     CATEGORY.PORTABLE,

@@ -72,6 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        default_transports: ['ON', 'OFF']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +88,8 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCROWDY_WITH_CURL=${{ matrix.default_transports }}
+          -DCROWDY_WITH_CURL_WEBSOCKETS=${{ matrix.default_transports }}
           ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
       - name: Build
         run: cmake --build build --config Release -j 4

@@ -31,6 +31,12 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.15.0 app-scoped player counts:** `gameModel().activePlayerCount(appId)`
+and `activePlayerCountChanged(appId, callbacks)` expose the typed snapshot and
+best-effort transition stream introduced by the matching Game API generation.
+The strict portable-parity target advances to CrowdyJS 12.2.0 with zero schema
+differences, portable gaps, unclassified differences, or stale classifications.
+
 **v0.14.1 strict portable-parity target:** the release gate reports zero
 portable gaps, unclassified differences, and stale classifications against
 CrowdyJS 12.0.0 at
@@ -286,6 +292,14 @@ while (running) game.poll();  // all callbacks are delivered here
 
 Use the typed wrappers where available:
 `game.gameModel().containerChanged(...)` maps container metadata pushes, and
+`game.gameModel().activePlayerCount(appId)` returns the app-scoped session
+gauge with its completeness status and decimal revision.
+`activePlayerCountChanged(...)` is a best-effort transition feed with no
+bootstrap event: establish the feed, query the snapshot, deduplicate by
+revision, and requery after a reconnect or revision gap. Both calls require an
+app-scoped token for the same app. The gauge counts active gameplay sessions,
+not distinct users or actors; an abandoned session can remain visible for
+roughly 120 seconds while inactivity is recognized.
 `client.createCrowdyStudioAgentController(...)` owns the durable Agentic Studio
 event adapter and replay/gap-fill lifecycle. The generic client remains for
 application-specific subscriptions. `crowdy::session::ContainerMirror` does
@@ -719,8 +733,8 @@ files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS 12.0.0 at
-`a4624c9193cb943b8a922ecea5013a9e48dcc2fb`. The source of truth is
+CrowdyCPP tracks CrowdyJS 12.2.0 at
+`f2d637c4aa4add8ccf863243842096d40ec0fb5c`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:

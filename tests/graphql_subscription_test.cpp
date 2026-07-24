@@ -790,6 +790,106 @@ void testCrowdyClientInjectionAndPoll() {
   CHECK(handle.active());
 }
 
+void testTypedGameModelActivePlayerCountChanged() {
+  auto webSocket = std::make_shared<FakeTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.example.test";
+  config.transport = std::make_shared<FakeHttpTransport>();
+  config.webSocketTransport = webSocket;
+  config.webSocket.initialReconnectDelayMs = 0;
+  config.webSocket.maxReconnectDelayMs = 0;
+  config.webSocket.reconnectJitter = 0;
+  CrowdyClient client(std::move(config));
+
+  std::size_t deliveries = 0;
+  std::size_t errors = 0;
+  std::size_t reconnects = 0;
+  bool completed = false;
+  domains::GameModelActivePlayerCountChange received;
+  GraphQLSubscriptionError receivedError;
+  GraphQLReconnectInfo reconnectInfo;
+  domains::GameModelActivePlayerCountChangedCallbacks callbacks;
+  callbacks.next =
+      [&](domains::GameModelActivePlayerCountChange value) {
+        ++deliveries;
+        received = std::move(value);
+      };
+  callbacks.error = [&](GraphQLSubscriptionError error) {
+    ++errors;
+    receivedError = std::move(error);
+  };
+  callbacks.complete = [&] { completed = true; };
+  callbacks.reconnect = [&](GraphQLReconnectInfo info) {
+    ++reconnects;
+    reconnectInfo = std::move(info);
+  };
+
+  auto handle = client.gameModel().activePlayerCountChanged(
+      "42", std::move(callbacks));
+  const auto first = webSocket->connection(0);
+  acknowledge(first);
+  const Json subscribe = parseSentText(first, 1);
+  CHECK(subscribe["payload"]["operationName"].asString() ==
+        "GameModelActivePlayerCountChanged");
+  CHECK(subscribe["payload"]["variables"]["appId"].asString() == "42");
+  const std::string document = subscribe["payload"]["query"].asString();
+  CHECK(document.find(
+            "subscription GameModelActivePlayerCountChanged") !=
+        std::string::npos);
+  CHECK(document.find("gameModelActivePlayerCountChanged(appId: $appId)") !=
+        std::string::npos);
+  CHECK(document.find("previousCount") != std::string::npos);
+  CHECK(document.find("currentCount") != std::string::npos);
+  CHECK(document.find("delta") != std::string::npos);
+  CHECK(document.find("revision") != std::string::npos);
+  CHECK(document.find("observedAt") != std::string::npos);
+  CHECK(document.find("query GameModelActivePlayerCount(") ==
+        std::string::npos);
+
+  first->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"gameModelActivePlayerCountChanged":{"appId":"42","previousCount":7,"currentCount":9,"delta":2,"revision":"184467440737095516160000","observedAt":"2026-07-24T00:00:00.000Z"}}}})");
+  CHECK_EQ(deliveries, std::size_t{0});
+  client.poll();
+  CHECK_EQ(deliveries, std::size_t{1});
+  CHECK_EQ(errors, std::size_t{0});
+  CHECK(received.appId == "42");
+  CHECK_EQ(received.previousCount, 7);
+  CHECK_EQ(received.currentCount, 9);
+  CHECK_EQ(received.delta, 2);
+  CHECK(received.revision == "184467440737095516160000");
+  CHECK(received.observedAt == "2026-07-24T00:00:00.000Z");
+
+  first->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"gameModelActivePlayerCountChanged":{"appId":"42","previousCount":9,"currentCount":8,"delta":-1,"revision":"not-decimal","observedAt":"2026-07-24T00:00:01.000Z"}}}})");
+  client.poll();
+  CHECK_EQ(deliveries, std::size_t{1});
+  CHECK_EQ(errors, std::size_t{1});
+  CHECK(receivedError.kind == GraphQLSubscriptionErrorKind::Protocol);
+  CHECK(receivedError.status.code == Errc::Malformed);
+  CHECK(receivedError.code == "INVALID_ACTIVE_PLAYER_COUNT_CHANGE");
+  CHECK(receivedError.terminal);
+  CHECK(handle.active());
+
+  first->emitClose(1012, "service restart");
+  waitFor([&] { return webSocket->connectionCount() == 2; });
+  const auto second = webSocket->connection(1);
+  acknowledge(second);
+  const Json replay = parseSentText(second, 1);
+  CHECK(replay["payload"]["operationName"].asString() ==
+        "GameModelActivePlayerCountChanged");
+  client.poll();
+  CHECK_EQ(reconnects, std::size_t{1});
+  CHECK_EQ(reconnectInfo.attempt, std::size_t{1});
+  CHECK(reconnectInfo.operationId == "1");
+  CHECK(handle.active());
+
+  second->emitText(R"({"id":"1","type":"complete"})");
+  CHECK(!handle.active());
+  CHECK(!completed);
+  client.poll();
+  CHECK(completed);
+}
+
 void testTypedGameModelContainerChanged() {
   auto webSocket = std::make_shared<FakeTransport>();
   ClientConfig config;
@@ -923,6 +1023,7 @@ int main() {
   testFrameAndUtf8Limits();
   testAcknowledgementTimeoutAndReconnectCap();
   testCrowdyClientInjectionAndPoll();
+  testTypedGameModelActivePlayerCountChanged();
   testTypedGameModelContainerChanged();
   testTypedAgentGraphqlSubscription();
   testControllerFactoryOwnsAdaptersAndPumpsTools();

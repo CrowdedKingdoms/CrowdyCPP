@@ -1,5 +1,14 @@
 # CrowdyCPP migration notes
 
+## 0.15.0 app-scoped player counts
+
+0.15.0 is additive. Native clients can query
+`gameModel().activePlayerCount(appId)` and subscribe with
+`activePlayerCountChanged(appId, callbacks)`. Only `FRESH` snapshots are
+complete; deduplicate transition events by their decimal-string revision and
+requery after reconnects or gaps. These methods require the matching
+2026-07-24 Game API generation.
+
 ## 0.14.1 Windows replication fix
 
 0.14.1 is a drop-in patch for 0.14.0. Winsock UDP connections are now

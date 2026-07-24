@@ -262,6 +262,16 @@ query GameModelEventsConnection(
   }
 }
 
+query GameModelActivePlayerCount($appId: BigInt!) {
+  gameModelActivePlayerCount(appId: $appId) {
+    appId
+    activePlayerCount
+    status
+    observedAt
+    revision
+  }
+}
+
 # Cross-engine flow timeline (diagnostics; requires manage_apps and a
 # game-api with gameModelFlow, 2026-07-19+). Selections are inlined because
 # each operations file is shipped as one self-contained document.
@@ -326,6 +336,17 @@ query GameModelFlow($appId: BigInt!, $flowId: String!) {
       errorMessage
       circuitAction
     }
+  }
+}
+
+subscription GameModelActivePlayerCountChanged($appId: BigInt!) {
+  gameModelActivePlayerCountChanged(appId: $appId) {
+    appId
+    previousCount
+    currentCount
+    delta
+    revision
+    observedAt
   }
 }
 

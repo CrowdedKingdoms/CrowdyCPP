@@ -78,6 +78,8 @@ class GraphQLClient {
 
   const std::string& endpoint() const { return config_.endpoint; }
   AuthState& auth() { return *auth_; }
+  std::shared_ptr<AuthState> sharedAuthState() const { return auth_; }
+  std::shared_ptr<Dispatcher> dispatcher() const { return dispatcher_; }
 
  private:
   HttpRequest buildHttpRequest(std::string_view document, const JVal& variables,

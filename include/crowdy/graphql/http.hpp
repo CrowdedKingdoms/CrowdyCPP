@@ -38,7 +38,7 @@ class IHttpTransport {
 
 /// Default libcurl transport. Maintains a per-instance cookie jar so sticky
 /// load-balancer cookies persist across requests. Only available when built
-/// with CROWDY_WITH_CURL (the default).
+/// with CROWDY_WITH_CURL (the default); returns null otherwise.
 std::shared_ptr<IHttpTransport> makeCurlTransport();
 
 /// Result of an async HTTP round trip. status.ok() means the request completed

@@ -15,6 +15,8 @@ option(CROWDY_BUILD_BENCHMARKS "Build benchmarks" ON)
 option(CROWDY_BUILD_EXAMPLES "Build example programs" ON)
 option(CROWDY_BUILD_PARITY_TOOLS "Build maintainer-only parity tools" OFF)
 option(CROWDY_WITH_CURL "Build the default libcurl HTTP transport" ON)
+option(CROWDY_WITH_CURL_WEBSOCKETS
+       "Build the optional libcurl GraphQL-WebSocket transport when supported" ON)
 option(CROWDY_WITH_OPENSSL "Build the default OpenSSL crypto provider" ON)
 
 if(MSVC)
@@ -24,6 +26,73 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
+
+# HTTP requires curl; WebSockets merely use it when a compatible build exists.
+if(CROWDY_WITH_CURL)
+  find_package(CURL REQUIRED)
+elseif(CROWDY_WITH_CURL_WEBSOCKETS)
+  find_package(CURL QUIET)
+endif()
+
+set(CROWDY_HAS_CURL_WEBSOCKETS OFF)
+if(CROWDY_WITH_CURL_WEBSOCKETS AND CURL_FOUND AND
+   CURL_VERSION_STRING VERSION_GREATER_EQUAL "7.86.0")
+  include(CheckCXXSourceCompiles)
+  include(CheckCXXSourceRuns)
+  set(_crowdy_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+  set(CMAKE_REQUIRED_LIBRARIES CURL::libcurl)
+  check_cxx_source_compiles([=[
+    #include <curl/curl.h>
+    #if LIBCURL_VERSION_NUM < 0x075600
+    #error libcurl WebSocket API is too old
+    #endif
+    int main() {
+      CURL* handle = nullptr;
+      char buffer[1]{};
+      size_t count = 0;
+      const curl_ws_frame* metadata = nullptr;
+      (void)curl_ws_recv(handle, buffer, sizeof(buffer), &count, &metadata);
+      (void)curl_ws_send(handle, buffer, sizeof(buffer), &count, 0, CURLWS_TEXT);
+      return 0;
+    }
+  ]=] CROWDY_CURL_WEBSOCKET_APIS_COMPILE)
+  set(CROWDY_CURL_WEBSOCKET_PROTOCOLS_AVAILABLE ON)
+  if(CROWDY_CURL_WEBSOCKET_APIS_COMPILE AND NOT CMAKE_CROSSCOMPILING)
+    check_cxx_source_runs([=[
+      #include <curl/curl.h>
+      #include <cstring>
+      int main() {
+        const curl_version_info_data* info = curl_version_info(CURLVERSION_NOW);
+        if (!info || !info->protocols) return 1;
+        bool ws = false;
+        bool wss = false;
+        for (const char* const* protocol = info->protocols; *protocol; ++protocol) {
+          ws = ws || std::strcmp(*protocol, "ws") == 0;
+          wss = wss || std::strcmp(*protocol, "wss") == 0;
+        }
+        return ws && wss ? 0 : 1;
+      }
+    ]=] CROWDY_CURL_WEBSOCKET_PROTOCOLS_RUN)
+    set(CROWDY_CURL_WEBSOCKET_PROTOCOLS_AVAILABLE
+        ${CROWDY_CURL_WEBSOCKET_PROTOCOLS_RUN})
+  endif()
+  set(CMAKE_REQUIRED_LIBRARIES "${_crowdy_required_libraries}")
+  unset(_crowdy_required_libraries)
+  if(CROWDY_CURL_WEBSOCKET_APIS_COMPILE AND
+     CROWDY_CURL_WEBSOCKET_PROTOCOLS_AVAILABLE)
+    set(CROWDY_HAS_CURL_WEBSOCKETS ON)
+  endif()
+endif()
+
+if(CROWDY_HAS_CURL_WEBSOCKETS)
+  message(STATUS
+    "CrowdyCPP: libcurl WebSocket API backend enabled "
+    "(runtime ws/wss protocol support is checked by the factory)")
+else()
+  message(STATUS
+    "CrowdyCPP: no compatible default libcurl WebSocket transport; "
+    "injected IWebSocketTransport implementations remain available")
+endif()
 
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)
@@ -41,6 +110,7 @@ add_library(crowdy_core STATIC
 target_include_directories(crowdy_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(crowdy_core PUBLIC cxx_std_20)
 target_link_libraries(crowdy_core PUBLIC Threads::Threads)
 
 # wire is header-only; provide an interface target for consumers
@@ -48,6 +118,7 @@ add_library(crowdy_wire INTERFACE)
 target_include_directories(crowdy_wire INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(crowdy_wire INTERFACE cxx_std_20)
 target_link_libraries(crowdy_wire INTERFACE crowdy_core)
 
 # ---- default crypto provider (OpenSSL)
@@ -57,6 +128,7 @@ if(CROWDY_WITH_OPENSSL)
   target_include_directories(crowdy_crypto_openssl PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+  target_compile_features(crowdy_crypto_openssl PUBLIC cxx_std_20)
   target_link_libraries(crowdy_crypto_openssl PUBLIC OpenSSL::Crypto crowdy_core)
 endif()
 
@@ -64,22 +136,41 @@ endif()
 add_library(crowdy_graphql STATIC
   src/graphql/json.cpp
   src/graphql/graphql_client.cpp
+  src/graphql/subscription_client.cpp
   src/graphql/async_transport.cpp
   src/graphql/auth_state.cpp
   src/graphql/errors.cpp
 )
+if(NOT CROWDY_HAS_CURL_WEBSOCKETS)
+  target_sources(crowdy_graphql PRIVATE src/graphql/websocket_none.cpp)
+endif()
+if(NOT CROWDY_WITH_CURL)
+  target_sources(crowdy_graphql PRIVATE src/graphql/http_none.cpp)
+endif()
 target_include_directories(crowdy_graphql PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(crowdy_graphql PUBLIC cxx_std_20)
 target_link_libraries(crowdy_graphql PUBLIC crowdy_core crowdy_yyjson)
 
 if(CROWDY_WITH_CURL)
-  find_package(CURL REQUIRED)
   add_library(crowdy_http_curl STATIC src/graphql/http_curl.cpp)
   target_include_directories(crowdy_http_curl PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+  target_compile_features(crowdy_http_curl PUBLIC cxx_std_20)
   target_link_libraries(crowdy_http_curl PUBLIC CURL::libcurl crowdy_graphql)
+endif()
+
+if(CROWDY_HAS_CURL_WEBSOCKETS)
+  add_library(crowdy_websocket_curl STATIC src/graphql/websocket_curl.cpp)
+  target_include_directories(crowdy_websocket_curl PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+  target_compile_features(crowdy_websocket_curl PUBLIC cxx_std_20)
+  target_link_libraries(crowdy_websocket_curl PUBLIC CURL::libcurl crowdy_graphql)
+  target_compile_definitions(crowdy_websocket_curl
+    PUBLIC CROWDY_HAS_CURL_WEBSOCKETS=1)
 endif()
 
 # ---- replication (native UDP client)
@@ -90,6 +181,7 @@ add_library(crowdy_replication STATIC
 target_include_directories(crowdy_replication PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(crowdy_replication PUBLIC cxx_std_20)
 target_link_libraries(crowdy_replication PUBLIC crowdy_wire crowdy_core)
 if(WIN32)
   target_link_libraries(crowdy_replication PUBLIC ws2_32)
@@ -108,9 +200,13 @@ add_library(crowdy STATIC
 target_include_directories(crowdy PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(crowdy PUBLIC cxx_std_20)
 target_link_libraries(crowdy PUBLIC crowdy_graphql crowdy_replication)
 if(CROWDY_WITH_CURL)
   target_link_libraries(crowdy PUBLIC crowdy_http_curl)
+endif()
+if(CROWDY_HAS_CURL_WEBSOCKETS)
+  target_link_libraries(crowdy PUBLIC crowdy_websocket_curl)
 endif()
 if(CROWDY_WITH_OPENSSL)
   target_link_libraries(crowdy PUBLIC crowdy_crypto_openssl)
@@ -144,6 +240,9 @@ set(CROWDY_INSTALL_TARGETS crowdy crowdy_core crowdy_graphql crowdy_replication 
 if(CROWDY_WITH_CURL)
   list(APPEND CROWDY_INSTALL_TARGETS crowdy_http_curl)
 endif()
+if(CROWDY_HAS_CURL_WEBSOCKETS)
+  list(APPEND CROWDY_INSTALL_TARGETS crowdy_websocket_curl)
+endif()
 if(CROWDY_WITH_OPENSSL)
   list(APPEND CROWDY_INSTALL_TARGETS crowdy_crypto_openssl)
 endif()
@@ -156,6 +255,11 @@ install(EXPORT CrowdyCPPTargets
         NAMESPACE CrowdyCPP::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)
 
+set(CROWDY_CONFIG_NEEDS_CURL OFF)
+if(CROWDY_WITH_CURL OR CROWDY_HAS_CURL_WEBSOCKETS)
+  set(CROWDY_CONFIG_NEEDS_CURL ON)
+endif()
+set(CROWDY_CONFIG_NEEDS_OPENSSL ${CROWDY_WITH_OPENSSL})
 configure_package_config_file(
   cmake/CrowdyCPPConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/CrowdyCPPConfig.cmake

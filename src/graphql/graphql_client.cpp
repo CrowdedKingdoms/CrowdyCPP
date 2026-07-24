@@ -119,6 +119,12 @@ HttpRequest GraphQLClient::buildHttpRequest(std::string_view document, const JVa
 
 HttpOutcome GraphQLClient::sendInline(const HttpRequest& request) {
   HttpOutcome out;
+  if (!transport_) {
+    out.status = Errc::NotConnected;
+    out.errorMessage =
+        "No default HTTP transport is available; inject IHttpTransport";
+    return out;
+  }
 #ifndef CROWDY_NO_EXCEPTIONS
   try {
     out.response = transport_->send(request);
@@ -140,6 +146,10 @@ HttpOutcome GraphQLClient::sendInline(const HttpRequest& request) {
 #ifndef CROWDY_NO_EXCEPTIONS
 Json GraphQLClient::request(std::string_view document, const JVal& variables,
                             std::string_view operationName) {
+  if (!transport_) {
+    throw CrowdyNetworkError(
+        "No default HTTP transport is available; inject IHttpTransport");
+  }
   HttpRequest req = buildHttpRequest(document, variables, operationName);
   HttpResponse res = transport_->send(req);
   GraphQLOutcome out = interpret(res.status, res.body);

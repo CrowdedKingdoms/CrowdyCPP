@@ -128,11 +128,11 @@ const ROOT_CLASSIFICATIONS = {
   ),
   'Subscription.gameModelContainerChanged': classification(
     CATEGORY.PORTABLE,
-    'portable GraphQL-WebSocket stream; later graphql-ws phase',
+    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
   ),
   'Subscription.crowdyStudioAgentEvents': classification(
     CATEGORY.PORTABLE,
-    'portable ordered agent event stream; later graphql-ws/agent phase',
+    'generic GraphQLSubscriptionClient transport is available; typed agent controller and reduction remain',
   ),
   ...classifyNames(
     'Mutation',
@@ -219,7 +219,7 @@ const METHOD_CLASSIFICATIONS = {
   ),
   'GameModelAPI.containerChanged': classification(
     CATEGORY.PORTABLE,
-    'portable GraphQL-WebSocket stream; later graphql-ws phase',
+    'generic GraphQLSubscriptionClient transport is available; typed game-model wrapper remains',
   ),
   'AvatarStateStore.privateState': classification(
     CATEGORY.PORTABLE,
@@ -429,7 +429,6 @@ const CLASS_MAP = {
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [
-  'Realtime: pluggable graphql-transport-ws client with RAII subscriptions, reconnect, replay, and game-thread dispatch.',
   'Agentic Studio: generated operations, descriptor validation, durable controller, approvals, budgets, heartbeat, and epoch fencing.',
   'Native player host: tool dispatcher, Studio/player-host adapters, lease manager, immediate human preemption, and late-result fencing.',
 ];

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string_view>
 #include <utility>
 
 #include "crowdy/domains/domain_base.hpp"
+#include "crowdy/domains/types.hpp"
 #include "crowdy/generated/operations.hpp"
 
 /// client.marketplace() — the P4a player-code marketplace (free mode).
@@ -18,8 +20,8 @@
 /// acquisition is an entitlement write, and the paid modes ship with P4b.
 /// Publishing snapshots artifact hashes and the DERIVED capability summary,
 /// never source; installs consent to the summary's hash. The browser-side
-/// artifact-byte decode + broker handoff is CrowdyJS-only (04 §7); native
-/// clients use clientArtifact() and decode the base64 payload themselves.
+/// broker handoff is runtime-specific; native clients can use
+/// clientArtifactBytes() to decode the portable artifact payload.
 namespace crowdy::domains {
 
 class MarketplaceAPI {
@@ -28,16 +30,19 @@ class MarketplaceAPI {
    public:
     using DomainBase::DomainBase;
     graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-      return execUnwrap(gen::marketplace::kMarketplaceDocument, vars, op);
+      return execUnwrap(gen::marketplace::documentFor(op), vars, op);
     }
     void runAsync(std::string_view op, const graphql::JVal& vars,
                   graphql::GraphQLCallback cb) const {
-      execUnwrapAsync(gen::marketplace::kMarketplaceDocument, vars, op,
+      execUnwrapAsync(gen::marketplace::documentFor(op), vars, op,
                       std::move(cb));
     }
   };
 
  public:
+  using ArtifactBytesCallback = std::function<void(
+      graphql::GraphQLOutcome, ClientArtifactBytes)>;
+
   MarketplaceAPI(std::shared_ptr<graphql::GraphQLClient> game,
                  std::shared_ptr<graphql::GraphQLClient> management)
       : game_(std::move(game)), management_(std::move(management)) {}
@@ -152,6 +157,31 @@ class MarketplaceAPI {
   void clientArtifactAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
     game_.runAsync("MarketplaceClientArtifact", vars, std::move(cb));
   }
+  /// Fetch and base64-decode an acquired/attached CLIENT artifact for a native
+  /// sandbox/runtime. fuelPerDispatch remains a decimal GraphQL BigInt string.
+  ClientArtifactBytes clientArtifactBytes(const graphql::JVal& vars) const {
+    return requireArtifactBytes(clientArtifact(vars));
+  }
+  void clientArtifactBytesAsync(const graphql::JVal& vars,
+                                ArtifactBytesCallback cb) const {
+    clientArtifactAsync(
+        vars,
+        [cb = std::move(cb)](graphql::GraphQLOutcome outcome) mutable {
+          ClientArtifactBytes decoded;
+          if (outcome.ok()) {
+            auto value = decodeClientArtifactBytes(outcome.data);
+            if (value) {
+              decoded = std::move(*value);
+            } else {
+              outcome.status = Errc::Malformed;
+              outcome.kind = graphql::GraphQLErrorKind::Protocol;
+              outcome.errorMessage =
+                  "playerCodeClientArtifact returned invalid artifact bytes";
+            }
+          }
+          cb(std::move(outcome), std::move(decoded));
+        });
+  }
 
   // -- D4 grid claim flows (Game API) --------------------------------------------
 
@@ -179,6 +209,56 @@ class MarketplaceAPI {
   void claimGridOwnershipAsync(const graphql::JVal& vars,
                                graphql::GraphQLCallback cb) const {
     game_.runAsync("MarketplaceClaimGridOwnership", vars, std::move(cb));
+  }
+
+  /// Atomically create and claim one chunk under SELF_CLAIM. This is a
+  /// player/app-token operation on the Game API; it never requires
+  /// manage_apps. BigInt variables must be decimal strings.
+  graphql::Json claimGridChunk(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceClaimGridChunk", vars);
+  }
+  void claimGridChunkAsync(const graphql::JVal& vars,
+                           graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceClaimGridChunk", vars, std::move(cb));
+  }
+  graphql::Json claimGridChunk(std::string_view appId,
+                               const ChunkRef& chunk) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["chunk"] = chunk.toInput();
+    return claimGridChunk(vars);
+  }
+  void claimGridChunkAsync(std::string_view appId, const ChunkRef& chunk,
+                           graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["chunk"] = chunk.toInput();
+    claimGridChunkAsync(vars, std::move(cb));
+  }
+
+  /// Release an eligible one-chunk grid previously created by
+  /// claimGridChunk. The authenticated app-token user must still own it.
+  graphql::Json releaseClaimedGrid(const graphql::JVal& vars) const {
+    return game_.run("MarketplaceReleaseClaimedGrid", vars);
+  }
+  void releaseClaimedGridAsync(const graphql::JVal& vars,
+                               graphql::GraphQLCallback cb) const {
+    game_.runAsync("MarketplaceReleaseClaimedGrid", vars, std::move(cb));
+  }
+  graphql::Json releaseClaimedGrid(std::string_view appId,
+                                   std::string_view gridId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    return releaseClaimedGrid(vars);
+  }
+  void releaseClaimedGridAsync(std::string_view appId,
+                               std::string_view gridId,
+                               graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    releaseClaimedGridAsync(vars, std::move(cb));
   }
 
   /// Approve or deny a pending claim request (approvers/staff).
@@ -214,6 +294,17 @@ class MarketplaceAPI {
   }
   void appListingsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
     management_.runAsync("MarketplaceAppListings", vars, std::move(cb));
+  }
+
+  /// Immutable versions of one listing in the studio administration view.
+  /// This is a Management API operation requiring view_compute_diagnostics.
+  graphql::Json appListingVersions(const graphql::JVal& vars) const {
+    return management_.run("MarketplaceAppListingVersions", vars);
+  }
+  void appListingVersionsAsync(const graphql::JVal& vars,
+                               graphql::GraphQLCallback cb) const {
+    management_.runAsync("MarketplaceAppListingVersions", vars,
+                         std::move(cb));
   }
 
   /// All acquisitions in the app (studio audit view).
@@ -414,6 +505,18 @@ class MarketplaceAPI {
   }
 
  private:
+  static ClientArtifactBytes requireArtifactBytes(
+      const graphql::Json& artifact) {
+    auto decoded = decodeClientArtifactBytes(artifact);
+    if (decoded) return std::move(*decoded);
+#ifndef CROWDY_NO_EXCEPTIONS
+    throw graphql::CrowdyProtocolError(
+        "playerCodeClientArtifact returned invalid artifact bytes");
+#else
+    return {};
+#endif
+  }
+
   Endpoint game_;
   Endpoint management_;
 };

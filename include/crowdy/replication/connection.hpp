@@ -36,7 +36,7 @@ namespace crowdy::replication {
 class Connection {
  public:
   Connection(Config config, std::shared_ptr<ISessionProvider> provider,
-             const core::ICrypto& crypto = core::opensslCrypto(),
+             const core::ICrypto& crypto,
              const core::IClock& clock = core::systemClock(),
              const core::ILogger& logger = core::defaultLogger());
   ~Connection();
@@ -60,6 +60,17 @@ class Connection {
   /// Rotate token material after an external refresh (the client also
   /// refreshes proactively through the session provider).
   void setToken(const TokenInfo& token);
+
+  /// Stable lifecycle snapshot used by CrowdyClient's gameplay-token
+  /// rotation. Handlers are copied so reconnecting the same native endpoint
+  /// cannot lose or duplicate subscriptions.
+  struct Snapshot {
+    Config config;
+    Handlers handlers;
+    ConnState state = ConnState::Idle;
+    Assignment endpoint;
+  };
+  Snapshot snapshot() const;
 
   // ----- Sends (thread-safe; never throw; return the sequence number) -------
 
@@ -168,7 +179,13 @@ class Connection {
   };
   Stats stats() const;
 
+  /// Current assigned endpoint. Prefer assignmentSnapshot() when reading
+  /// concurrently with reconnect housekeeping.
   const Assignment& assignment() const { return assignment_; }
+  Assignment assignmentSnapshot() const {
+    std::lock_guard lock(assignmentMutex_);
+    return assignment_;
+  }
 
  private:
   // One parsed inbound message, copied off the receive buffer for the ring.
@@ -211,6 +228,7 @@ class Connection {
   const core::ILogger& logger_;
 
   UdpSocket socket_;
+  mutable std::mutex assignmentMutex_;
   Assignment assignment_;
 
   mutable std::mutex tokenMutex_;
@@ -218,7 +236,7 @@ class Connection {
   wire::Token64 token64_{};
 
   Handlers handlers_;
-  std::mutex handlersMutex_;
+  mutable std::mutex handlersMutex_;
 
   core::SpscRing<Event> ring_;
   std::atomic<ConnState> state_{ConnState::Idle};
@@ -249,16 +267,40 @@ class Connection {
 /// provider). One Connection per app.
 class ReplicationClient {
  public:
-  explicit ReplicationClient(std::shared_ptr<ISessionProvider> provider)
-      : provider_(std::move(provider)) {}
+  struct ConnectResult {
+    std::shared_ptr<Connection> connection;
+    Status status;
 
-  /// Create and connect a Connection for `config` (token material may be
-  /// omitted when the session provider refreshes it — but the initial token
-  /// must be present for signing).
+    bool ok() const { return status.ok() && connection != nullptr; }
+  };
+
+  ReplicationClient(std::shared_ptr<ISessionProvider> provider,
+                    const core::ICrypto& crypto)
+      : provider_(std::move(provider)), crypto_(crypto) {}
+
+  /// Create and connect a Connection while preserving the initial assignment
+  /// or socket failure. The initial token is required for UDP signing.
+  ConnectResult connectWithStatus(const Config& config,
+                                  Handlers handlers = {});
+
+  /// Compatibility convenience. Prefer connectWithStatus() when startup
+  /// failures must be reported directly; this still leaves the Connection in
+  /// Failed state when the initial connect did not succeed.
   std::shared_ptr<Connection> connect(const Config& config, Handlers handlers = {});
+
+  /// Most recently created connection, when still alive. CrowdyClient uses
+  /// this to rotate an active gameplay token without owning user connection
+  /// handles or introducing the browser UDP-proxy lifecycle.
+  std::shared_ptr<Connection> activeConnection() const {
+    std::lock_guard lock(connectionMutex_);
+    return activeConnection_.lock();
+  }
 
  private:
   std::shared_ptr<ISessionProvider> provider_;
+  const core::ICrypto& crypto_;
+  mutable std::mutex connectionMutex_;
+  std::weak_ptr<Connection> activeConnection_;
 };
 
 }  // namespace crowdy::replication

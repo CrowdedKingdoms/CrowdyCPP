@@ -3,9 +3,8 @@
 // MUST stay in lockstep with tools/parity/dump-blueprints.mjs.
 //
 // Build (from the repo root):
-//   g++ -std=c++20 -Iinclude -Ithird_party/yyjson tools/parity/dump_blueprints.cpp \
-//       src/graphql/json.cpp third_party/yyjson/yyjson.c src/graphql/auth_state.cpp \
-//       src/graphql/graphql_client.cpp -lcurl -o /tmp/dump_blueprints
+//   cmake -S . -B build-parity -DCROWDY_BUILD_PARITY_TOOLS=ON
+//   cmake --build build-parity --target crowdy_blueprint_dump
 #include <cstdio>
 #include <functional>
 #include <map>
@@ -52,7 +51,11 @@ int main() {
 
   variants["inventory_default"] = [] { return inventoryBlueprint(); };
   variants["inventory_bank"] = [] {
-    return inventoryBlueprint({.typePrefix = "Bank", .maxSlots = 10, .slotCount = 8});
+    InventoryBlueprintOptions options;
+    options.typePrefix = "Bank";
+    options.maxSlots = 10;
+    options.slotCount = 8;
+    return inventoryBlueprint(options);
   };
   variants["lock_key"] = [] {
     LockBlueprintOptions o;

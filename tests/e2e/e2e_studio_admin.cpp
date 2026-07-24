@@ -185,8 +185,9 @@ int runAll() {
   {
     crowdy::ClientConfig gameCfg;
     gameCfg.httpUrl = !cfg.httpUrl.empty() ? cfg.httpUrl
-                      : (!player.appToken.gameApiUrl.empty() ? player.appToken.gameApiUrl
-                                                             : cfg.managementUrl);
+                      : (!player.appToken.gameApiUrl.empty()
+                             ? player.appToken.gameApiUrl.valueOrEmpty()
+                             : cfg.managementUrl);
     gameCfg.managementUrl = cfg.managementUrl;
     player.game = std::make_unique<CrowdyClient>(std::move(gameCfg));
     player.game->setToken(player.appToken.token);
@@ -223,8 +224,9 @@ int runAll() {
     auto ownerMint = own.portal().mintAppToken(newAppId);
     crowdy::ClientConfig ownerGameCfg;
     ownerGameCfg.httpUrl = !cfg.httpUrl.empty() ? cfg.httpUrl
-                           : (!ownerMint.gameApiUrl.empty() ? ownerMint.gameApiUrl
-                                                            : cfg.managementUrl);
+                           : (!ownerMint.gameApiUrl.empty()
+                                  ? ownerMint.gameApiUrl.valueOrEmpty()
+                                  : cfg.managementUrl);
     ownerGameCfg.managementUrl = cfg.managementUrl;
     CrowdyClient ownerGame(std::move(ownerGameCfg));
     ownerGame.setToken(ownerMint.token);

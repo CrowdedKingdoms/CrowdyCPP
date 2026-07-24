@@ -27,7 +27,8 @@ void WorldSession::installHandlers() {
   replication::Handlers handlers;
   handlers.actorUpdate = [this](const replication::SpatialNotification& n) {
     if (n.uuidArray() == uuid_) {
-      self_->recordAck(n.sequence, n.epochMillis, n.payload);
+      self_->recordAck(n.sequence, n.epochMillis, n.payload,
+                       core::systemClock().monotonicMillis());
       return;
     }
     actors_->ingest(n, core::systemClock().monotonicMillis());
@@ -45,7 +46,9 @@ void WorldSession::installHandlers() {
     events_.ingest(n, payload, /*fromServer=*/true, core::systemClock().monotonicMillis());
   };
   handlers.genericError = [this](const replication::GenericError& e) {
-    errors_.ingest(e, core::systemClock().monotonicMillis());
+    const auto now = core::systemClock().monotonicMillis();
+    self_->recordError(e, now);
+    errors_.ingest(e, now);
   };
   handlers.channelMessage = [this](const replication::ChannelNotification& n) {
     InboxMessage m;
@@ -76,7 +79,9 @@ void WorldSession::tick() {
 
   // 2) Presence send loop.
   self_->tick(nowMs);
-  if (auto seq = self_->lastSequence()) errors_.recordSend(*seq, SendKind::ActorUpdate);
+  if (auto seq = self_->lastSequence()) {
+    errors_.recordSend(*seq, SendKind::ActorUpdate, self_->uuid());
+  }
 
   // 3) Staleness reaping.
   if (nowMs - lastReapMs_ >= config_.reapIntervalMs) {
@@ -91,17 +96,23 @@ void WorldSession::tick() {
   if (client_ && config_.hostHeartbeatIntervalMs > 0 &&
       nowMs - lastHostBeatMs_ >= config_.hostHeartbeatIntervalMs) {
     lastHostBeatMs_ = nowMs;
+#ifndef CROWDY_NO_EXCEPTIONS
     try {
+#endif
       graphql::Json host = client_->host().heartbeat(config_.appId);
-      amIHost_ = client_->host().amIHost(config_.appId);
-      std::string newHost = host["hostUserId"].asString();
-      if (newHost != hostUserId_) {
-        hostUserId_ = std::move(newHost);
-        if (onHostChanged_) onHostChanged_(hostUserId_);
+      if (host.ok()) {
+        amIHost_ = client_->host().amIHost(config_.appId);
+        std::string newHost = host["hostUserId"].asString();
+        if (newHost != hostUserId_) {
+          hostUserId_ = std::move(newHost);
+          if (onHostChanged_) onHostChanged_(hostUserId_);
+        }
       }
+#ifndef CROWDY_NO_EXCEPTIONS
     } catch (const std::exception&) {
       // Host tracking is best-effort; next interval retries.
     }
+#endif
   }
 }
 
@@ -135,6 +146,7 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
     if (voxels && voxels->size() == c.voxels.size()) {
       std::memcpy(c.voxels.data(), voxels->data(), c.voxels.size());
     }
+    touch(c);
     ++hydrated;
   });
   return hydrated;
@@ -142,19 +154,25 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
 
 bool ChunkStore::flushOne(ChunkData& chunk) {
   if (!chunksApi_) return false;
+#ifndef CROWDY_NO_EXCEPTIONS
   try {
+#endif
     graphql::JVal input;
     input["appId"] = appId_;
     input["coordinates"] =
         domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
     input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
-    chunksApi_->update(input);
-    chunk.dirty = false;
+    const graphql::Json updated = chunksApi_->update(input);
+    if (!updated.ok()) return false;
+    setDirty(chunk, false);
     chunk.storedOnServer = true;
+    touch(chunk);
     return true;
+#ifndef CROWDY_NO_EXCEPTIONS
   } catch (const std::exception&) {
     return false;  // leave dirty; retried later
   }
+#endif
 }
 
 void ChunkStore::tick(std::int64_t nowMs) {

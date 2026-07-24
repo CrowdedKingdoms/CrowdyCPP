@@ -194,13 +194,13 @@ class AppsAPI : public detail::AdminDomain {
   /// Read the app's player-code admission mode. Requires
   /// view_compute_diagnostics.
   graphql::Json codeAdmissionMode(std::string_view appId) const {
-    return execUnwrap(gen::apps::kCodeAdmissionsDocument,
+    return execUnwrap(gen::apps::documentFor("AppCodeAdmissionMode"),
                       one("appId", graphql::JVal(appId)),
                       "AppCodeAdmissionMode");
   }
   void codeAdmissionModeAsync(std::string_view appId,
                               graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument,
+    execUnwrapAsync(gen::apps::documentFor("AppCodeAdmissionMode"),
                     one("appId", graphql::JVal(appId)),
                     "AppCodeAdmissionMode", std::move(cb));
   }
@@ -212,7 +212,7 @@ class AppsAPI : public detail::AdminDomain {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["includeRevoked"] = includeRevoked;
-    return execUnwrap(gen::apps::kCodeAdmissionsDocument, vars,
+    return execUnwrap(gen::apps::documentFor("AppCodeAdmissions"), vars,
                       "AppCodeAdmissions");
   }
   void codeAdmissionsAsync(std::string_view appId, bool includeRevoked,
@@ -220,7 +220,7 @@ class AppsAPI : public detail::AdminDomain {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["includeRevoked"] = includeRevoked;
-    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument, vars,
+    execUnwrapAsync(gen::apps::documentFor("AppCodeAdmissions"), vars,
                     "AppCodeAdmissions", std::move(cb));
   }
 
@@ -229,14 +229,14 @@ class AppsAPI : public detail::AdminDomain {
   graphql::Json setCodeAdmissionMode(std::string_view appId,
                                      std::string_view mode) const {
     return execUnwrap(
-        gen::apps::kCodeAdmissionsDocument,
+        gen::apps::documentFor("SetAppCodeAdmissionMode"),
         two("appId", graphql::JVal(appId), "mode", graphql::JVal(mode)),
         "SetAppCodeAdmissionMode");
   }
   void setCodeAdmissionModeAsync(std::string_view appId, std::string_view mode,
                                  graphql::GraphQLCallback cb) const {
     execUnwrapAsync(
-        gen::apps::kCodeAdmissionsDocument,
+        gen::apps::documentFor("SetAppCodeAdmissionMode"),
         two("appId", graphql::JVal(appId), "mode", graphql::JVal(mode)),
         "SetAppCodeAdmissionMode", std::move(cb));
   }
@@ -244,12 +244,12 @@ class AppsAPI : public detail::AdminDomain {
   /// Admit one code listing, author, or org. Admission controls execution only
   /// and never grants source visibility.
   graphql::Json admitCode(const graphql::JVal& input) const {
-    return execUnwrap(gen::apps::kCodeAdmissionsDocument, one("input", input),
+    return execUnwrap(gen::apps::documentFor("AdmitAppCode"), one("input", input),
                       "AdmitAppCode");
   }
   void admitCodeAsync(const graphql::JVal& input,
                       graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::apps::kCodeAdmissionsDocument, one("input", input),
+    execUnwrapAsync(gen::apps::documentFor("AdmitAppCode"), one("input", input),
                     "AdmitAppCode", std::move(cb));
   }
 
@@ -258,7 +258,7 @@ class AppsAPI : public detail::AdminDomain {
   graphql::Json revokeCodeAdmission(std::string_view appId,
                                     std::string_view admissionId) const {
     return execUnwrap(
-        gen::apps::kCodeAdmissionsDocument,
+        gen::apps::documentFor("RevokeAppCodeAdmission"),
         two("appId", graphql::JVal(appId), "admissionId",
             graphql::JVal(admissionId)),
         "RevokeAppCodeAdmission");
@@ -267,7 +267,7 @@ class AppsAPI : public detail::AdminDomain {
                                 std::string_view admissionId,
                                 graphql::GraphQLCallback cb) const {
     execUnwrapAsync(
-        gen::apps::kCodeAdmissionsDocument,
+        gen::apps::documentFor("RevokeAppCodeAdmission"),
         two("appId", graphql::JVal(appId), "admissionId",
             graphql::JVal(admissionId)),
         "RevokeAppCodeAdmission", std::move(cb));
@@ -302,18 +302,18 @@ class AppsAPI : public detail::AdminDomain {
                     std::move(cb));
   }
   graphql::Json marketplace() const {
-    return execUnwrap(gen::apps::kMarketplaceAppsDocument, graphql::JVal(), "MarketplaceApps");
+    return execUnwrap(gen::apps::documentFor("MarketplaceApps"), graphql::JVal(), "MarketplaceApps");
   }
   void marketplaceAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::apps::kMarketplaceAppsDocument, graphql::JVal(), "MarketplaceApps",
+    execUnwrapAsync(gen::apps::documentFor("MarketplaceApps"), graphql::JVal(), "MarketplaceApps",
                     std::move(cb));
   }
   /// Relay cursor pagination variant of marketplace().
   graphql::Json marketplaceConnection(const graphql::JVal& vars = graphql::JVal()) const {
-    return execUnwrap(gen::apps::kMarketplaceAppsDocument, vars, "AppsConnection");
+    return execUnwrap(gen::apps::documentFor("AppsConnection"), vars, "AppsConnection");
   }
   void marketplaceConnectionAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::apps::kMarketplaceAppsDocument, vars, "AppsConnection", std::move(cb));
+    execUnwrapAsync(gen::apps::documentFor("AppsConnection"), vars, "AppsConnection", std::move(cb));
   }
   /// Routing tuple for an app: which game-api endpoint should serve it.
   /// Returns { appId, splitMode, deploymentTarget, gameApiUrl } fields from
@@ -376,19 +376,19 @@ class AppAccessAPI : public detail::AdminDomain {
                     std::move(cb));
   }
   graphql::Json userAccessByApp(const graphql::JVal& vars) const {
-    return execUnwrap(gen::appAccess::kAppUserAccessByAppDocument, vars, "AppUserAccessByApp");
+    return execUnwrap(gen::appAccess::documentFor("AppUserAccessByApp"), vars, "AppUserAccessByApp");
   }
   void userAccessByAppAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::appAccess::kAppUserAccessByAppDocument, vars, "AppUserAccessByApp",
+    execUnwrapAsync(gen::appAccess::documentFor("AppUserAccessByApp"), vars, "AppUserAccessByApp",
                     std::move(cb));
   }
   /// Relay cursor pagination variant of userAccessByApp().
   graphql::Json userAccessConnection(const graphql::JVal& vars) const {
-    return execUnwrap(gen::appAccess::kAppUserAccessByAppDocument, vars,
+    return execUnwrap(gen::appAccess::documentFor("AppUserAccessConnection"), vars,
                       "AppUserAccessConnection");
   }
   void userAccessConnectionAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::appAccess::kAppUserAccessByAppDocument, vars, "AppUserAccessConnection",
+    execUnwrapAsync(gen::appAccess::documentFor("AppUserAccessConnection"), vars, "AppUserAccessConnection",
                     std::move(cb));
   }
   graphql::Json grantMemberCandidates(std::string_view appId) const {
@@ -481,7 +481,7 @@ class BillingAPI : public detail::AdminDomain {
     vars["orgId"] = orgId;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    return execUnwrap(gen::billing::kWalletTransactionsDocument, vars, "WalletTransactions");
+    return execUnwrap(gen::billing::documentFor("WalletTransactions"), vars, "WalletTransactions");
   }
   void walletTransactionsAsync(std::string_view orgId, int limit, int offset,
                                graphql::GraphQLCallback cb) const {
@@ -489,7 +489,7 @@ class BillingAPI : public detail::AdminDomain {
     vars["orgId"] = orgId;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    execUnwrapAsync(gen::billing::kWalletTransactionsDocument, vars, "WalletTransactions",
+    execUnwrapAsync(gen::billing::documentFor("WalletTransactions"), vars, "WalletTransactions",
                     std::move(cb));
   }
   /// Relay cursor pagination variant of walletTransactions().
@@ -499,7 +499,7 @@ class BillingAPI : public detail::AdminDomain {
     vars["orgId"] = orgId;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    return execUnwrap(gen::billing::kWalletTransactionsDocument, vars,
+    return execUnwrap(gen::billing::documentFor("WalletTransactionsConnection"), vars,
                       "WalletTransactionsConnection");
   }
   void walletTransactionsConnectionAsync(std::string_view orgId, int first, std::string_view after,
@@ -508,7 +508,7 @@ class BillingAPI : public detail::AdminDomain {
     vars["orgId"] = orgId;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    execUnwrapAsync(gen::billing::kWalletTransactionsDocument, vars, "WalletTransactionsConnection",
+    execUnwrapAsync(gen::billing::documentFor("WalletTransactionsConnection"), vars, "WalletTransactionsConnection",
                     std::move(cb));
   }
   graphql::Json appBudget(std::string_view orgId, std::string_view appId) const {
@@ -546,25 +546,25 @@ class BillingAPI : public detail::AdminDomain {
     execUnwrapAsync(gen::billing::kSetAppBudgetDocument, vars, {}, std::move(cb));
   }
   graphql::Json buddyBillingTiers() const {
-    return execUnwrap(gen::billing::kBillingTiersDocument, graphql::JVal(), "BuddyBillingTiers");
+    return execUnwrap(gen::billing::documentFor("BuddyBillingTiers"), graphql::JVal(), "BuddyBillingTiers");
   }
   void buddyBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::kBillingTiersDocument, graphql::JVal(), "BuddyBillingTiers",
+    execUnwrapAsync(gen::billing::documentFor("BuddyBillingTiers"), graphql::JVal(), "BuddyBillingTiers",
                     std::move(cb));
   }
   graphql::Json graphqlBillingTiers() const {
-    return execUnwrap(gen::billing::kBillingTiersDocument, graphql::JVal(), "GraphqlBillingTiers");
+    return execUnwrap(gen::billing::documentFor("GraphqlBillingTiers"), graphql::JVal(), "GraphqlBillingTiers");
   }
   void graphqlBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::kBillingTiersDocument, graphql::JVal(), "GraphqlBillingTiers",
+    execUnwrapAsync(gen::billing::documentFor("GraphqlBillingTiers"), graphql::JVal(), "GraphqlBillingTiers",
                     std::move(cb));
   }
   graphql::Json postgresBillingTiers() const {
-    return execUnwrap(gen::billing::kBillingTiersDocument, graphql::JVal(),
+    return execUnwrap(gen::billing::documentFor("PostgresBillingTiers"), graphql::JVal(),
                       "PostgresBillingTiers");
   }
   void postgresBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::kBillingTiersDocument, graphql::JVal(), "PostgresBillingTiers",
+    execUnwrapAsync(gen::billing::documentFor("PostgresBillingTiers"), graphql::JVal(), "PostgresBillingTiers",
                     std::move(cb));
   }
 };
@@ -596,67 +596,67 @@ class PaymentsAPI : public detail::AdminDomain {
     execUnwrapAsync(gen::payments::kCapturePaypalCheckoutDocument, vars, {}, std::move(cb));
   }
   graphql::Json checkouts(const graphql::JVal& vars = graphql::JVal()) const {
-    return execUnwrap(gen::payments::kCheckoutsDocument, vars, "Checkouts");
+    return execUnwrap(gen::payments::documentFor("Checkouts"), vars, "Checkouts");
   }
   void checkoutsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::payments::kCheckoutsDocument, vars, "Checkouts", std::move(cb));
+    execUnwrapAsync(gen::payments::documentFor("Checkouts"), vars, "Checkouts", std::move(cb));
   }
   graphql::Json checkoutsConnection(const graphql::JVal& vars = graphql::JVal()) const {
-    return execUnwrap(gen::payments::kCheckoutsDocument, vars, "CheckoutsConnection");
+    return execUnwrap(gen::payments::documentFor("CheckoutsConnection"), vars, "CheckoutsConnection");
   }
   void checkoutsConnectionAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::payments::kCheckoutsDocument, vars, "CheckoutsConnection", std::move(cb));
+    execUnwrapAsync(gen::payments::documentFor("CheckoutsConnection"), vars, "CheckoutsConnection", std::move(cb));
   }
   graphql::Json myCheckouts(int limit = 50, int offset = 0) const {
     graphql::JVal vars;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    return execUnwrap(gen::payments::kMyCheckoutsDocument, vars, "MyCheckouts");
+    return execUnwrap(gen::payments::documentFor("MyCheckouts"), vars, "MyCheckouts");
   }
   void myCheckoutsAsync(int limit, int offset, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    execUnwrapAsync(gen::payments::kMyCheckoutsDocument, vars, "MyCheckouts", std::move(cb));
+    execUnwrapAsync(gen::payments::documentFor("MyCheckouts"), vars, "MyCheckouts", std::move(cb));
   }
   graphql::Json myCheckoutsConnection(int first = 50, std::string_view after = {}) const {
     graphql::JVal vars;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    return execUnwrap(gen::payments::kMyCheckoutsDocument, vars, "MyCheckoutsConnection");
+    return execUnwrap(gen::payments::documentFor("MyCheckoutsConnection"), vars, "MyCheckoutsConnection");
   }
   void myCheckoutsConnectionAsync(int first, std::string_view after,
                                   graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    execUnwrapAsync(gen::payments::kMyCheckoutsDocument, vars, "MyCheckoutsConnection",
+    execUnwrapAsync(gen::payments::documentFor("MyCheckoutsConnection"), vars, "MyCheckoutsConnection",
                     std::move(cb));
   }
   graphql::Json paymentEvents(int limit = 50, int offset = 0) const {
     graphql::JVal vars;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    return execUnwrap(gen::payments::kPaymentEventsDocument, vars, "PaymentEvents");
+    return execUnwrap(gen::payments::documentFor("PaymentEvents"), vars, "PaymentEvents");
   }
   void paymentEventsAsync(int limit, int offset, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    execUnwrapAsync(gen::payments::kPaymentEventsDocument, vars, "PaymentEvents", std::move(cb));
+    execUnwrapAsync(gen::payments::documentFor("PaymentEvents"), vars, "PaymentEvents", std::move(cb));
   }
   graphql::Json paymentEventsConnection(int first = 50, std::string_view after = {}) const {
     graphql::JVal vars;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    return execUnwrap(gen::payments::kPaymentEventsDocument, vars, "PaymentEventsConnection");
+    return execUnwrap(gen::payments::documentFor("PaymentEventsConnection"), vars, "PaymentEventsConnection");
   }
   void paymentEventsConnectionAsync(int first, std::string_view after,
                                     graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
-    execUnwrapAsync(gen::payments::kPaymentEventsDocument, vars, "PaymentEventsConnection",
+    execUnwrapAsync(gen::payments::documentFor("PaymentEventsConnection"), vars, "PaymentEventsConnection",
                     std::move(cb));
   }
 };
@@ -1076,11 +1076,11 @@ class SharedEnvironmentAPI : public detail::AdminDomain {
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-    return execUnwrap(gen::sharedEnvironment::kSharedEnvironmentDocument, vars, op);
+    return execUnwrap(gen::sharedEnvironment::documentFor(op), vars, op);
   }
   void runAsync(std::string_view op, const graphql::JVal& vars,
                 graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::sharedEnvironment::kSharedEnvironmentDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::sharedEnvironment::documentFor(op), vars, op, std::move(cb));
   }
 };
 

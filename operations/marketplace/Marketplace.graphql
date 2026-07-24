@@ -228,6 +228,55 @@ mutation MarketplaceClaimGridOwnership($appId: BigInt!, $gridId: BigInt!) {
   }
 }
 
+mutation MarketplaceClaimGridChunk(
+  $appId: BigInt!
+  $chunk: ChunkCoordinatesInput!
+) {
+  claimGridChunk(appId: $appId, chunk: $chunk) {
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    policy
+    ownership {
+      gridOwnershipId
+      ownerKind
+      ownerRef
+      tenure
+      acquiredVia
+      acquiredAt
+      expiresAt
+    }
+    moddable
+    effectivePermissionKeys
+  }
+}
+
+mutation MarketplaceReleaseClaimedGrid($appId: BigInt!, $gridId: BigInt!) {
+  releaseClaimedGrid(appId: $appId, gridId: $gridId) {
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    policy
+    released
+  }
+}
+
 mutation MarketplaceDecideGridClaim(
   $appId: BigInt!
   $requestId: String!
@@ -247,68 +296,6 @@ mutation MarketplaceIssueGridClaimInvite(
     appId: $appId
     gridId: $gridId
     inviteeUserId: $inviteeUserId
-  )
-}
-
-# ---- Management API: studio moderation / catalog administration ---------------
-
-query MarketplaceAdmissionQueue($appId: BigInt!) {
-  appCodeAdmissionQueue(appId: $appId) {
-    listing {
-      ...PlayerCodeListingFields
-    }
-    admissionState
-    admissionId
-    matchedSubjectKind
-  }
-}
-
-query MarketplaceAppListings($appId: BigInt!, $includeDelisted: Boolean) {
-  appPlayerCodeListings(appId: $appId, includeDelisted: $includeDelisted) {
-    ...PlayerCodeListingFields
-    updatedAt
-  }
-}
-
-query MarketplaceAppAcquisitions($appId: BigInt!) {
-  appPlayerCodeAcquisitions(appId: $appId) {
-    ...PlayerCodeAcquisitionFields
-    acquirerUserId
-    revokedAt
-  }
-}
-
-mutation MarketplaceTransferListing($input: TransferPlayerCodeListingInput!) {
-  transferPlayerCodeListing(input: $input) {
-    ...PlayerCodeListingFields
-    updatedAt
-  }
-}
-
-mutation MarketplaceSetListingStatus(
-  $appId: BigInt!
-  $listingId: String!
-  $status: PlayerCodeListingStatus!
-) {
-  setPlayerCodeListingStatus(
-    appId: $appId
-    listingId: $listingId
-    status: $status
-  ) {
-    ...PlayerCodeListingFields
-    updatedAt
-  }
-}
-
-mutation MarketplaceSetGridClaimPolicy(
-  $appId: BigInt!
-  $policy: GridClaimPolicy!
-  $approverUserIds: [BigInt!]
-) {
-  setAppGridClaimPolicy(
-    appId: $appId
-    policy: $policy
-    approverUserIds: $approverUserIds
   )
 }
 
@@ -359,105 +346,5 @@ mutation MarketplacePurchaseGrid(
   ) {
     gridId
     ownershipAssigned
-  }
-}
-
-# ---- P4b management: pricing, seller onboarding/payouts, grid listing CRUD -----
-
-mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
-  setListingPricing(input: $input)
-}
-
-mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
-  setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
-}
-
-mutation MarketplaceBeginSellerOnboarding($country: String!) {
-  beginSellerOnboarding(country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-}
-
-mutation MarketplaceCreateAccountSession($country: String!) {
-  createSellerAccountSession(country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-}
-
-mutation MarketplaceCreateOrgAccountSession($orgId: BigInt!, $country: String!) {
-  createOrgSellerAccountSession(orgId: $orgId, country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-}
-
-mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
-  beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-}
-
-query MarketplaceMySellerBalance {
-  mySellerPayoutBalance {
-    partyKind
-    partyRef
-    pendingCents
-    payableCents
-    reservedCents
-    onboardingStatus
-    payoutsFrozen
-  }
-}
-
-mutation MarketplaceRequestPayout {
-  requestSellerPayout
-}
-
-mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
-  spendPayoutBalanceToWallet(amountCents: $amountCents)
-}
-
-query MarketplaceCommerceRiskQueue($appId: BigInt!) {
-  commerceRiskQueue(appId: $appId) {
-    flagId
-    appId
-    kind
-    orderId
-    subjectKind
-    subjectRef
-    detail
-    status
-    createdAt
-  }
-}
-
-mutation MarketplaceDecideRiskFlag(
-  $appId: BigInt!
-  $flagId: String!
-  $release: Boolean!
-) {
-  decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
-}
-
-mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
-  createGridListing(input: $input) {
-    gridListingId
-    appId
-    kind
-    name
-    priceCents
-    resalePolicy
-    status
   }
 }

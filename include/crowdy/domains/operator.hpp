@@ -203,10 +203,10 @@ class OperatorAPI : public DomainBase {
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-    return execUnwrap(gen::controlPlane::kControlPlaneDocument, vars, op);
+    return execUnwrap(gen::controlPlane::documentFor(op), vars, op);
   }
   void runAsync(std::string_view op, const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::controlPlane::kControlPlaneDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::controlPlane::documentFor(op), vars, op, std::move(cb));
   }
 };
 

@@ -7,19 +7,66 @@
  * Output is committed so external builds never run this script.
  * Usage: node scripts/codegen.mjs
  */
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  mkdirSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildSchema, Kind, parse, print, validate } from 'graphql';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const opsDir = join(root, 'operations');
 const outDir = join(root, 'include', 'crowdy', 'generated');
 mkdirSync(outDir, { recursive: true });
+const check = process.argv.slice(2).includes('--check');
+const unknownArgs = process.argv.slice(2).filter((argument) => argument !== '--check');
+if (unknownArgs.length > 0) {
+  throw new Error(`unknown argument: ${unknownArgs[0]}`);
+}
+
+const schema = readFileSync(join(root, 'schema.gql'), 'utf8');
+const endpointSchemaTexts = {
+  management: readFileSync(join(root, 'schema.management.gql'), 'utf8'),
+  game: readFileSync(join(root, 'schema.game.gql'), 'utf8'),
+};
+const endpointSchemas = Object.fromEntries(
+  Object.entries(endpointSchemaTexts).map(([plane, text]) => [
+    plane,
+    buildSchema(text),
+  ]),
+);
+const operationInputs = [];
+for (const domain of listDomains()) {
+  for (const file of readdirSync(join(opsDir, domain)).filter((entry) =>
+    entry.endsWith('.graphql')).sort()) {
+    operationInputs.push({
+      path: `${domain}/${file}`,
+      text: readFileSync(join(opsDir, domain, file), 'utf8'),
+    });
+  }
+}
+const digest = (value) => createHash('sha256').update(value).digest('hex');
+const schemaDigest = digest(schema);
+const managementSchemaDigest = digest(endpointSchemaTexts.management);
+const gameSchemaDigest = digest(endpointSchemaTexts.game);
+const operationsDigest = digest(
+  operationInputs.map(({ path, text }) => `${path}\0${text}\0`).join(''),
+);
 
 const HEADER = `// GENERATED FILE — do not edit by hand.
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
+// schema.gql sha256: ${schemaDigest}
+// schema.management.gql sha256: ${managementSchemaDigest}
+// schema.game.gql sha256: ${gameSchemaDigest}
+// operations sha256: ${operationsDigest}
 `;
 
 // ---------------------------------------------------------------------------
@@ -32,12 +79,79 @@ function listDomains() {
     .sort();
 }
 
-function operationsInFile(text) {
-  const ops = [];
-  const re = /^\s*(query|mutation|subscription)\s+([A-Za-z0-9_]+)/gm;
-  let m;
-  while ((m = re.exec(text)) !== null) ops.push({ kind: m[1], name: m[2] });
-  return ops;
+function operationsInFile(text, sourcePath) {
+  const document = parse(text, { noLocation: true });
+  const fragments = new Map(
+    document.definitions
+      .filter((definition) => definition.kind === Kind.FRAGMENT_DEFINITION)
+      .map((definition) => [definition.name.value, definition]),
+  );
+  const collectSpreads = (node, names) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.kind === Kind.FRAGMENT_SPREAD) names.add(node.name.value);
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const entry of value) collectSpreads(entry, names);
+      } else {
+        collectSpreads(value, names);
+      }
+    }
+  };
+  return document.definitions
+    .filter((definition) => definition.kind === Kind.OPERATION_DEFINITION)
+    .map((operation) => {
+      if (!operation.name) throw new Error('anonymous operations are not supported');
+      const names = new Set();
+      collectSpreads(operation, names);
+      const selected = [];
+      const pending = [...names];
+      while (pending.length > 0) {
+        const name = pending.shift();
+        if (selected.some((fragment) => fragment.name.value === name)) continue;
+        const fragment = fragments.get(name);
+        if (!fragment) throw new Error(`operation ${operation.name.value}: missing fragment ${name}`);
+        selected.push(fragment);
+        const nested = new Set();
+        collectSpreads(fragment, nested);
+        pending.push(...nested);
+      }
+      const isolatedDocument = {
+        kind: Kind.DOCUMENT,
+        definitions: [operation, ...selected],
+      };
+      const endpointErrors = Object.fromEntries(
+        Object.entries(endpointSchemas).map(([plane, endpointSchema]) => [
+          plane,
+          validate(endpointSchema, isolatedDocument),
+        ]),
+      );
+      const endpoints = Object.entries(endpointErrors)
+        .filter(([, errors]) => errors.length === 0)
+        .map(([plane]) => plane);
+      if (endpoints.length === 0) {
+        const details = Object.entries(endpointErrors)
+          .map(
+            ([plane, errors]) =>
+              `  ${plane}: ${errors.map((error) => error.message).join(' | ')}`,
+          )
+          .join('\n');
+        throw new Error(
+          `${sourcePath}:${operation.name.value} is invalid for every ` +
+            `endpoint SDL:\n${details}`,
+        );
+      }
+      return {
+        kind: operation.operation,
+        name: operation.name.value,
+        document: print(isolatedDocument),
+        endpoint:
+          endpoints.length === 2
+            ? 'Both'
+            : endpoints[0] === 'management'
+              ? 'Management'
+              : 'Game',
+      };
+    });
 }
 
 let opsHpp = `${HEADER}
@@ -45,45 +159,106 @@ let opsHpp = `${HEADER}
 
 #include <string_view>
 
-/// GraphQL operation documents, one namespace per domain. Each constant is
-/// the full document text of its source file (which may contain fragments or
-/// several operations); the matching *OperationName constant names the
-/// operation to execute.
+/// GraphQL operation documents, one namespace per domain. File constants are
+/// retained for compatibility; operation constants contain only that operation
+/// and its transitive fragments so unrelated roots cannot invalidate a request.
 namespace crowdy::gen {
+
+enum class GraphQLEndpoint {
+  Unknown,
+  Management,
+  Game,
+  Both,
+};
 
 `;
 
 const manifest = [];
+const globalOperationNames = new Map();
 for (const domain of listDomains()) {
   opsHpp += `namespace ${domain} {\n\n`;
+  const domainOps = [];
+  const seenOperationNames = new Set();
+  const generatedSymbols = new Map();
+  const reserveSymbol = (symbol, origin) => {
+    const previous = generatedSymbols.get(symbol);
+    if (previous) {
+      throw new Error(
+        `generated C++ symbol collision ${domain}.${symbol}: ` +
+          `${previous} and ${origin}`,
+      );
+    }
+    generatedSymbols.set(symbol, origin);
+  };
   const files = readdirSync(join(opsDir, domain))
     .filter((f) => f.endsWith('.graphql'))
     .sort();
   for (const file of files) {
     const text = readFileSync(join(opsDir, domain, file), 'utf8').trim();
-    const ops = operationsInFile(text);
+    const sourcePath = `${domain}/${file}`;
+    const ops = operationsInFile(text, sourcePath);
     if (ops.length === 0) continue;
     const base = basename(file, '.graphql');
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) {
+      throw new Error(`${sourcePath}: file base is not a C++ identifier`);
+    }
     // Guard against raw-string delimiter collisions.
     if (text.includes(')gql"')) throw new Error(`raw-string delimiter clash in ${file}`);
+    reserveSymbol(`k${base}Document`, sourcePath);
     opsHpp += `/// ${domain}/${file}\n`;
     opsHpp += `inline constexpr std::string_view k${base}Document = R"gql(${text})gql";\n`;
     for (const op of ops) {
+      const previousGlobal = globalOperationNames.get(op.name);
+      if (previousGlobal) {
+        throw new Error(
+          `duplicate generated operation name ${op.name}: ` +
+            `${previousGlobal} and ${sourcePath}`,
+        );
+      }
+      globalOperationNames.set(op.name, sourcePath);
+      if (seenOperationNames.has(op.name)) {
+        throw new Error(`duplicate operation ${domain}.${op.name}`);
+      }
+      seenOperationNames.add(op.name);
+      if (op.document.includes(')gql"')) {
+        throw new Error(`raw-string delimiter clash in ${file}:${op.name}`);
+      }
+      reserveSymbol(
+        `k${op.name}IsolatedDocument`,
+        `${sourcePath}:${op.name}`,
+      );
+      reserveSymbol(
+        `k${op.name}OperationName`,
+        `${sourcePath}:${op.name}`,
+      );
+      reserveSymbol(`k${op.name}Endpoint`, `${sourcePath}:${op.name}`);
+      opsHpp += `inline constexpr std::string_view k${op.name}IsolatedDocument = R"gql(${op.document})gql";\n`;
       opsHpp += `inline constexpr std::string_view k${op.name}OperationName = "${op.name}";\n`;
+      opsHpp += `inline constexpr GraphQLEndpoint k${op.name}Endpoint = GraphQLEndpoint::${op.endpoint};\n`;
       manifest.push({ domain, file, ...op });
+      domainOps.push(op);
     }
     opsHpp += '\n';
   }
+  opsHpp += `inline constexpr std::string_view documentFor(std::string_view operationName) {\n`;
+  for (const op of domainOps) {
+    opsHpp += `  if (operationName == "${op.name}") return k${op.name}IsolatedDocument;\n`;
+  }
+  opsHpp += `  return {};\n}\n\n`;
+  opsHpp += `inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {\n`;
+  for (const op of domainOps) {
+    opsHpp += `  if (operationName == "${op.name}") return k${op.name}Endpoint;\n`;
+  }
+  opsHpp += `  return GraphQLEndpoint::Unknown;\n}\n\n`;
   opsHpp += `}  // namespace ${domain}\n\n`;
 }
 opsHpp += '}  // namespace crowdy::gen\n';
-writeFileSync(join(outDir, 'operations.hpp'), opsHpp);
+emit(join(outDir, 'operations.hpp'), opsHpp);
 
 // ---------------------------------------------------------------------------
 // Enums from schema.gql
 // ---------------------------------------------------------------------------
 
-const schema = readFileSync(join(root, 'schema.gql'), 'utf8');
 const enums = [];
 {
   const re = /(?:^|\n)enum\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\n\}/g;
@@ -137,9 +312,23 @@ for (const e of enums.sort((a, b) => a.name.localeCompare(b.name))) {
   enumsHpp += `  return std::nullopt;\n}\n\n`;
 }
 enumsHpp += '}  // namespace crowdy::gen\n';
-writeFileSync(join(outDir, 'enums.hpp'), enumsHpp);
+emit(join(outDir, 'enums.hpp'), enumsHpp);
 
 console.log(
-  `generated ${manifest.length} operations across ${listDomains().length} domains, ` +
+  `${check ? 'checked' : 'generated'} ${manifest.length} operations across ` +
+  `${listDomains().length} domains, ` +
   `${enums.length} enums -> include/crowdy/generated/`,
 );
+
+function emit(path, content) {
+  if (!check) {
+    writeFileSync(path, content);
+    return;
+  }
+  if (!existsSync(path) || readFileSync(path, 'utf8') !== content) {
+    console.error(
+      `${path.slice(root.length + 1)} has codegen drift; run node scripts/codegen.mjs`,
+    );
+    process.exitCode = 1;
+  }
+}

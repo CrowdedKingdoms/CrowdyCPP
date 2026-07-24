@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace crowdy::agent::generated {
+
+inline constexpr std::string_view kCanonicalAgentToolsV1 =
+    R"crowdyjson(@CROWDY_AGENT_FIXTURE_JSON@)crowdyjson";
+
+}  // namespace crowdy::agent::generated

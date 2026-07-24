@@ -21,14 +21,27 @@ namespace {
 class FakeSyncTransport final : public IHttpTransport {
  public:
   HttpResponse response;
+#ifndef CROWDY_NO_EXCEPTIONS
   bool throwTimeout = false;
   bool throwNetwork = false;
+#else
+  Status failure;
+#endif
 
   HttpResponse send(const HttpRequest&) override {
+#ifndef CROWDY_NO_EXCEPTIONS
     if (throwTimeout) throw CrowdyTimeoutError("timed out");
     if (throwNetwork) throw CrowdyNetworkError("connection refused");
+#endif
     return response;
   }
+
+#ifdef CROWDY_NO_EXCEPTIONS
+  HttpOutcome sendOutcome(const HttpRequest&) noexcept override {
+    if (!failure.ok()) return {failure, {}, "injected transport failure"};
+    return {Errc::Ok, response, {}};
+  }
+#endif
 };
 
 // An async transport that either calls back immediately or holds the callback
@@ -38,8 +51,17 @@ class FakeAsyncTransport final : public IAsyncHttpTransport {
   HttpOutcome outcome;
   bool defer = false;
   std::function<void(HttpOutcome)> saved;
+#ifndef CROWDY_NO_EXCEPTIONS
+  bool retainThenThrow = false;
+#endif
 
   void sendAsync(const HttpRequest&, std::function<void(HttpOutcome)> cb) override {
+#ifndef CROWDY_NO_EXCEPTIONS
+    if (retainThenThrow) {
+      saved = cb;
+      throw CrowdyNetworkError("async start failed");
+    }
+#endif
     if (defer) {
       saved = std::move(cb);
     } else {
@@ -178,6 +200,7 @@ void testInlineFallback() {
   CHECK_EQ(got.data["n"].asInt64(), 42);
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testInlineFallbackTransportThrow() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->throwTimeout = true;
@@ -190,6 +213,28 @@ void testInlineFallbackTransportThrow() {
   CHECK(got.kind == GraphQLErrorKind::Timeout);
 }
 
+void testAsyncStartThrowDeliversOnce() {
+  auto async = std::make_shared<FakeAsyncTransport>();
+  async->retainThenThrow = true;
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  client->setAsyncTransport(async);
+
+  int calls = 0;
+  GraphQLOutcome got;
+  client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) {
+    ++calls;
+    got = std::move(out);
+  });
+  CHECK_EQ(calls, 1);
+  CHECK(!got.ok());
+  CHECK(got.kind == GraphQLErrorKind::Network);
+
+  async->outcome = httpOk(200, R"({"data":{"late":true}})");
+  async->fire();
+  CHECK_EQ(calls, 1);
+}
+#endif
+
 // The blocking request() still works and still throws, derived from the same
 // logic as the async path.
 void testSyncRequestReturnsData() {
@@ -201,6 +246,7 @@ void testSyncRequestReturnsData() {
   CHECK(data["v"].asString() == "hello");
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testSyncRequestThrowsGraphql() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->response = HttpResponse{200, R"({"errors":[{"message":"denied","extensions":{"code":"UNAUTHENTICATED"}}]})"};
@@ -215,7 +261,39 @@ void testSyncRequestThrowsGraphql() {
   }
   CHECK(threw);
 }
+#else
+void testSyncRequestReturnsInvalidOnFailure() {
+  auto sync = std::make_shared<FakeSyncTransport>();
+  sync->response = HttpResponse{
+      200,
+      R"({"errors":[{"message":"denied","extensions":{"code":"UNAUTHENTICATED"}}]})"};
+  auto client = makeClient(sync);
+  CHECK(!client->request("query").ok());
+  sync->response = HttpResponse{503, "unavailable"};
+  CHECK(!client->request("query").ok());
+  sync->failure = Errc::Timeout;
+  CHECK(!client->request("query").ok());
+}
+#endif
 
+#if defined(CROWDY_NO_EXCEPTIONS) && defined(CROWDY_TEST_WITH_CURL)
+void testDefaultCurlFailureReturnsInvalidJson() {
+  auto client = std::make_shared<GraphQLClient>(
+      GraphQLClientConfig{"http://127.0.0.1:1/graphql", 250},
+      makeCurlTransport(), std::make_shared<AuthState>());
+  CHECK(!client->request("query Unreachable { unreachable }").ok());
+
+  GraphQLOutcome asyncOutcome;
+  client->requestAsync(
+      "query Unreachable { unreachable }", JVal(), {},
+      [&](GraphQLOutcome outcome) { asyncOutcome = std::move(outcome); });
+  CHECK(!asyncOutcome.ok());
+  CHECK(asyncOutcome.kind == GraphQLErrorKind::Network ||
+        asyncOutcome.kind == GraphQLErrorKind::Timeout);
+}
+#endif
+
+#ifndef CROWDY_NO_EXCEPTIONS
 void testSyncRequestThrowsHttp() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->response = HttpResponse{503, "unavailable"};
@@ -230,6 +308,7 @@ void testSyncRequestThrowsHttp() {
   }
   CHECK(threw);
 }
+#endif
 
 }  // namespace
 
@@ -241,10 +320,20 @@ int main() {
   testAsyncTransportFailure();
   testDispatcherDefersDelivery();
   testInlineFallback();
+#ifndef CROWDY_NO_EXCEPTIONS
   testInlineFallbackTransportThrow();
+  testAsyncStartThrowDeliversOnce();
+#endif
   testSyncRequestReturnsData();
+#ifndef CROWDY_NO_EXCEPTIONS
   testSyncRequestThrowsGraphql();
   testSyncRequestThrowsHttp();
+#else
+  testSyncRequestReturnsInvalidOnFailure();
+#endif
+#if defined(CROWDY_NO_EXCEPTIONS) && defined(CROWDY_TEST_WITH_CURL)
+  testDefaultCurlFailureReturnsInvalidJson();
+#endif
   std::printf("graphql_client_test passed\n");
   return 0;
 }

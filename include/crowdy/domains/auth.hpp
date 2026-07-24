@@ -88,11 +88,13 @@ class AuthAPI : public DomainBase {
     execUnwrapAsync(
         "mutation CompleteLoginLink($input: CompleteLoginLinkInput!) {"
         " completeLoginLink(input: $input) { token gameTokenId user { userId email gamertag } } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AuthResponse value{};
           if (out.ok()) {
             value = AuthResponse::fromJson(out.data);
-            if (!value.token.empty()) auth_->setToken(value.token);
+            if (!value.token.empty()) auth->setToken(value.token);
           }
           cb(std::move(out), value);
         });
@@ -145,11 +147,13 @@ class AuthAPI : public DomainBase {
     execUnwrapAsync(
         "mutation SocialLoginComplete($input: SocialLoginCompleteInput!) {"
         " socialLoginComplete(input: $input) { token gameTokenId user { userId email gamertag } } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AuthResponse value{};
           if (out.ok()) {
             value = AuthResponse::fromJson(out.data);
-            if (!value.token.empty()) auth_->setToken(value.token);
+            if (!value.token.empty()) auth->setToken(value.token);
           }
           cb(std::move(out), value);
         });
@@ -175,11 +179,13 @@ class AuthAPI : public DomainBase {
     execUnwrapAsync(
         "mutation DevLogin($input: DevLoginInput!) {"
         " devLogin(input: $input) { token gameTokenId user { userId email gamertag } } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AuthResponse value{};
           if (out.ok()) {
             value = AuthResponse::fromJson(out.data);
-            if (!value.token.empty()) auth_->setToken(value.token);
+            if (!value.token.empty()) auth->setToken(value.token);
           }
           cb(std::move(out), value);
         });
@@ -293,11 +299,13 @@ class AuthAPI : public DomainBase {
         "mutation Login($loginUserInput: LoginUserInput!) {"
         " login(loginUserInput: $loginUserInput) {"
         " token gameTokenId user { userId email gamertag } } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AuthResponse value{};
           if (out.ok()) {
             value = AuthResponse::fromJson(out.data);
-            if (!value.token.empty()) auth_->setToken(value.token);
+            if (!value.token.empty()) auth->setToken(value.token);
           }
           cb(std::move(out), value);
         });
@@ -329,11 +337,13 @@ class AuthAPI : public DomainBase {
         "mutation Register($registerUserInput: RegisterUserInput!) {"
         " register(registerUserInput: $registerUserInput) {"
         " token gameTokenId user { userId email gamertag } } }",
-        vars, {}, [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
           AuthResponse value{};
           if (out.ok()) {
             value = AuthResponse::fromJson(out.data);
-            if (!value.token.empty()) auth_->setToken(value.token);
+            if (!value.token.empty()) auth->setToken(value.token);
           }
           cb(std::move(out), value);
         });
@@ -459,17 +469,21 @@ class AuthAPI : public DomainBase {
 
   /// Single-device logout; clears the stored token.
   bool logout() const {
-    bool ok = execUnwrap(gen::auth::kLogoutDocument).asBool();
-    auth_->clearToken();
+    const graphql::Json result = execUnwrap(gen::auth::kLogoutDocument);
+    const bool ok = result.asBool();
+    if (result.ok()) auth_->clearToken();
     return ok;
   }
 
   void logoutAsync(std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
     execUnwrapAsync(gen::auth::kLogoutDocument, graphql::JVal(), {},
-                    [this, cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+                    [auth = auth_, cb = std::move(cb)](
+                        graphql::GraphQLOutcome out) mutable {
                       bool ok = false;
-                      if (out.ok()) ok = out.data.asBool();
-                      auth_->clearToken();
+                      if (out.ok()) {
+                        ok = out.data.asBool();
+                        auth->clearToken();
+                      }
                       cb(std::move(out), ok);
                     });
   }

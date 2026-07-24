@@ -10,7 +10,14 @@
 file(GLOB E2E_SOURCES CONFIGURE_DEPENDS *.cpp)
 
 set(E2E_SLOW_SUITES e2e_permission_refresh e2e_soak_two_clients)
-set(E2E_OPTIONAL_SUITES e2e_cross_server e2e_operator)
+set(E2E_OPTIONAL_SUITES
+  e2e_agentic_studio
+  e2e_crowdy_studio
+  e2e_cross_server
+  e2e_graphql_websocket
+  e2e_marketplace_claims
+  e2e_operator
+)
 
 foreach(src ${E2E_SOURCES})
   get_filename_component(name ${src} NAME_WE)

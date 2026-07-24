@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "crowdy/domains/domain_base.hpp"
+#include "crowdy/domains/types.hpp"
 #include "crowdy/generated/operations.hpp"
 
 /// client.playerCompute() — player-authored Rust/WASM bound to player-owned
@@ -16,6 +17,8 @@ namespace crowdy::domains {
 class PlayerComputeAPI : public DomainBase {
  public:
   using DomainBase::DomainBase;
+  using ArtifactBytesCallback = std::function<void(
+      graphql::GraphQLOutcome, ClientArtifactBytes)>;
 
   /// Create/update a grid-bound module and publish an immutable pending source
   /// version. Compilation is asynchronous.
@@ -140,6 +143,19 @@ class PlayerComputeAPI : public DomainBase {
     vars["paramsJson"] = paramsJson;
     return run("PlayerComputeInvoke", vars);
   }
+  void invokeAsync(std::string_view appId, std::string_view gridId,
+                   std::string_view moduleName,
+                   std::string_view exportName,
+                   std::string_view paramsJson,
+                   graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["gridId"] = gridId;
+    vars["moduleName"] = moduleName;
+    vars["exportName"] = exportName;
+    vars["paramsJson"] = paramsJson;
+    runAsync("PlayerComputeInvoke", vars, std::move(cb));
+  }
 
   /// The caller's spend/quota view for one app (P2): current hour/day compute
   /// units vs the effective policy caps, compile-quota utilization, and the
@@ -247,13 +263,60 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeArtifact", vars, std::move(cb));
   }
 
+  /// Fetch and base64-decode a CLIENT artifact for a native sandbox/runtime.
+  /// fuelPerDispatch remains a decimal string to preserve GraphQL BigInt.
+  ClientArtifactBytes artifactBytes(
+      std::string_view appId, std::string_view gridId,
+      std::string_view name, std::string_view versionId = "") const {
+    return requireArtifactBytes(artifact(appId, gridId, name, versionId));
+  }
+  void artifactBytesAsync(
+      std::string_view appId, std::string_view gridId,
+      std::string_view name, std::string_view versionId,
+      ArtifactBytesCallback cb) const {
+    artifactAsync(
+        appId, gridId, name, versionId,
+        [cb = std::move(cb)](graphql::GraphQLOutcome outcome) mutable {
+          ClientArtifactBytes decoded;
+          if (outcome.ok()) {
+            auto value = decodeClientArtifactBytes(outcome.data);
+            if (value) {
+              decoded = std::move(*value);
+            } else {
+              outcome.status = Errc::Malformed;
+              outcome.kind = graphql::GraphQLErrorKind::Protocol;
+              outcome.errorMessage =
+                  "playerComputeArtifact returned invalid artifact bytes";
+            }
+          }
+          cb(std::move(outcome), std::move(decoded));
+        });
+  }
+  void artifactBytesAsync(
+      std::string_view appId, std::string_view gridId,
+      std::string_view name, ArtifactBytesCallback cb) const {
+    artifactBytesAsync(appId, gridId, name, {}, std::move(cb));
+  }
+
  private:
+  static ClientArtifactBytes requireArtifactBytes(
+      const graphql::Json& artifact) {
+    auto decoded = decodeClientArtifactBytes(artifact);
+    if (decoded) return std::move(*decoded);
+#ifndef CROWDY_NO_EXCEPTIONS
+    throw graphql::CrowdyProtocolError(
+        "playerComputeArtifact returned invalid artifact bytes");
+#else
+    return {};
+#endif
+  }
+
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-    return execUnwrap(gen::playerCompute::kPlayerComputeDocument, vars, op);
+    return execUnwrap(gen::playerCompute::documentFor(op), vars, op);
   }
   void runAsync(std::string_view op, const graphql::JVal& vars,
                 graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::playerCompute::kPlayerComputeDocument, vars, op,
+    execUnwrapAsync(gen::playerCompute::documentFor(op), vars, op,
                     std::move(cb));
   }
   graphql::Json byInput(std::string_view op, const graphql::JVal& input) const {

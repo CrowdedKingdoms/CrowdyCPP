@@ -1,0 +1,25 @@
+{
+  "name": "crowdycpp-maintainer-tools",
+  "version": "0.14.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline parity and schema maintenance tools for CrowdyCPP",
+  "crowdyjsParityTarget": {
+    "version": "12.0.0",
+    "commit": "a4624c9193cb943b8a922ecea5013a9e48dcc2fb"
+  },
+  "scripts": {
+    "codegen": "node scripts/codegen.mjs",
+    "check:agent-fixtures": "node tools/parity/agent-fixtures.mjs",
+    "check:codegen": "node scripts/codegen.mjs --check",
+    "check:operations": "node --test tests/parity/codegen-operation-isolation.test.mjs",
+    "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
+    "check:release": "npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm test",
+    "test": "node --test tests/parity/*.test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@graphql-tools/merge": "^9.2.2",
+    "graphql": "^16.14.2"
+  }
+}

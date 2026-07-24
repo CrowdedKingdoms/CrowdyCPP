@@ -102,7 +102,9 @@ void run() {
   cfg.token = TokenInfo{kToken, 42, 0};
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
-  auto conn = std::make_shared<Connection>(cfg, std::make_shared<StubProvider>(server.port));
+  auto conn = std::make_shared<Connection>(
+      cfg, std::make_shared<StubProvider>(server.port),
+      core::defaultCrypto());
   CHECK(conn->connect().ok());
 
   WorldSessionConfig sess;
@@ -123,6 +125,9 @@ void run() {
   auto parsedJoin = wire::parseLongSpatial(Bytes(joinMsg.data(), joinMsg.size()));
   CHECK(parsedJoin.ok());
   CHECK(std::memcmp(parsedJoin->uuid, session.actorUuid().data(), 32) == 0);
+  CHECK(session.self().lastSent().has_value());
+  CHECK_EQ(session.self().state().len, sizeof(pose));
+  CHECK_EQ(session.self().status(), LocalActorStatus::Pending);
 
   // --- Send-on-change: unchanged state does not resend before the keyframe.
   session.tick();
@@ -161,6 +166,8 @@ void run() {
   CHECK_EQ(remote->samples.size(), 2u);                          // history kept
   CHECK_EQ(remote->lastServerEpochMs, 1700000000100LL);          // newest first
   CHECK_EQ(remote->state().size(), 2u);
+  CHECK(session.actors().revision() >= 2);
+  CHECK_EQ(session.self().status(), LocalActorStatus::Acked);
 
   // --- Voxel merge into the chunk cache.
   std::uint8_t voxelPayload[wire::voxel::kFixedSize + 2];
@@ -228,9 +235,25 @@ void run() {
   CHECK_EQ(dms[0].payload.size(), 2u);
 
   CHECK(!session.errors().recent().empty());
-  const AttributedError& err = session.errors().recent().back();
+  CHECK_EQ(session.errors().total(), std::uint64_t{1});
+  const AttributedError& err = session.errors().recent().front();
   CHECK_EQ(static_cast<int>(err.code), 7);
   CHECK_EQ(static_cast<int>(err.kind), static_cast<int>(SendKind::ActorUpdate));
+  CHECK(err.actorUuid.has_value());
+  CHECK(*err.actorUuid == session.actorUuid());
+  CHECK(session.errors().last() == &err);
+  CHECK(session.errors().lastFor(session.actorUuid()) == &err);
+  CHECK_EQ(session.errors().recent(1).size(), 1u);
+
+  session.errors().recordSend(250, SendKind::VoxelUpdate, other);
+  session.errors().ingest(
+      {250, static_cast<wire::ErrorCode>(8)}, 1700000000600LL);
+  CHECK_EQ(session.errors().total(), std::uint64_t{2});
+  CHECK_EQ(session.errors().recent().front().sequence, 250);
+  CHECK_EQ(session.errors().recent().back().sequence, seqUsed);
+  CHECK(session.errors().last() == &session.errors().recent().front());
+  CHECK(session.errors().lastFor(other) ==
+        &session.errors().recent().front());
 
   // --- Optimistic local voxel edit sends a VOXEL_UPDATE_REQUEST.
   const std::uint8_t stateBytes[] = {1};
@@ -239,6 +262,8 @@ void run() {
   CHECK(seq.ok());
   const ChunkData* edited = session.chunks().find({2, 0, 0});
   CHECK_EQ(edited->voxels[static_cast<std::size_t>(voxelIndex(1, 1, 1))], 3u);
+  CHECK(session.chunks().revision() >= 2);
+  CHECK_EQ(session.chunks().pendingWriteBacks(), std::size_t{1});
   // Drain until we see the voxel request (actor keyframes may interleave).
   bool sawVoxel = false;
   for (int i = 0; i < 5 && !sawVoxel; ++i) sawVoxel = server.recvOne()[0] == 131;
@@ -280,6 +305,7 @@ void run() {
   }
   CHECK_EQ(laneJoins, 1);
   CHECK(mobLane.find(mob) != nullptr);
+  CHECK(mobLane.revision() >= 1);
   CHECK_EQ(routedEvents, 1);
   CHECK(session.events().lastEvent(42) != nullptr);
   CHECK(session.events().lastEvent(43) == nullptr);
@@ -299,6 +325,10 @@ void run() {
   CHECK_EQ(session.actors().size(), 0u);
   CHECK_EQ(mobLane.size(), 0u);
   CHECK_EQ(laneLeaves, 1);
+  CHECK(mobLane.revision() >= 2);
+  session.errors().clear();
+  CHECK(session.errors().recent().empty());
+  CHECK_EQ(session.errors().total(), std::uint64_t{2});
 
   session.dispose();
 }

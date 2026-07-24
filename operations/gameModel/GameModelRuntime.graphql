@@ -17,6 +17,7 @@ fragment GmContainerFields on GmContainer {
   description
   ownerUserId
   metadataJson
+  bindingKey
 }
 
 fragment GmInvokeResultFields on GmInvokeResult {
@@ -60,6 +61,15 @@ mutation GameModelCreateContainer($input: CreateContainerInput!) {
   }
 }
 
+mutation GameModelEnsureContainer($input: EnsureContainerInput!) {
+  gameModelEnsureContainer(input: $input) {
+    container {
+      ...GmContainerFields
+    }
+    created
+  }
+}
+
 mutation GameModelDeleteContainer($appId: BigInt!, $containerId: String!) {
   gameModelDeleteContainer(appId: $appId, containerId: $containerId)
 }
@@ -100,6 +110,7 @@ query GameModelContainers(
   $appId: BigInt!
   $typeName: String
   $sessionId: String
+  $bindingKey: String
   $where: [GmPropertyPredicateInput!]
   $limit: Int
   $offset: Int
@@ -108,6 +119,7 @@ query GameModelContainers(
     appId: $appId
     typeName: $typeName
     sessionId: $sessionId
+    bindingKey: $bindingKey
     where: $where
     limit: $limit
     offset: $offset
@@ -314,5 +326,26 @@ query GameModelFlow($appId: BigInt!, $flowId: String!) {
       errorMessage
       circuitAction
     }
+  }
+}
+
+subscription GameModelContainerChanged(
+  $appId: BigInt!
+  $typeName: String
+  $sessionId: String
+) {
+  gameModelContainerChanged(
+    appId: $appId
+    typeName: $typeName
+    sessionId: $sessionId
+  ) {
+    appId
+    containerId
+    typeName
+    sessionId
+    source
+    functionName
+    changedKeys
+    occurredAt
   }
 }

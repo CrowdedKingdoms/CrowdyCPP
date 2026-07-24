@@ -72,7 +72,7 @@ class UsersAPI : public DomainBase {
     if (!query.empty()) vars["query"] = query;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    return execUnwrap(gen::users::kUsersPaginatedDocument, vars, "UsersPaginated");
+    return execUnwrap(gen::users::documentFor("UsersPaginated"), vars, "UsersPaginated");
   }
 
   void paginatedAsync(std::string_view query, int limit, int offset,
@@ -81,7 +81,7 @@ class UsersAPI : public DomainBase {
     if (!query.empty()) vars["query"] = query;
     vars["limit"] = std::int64_t{limit};
     vars["offset"] = std::int64_t{offset};
-    execUnwrapAsync(gen::users::kUsersPaginatedDocument, vars, "UsersPaginated", std::move(cb));
+    execUnwrapAsync(gen::users::documentFor("UsersPaginated"), vars, "UsersPaginated", std::move(cb));
   }
 
   /// Relay cursor pagination variant.
@@ -91,7 +91,7 @@ class UsersAPI : public DomainBase {
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
     if (!query.empty()) vars["query"] = query;
-    return execUnwrap(gen::users::kUsersPaginatedDocument, vars, "UsersConnection");
+    return execUnwrap(gen::users::documentFor("UsersConnection"), vars, "UsersConnection");
   }
 
   void listConnectionAsync(int first, std::string_view after, std::string_view query,
@@ -100,7 +100,7 @@ class UsersAPI : public DomainBase {
     vars["first"] = std::int64_t{first};
     if (!after.empty()) vars["after"] = after;
     if (!query.empty()) vars["query"] = query;
-    execUnwrapAsync(gen::users::kUsersPaginatedDocument, vars, "UsersConnection", std::move(cb));
+    execUnwrapAsync(gen::users::documentFor("UsersConnection"), vars, "UsersConnection", std::move(cb));
   }
 
   graphql::Json setSuperAdmin(std::string_view userId, bool value) const {

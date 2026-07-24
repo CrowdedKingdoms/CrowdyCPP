@@ -24,13 +24,16 @@ DENYLIST=(
   'dev-run-buddy'
 )
 
-# schema.gql is exempt: it is a verbatim copy of the PUBLISHED production SDL
-# (docs.crowdedkingdoms.com/schema/), so anything in it is already public.
-# Description fixes belong server-side, not in this snapshot.
+# Schema snapshots are exempt: they are verbatim copies of the PUBLISHED SDLs
+# (docs.crowdedkingdoms.com/schema/). Description fixes belong server-side,
+# not in these deterministic validation inputs.
 fail=0
 for term in "${DENYLIST[@]}"; do
-  # Search tracked files only; exclude this script itself and the SDL snapshot.
-  if hits=$(git grep -nIE --untracked "$term" -- ':!scripts/check-content-policy.sh' ':!schema.gql' 2>/dev/null); then
+  # Search tracked files only; exclude this script and published SDL snapshots.
+  if hits=$(git grep -nIE --untracked "$term" -- \
+      ':!scripts/check-content-policy.sh' \
+      ':!schema.gql' ':!schema.game.gql' ':!schema.management.gql' \
+      2>/dev/null); then
     echo "DENYLISTED TERM '$term' found:" >&2
     echo "$hits" >&2
     fail=1

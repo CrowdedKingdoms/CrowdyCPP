@@ -93,30 +93,9 @@ const ROOT_CLASSIFICATIONS = {
       'crowdyStudioAgentSessions',
       'crowdyStudioAgentToolDescriptors',
       'crowdyStudioAgentUsage',
-      'crowdyStudioCommonFiles',
-      'crowdyStudioLibraryFiles',
-      'crowdyStudioProject',
-      'crowdyStudioProjects',
     ],
     CATEGORY.PORTABLE,
     'portable Crowdy Studio/agent query; later strict-parity phase',
-  ),
-  ...classifyNames(
-    'Mutation',
-    [
-      'crowdyStudioProjectCreate',
-      'crowdyStudioProjectSaveMetadata',
-      'crowdyStudioProjectSave',
-      'crowdyStudioProjectSaveFiles',
-      'crowdyStudioProjectSetArchived',
-      'crowdyStudioLibrarySave',
-      'crowdyStudioLibrarySetArchived',
-      'crowdyStudioProjectImportFile',
-      'crowdyStudioCommonPublish',
-      'crowdyStudioProjectCreateFromModules',
-    ],
-    CATEGORY.PORTABLE,
-    'portable Crowdy Studio mutation; later Crowdy Studio phase',
   ),
   ...classifyNames(
     'Mutation',
@@ -313,14 +292,6 @@ const CLASS_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'browser executor implementation is excluded; a native dispatcher is a separate portable gap',
   ),
-  CrowdyStudioAPI: classification(
-    CATEGORY.PORTABLE,
-    'portable cloud project domain; later Crowdy Studio phase',
-  ),
-  CrowdyStudioController: classification(
-    CATEGORY.PORTABLE,
-    'portable headless authoring controller; later Crowdy Studio phase',
-  ),
   CrowdyStudioAgentController: classification(
     CATEGORY.PORTABLE,
     'portable durable agent controller; later agent-controller phase',
@@ -458,7 +429,6 @@ const CLASS_MAP = {
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [
-  'Crowdy Studio: cloud project/library/common-file domain plus headless revision, checkpoint, patch, and runtime controller.',
   'Realtime: pluggable graphql-transport-ws client with RAII subscriptions, reconnect, replay, and game-thread dispatch.',
   'Agentic Studio: generated operations, descriptor validation, durable controller, approvals, budgets, heartbeat, and epoch fencing.',
   'Native player host: tool dispatcher, Studio/player-host adapters, lease manager, immediate human preemption, and late-result fencing.',

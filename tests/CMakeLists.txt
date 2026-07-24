@@ -22,6 +22,10 @@ add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)
 
+add_executable(crowdy_studio_test crowdy_studio_test.cpp)
+target_link_libraries(crowdy_studio_test PRIVATE crowdy)
+add_test(NAME crowdy_studio_test COMMAND crowdy_studio_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

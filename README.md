@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.14.0 strict portable-parity target:** the release gate reports zero
+**v0.14.1 strict portable-parity target:** the release gate reports zero
 portable gaps, unclassified differences, and stale classifications against
 CrowdyJS 12.0.0 at
 `a9c620c021c83c39f630dca4bb3e46b76691ac2d`. This is not a claim that the

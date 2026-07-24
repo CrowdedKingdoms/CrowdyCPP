@@ -24,7 +24,7 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
-## 0.14.0 release validation
+## 0.14.x release validation
 
 On 2026-07-24, the dev deployment passed live `e2e_crowdy_studio`,
 `e2e_agentic_studio`, `e2e_marketplace_claims`, and

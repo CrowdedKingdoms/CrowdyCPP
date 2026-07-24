@@ -2,9 +2,48 @@
 
 #include <yyjson.h>
 
+#include <cmath>
 #include <cstdio>
+#include <limits>
 
 namespace crowdy::graphql {
+
+namespace {
+
+bool isDecimal(std::string_view value) {
+  if (value.empty()) return false;
+  std::size_t index = value.front() == '-' ? 1 : 0;
+  if (index == value.size()) return false;
+  for (; index < value.size(); ++index) {
+    if (value[index] < '0' || value[index] > '9') return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+std::optional<std::int64_t> parseBigInt(std::string_view decimal) {
+  if (!isDecimal(decimal)) return std::nullopt;
+
+  const bool negative = decimal.front() == '-';
+  std::size_t index = negative ? 1 : 0;
+  constexpr std::uint64_t positiveLimit =
+      static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+  constexpr std::uint64_t negativeLimit = positiveLimit + 1;
+  const std::uint64_t limit = negative ? negativeLimit : positiveLimit;
+  std::uint64_t magnitude = 0;
+  for (; index < decimal.size(); ++index) {
+    const std::uint64_t digit =
+        static_cast<std::uint64_t>(decimal[index] - '0');
+    if (magnitude > (limit - digit) / 10) return std::nullopt;
+    magnitude = magnitude * 10 + digit;
+  }
+
+  if (!negative) return static_cast<std::int64_t>(magnitude);
+  if (magnitude == negativeLimit)
+    return std::numeric_limits<std::int64_t>::min();
+  return -static_cast<std::int64_t>(magnitude);
+}
 
 // ---- JVal -------------------------------------------------------------------
 
@@ -151,17 +190,52 @@ bool Json::asBool(bool fallback) const {
   return yyjson_get_bool(val(val_));
 }
 
-std::int64_t Json::asBigInt(std::int64_t fallback) const {
+std::optional<std::int64_t> Json::tryAsBigInt() const {
   if (isString()) {
-    auto s = asStringView();
-    if (s.empty()) return fallback;
-    char* end = nullptr;
-    std::string tmp(s);
-    const long long v = std::strtoll(tmp.c_str(), &end, 10);
-    if (end && *end == '\0') return static_cast<std::int64_t>(v);
-    return fallback;
+    return parseBigInt(asStringView());
   }
-  return asInt64(fallback);
+  if (!val_) return std::nullopt;
+  yyjson_val* value = val(val_);
+  if (yyjson_is_sint(value)) return yyjson_get_sint(value);
+  if (yyjson_is_uint(value)) {
+    const std::uint64_t unsignedValue = yyjson_get_uint(value);
+    if (unsignedValue >
+        static_cast<std::uint64_t>(
+            std::numeric_limits<std::int64_t>::max())) {
+      return std::nullopt;
+    }
+    return static_cast<std::int64_t>(unsignedValue);
+  }
+  if (yyjson_is_real(value)) {
+    const double realValue = yyjson_get_real(value);
+    constexpr double int64UpperExclusive = 9223372036854775808.0;
+    constexpr double int64LowerInclusive = -9223372036854775808.0;
+    if (!std::isfinite(realValue) || std::trunc(realValue) != realValue ||
+        realValue >= int64UpperExclusive ||
+        realValue < int64LowerInclusive) {
+      return std::nullopt;
+    }
+    return static_cast<std::int64_t>(realValue);
+  }
+  return std::nullopt;
+}
+
+std::int64_t Json::asBigInt(std::int64_t fallback) const {
+  const auto parsed = tryAsBigInt();
+  return parsed ? *parsed : fallback;
+}
+
+std::string Json::asBigIntString(std::string_view fallback) const {
+  if (isString()) {
+    const std::string_view decimal = asStringView();
+    return isDecimal(decimal) ? std::string(decimal) : std::string(fallback);
+  }
+  if (!val_) return std::string(fallback);
+  yyjson_val* value = val(val_);
+  if (yyjson_is_sint(value)) return std::to_string(yyjson_get_sint(value));
+  if (yyjson_is_uint(value)) return std::to_string(yyjson_get_uint(value));
+  const auto parsed = tryAsBigInt();
+  return parsed ? std::to_string(*parsed) : std::string(fallback);
 }
 
 std::string Json::dump() const {

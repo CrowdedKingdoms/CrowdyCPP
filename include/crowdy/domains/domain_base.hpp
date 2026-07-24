@@ -13,7 +13,12 @@ namespace crowdy::domains {
 /// domain targets (management or game) and provides the exec helper.
 class DomainBase {
  public:
-  explicit DomainBase(std::shared_ptr<graphql::GraphQLClient> gql) : gql_(std::move(gql)) {}
+  explicit DomainBase(std::shared_ptr<graphql::GraphQLClient> gql)
+      : gql_(std::move(gql)) {}
+  virtual ~DomainBase() { asyncScope_->close(); }
+
+  DomainBase(const DomainBase&) = delete;
+  DomainBase& operator=(const DomainBase&) = delete;
 
  protected:
   /// Execute `document` and return data[rootField].
@@ -43,11 +48,15 @@ class DomainBase {
                  const graphql::JVal& variables, std::string_view operationName,
                  graphql::GraphQLCallback cb) const {
     std::string root(rootField);
+    auto scope = asyncScope_;
     gql_->requestAsync(document, variables, operationName,
-                       [root = std::move(root), cb = std::move(cb)](
+                       [scope, root = std::move(root), cb = std::move(cb)](
                            graphql::GraphQLOutcome out) mutable {
-                         if (out.ok() && !root.empty()) out.data = out.data[root];
-                         cb(std::move(out));
+                         scope->run([&] {
+                           if (out.ok() && !root.empty())
+                             out.data = out.data[root];
+                           cb(std::move(out));
+                         });
                        });
   }
 
@@ -55,19 +64,28 @@ class DomainBase {
   /// the single selected root field.
   void execUnwrapAsync(std::string_view document, const graphql::JVal& variables,
                        std::string_view operationName, graphql::GraphQLCallback cb) const {
+    auto scope = asyncScope_;
     gql_->requestAsync(document, variables, operationName,
-                       [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
-                         if (out.ok() && out.data.isObject() && out.data.size() == 1) {
-                           graphql::Json single;
-                           out.data.forEachMember(
-                               [&](std::string_view, graphql::Json v) { single = v; });
-                           out.data = single;
-                         }
-                         cb(std::move(out));
+                       [scope, cb = std::move(cb)](
+                           graphql::GraphQLOutcome out) mutable {
+                         scope->run([&] {
+                           if (out.ok() && out.data.isObject() &&
+                               out.data.size() == 1) {
+                             graphql::Json single;
+                             out.data.forEachMember(
+                                 [&](std::string_view, graphql::Json v) {
+                                   single = v;
+                                 });
+                             out.data = single;
+                           }
+                           cb(std::move(out));
+                         });
                        });
   }
 
   std::shared_ptr<graphql::GraphQLClient> gql_;
+  std::shared_ptr<graphql::AsyncScope> asyncScope_ =
+      std::make_shared<graphql::AsyncScope>();
 };
 
 }  // namespace crowdy::domains

@@ -116,3 +116,55 @@ jobs:
         run: >
           ctest --test-dir build-no-exceptions
           --output-on-failure
+      - name: Install and link no-exception umbrella consumer
+        run: |
+          cmake --install build-no-exceptions --prefix "$RUNNER_TEMP/crowdy-noexceptions"
+          cmake -S tests/consumer -B build-noexceptions-consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-noexceptions"
+          cmake --build build-noexceptions-consumer -j 4
+          ./build-noexceptions-consumer/crowdycpp_consumer
+
+  crypto-off-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HTTP dependency
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+      - name: Configure without OpenSSL
+        run: >
+          cmake -S . -B build-crypto-off -DCMAKE_BUILD_TYPE=Release
+          -DCROWDY_WITH_OPENSSL=OFF
+          -DCROWDY_BUILD_E2E=OFF
+          -DCROWDY_BUILD_BENCHMARKS=OFF
+          -DCROWDY_BUILD_EXAMPLES=OFF
+      - name: Build and test full client
+        run: >
+          cmake --build build-crypto-off -j 4 &&
+          ctest --test-dir build-crypto-off --output-on-failure
+      - name: Install and link external consumer
+        run: |
+          cmake --install build-crypto-off --prefix "$RUNNER_TEMP/crowdy-install"
+          cmake -S tests/consumer -B build-crypto-off-consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-install"
+          cmake --build build-crypto-off-consumer -j 4
+          ./build-crypto-off-consumer/crowdycpp_consumer
+
+  asan-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+      - name: Configure AddressSanitizer
+        run: >
+          cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug
+          -DCROWDY_ENABLE_ASAN=ON
+          -DCROWDY_BUILD_E2E=OFF
+          -DCROWDY_BUILD_BENCHMARKS=OFF
+          -DCROWDY_BUILD_EXAMPLES=OFF
+      - name: Build and run sanitizer regressions
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+        run: >
+          cmake --build build-asan -j 4 &&
+          ctest --test-dir build-asan --output-on-failure

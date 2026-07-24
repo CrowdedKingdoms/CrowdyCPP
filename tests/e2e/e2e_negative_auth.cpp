@@ -66,7 +66,7 @@ int run() {
     p.distance = 8;
     p.uuid = uuidRogue;
     p.payload = Bytes(rogueMark, sizeof(rogueMark));
-    p.gameTokenId = a.appToken.gameTokenId;
+    p.gameTokenId = a.appToken.gameTokenIdInt64().value_or(0);
     p.sequence = sequence;
     auto n = wire::encodeLongSpatial(crypto, p, *token, out);
     E2E_CHECK(n.ok());

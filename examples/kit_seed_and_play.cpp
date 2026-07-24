@@ -23,7 +23,9 @@ CrowdyClient makeGameClient(const std::string& managementUrl, const std::string&
   if (userId) *userId = login.userId;
   auto minted = identity.portal().mintAppToken(appId);
   ClientConfig gameCfg;
-  gameCfg.httpUrl = minted.gameApiUrl.empty() ? managementUrl : minted.gameApiUrl;
+  gameCfg.httpUrl = minted.gameApiUrl.empty()
+                        ? managementUrl
+                        : minted.gameApiUrl.valueOrEmpty();
   gameCfg.managementUrl = managementUrl;
   CrowdyClient game(std::move(gameCfg));
   game.setToken(minted.token);

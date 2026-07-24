@@ -12,8 +12,14 @@ namespace crowdy::core {
 
 using ActorUuid = std::array<char, 32>;
 
-/// Generate a random 32-hex-char actor UUID.
-ActorUuid generateActorUuid(const ICrypto& crypto = opensslCrypto());
+/// Generate a random 32-hex-char actor UUID with typed provider failure.
+Result<ActorUuid> tryGenerateActorUuid(
+    const ICrypto& crypto = defaultCrypto());
+
+/// Migration-compatible convenience helper. Returns an all-zero UUID when the
+/// selected provider is unavailable; security-sensitive callers should use
+/// tryGenerateActorUuid() and branch on CryptoUnavailable.
+ActorUuid generateActorUuid(const ICrypto& crypto = defaultCrypto());
 
 inline std::string toString(const ActorUuid& u) { return std::string(u.data(), u.size()); }
 

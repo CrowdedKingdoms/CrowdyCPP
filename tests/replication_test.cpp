@@ -114,7 +114,7 @@ void run() {
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
 
-  Connection conn(cfg, provider);
+  Connection conn(cfg, provider, core::opensslCrypto());
 
   int actorUpdates = 0, voxelUpdates = 0, errors = 0, statusChanges = 0;
   std::vector<ConnState> states;

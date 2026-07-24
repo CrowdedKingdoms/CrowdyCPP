@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/core/clock.hpp"
 
 /// ContainerMirror — the client half of the platform's notify-to-pull
 /// pattern for game-model state: keep snapshots of the containers you care

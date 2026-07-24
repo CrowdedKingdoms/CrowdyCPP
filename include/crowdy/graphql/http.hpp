@@ -28,28 +28,41 @@ struct HttpResponse {
   std::string body;
 };
 
-class IHttpTransport {
- public:
-  virtual ~IHttpTransport() = default;
-  /// Throws CrowdyNetworkError / CrowdyTimeoutError on transport failure.
-  /// Non-2xx statuses are returned, not thrown (the GraphQL client decides).
-  virtual HttpResponse send(const HttpRequest& request) = 0;
-};
-
-/// Default libcurl transport. Maintains a per-instance cookie jar so sticky
-/// load-balancer cookies persist across requests. Only available when built
-/// with CROWDY_WITH_CURL (the default); returns null otherwise.
-std::shared_ptr<IHttpTransport> makeCurlTransport();
-
-/// Result of an async HTTP round trip. status.ok() means the request completed
-/// and `response` holds whatever the server returned (any HTTP status code);
-/// a non-ok status is a transport-level failure (DNS, TLS, connection, timeout)
+/// Result of an HTTP round trip. status.ok() means the request completed and
+/// `response` holds whatever the server returned (any HTTP status code); a
+/// non-ok status is a transport-level failure (DNS, TLS, connection, timeout)
 /// with detail in `errorMessage`.
 struct HttpOutcome {
   Status status;
   HttpResponse response;
   std::string errorMessage;
 };
+
+class IHttpTransport {
+ public:
+  virtual ~IHttpTransport() = default;
+#ifndef CROWDY_NO_EXCEPTIONS
+  /// Throws CrowdyNetworkError / CrowdyTimeoutError on transport failure.
+  /// Non-2xx statuses are returned, not thrown (the GraphQL client decides).
+#else
+  /// Compatibility method for existing injected transports. Implementations
+  /// compiled without exceptions must return an empty response on failure and
+  /// should override sendOutcome() to preserve a typed transport status.
+#endif
+  virtual HttpResponse send(const HttpRequest& request) = 0;
+
+  /// Non-throwing transport entry point used internally by GraphQLClient.
+  /// Existing exception-enabled transports only overriding send() remain
+  /// source-compatible: the default adapter catches and translates failures.
+  /// A transport compiled with exceptions disabled should override this method
+  /// to report failures instead of relying on send().
+  virtual HttpOutcome sendOutcome(const HttpRequest& request) noexcept;
+};
+
+/// Default libcurl transport. Maintains a per-instance cookie jar so sticky
+/// load-balancer cookies persist across requests. Only available when built
+/// with CROWDY_WITH_CURL (the default); returns null otherwise.
+std::shared_ptr<IHttpTransport> makeCurlTransport();
 
 /// Async, non-blocking, non-throwing HTTP transport. This is the interface a
 /// game engine implements over its own async HTTP stack (Unreal FHttpModule,

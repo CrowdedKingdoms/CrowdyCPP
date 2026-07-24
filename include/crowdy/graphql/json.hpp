@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -15,6 +16,10 @@
 ///  - JVal: a small mutable value tree for building GraphQL variables.
 ///  - Json: an immutable parsed document (yyjson-backed) for responses.
 namespace crowdy::graphql {
+
+/// Parse a signed decimal string without narrowing or errno-dependent
+/// saturation. Returns nullopt for malformed input and int64 overflow.
+std::optional<std::int64_t> parseBigInt(std::string_view decimal);
 
 // ---------------------------------------------------------------------------
 // JVal — build JSON values (GraphQL variables)
@@ -101,8 +106,14 @@ class Json {
   bool asBool(bool fallback = false) const;
 
   /// GraphQL BigInt scalars cross the wire as decimal strings (and IDs may be
-  /// numbers); this accepts either representation.
+  /// numbers); this accepts either representation. Malformed and overflowing
+  /// values return `fallback`.
   std::int64_t asBigInt(std::int64_t fallback = 0) const;
+  /// Checked twin of asBigInt().
+  std::optional<std::int64_t> tryAsBigInt() const;
+  /// Preserve a GraphQL BigInt as decimal text, including values outside
+  /// int64. Integer JSON numbers are converted losslessly.
+  std::string asBigIntString(std::string_view fallback = {}) const;
 
   /// Serialize this value back to a JSON string.
   std::string dump() const;

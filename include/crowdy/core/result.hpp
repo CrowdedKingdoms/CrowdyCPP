@@ -21,6 +21,7 @@ enum class Errc {
   TokenExpired,
   Rejected,
   Closed,
+  CryptoUnavailable,
 };
 
 inline const char* errcName(Errc e) {
@@ -36,6 +37,7 @@ inline const char* errcName(Errc e) {
     case Errc::TokenExpired: return "TokenExpired";
     case Errc::Rejected: return "Rejected";
     case Errc::Closed: return "Closed";
+    case Errc::CryptoUnavailable: return "CryptoUnavailable";
   }
   return "Unknown";
 }

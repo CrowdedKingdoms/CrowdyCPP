@@ -35,7 +35,9 @@ int main(int argc, char** argv) {
   // 2) App-scoped token -> per-game client.
   auto minted = identity.portal().mintAppToken(appId);
   ClientConfig gameCfg;
-  gameCfg.httpUrl = minted.gameApiUrl.empty() ? managementUrl : minted.gameApiUrl;
+  gameCfg.httpUrl = minted.gameApiUrl.empty()
+                        ? managementUrl
+                        : minted.gameApiUrl.valueOrEmpty();
   gameCfg.managementUrl = managementUrl;
   CrowdyClient game(std::move(gameCfg));
   game.setToken(minted.token);
@@ -44,7 +46,7 @@ int main(int argc, char** argv) {
   replication::Config rc;
   rc.appId = std::strtoll(appId.c_str(), nullptr, 10);
   rc.token.token = minted.token;
-  rc.token.gameTokenId = minted.gameTokenId;
+  rc.token.gameTokenId = minted.gameTokenIdInt64().value_or(0);
   rc.token.expiresAtEpochMs =
       core::parseIso8601Millis(minted.expiresAt.data(), minted.expiresAt.size());
   auto conn = game.replication().connect(rc);

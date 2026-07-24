@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "crowdy/core/result.hpp"
+#include "crowdy/graphql/async_scope.hpp"
 #include "crowdy/graphql/auth_state.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/errors.hpp"
@@ -50,6 +51,10 @@ class GraphQLClient {
   GraphQLClient(GraphQLClientConfig config, std::shared_ptr<IHttpTransport> transport,
                 std::shared_ptr<AuthState> auth)
       : config_(std::move(config)), transport_(std::move(transport)), auth_(std::move(auth)) {}
+  ~GraphQLClient() { close(); }
+
+  GraphQLClient(const GraphQLClient&) = delete;
+  GraphQLClient& operator=(const GraphQLClient&) = delete;
 
   /// Execute an operation and return the `data` value. Blocking.
 #ifndef CROWDY_NO_EXCEPTIONS
@@ -80,6 +85,11 @@ class GraphQLClient {
     dispatcher_ = std::move(dispatcher);
   }
 
+  /// Terminally suppress callbacks from in-flight requests. The underlying
+  /// transport may still finish its platform request, but its retained
+  /// completion cannot invoke code owned by this client.
+  void close() { asyncScope_->close(); }
+
   const std::string& endpoint() const { return config_.endpoint; }
   AuthState& auth() { return *auth_; }
   std::shared_ptr<AuthState> sharedAuthState() const { return auth_; }
@@ -95,6 +105,7 @@ class GraphQLClient {
   std::shared_ptr<AuthState> auth_;
   std::shared_ptr<IAsyncHttpTransport> asyncTransport_;
   std::shared_ptr<Dispatcher> dispatcher_;
+  std::shared_ptr<AsyncScope> asyncScope_ = std::make_shared<AsyncScope>();
 };
 
 }  // namespace crowdy::graphql

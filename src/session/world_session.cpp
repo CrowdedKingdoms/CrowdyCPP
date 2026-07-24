@@ -94,17 +94,23 @@ void WorldSession::tick() {
   if (client_ && config_.hostHeartbeatIntervalMs > 0 &&
       nowMs - lastHostBeatMs_ >= config_.hostHeartbeatIntervalMs) {
     lastHostBeatMs_ = nowMs;
+#ifndef CROWDY_NO_EXCEPTIONS
     try {
+#endif
       graphql::Json host = client_->host().heartbeat(config_.appId);
-      amIHost_ = client_->host().amIHost(config_.appId);
-      std::string newHost = host["hostUserId"].asString();
-      if (newHost != hostUserId_) {
-        hostUserId_ = std::move(newHost);
-        if (onHostChanged_) onHostChanged_(hostUserId_);
+      if (host.ok()) {
+        amIHost_ = client_->host().amIHost(config_.appId);
+        std::string newHost = host["hostUserId"].asString();
+        if (newHost != hostUserId_) {
+          hostUserId_ = std::move(newHost);
+          if (onHostChanged_) onHostChanged_(hostUserId_);
+        }
       }
+#ifndef CROWDY_NO_EXCEPTIONS
     } catch (const std::exception&) {
       // Host tracking is best-effort; next interval retries.
     }
+#endif
   }
 }
 
@@ -146,20 +152,25 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
 
 bool ChunkStore::flushOne(ChunkData& chunk) {
   if (!chunksApi_) return false;
+#ifndef CROWDY_NO_EXCEPTIONS
   try {
+#endif
     graphql::JVal input;
     input["appId"] = appId_;
     input["coordinates"] =
         domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
     input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
-    chunksApi_->update(input);
+    const graphql::Json updated = chunksApi_->update(input);
+    if (!updated.ok()) return false;
     setDirty(chunk, false);
     chunk.storedOnServer = true;
     touch(chunk);
     return true;
+#ifndef CROWDY_NO_EXCEPTIONS
   } catch (const std::exception&) {
     return false;  // leave dirty; retried later
   }
+#endif
 }
 
 void ChunkStore::tick(std::int64_t nowMs) {

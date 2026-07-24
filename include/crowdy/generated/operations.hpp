@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
-// operations sha256: edc2241c82ab5d1c02b244af770f0580a20559825709f75a96a234741e553b63
+// operations sha256: 728e5eadcd6770d1ef4a60eb6f5265605b169e7647a31a545f28f7e589999868
 
 #pragma once
 
@@ -2070,6 +2070,230 @@ inline constexpr std::string_view kCpComputePlatformCeilingsOperationName = "CpC
 inline constexpr std::string_view kCpSetComputePlatformCeilingsOperationName = "CpSetComputePlatformCeilings";
 
 }  // namespace controlPlane
+
+namespace crowdyStudio {
+
+/// crowdyStudio/CrowdyStudio.graphql
+inline constexpr std::string_view kCrowdyStudioDocument = R"gql(fragment CrowdyStudioProjectFields on CrowdyStudioProject {
+  projectId
+  appId
+  ownerUserId
+  gridId
+  name
+  description
+  serverModuleName
+  clientModuleName
+  pairingPreference
+  sdkVersion
+  abiVersion
+  revision
+  archived
+  archivedAt
+  fileCount
+  totalBytes
+  createdAt
+  updatedAt
+  files {
+    target
+    path
+    content
+    revision
+    provenance
+    provenanceLibraryFileId
+    provenanceLibraryRevision
+    provenanceCommonVersionId
+    createdAt
+    updatedAt
+  }
+}
+
+fragment CrowdyStudioLibraryFileFields on CrowdyStudioLibraryFile {
+  libraryFileId
+  appId
+  ownerUserId
+  title
+  pathHint
+  target
+  tags
+  content
+  revision
+  archived
+  archivedAt
+  createdAt
+  updatedAt
+}
+
+fragment CrowdyStudioCommonFileFields on CrowdyStudioCommonFile {
+  commonFileId
+  appId
+  slug
+  title
+  description
+  path
+  target
+  tags
+  status
+  versionId
+  versionNo
+  content
+  contentSha256
+  publishedByUserId
+  publishedAt
+  createdAt
+  updatedAt
+}
+
+query CrowdyStudioProjects(
+  $appId: BigInt!
+  $includeArchived: Boolean
+  $limit: Int
+  $offset: Int
+) {
+  crowdyStudioProjects(
+    appId: $appId
+    includeArchived: $includeArchived
+    limit: $limit
+    offset: $offset
+  ) {
+    projectId
+    gridId
+    name
+    serverModuleName
+    clientModuleName
+    pairingPreference
+    revision
+    archived
+    updatedAt
+  }
+}
+
+query CrowdyStudioProject($appId: BigInt!, $projectId: String!) {
+  crowdyStudioProject(appId: $appId, projectId: $projectId) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioProjectCreate($input: CreateCrowdyStudioProjectInput!) {
+  crowdyStudioProjectCreate(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioProjectSaveMetadata(
+  $input: SaveCrowdyStudioProjectMetadataInput!
+) {
+  crowdyStudioProjectSaveMetadata(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioProjectSave($input: SaveCrowdyStudioProjectInput!) {
+  crowdyStudioProjectSave(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioProjectSaveFiles(
+  $input: SaveCrowdyStudioProjectFilesInput!
+) {
+  crowdyStudioProjectSaveFiles(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioProjectSetArchived(
+  $input: SetCrowdyStudioProjectArchivedInput!
+) {
+  crowdyStudioProjectSetArchived(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+query CrowdyStudioLibraryFiles(
+  $appId: BigInt!
+  $includeArchived: Boolean
+  $limit: Int
+  $offset: Int
+) {
+  crowdyStudioLibraryFiles(
+    appId: $appId
+    includeArchived: $includeArchived
+    limit: $limit
+    offset: $offset
+  ) {
+    ...CrowdyStudioLibraryFileFields
+  }
+}
+
+mutation CrowdyStudioLibrarySave($input: SaveCrowdyStudioLibraryFileInput!) {
+  crowdyStudioLibrarySave(input: $input) {
+    ...CrowdyStudioLibraryFileFields
+  }
+}
+
+mutation CrowdyStudioLibrarySetArchived(
+  $input: SetCrowdyStudioLibraryFileArchivedInput!
+) {
+  crowdyStudioLibrarySetArchived(input: $input) {
+    ...CrowdyStudioLibraryFileFields
+  }
+}
+
+query CrowdyStudioCommonFiles(
+  $appId: BigInt!
+  $target: CrowdyStudioTarget
+  $limit: Int
+  $offset: Int
+) {
+  crowdyStudioCommonFiles(
+    appId: $appId
+    target: $target
+    limit: $limit
+    offset: $offset
+  ) {
+    ...CrowdyStudioCommonFileFields
+  }
+}
+
+mutation CrowdyStudioProjectImportFile(
+  $input: ImportCrowdyStudioProjectFileInput!
+) {
+  crowdyStudioProjectImportFile(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+}
+
+mutation CrowdyStudioCommonPublish(
+  $input: PublishCrowdyStudioCommonFileInput!
+) {
+  crowdyStudioCommonPublish(input: $input) {
+    ...CrowdyStudioCommonFileFields
+  }
+}
+
+mutation CrowdyStudioProjectCreateFromModules(
+  $input: CreateCrowdyStudioProjectFromModulesInput!
+) {
+  crowdyStudioProjectCreateFromModules(input: $input) {
+    ...CrowdyStudioProjectFields
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioProjectsOperationName = "CrowdyStudioProjects";
+inline constexpr std::string_view kCrowdyStudioProjectOperationName = "CrowdyStudioProject";
+inline constexpr std::string_view kCrowdyStudioProjectCreateOperationName = "CrowdyStudioProjectCreate";
+inline constexpr std::string_view kCrowdyStudioProjectSaveMetadataOperationName = "CrowdyStudioProjectSaveMetadata";
+inline constexpr std::string_view kCrowdyStudioProjectSaveOperationName = "CrowdyStudioProjectSave";
+inline constexpr std::string_view kCrowdyStudioProjectSaveFilesOperationName = "CrowdyStudioProjectSaveFiles";
+inline constexpr std::string_view kCrowdyStudioProjectSetArchivedOperationName = "CrowdyStudioProjectSetArchived";
+inline constexpr std::string_view kCrowdyStudioLibraryFilesOperationName = "CrowdyStudioLibraryFiles";
+inline constexpr std::string_view kCrowdyStudioLibrarySaveOperationName = "CrowdyStudioLibrarySave";
+inline constexpr std::string_view kCrowdyStudioLibrarySetArchivedOperationName = "CrowdyStudioLibrarySetArchived";
+inline constexpr std::string_view kCrowdyStudioCommonFilesOperationName = "CrowdyStudioCommonFiles";
+inline constexpr std::string_view kCrowdyStudioProjectImportFileOperationName = "CrowdyStudioProjectImportFile";
+inline constexpr std::string_view kCrowdyStudioCommonPublishOperationName = "CrowdyStudioCommonPublish";
+inline constexpr std::string_view kCrowdyStudioProjectCreateFromModulesOperationName = "CrowdyStudioProjectCreateFromModules";
+
+}  // namespace crowdyStudio
 
 namespace environments {
 

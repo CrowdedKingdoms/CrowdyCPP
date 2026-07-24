@@ -51,6 +51,15 @@ per-author capability hashes; `marketplace().trustGridAuthor(...)` records the
 visitor's capability-bound grant. Native clients fetch attachment artifacts
 through `clientArtifact` and own their local sandbox/lifecycle implementation.
 
+**Crowdy Studio (CrowdyJS v12 portable parity):** `crowdyStudio()` is the typed,
+app-scoped project/library/common-file API, including optimistic atomic saves,
+archive/restore, provenance-preserving imports, authored-module recovery, and
+permission-gated common publication. `crowdy::studio::CrowdyStudioController`
+is the headless project/autosave/conflict/checkpoint/runtime state machine.
+Engines inject synchronization, approval, crypto, clock, and CLIENT artifact
+runtime seams; CrowdyCPP does not ship DOM, Monaco, CSS, a Rust worker, or an
+engine renderer.
+
 **v0.9.0:** flow correlation (`gameModel().flow(appId, flowId)` — stitch one
 flow correlation id into a single cross-engine timeline of model events,
 automation runs, and compute module runs, each time-ascending; a diagnostics
@@ -186,6 +195,7 @@ app-scoped token):
 | `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
+| `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves, metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
@@ -198,6 +208,50 @@ payments() / quotas() / environments() / usage() / sharedEnvironment()`.
 Operator surface (platform operations, requires operator rights):
 `client.operator_()`. The SDK never relaxes server-side authorization — these
 are typed wrappers; the caller still needs the right token and permission.
+
+## Headless Crowdy Studio
+
+`client.crowdyStudio()` targets the Game API with the app-scoped player token.
+All ids and revisions remain decimal strings, project source is filtered by
+the server's `(app, owner, project)` tuple, and nullable metadata patches use
+`CrowdyStudioPatchField<T>` so omit, explicit null, and value stay distinct.
+The API exposes no raw operation executor.
+
+For an engine-owned editor, construct the controller from injected interfaces:
+
+```cpp
+crowdy::studio::CrowdyStudioPlayerComputeRuntime runtime(
+    game.playerCompute(), &engineArtifactRuntime);
+crowdy::studio::CrowdyStudioController studio(
+    {.appId = appId, .gridId = gridId},
+    game.crowdyStudio(), runtime, engineCrypto, engineClock,
+    &durableSynchronization, &agentApprovalGate);
+
+studio.initialize();
+studio.updateFile(crowdy::studio::CrowdyStudioTarget::Server,
+                  "src/lib.rs", source);
+studio.tick();  // engine-loop autosave/retry/monitor pump
+```
+
+Runtime actions are revision-bound:
+
+- draft/live plans must name the exact complete project target set;
+- live plans additionally bind pairing preference and the canonical
+  full-project content hash, then pass through the injected agent approval
+  gate before compilation;
+- full-stack publication compiles CLIENT then SERVER, binds `setRequires`,
+  enables SERVER, then starts the exact CLIENT artifact through the engine
+  runtime;
+- checkpoint restore likewise requires the external agent layer's opaque,
+  exact approval grant;
+- `state.runtimeSync` explicitly distinguishes never-run, running-saved,
+  running-stale, and stopped state.
+
+The synchronization and runtime interfaces are intentionally server-free in
+unit tests. They do not grant grid permissions or source visibility: Game API
+ownership, target write/run permissions, and admission checks still execute on
+every playerCompute call. See [MIGRATION.md](MIGRATION.md) for the additive
+surface notes.
 
 ## The native replication client
 

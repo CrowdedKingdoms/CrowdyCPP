@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
-// operations sha256: edc2241c82ab5d1c02b244af770f0580a20559825709f75a96a234741e553b63
+// operations sha256: 728e5eadcd6770d1ef4a60eb6f5265605b169e7647a31a545f28f7e589999868
 
 #pragma once
 

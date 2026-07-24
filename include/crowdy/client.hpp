@@ -4,6 +4,7 @@
 #include <string>
 
 #include "crowdy/domains/auth.hpp"
+#include "crowdy/domains/crowdy_studio.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/compute.hpp"
@@ -98,6 +99,9 @@ class CrowdyClient {
   domains::MarketplaceAPI& marketplace() { return *marketplace_; }
   domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
+  /// Caller-owned, app-scoped Crowdy Studio projects and reusable files.
+  /// Source remains owner-private; grid affinity never grants runtime authority.
+  domains::CrowdyStudioAPI& crowdyStudio() { return *crowdyStudio_; }
   domains::PlatformAPI& platform() { return *platform_; }
 
   // ----- Async API completion --------------------------------------------------
@@ -157,6 +161,7 @@ class CrowdyClient {
   std::unique_ptr<domains::MarketplaceAPI> marketplace_;
   std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
+  std::unique_ptr<domains::CrowdyStudioAPI> crowdyStudio_;
   std::unique_ptr<domains::PlatformAPI> platform_;
   std::unique_ptr<domains::AdminAPI> admin_;
   std::unique_ptr<domains::OperatorAPI> operatorApi_;

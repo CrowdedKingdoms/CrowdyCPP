@@ -19,4 +19,6 @@
 #include "crowdy/session/durable.hpp"
 #include "crowdy/session/model_mirror.hpp"
 #include "crowdy/session/world_session.hpp"
+#include "crowdy/studio/controller.hpp"
+#include "crowdy/studio/runtime.hpp"
 #include "crowdy/world.hpp"

@@ -13,6 +13,7 @@ option(CROWDY_BUILD_TESTS "Build unit tests" ON)
 option(CROWDY_BUILD_E2E "Build env-gated e2e tests" ON)
 option(CROWDY_BUILD_BENCHMARKS "Build benchmarks" ON)
 option(CROWDY_BUILD_EXAMPLES "Build example programs" ON)
+option(CROWDY_BUILD_PARITY_TOOLS "Build maintainer-only parity tools" OFF)
 option(CROWDY_WITH_CURL "Build the default libcurl HTTP transport" ON)
 option(CROWDY_WITH_OPENSSL "Build the default OpenSSL crypto provider" ON)
 
@@ -113,6 +114,12 @@ if(CROWDY_WITH_CURL)
 endif()
 if(CROWDY_WITH_OPENSSL)
   target_link_libraries(crowdy PUBLIC crowdy_crypto_openssl)
+endif()
+
+# ---- maintainer parity tools (never required by external builds)
+if(CROWDY_BUILD_PARITY_TOOLS)
+  add_executable(crowdy_blueprint_dump tools/parity/dump_blueprints.cpp)
+  target_link_libraries(crowdy_blueprint_dump PRIVATE crowdy)
 endif()
 
 # ---- tests

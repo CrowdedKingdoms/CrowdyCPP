@@ -450,6 +450,9 @@ The GraphQL surface is generated from committed artifacts so external builds
 never need network access or sibling repos:
 
 ```bash
+# Maintainer-only Node dependencies (not part of a CMake consumer build).
+npm ci
+
 # Maintainers: refresh the schema snapshot from the published production SDLs
 node scripts/schema-sync.mjs            # writes schema.gql
 node scripts/codegen.mjs                # regenerates include/crowdy/generated/
@@ -461,11 +464,58 @@ node scripts/codegen.mjs                # regenerates include/crowdy/generated/
 `.../game-api.graphql`) and merges them; `--management <path|url>` /
 `--game <path|url>` override the sources. Operation documents live in
 `operations/<domain>/*.graphql` and follow the same shapes as CrowdyJS.
+The merge uses the same GraphQL merge/printer pipeline as CrowdyJS; `--check`
+compares a committed snapshot with explicitly supplied sources without writing.
+Codegen embeds the schema and operation-input digests in both generated headers,
+and `node scripts/codegen.mjs --check` verifies them without modifying files.
+
+### Parity maintenance gates
+
+CrowdyCPP tracks one reviewed CrowdyJS commit in
+`.github/workflows/ci.yml`. After either SDK changes its public surface:
+
+```bash
+# Compare both schemas in both directions, audit roots/methods, and refresh docs.
+node tools/parity/parity.mjs --crowdyjs /path/to/CrowdyJS \
+  --write docs/parity-matrix.md
+node tools/parity/parity.mjs --crowdyjs /path/to/CrowdyJS \
+  --check docs/parity-matrix.md
+
+# CrowdyJS must be built first; verifies all 28 descriptor digests and the
+# closed 16-reason preemption vocabulary against C++ schema/codegen fixtures.
+node tools/parity/agent-fixtures.mjs --crowdyjs /path/to/CrowdyJS
+
+# Parser/gate behavior.
+npm test
+```
+
+The reviewed baseline accepts only named classifications. A **portable gap** is
+shown as missing work and is not presented as parity; native equivalents and
+inherently browser-only surfaces are the only waivers. New differences and
+stale classifications fail. `--strict` additionally fails on every remaining
+portable gap and is intended for the final strict-parity release gate.
+
+Blueprint builders are a compiled structural gate:
+
+```bash
+cmake -S . -B build-parity -DCROWDY_BUILD_PARITY_TOOLS=ON
+cmake --build build-parity --target crowdy_blueprint_dump
+node tools/parity/dump-blueprints.mjs /path/to/built/CrowdyJS > /tmp/js.json
+./build-parity/crowdy_blueprint_dump > /tmp/cpp.json
+node tools/parity/blueprints-diff.mjs /tmp/js.json /tmp/cpp.json
+```
+
+When intentionally changing the target, update the pinned CrowdyJS SHA, sync
+the descriptor/preemption fixtures with `agent-fixtures.mjs --write`,
+regenerate `docs/parity-matrix.md`, and commit the schema plus both generated
+headers in the same change. None of these maintainer gates run during a normal
+external CMake build.
 
 ## Tests
 
 - `ctest` — unit tests (wire codec golden vectors, HMAC vectors, bundle
   parsing, malformed-input fuzz, codec round-trips). Offline.
+- `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
   refresh/reconnect) that run against a deployment you configure via
   environment variables (`CROWDY_E2E_MANAGEMENT_URL`, `CROWDY_E2E_HTTP_URL`,

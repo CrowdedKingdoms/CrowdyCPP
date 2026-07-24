@@ -7,7 +7,15 @@
  * Output is committed so external builds never run this script.
  * Usage: node scripts/codegen.mjs
  */
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  mkdirSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,11 +23,35 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const opsDir = join(root, 'operations');
 const outDir = join(root, 'include', 'crowdy', 'generated');
 mkdirSync(outDir, { recursive: true });
+const check = process.argv.slice(2).includes('--check');
+const unknownArgs = process.argv.slice(2).filter((argument) => argument !== '--check');
+if (unknownArgs.length > 0) {
+  throw new Error(`unknown argument: ${unknownArgs[0]}`);
+}
+
+const schema = readFileSync(join(root, 'schema.gql'), 'utf8');
+const operationInputs = [];
+for (const domain of listDomains()) {
+  for (const file of readdirSync(join(opsDir, domain)).filter((entry) =>
+    entry.endsWith('.graphql')).sort()) {
+    operationInputs.push({
+      path: `${domain}/${file}`,
+      text: readFileSync(join(opsDir, domain, file), 'utf8'),
+    });
+  }
+}
+const digest = (value) => createHash('sha256').update(value).digest('hex');
+const schemaDigest = digest(schema);
+const operationsDigest = digest(
+  operationInputs.map(({ path, text }) => `${path}\0${text}\0`).join(''),
+);
 
 const HEADER = `// GENERATED FILE — do not edit by hand.
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
+// schema.gql sha256: ${schemaDigest}
+// operations sha256: ${operationsDigest}
 `;
 
 // ---------------------------------------------------------------------------
@@ -77,13 +109,12 @@ for (const domain of listDomains()) {
   opsHpp += `}  // namespace ${domain}\n\n`;
 }
 opsHpp += '}  // namespace crowdy::gen\n';
-writeFileSync(join(outDir, 'operations.hpp'), opsHpp);
+emit(join(outDir, 'operations.hpp'), opsHpp);
 
 // ---------------------------------------------------------------------------
 // Enums from schema.gql
 // ---------------------------------------------------------------------------
 
-const schema = readFileSync(join(root, 'schema.gql'), 'utf8');
 const enums = [];
 {
   const re = /(?:^|\n)enum\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\n\}/g;
@@ -137,9 +168,23 @@ for (const e of enums.sort((a, b) => a.name.localeCompare(b.name))) {
   enumsHpp += `  return std::nullopt;\n}\n\n`;
 }
 enumsHpp += '}  // namespace crowdy::gen\n';
-writeFileSync(join(outDir, 'enums.hpp'), enumsHpp);
+emit(join(outDir, 'enums.hpp'), enumsHpp);
 
 console.log(
-  `generated ${manifest.length} operations across ${listDomains().length} domains, ` +
+  `${check ? 'checked' : 'generated'} ${manifest.length} operations across ` +
+  `${listDomains().length} domains, ` +
   `${enums.length} enums -> include/crowdy/generated/`,
 );
+
+function emit(path, content) {
+  if (!check) {
+    writeFileSync(path, content);
+    return;
+  }
+  if (!existsSync(path) || readFileSync(path, 'utf8') !== content) {
+    console.error(
+      `${path.slice(root.length + 1)} has codegen drift; run node scripts/codegen.mjs`,
+    );
+    process.exitCode = 1;
+  }
+}

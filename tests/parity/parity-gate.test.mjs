@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -18,8 +19,8 @@ const crowdyjs = resolveCrowdyJsPath(repo);
 
 test('pinned strict parity target and generated matrix pass', () => {
   assert.deepEqual(assertCrowdyJsParityTarget(repo, crowdyjs), {
-    version: '12.0.0',
-    commit: 'a4624c9193cb943b8a922ecea5013a9e48dcc2fb',
+    version: '12.1.0',
+    commit: 'a510fcecf43bf9365fc34631a64fd201382214e7',
   });
   const result = runParity(
     '--check',
@@ -34,6 +35,24 @@ test('strict mode accepts the zero-gap implementation', () => {
   const result = runParity('--strict');
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /portable gaps=0/u);
+});
+
+test('cross-cutting Studio exports stay explicitly audited', () => {
+  const matrix = readFileSync(
+    join(repo, 'docs', 'parity-matrix.md'),
+    'utf8',
+  );
+  assert.match(
+    matrix,
+    /layout\.ts#StudioLayoutController` \| native equivalent/u,
+  );
+  assert.match(
+    matrix,
+    /control-gate\.ts#PlayerControlGate` \| native equivalent/u,
+  );
+  assert.match(matrix, /mount\.ts#mountCrowdyStudio` \| browser exclusion/u);
+  assert.match(matrix, /`embed-focus-trap`: browser exclusion/u);
+  assert.match(matrix, /`player-glue-worker-package`: browser exclusion/u);
 });
 
 test('matrix drift is a gate failure', () => {

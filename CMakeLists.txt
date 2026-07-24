@@ -151,6 +151,16 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_agent_fixture.hpp"
   @ONLY)
 
+# Embed the pinned CrowdyJS layout fixture for native cross-SDK tests. The
+# generated header is build-local and remains fully offline.
+file(READ
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-studio-layout.v1.json"
+  CROWDY_STUDIO_LAYOUT_FIXTURE_JSON)
+configure_file(
+  cmake/studio_layout_fixture.hpp.in
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_studio_layout_fixture.hpp"
+  @ONLY)
+
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)
 target_include_directories(crowdy_yyjson PUBLIC

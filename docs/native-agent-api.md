@@ -93,8 +93,17 @@ Studio should also provide:
 - `onPreempt(reason)` to stop local effects before best-effort server cleanup;
 - `onLeaseChanged(lease)` to bind/release visible workspace or Play authority.
 
+`CrowdyStudioControllerHostAdapter` and `CrowdyStudioIntegration` provide this
+controller-backed native assembly, including final session/epoch/context/lease
+checks, exact deployment-plan bindings, editor synchronization, and
+destruction-safe ownership. LIVE invoke requires a final typed approval
+validator because the Studio controller's deployment approval gate does not
+authorize arbitrary runtime calls.
+
 See [Native player-host integration](native-player-host.md) for a complete
-construction and game-loop example.
+construction and game-loop example, and
+[Native Studio integration](native-studio-integration.md) for the editor and
+assembly contracts.
 
 ## Safety controls
 

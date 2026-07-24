@@ -266,9 +266,11 @@ if(CROWDY_NO_EXCEPTIONS)
   # build; the strict no-exception facade omits those optional layers.
   set(CROWDY_AGENT_SOURCES)
   set(CROWDY_PLAYER_HOST_SOURCES)
+  set(CROWDY_STUDIO_SOURCES)
 else()
   file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
   file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
+  file(GLOB CROWDY_STUDIO_SOURCES CONFIGURE_DEPENDS src/studio/*.cpp)
 endif()
 add_library(crowdy STATIC
   src/client.cpp
@@ -276,6 +278,7 @@ add_library(crowdy STATIC
   ${CROWDY_DOMAIN_SOURCES}
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
+  ${CROWDY_STUDIO_SOURCES}
   ${CROWDY_PLAYER_HOST_SOURCES}
 )
 target_include_directories(crowdy PUBLIC
@@ -342,6 +345,7 @@ if(CROWDY_NO_EXCEPTIONS)
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
           PATTERN "agent" EXCLUDE
           PATTERN "player_host" EXCLUDE
+          PATTERN "studio" EXCLUDE
           PATTERN "kit" EXCLUDE
           PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE

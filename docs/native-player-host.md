@@ -64,6 +64,12 @@ while (running) {
 }
 ```
 
+For a full native editor, `CrowdyStudioIntegration` owns this dispatcher chain
+and optional Agent runtime while retaining an injected editor and typed
+project/runtime services. It still borrows `AgentControlLeaseManager`; destroy
+the integration before the manager and its `PlayerHostAdapterV1`. See
+[Native Studio integration](native-studio-integration.md).
+
 Human input must synchronously preempt local intent before any asynchronous
 cleanup:
 

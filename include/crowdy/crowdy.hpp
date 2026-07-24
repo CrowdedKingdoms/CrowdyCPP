@@ -34,6 +34,9 @@
 #include "crowdy/session/world_session.hpp"
 #ifndef CROWDY_NO_EXCEPTIONS
 #include "crowdy/studio/controller.hpp"
+#include "crowdy/studio/editor.hpp"
+#include "crowdy/studio/host_adapter.hpp"
+#include "crowdy/studio/integration.hpp"
 #include "crowdy/studio/runtime.hpp"
 #endif
 #include "crowdy/world.hpp"

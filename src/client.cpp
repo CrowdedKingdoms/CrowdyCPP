@@ -4,6 +4,7 @@
 
 #ifndef CROWDY_NO_EXCEPTIONS
 #include "crowdy/agent/client_runtime.hpp"
+#include "crowdy/studio/integration.hpp"
 #endif
 #include "crowdy/domains/admin.hpp"
 #include "crowdy/domains/operator.hpp"
@@ -500,6 +501,54 @@ CrowdyClient::createCrowdyStudioAgentController(
     agent::CrowdyStudioAgentControllerOptions options) {
   return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
       *crowdyStudioAgent_, *gameSubscriptions_, std::move(options));
+}
+
+std::unique_ptr<studio::CrowdyStudioIntegration>
+CrowdyClient::createCrowdyStudioIntegration(
+    studio::CrowdyStudioIntegrationOptions options) {
+  if (!options.crypto) {
+    if (config_.crypto) {
+      throw std::invalid_argument(
+          "createCrowdyStudioIntegration requires options.crypto to own "
+          "an externally injected crypto provider");
+    }
+    options.crypto = std::shared_ptr<const core::ICrypto>(
+        crypto_, [](const core::ICrypto*) {});
+  }
+
+  auto projectApi =
+      std::make_shared<domains::CrowdyStudioAPI>(gameGql_);
+  auto playerCompute =
+      std::make_shared<domains::PlayerComputeAPI>(gameGql_);
+  auto runtime =
+      std::make_shared<studio::CrowdyStudioPlayerComputeRuntime>(
+          playerCompute, options.clientRuntime);
+
+  const auto fallbackPoll = std::move(options.platformPoll);
+  options.platformPoll =
+      [dispatcher = dispatcher_, fallbackPoll]() mutable {
+        std::size_t delivered = dispatcher ? dispatcher->drain() : 0;
+        if (fallbackPoll) delivered += fallbackPoll();
+        return delivered;
+      };
+
+  studio::CrowdyStudioAgentRuntimeFactory agentFactory;
+  if (options.agent) {
+    auto agentApi = std::make_shared<domains::CrowdyStudioAgentAPI>(
+        gameGql_, managementGql_, dispatcher_);
+    auto subscriptions = gameSubscriptions_;
+    agentFactory =
+        [agentApi = std::move(agentApi),
+         subscriptions = std::move(subscriptions)](
+            agent::CrowdyStudioAgentControllerOptions agentOptions) {
+          return std::make_unique<
+              agent::CrowdyStudioAgentControllerRuntime>(
+              agentApi, subscriptions, std::move(agentOptions));
+        };
+  }
+  return studio::CrowdyStudioIntegration::create(
+      std::move(options), std::move(projectApi), std::move(runtime),
+      std::move(agentFactory));
 }
 #endif
 

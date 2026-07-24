@@ -1,0 +1,103 @@
+# Native Crowdy Studio integration
+
+CrowdyCPP supplies the headless Studio state machine and narrow native
+integration contracts. Engines own the window, panes, text editor, language
+service, renderer, and input system.
+
+## Editor boundary
+
+Implement `crowdy::studio::ICrowdyStudioEditorAdapter`. The adapter receives
+only:
+
+- synchronized in-memory project, personal-library, and common-file buffers;
+- the selected file and ordered open-file set;
+- callbacks for project-buffer edits, diagnostics, open, close, and failure;
+- relayout and disposal notifications.
+
+`CrowdyStudioEditorBridge` connects those callbacks to the same
+`CrowdyStudioController::updateFile`, `openFile`, `closeFile`, and
+`setLocalDiagnostics` paths used by a human UI. Reference buffers are marked
+read-only. The interface has no filesystem, shell, GraphQL, network, or
+`CrowdyClient` handle.
+
+```cpp
+class EngineEditor final
+    : public crowdy::studio::ICrowdyStudioEditorAdapter {
+ public:
+  crowdy::studio::CrowdyStudioEditorMode mode() const noexcept override;
+  void setCallbacks(
+      crowdy::studio::CrowdyStudioEditorCallbacks callbacks) override;
+  void synchronize(
+      const crowdy::studio::CrowdyStudioEditorSnapshot& snapshot) override;
+  void relayout() override;
+  void dispose() noexcept override;
+};
+```
+
+Editor callbacks run on the engine thread chosen by the adapter. Invoke them
+on the game/UI thread because `CrowdyStudioController` is single-threaded.
+Callbacks retained after `dispose()` are fenced.
+
+## Complete assembly
+
+`CrowdyClient::createCrowdyStudioIntegration` constructs owned project and
+PlayerCompute adapters, the Studio runtime/controller, editor bridge,
+controller-backed Studio host, native dispatcher, browser-dispatch bridge, and
+optional durable Agent controller in dependency-safe order.
+
+```cpp
+crowdy::studio::CrowdyStudioIntegrationOptions options;
+options.studio = {.appId = appId, .gridId = gridId};
+options.editor = std::make_shared<EngineEditor>();
+options.clientRuntime = engineClientArtifactRuntime;
+options.leaseManager = &leaseManager;  // externally owned, outlives assembly
+options.crypto = engineCryptoOwner;    // shared ownership
+
+crowdy::agent::CrowdyStudioAgentControllerOptions agent;
+agent.sessionId = savedSessionId;
+options.agent = std::move(agent);       // omit for manual Studio only
+
+auto studio =
+    client.createCrowdyStudioIntegration(std::move(options));
+studio->initialize();
+
+while (running) {
+  studio->tick();  // platform/agent poll, native deadlines, Studio autosave
+}
+```
+
+Keep `CrowdyClient` open while the assembly uses its shared HTTP/GraphQL
+dispatcher. Destroying the client first remains memory-safe but closes those
+shared transports. An externally injected raw crypto provider is not assumed
+owned: pass `options.crypto` so the assembly retains it.
+
+Lower-level hosts can call `CrowdyStudioIntegration::create` with owned
+`ICrowdyStudioProjectProvider` and `ICrowdyStudioRuntime` implementations.
+The existing direct constructors remain available.
+
+## Native Studio tools
+
+`CrowdyStudioControllerHostAdapter` implements all 11 native Studio tools:
+
+- `studio.context.get`, `studio.state.get`, `project.select`;
+- `workspace.tab.open`, `workspace.tab.close`, `diagnostics.local.get`;
+- `runtime.status.get`, `runtime.test_draft`, `runtime.deploy_live`;
+- `runtime.invoke`, `runtime.stop`.
+
+Session, epoch, context, lease, cancellation, and approval metadata are
+revalidated at the final host boundary. Draft/live plans use the controller's
+current complete plan; live deployment additionally binds the exact revision,
+target set, pairing preference, and project content hash. LIVE invoke requires
+an explicit final approval validator. Once an effect starts, preemption, a
+late context change, or an ambiguous exception is reported as
+`OUTCOME_UNKNOWN` and is not retried.
+
+## Layout and control phases
+
+`ICrowdyStudioIntegrationLayout` and
+`ICrowdyStudioIntegrationControl` are ownership/injection seams for the native
+layout controller and human-takeover gate. The assembly forwards relayout,
+tick, epoch, lease, and preemption transitions without reproducing either
+component's policy. Both extensions are disposed before Agent, editor, and
+Studio controller teardown.
+

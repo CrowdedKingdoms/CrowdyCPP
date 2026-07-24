@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -166,6 +167,14 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
       ICrowdyStudioClientRuntime* clientRuntime = nullptr)
       : playerCompute_(playerCompute), clientRuntime_(clientRuntime) {}
 
+  CrowdyStudioPlayerComputeRuntime(
+      std::shared_ptr<domains::PlayerComputeAPI> playerCompute,
+      std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntime = {})
+      : playerComputeOwner_(std::move(playerCompute)),
+        clientRuntimeOwner_(std::move(clientRuntime)),
+        playerCompute_(requirePlayerCompute(playerComputeOwner_)),
+        clientRuntime_(clientRuntimeOwner_.get()) {}
+
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
     graphql::JObject sources;
@@ -312,6 +321,15 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
   }
 
  private:
+  static domains::PlayerComputeAPI& requirePlayerCompute(
+      const std::shared_ptr<domains::PlayerComputeAPI>& playerCompute) {
+    if (!playerCompute) {
+      throw std::invalid_argument(
+          "Crowdy Studio runtime requires PlayerComputeAPI");
+    }
+    return *playerCompute;
+  }
+
   static std::string scalarString(const graphql::Json& value) {
     if (!value.ok() || value.isNull()) return {};
     if (value.isString()) return value.asString();
@@ -342,6 +360,8 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
     return runs;
   }
 
+  std::shared_ptr<domains::PlayerComputeAPI> playerComputeOwner_;
+  std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntimeOwner_;
   domains::PlayerComputeAPI& playerCompute_;
   ICrowdyStudioClientRuntime* clientRuntime_;
 };

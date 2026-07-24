@@ -254,10 +254,17 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
 
   auto controlOptions = std::move(options.controlGate);
   if (!controlOptions.clock) controlOptions.clock = options.clock;
+  auto clearAgentIntent =
+      [this](player_host::PreemptionReasonV1 reason) {
+        if (playerHost_) {
+          playerHost_->clearAgentIntent(reason);
+        } else if (leaseManager_) {
+          leaseManager_->preempt(reason);
+        }
+      };
   controlGate_ =
       std::make_unique<player_host::NativePlayerControlGate>(
-          std::function<void(player_host::PreemptionReasonV1)>{},
-          std::move(controlOptions));
+          std::move(clearAgentIntent), std::move(controlOptions));
   controlGateUnbind_ =
       agentRuntime_
           ? controlGate_->bind(

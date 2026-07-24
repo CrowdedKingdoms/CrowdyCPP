@@ -31,5 +31,9 @@
     "workspace.file.list@1.0.0": "sha256:79176f29eaca308b4f78861f3b8ce121eed5577c133210f2d3f7d7edf1d7d7b6",
     "workspace.file.patch@1.0.0": "sha256:76fc6c30aef7d5011171dc2e637244d988c591e35a42c0bd2c97cd797483abde",
     "workspace.file.read@1.0.0": "sha256:34e394ca9165390a08a44ff4fbcc6afa91bdae1c98f47b87110c4032228898db"
+  },
+  "crowdyJs": {
+    "version": "12.1.0",
+    "commit": "a510fcecf43bf9365fc34631a64fd201382214e7"
   }
 }

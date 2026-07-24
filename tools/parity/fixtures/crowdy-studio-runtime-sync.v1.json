@@ -1,5 +1,9 @@
 {
   "contractVersion": "crowdy.studio-runtime-sync-projection/1",
+  "crowdyJs": {
+    "version": "12.1.0",
+    "commit": "a510fcecf43bf9365fc34631a64fd201382214e7"
+  },
   "cases": [
     {
       "name": "never-run-project-revision-fallback",

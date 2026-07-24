@@ -426,7 +426,8 @@ through the installed headers under `crowdy/player_host/` and
   permission, context, and controlled-entity transitions through imperative
   hooks. Local intent clears before best-effort remote revoke/Pause/Stop,
   Stop works offline, and snapshots retain the 150 ms human-input-active
-  window without a timer thread.
+  window without a timer thread. Construction requires the fallback local
+  intent-clear callback.
 - `NativeToolDispatcherV1` is an execute-once callback router for the 14
   mandatory `game.*` tools and the 11 native Studio/runtime tools. It validates
   canonical v12 descriptor digests, typed input/output bounds, mode, deadline,
@@ -783,10 +784,13 @@ node tools/parity/parity.mjs --crowdyjs "$CROWDYJS_PATH" \
 npm run check:operations
 npm run check:parity
 
-# CrowdyJS must be built first; verifies all 28 descriptor digests and the
-# closed 16-reason preemption vocabulary plus portable Studio layout vectors.
+# CrowdyJS must be built first. Every fixture tool rejects tracked checkout
+# changes, a wrong package version, or a wrong commit.
 npm run check:agent-fixtures
+npm run check:control-gate-fixtures
+npm run check:studio-host-fixtures
 npm run check:layout-fixtures
+npm run check:studio-state-fixtures
 
 # Parser/gate behavior.
 npm test
@@ -813,12 +817,12 @@ node tools/parity/blueprints-diff.mjs /tmp/js.json /tmp/cpp.json
 ```
 
 When intentionally changing the target, update the pinned CrowdyJS SHA, sync
-the descriptor/preemption fixtures with `agent-fixtures.mjs --write` and the
-Studio layout fixture with `layout-fixtures.mjs --write`,
-regenerate `docs/parity-matrix.md`, and commit the pin plus changed fixtures
-and generated evidence together. Include schema snapshots and generated
-headers whenever the target also changes SDL. None of these maintainer gates
-run during a normal external CMake build.
+the descriptor/preemption, control-gate, 11-tool Studio host, and layout
+fixtures with their `tools/parity/*-fixtures.mjs --write` commands, validate
+the shared Studio state fixtures, regenerate `docs/parity-matrix.md`, and
+commit the pin plus changed fixtures and generated evidence together. Include
+schema snapshots and generated headers whenever the target also changes SDL.
+None of these maintainer gates run during a normal external CMake build.
 
 ## Tests
 

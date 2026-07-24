@@ -74,8 +74,9 @@ Human input must synchronously preempt local intent before any asynchronous
 cleanup:
 
 Wrap the lease manager and controller with `NativePlayerControlGate`. The
-fallback clear callback keeps Stop effective before Studio attaches or after
-the network/controller is gone:
+required fallback clear callback keeps Stop effective before Studio attaches
+or after the network/controller is gone; construction rejects an empty
+callback:
 
 ```cpp
 crowdy::player_host::NativePlayerControlGateOptionsV1 gateOptions;
@@ -149,6 +150,11 @@ objects alive until unbinding; declare the unbind handle after them or call it
 explicitly before either is destroyed. Gate destruction performs a final local
 `DISCONNECTED` preemption, unbinds, and makes outstanding unsubscribe/unbind
 functions harmless.
+
+`crowdyjs-player-control-gate.v1.json` is generated from the exact pinned
+CrowdyJS build. The native fixture test replays its initial/bound snapshots,
+listener and local-clear ordering, 150 ms boundary, rebind/unbind transitions,
+offline Stop, every imperative hook, and all 16 preemption reasons.
 
 `NativeBrowserToolDispatcherAdapter` validates canonical input schemas,
 converts JSON field-by-field into closed C++ variants, propagates

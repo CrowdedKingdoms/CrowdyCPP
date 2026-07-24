@@ -168,14 +168,6 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'browser capture listeners translate DOM input, visibility, and offline events into native gate calls',
   ),
-  'PlayerControlGate.humanInputActive': classification(
-    CATEGORY.BROWSER,
-    'browser-only recent-input indicator is derived from DOM event timing',
-  ),
-  'PlayerControlGate.subscribe': classification(
-    CATEGORY.NATIVE,
-    'AgentControlLeaseManagerOptionsV1.on_change publishes immutable native gate snapshots',
-  ),
 };
 
 const CLASS_CLASSIFICATIONS = {
@@ -240,10 +232,8 @@ const METHOD_ALIASES = {
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
-  'QuotasAPI.delete': 'remove',
   'GameModelAPI.automations': 'automationsList',
   'GameModelAPI.getFunction': 'function',
-  'OperatorAPI.usage': 'usageSummary',
   'CrowdyAgentGraphQLTransport.toolResult': 'browserToolResult',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
@@ -273,7 +263,6 @@ const METHOD_ALIASES = {
   'EconomyKit.trades.offer': 'tradeOffer',
   'EconomyKit.trades.accept': 'tradeAccept',
   'EconomyKit.trades.cancel': 'tradeCancel',
-  'UsageAPI.orgSummary': 'orgSummary',
   'AvatarStateStore.publicState': 'identityState',
   'ChunkStore.get': 'find',
   'HostTracker.isHost': 'amIHost',
@@ -281,15 +270,11 @@ const METHOD_ALIASES = {
   'RemoteActorLane.get': 'find',
   'RemoteActorStore.count': 'size',
   'RemoteActorStore.get': 'find',
-  'PlayerControlGate.bind': 'attach',
-  'PlayerControlGate.destroy': 'disconnect',
-  'PlayerControlGate.pause': 'preempt',
-  'PlayerControlGate.stop': 'preempt',
   'PlayerControlGate.death': 'onDeath',
   'PlayerControlGate.contextChanged': 'onContextChanged',
   'PlayerControlGate.permissionChanged': 'onPermissionChanged',
-  'PlayerControlGate.controlTargetChanged': 'onControlledEntityChanged',
-  'PlayerControlGate.disconnected': 'disconnect',
+  'PlayerControlGate.controlTargetChanged': 'onControlTargetChanged',
+  'PlayerControlGate.disconnected': 'onDisconnected',
 };
 
 const ASYNC_TWIN_WAIVERS = {
@@ -335,7 +320,6 @@ const CLASS_MAP = {
   UsageAPI: 'UsageAPI',
   SharedEnvironmentAPI: 'SharedEnvironmentAPI',
   ControlPlaneAPI: 'OperatorAPI',
-  AdminAPI: 'AdminAPI',
   WorldClient: 'WorldClient',
   ActorClient: 'ActorClient',
   GameKitClient: 'GameKitClient',
@@ -375,8 +359,12 @@ const CLASS_MAP = {
   AgentControlLeaseManager: 'AgentControlLeaseManager',
   CrowdyAgentBrowserToolDispatcher: 'NativeBrowserToolDispatcherAdapter',
   StudioLayoutController: 'StudioLayoutController',
-  PlayerControlGate: 'AgentControlLeaseManager',
+  PlayerControlGate: 'NativePlayerControlGate',
 };
+
+const STRICT_CLASS_MAPS = Object.freeze({
+  PlayerControlGate: 'NativePlayerControlGate',
+});
 
 const CROSS_CUTTING_EXPORT_MODULES = {
   'src/crowdy-studio/layout.ts': exportModule(
@@ -418,19 +406,14 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'PlayerControlGateSnapshot',
     ],
     CATEGORY.NATIVE,
-    'browser takeover seam maps to the native AgentControlLeaseManager authority gate',
+    'portable takeover contract maps to the no-DOM NativePlayerControlGate',
     {
-      PlayerControlGate: 'AgentControlLeaseManager',
-      PlayerControlGateAgentControl: 'CrowdyStudioAgentController',
-      PlayerControlGateOptions: 'AgentControlLeaseManagerOptionsV1',
-      PlayerControlGateSnapshot: 'AgentControlLeaseSnapshotV1',
+      PlayerControlGate: 'NativePlayerControlGate',
+      PlayerControlGateAgentControl: 'INativePlayerControlGateController',
+      PlayerControlGateOptions: 'NativePlayerControlGateOptionsV1',
+      PlayerControlGateSnapshot: 'NativePlayerControlGateSnapshotV1',
     },
-    {
-      PlayerControlGate: 'include/crowdy/player_host/lease_manager.hpp',
-      PlayerControlGateAgentControl: 'include/crowdy/agent/controller.hpp',
-      PlayerControlGateOptions: 'include/crowdy/player_host/lease_manager.hpp',
-      PlayerControlGateSnapshot: 'include/crowdy/player_host/lease_manager.hpp',
-    },
+    'include/crowdy/player_host/control_gate.hpp',
   ),
   'src/crowdy-studio/editor.ts': exportModule(
     [
@@ -438,8 +421,14 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'CrowdyStudioEditorCallbacks',
       'CrowdyStudioEditorMode',
     ],
-    CATEGORY.BROWSER,
-    'editor adapter is the DOM mount contract; native engines bind the headless controller directly',
+    CATEGORY.NATIVE,
+    'portable editor adapter contract maps to the native editor bridge seam',
+    {
+      CrowdyStudioEditorAdapter: 'ICrowdyStudioEditorAdapter',
+      CrowdyStudioEditorCallbacks: 'CrowdyStudioEditorCallbacks',
+      CrowdyStudioEditorMode: 'CrowdyStudioEditorMode',
+    },
+    'include/crowdy/studio/editor.hpp',
   ),
   'src/crowdy-studio/mount.ts': exportModule(
     [
@@ -485,6 +474,11 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     ['createTextareaCrowdyStudioEditor'],
     CATEGORY.BROWSER,
     'fallback editor creates and drives browser textarea elements',
+  ),
+  'src/crowdy-studio/styles.ts': exportModule(
+    ['CROWDY_STUDIO_STYLES'],
+    CATEGORY.BROWSER,
+    'workspace presentation is CSS text injected into a browser document',
   ),
   'src/live-coding/vfs.ts': exportModule(
     [
@@ -569,6 +563,12 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   ),
 };
 
+const STRICT_NATIVE_EXPORT_MODULES = new Set([
+  'src/crowdy-studio/editor.ts',
+  'src/crowdy-studio/layout.ts',
+  'src/player-host/control-gate.ts',
+]);
+
 const CROSS_CUTTING_BEHAVIORS = {
   'embed-focus-trap': {
     path: 'src/crowdy-studio/embed/panel.ts',
@@ -627,6 +627,8 @@ const state = {
   usedRootClassifications: new Set(),
   usedMethodClassifications: new Set(),
   usedClassClassifications: new Set(),
+  usedMethodAliases: new Set(),
+  usedClassMaps: new Set(),
   usedAsyncTwinWaivers: new Set(),
   asyncTwinsChecked: 0,
   dtoFieldsChecked: keyDtoContracts.checked,
@@ -780,6 +782,7 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
 )) {
   const classClassification = CLASS_CLASSIFICATIONS[tsClass];
   const cppName = CLASS_MAP[tsClass] ?? tsClass;
+  if (Object.hasOwn(CLASS_MAP, tsClass)) state.usedClassMaps.add(tsClass);
   if (classClassification) {
     state.usedClassClassifications.add(tsClass);
   }
@@ -789,7 +792,9 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
   report += '| CrowdyJS method | Status |\n|---|---|\n';
   for (const method of methods) {
     const key = `${tsClass}.${method}`;
-    const cppMethod = METHOD_ALIASES[key] ?? method;
+    const alias = METHOD_ALIASES[key];
+    if (alias !== undefined) state.usedMethodAliases.add(key);
+    const cppMethod = alias ?? method;
     let status;
     if (cppMethods.has(normalizeName(cppMethod))) {
       status = 'covered';
@@ -871,6 +876,8 @@ report +=
   `- Cross-cutting Studio exports checked: ${state.crossCuttingExportsChecked}\n`;
 report +=
   `- Cross-cutting browser behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
+report += `- Reviewed method aliases checked: ${state.usedMethodAliases.size}\n`;
+report += `- Reviewed class maps checked: ${state.usedClassMaps.size}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
@@ -997,6 +1004,14 @@ function crossCuttingSurfaceResults() {
   for (const [module, baseline] of Object.entries(
     CROSS_CUTTING_EXPORT_MODULES,
   )) {
+    if (
+      STRICT_NATIVE_EXPORT_MODULES.has(module) &&
+      baseline.classification.category !== CATEGORY.NATIVE
+    ) {
+      failures.push(
+        `export-module:${module} (portable module must be a native equivalent)`,
+      );
+    }
     const path = join(crowdyjsPath, ...module.split('/'));
     if (!existsSync(path)) {
       stale.push(`export-module:${module} (module missing)`);
@@ -1140,6 +1155,23 @@ function checkStaleClassifications(state) {
   for (const key of Object.keys(CLASS_CLASSIFICATIONS)) {
     if (!state.usedClassClassifications.has(key)) {
       state.stale.push(`class:${key}`);
+    }
+  }
+  for (const key of Object.keys(METHOD_ALIASES)) {
+    if (!state.usedMethodAliases.has(key)) {
+      state.stale.push(`method-alias:${key}`);
+    }
+  }
+  for (const key of Object.keys(CLASS_MAP)) {
+    if (!state.usedClassMaps.has(key)) {
+      state.stale.push(`class-map:${key}`);
+    }
+  }
+  for (const [key, expected] of Object.entries(STRICT_CLASS_MAPS)) {
+    if (CLASS_MAP[key] !== expected) {
+      state.stale.push(
+        `class-map:${key} (expected ${expected}, got ${CLASS_MAP[key] ?? 'missing'})`,
+      );
     }
   }
   for (const key of Object.keys(ASYNC_TWIN_WAIVERS)) {

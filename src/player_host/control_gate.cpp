@@ -86,7 +86,12 @@ struct NativePlayerControlGate::Impl
        NativePlayerControlGateOptionsV1 config)
       : clear_agent_intent(std::move(clear)),
         options(std::move(config)),
-        clock(options.clock ? *options.clock : core::systemClock()) {}
+        clock(options.clock ? *options.clock : core::systemClock()) {
+    if (!clear_agent_intent) {
+      throw std::invalid_argument(
+          "NativePlayerControlGate requires a local intent clear callback");
+    }
+  }
 
   bool humanInputActive() const noexcept {
     if (!last_human_input_at || options.human_input_active_ms == 0) {

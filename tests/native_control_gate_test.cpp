@@ -1,15 +1,18 @@
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "crowdy/core/clock.hpp"
+#include "crowdy/graphql/json.hpp"
 #include "crowdy/player_host/adapter.hpp"
 #include "crowdy/player_host/control_gate.hpp"
 #include "crowdy/player_host/lease_manager.hpp"
@@ -21,7 +24,7 @@ using namespace crowdy::player_host;
 
 namespace {
 
-constexpr std::int64_t kBaseTime = 1'753'300'800'000LL;
+constexpr std::int64_t kBaseTime = 1'784'851'200'000LL;
 
 std::string iso(std::int64_t epoch_ms) {
   const std::time_t seconds = static_cast<std::time_t>(epoch_ms / 1'000);
@@ -74,7 +77,8 @@ AgentControlLeaseV1 localLease(std::int64_t now, std::string id) {
   value.kind = LeaseKindV1::Play;
   value.status = LeaseStatusV1::Active;
   value.client_epoch = "1";
-  value.scopes = {LeaseScopeV1::Observe, LeaseScopeV1::Locomotion};
+  value.scopes = {LeaseScopeV1::Observe, LeaseScopeV1::Locomotion,
+                  LeaseScopeV1::Interact};
   value.holder = "Current player";
   value.controlled_entity_id = "player-1";
   value.host_capability_revision = "capability-1";
@@ -189,7 +193,7 @@ struct ReadyControl {
   AgentControlLeaseManager manager;
   FakeController controller;
 
-  ReadyControl()
+  explicit ReadyControl(std::string initial_lease_id = "lease-1")
       : host(events, clock),
         manager(host, managerOptions()),
         controller(events) {
@@ -198,7 +202,7 @@ struct ReadyControl {
     manager.refreshCapabilities(
         [&](auto result) { refreshed = std::move(result); });
     CHECK(refreshed && refreshed->ok());
-    activate("lease-1");
+    activate(std::move(initial_lease_id));
   }
 
   AgentControlLeaseManagerOptionsV1 managerOptions() {
@@ -229,9 +233,124 @@ NativePlayerControlGateOptionsV1 gateOptions(const FakeClock& clock) {
   };
 }
 
+std::string fixtureText(std::string_view name) {
+  const std::string path =
+      std::string(CROWDY_PARITY_FIXTURE_DIR) + "/" + std::string(name);
+  std::ifstream input(path, std::ios::binary);
+  CHECK(input.good());
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  return contents.str();
+}
+
+PreemptionReasonV1 fixtureReason(std::string_view value) {
+  for (const auto reason : kClosedPreemptionReasonsV1) {
+    if (preemptionReasonName(reason) == value) return reason;
+  }
+  CHECK(false);
+  return PreemptionReasonV1::HUMAN_STOP;
+}
+
+std::vector<std::string> fixtureStrings(const graphql::Json& values) {
+  CHECK(values.isArray());
+  std::vector<std::string> result;
+  values.forEach(
+      [&](const graphql::Json& value) { result.push_back(value.asString()); });
+  return result;
+}
+
+std::string normalizedFixtureEvent(std::string value) {
+  if (value.rfind("clear:", 0) == 0) {
+    const auto separator = value.find(':', 6);
+    if (separator != std::string::npos) {
+      return "clear:" + value.substr(separator + 1);
+    }
+  }
+  if (value.rfind("revoke:", 0) == 0) {
+    const auto separator = value.find(':', 7);
+    if (separator != std::string::npos) {
+      return "remote:revoke:" + value.substr(separator + 1);
+    }
+  }
+  if (value.rfind("pause:", 0) == 0) return "remote:pause";
+  if (value.rfind("stop:", 0) == 0) return "remote:stop";
+  return value;
+}
+
+void checkFixtureOrder(const std::vector<std::string>& actual,
+                       const graphql::Json& expected) {
+  auto normalized = fixtureStrings(expected);
+  for (auto& event : normalized) {
+    event = normalizedFixtureEvent(std::move(event));
+  }
+  CHECK(actual == normalized);
+}
+
+std::string snapshotToken(
+    const NativePlayerControlGateSnapshotV1& value) {
+  return std::string("snapshot:") +
+         (value.bound ? "bound:" : "unbound:") +
+         (value.active_lease ? value.active_lease->leaseId : "none") + ":" +
+         (value.last_preemption
+              ? std::string(preemptionReasonName(*value.last_preemption))
+              : "none") +
+         ":" + (value.human_input_active ? "human:" : "idle:") +
+         (value.offline_stop ? "offline-stop" : "online");
+}
+
+void checkFixtureSnapshot(
+    const NativePlayerControlGateSnapshotV1& actual,
+    const graphql::Json& expected) {
+  CHECK(actual.bound == expected["bound"].asBool());
+  const auto expectedLease = expected["activeLease"];
+  if (!expectedLease.ok() || expectedLease.isNull()) {
+    CHECK(!actual.active_lease);
+  } else {
+    CHECK(actual.active_lease.has_value());
+    const auto& lease = *actual.active_lease;
+    CHECK(lease.leaseId == expectedLease["leaseId"].asString());
+    CHECK(expectedLease["kind"].asStringView() == "PLAY");
+    CHECK(lease.kind == agent::AgentLeaseKind::Play);
+    CHECK(expectedLease["status"].asStringView() == "ACTIVE");
+    CHECK(lease.status == agent::AgentLeaseStatus::Active);
+    CHECK(lease.clientEpoch == expectedLease["clientEpoch"].asString());
+    CHECK(lease.scopes == fixtureStrings(expectedLease["scopes"]));
+    CHECK(lease.holder == expectedLease["holder"].asString());
+    CHECK(lease.controlledEntityId ==
+          expectedLease["controlledEntityId"].asString());
+    CHECK(lease.hostCapabilityRevision ==
+          expectedLease["hostCapabilityRevision"].asString());
+    CHECK(lease.contextVersion ==
+          expectedLease["contextVersion"].asString());
+    CHECK(lease.grantedAt == expectedLease["grantedAt"].asString());
+    CHECK(lease.expiresAt == expectedLease["expiresAt"].asString());
+  }
+  const auto lastPreemption = expected["lastPreemption"];
+  if (lastPreemption.ok()) {
+    CHECK(actual.last_preemption ==
+          std::optional<PreemptionReasonV1>{
+              fixtureReason(lastPreemption.asStringView())});
+  } else {
+    CHECK(!actual.last_preemption);
+  }
+  CHECK(actual.human_input_active ==
+        expected["humanInputActive"].asBool());
+  CHECK(actual.offline_stop == expected["offlineStop"].asBool());
+}
+
+void checkFixtureSnapshots(
+    const std::vector<NativePlayerControlGateSnapshotV1>& actual,
+    const graphql::Json& expected) {
+  CHECK(actual.size() == expected.size());
+  for (std::size_t index = 0; index < actual.size(); ++index) {
+    checkFixtureSnapshot(actual[index], expected.at(index));
+  }
+}
+
 void testHumanHooksWindowAndDuplicateSuppression() {
   ReadyControl ready;
-  NativePlayerControlGate gate({}, gateOptions(ready.clock));
+  NativePlayerControlGate gate([](PreemptionReasonV1) {},
+                               gateOptions(ready.clock));
   std::vector<NativePlayerControlGateSnapshotV1> snapshots;
   auto unsubscribe =
       gate.subscribe([&](const auto& value) { snapshots.push_back(value); });
@@ -291,7 +410,8 @@ void testHumanHooksWindowAndDuplicateSuppression() {
 
 void testPauseStopOfflineAndRemoteFailures() {
   ReadyControl ready;
-  NativePlayerControlGate gate({}, gateOptions(ready.clock));
+  NativePlayerControlGate gate([](PreemptionReasonV1) {},
+                               gateOptions(ready.clock));
   auto unbind = gate.bind(ready.manager, ready.controller);
 
   gate.pause();
@@ -336,7 +456,8 @@ void testPauseStopOfflineAndRemoteFailures() {
 
 void testSafetyTransitionsAndExactRebind() {
   ReadyControl ready;
-  NativePlayerControlGate gate({}, gateOptions(ready.clock));
+  NativePlayerControlGate gate([](PreemptionReasonV1) {},
+                               gateOptions(ready.clock));
   auto unbind = gate.bind(ready.manager, ready.controller);
 
   struct Transition {
@@ -396,7 +517,8 @@ void testSafetyTransitionsAndExactRebind() {
   ReadyControl first;
   ReadyControl second;
   second.activate("lease-second");
-  NativePlayerControlGate rebound({}, gateOptions(first.clock));
+  NativePlayerControlGate rebound([](PreemptionReasonV1) {},
+                                  gateOptions(first.clock));
   auto old_unbind = rebound.bind(first.manager, first.controller);
   auto current_unbind = rebound.bind(second.manager, second.controller);
   CHECK_EQ(first.events.back(), "clear:CLIENT_REATTACHED");
@@ -418,7 +540,8 @@ void testStaleLeaseControllerFailureAndNoController() {
   ready.manager.preempt(PreemptionReasonV1::HUMAN_STOP);
   ready.events.clear();
   ready.controller.throw_on_revoke = true;
-  NativePlayerControlGate gate({}, gateOptions(ready.clock));
+  NativePlayerControlGate gate([](PreemptionReasonV1) {},
+                               gateOptions(ready.clock));
   auto unbind = gate.bind(ready.manager, ready.controller);
   CHECK(gate.snapshot().active_lease);
 
@@ -457,7 +580,7 @@ void testSubscriptionsExceptionsAndDestruction() {
   ReadyControl ready;
   std::size_t preempt_callbacks = 0;
   auto gate = std::make_unique<NativePlayerControlGate>(
-      std::function<void(PreemptionReasonV1)>{},
+      [](PreemptionReasonV1) {},
       NativePlayerControlGateOptionsV1{
           .clock = &ready.clock,
           .human_input_active_ms = 150,
@@ -495,7 +618,8 @@ void testReentrantListenerCannotTargetReplacementController() {
   ReadyControl first;
   ReadyControl second;
   second.activate("lease-replacement");
-  NativePlayerControlGate gate({}, gateOptions(first.clock));
+  NativePlayerControlGate gate([](PreemptionReasonV1) {},
+                               gateOptions(first.clock));
   auto old_unbind = gate.bind(first.manager, first.controller);
   NativePlayerControlGate::Unbind replacement_unbind;
   bool replaced = false;
@@ -520,6 +644,272 @@ void testReentrantListenerCannotTargetReplacementController() {
   old_unbind();
 }
 
+NativePlayerControlGateOptionsV1 fixtureGateOptions(
+    const FakeClock& clock, std::vector<std::string>& events) {
+  return {
+      .clock = &clock,
+      .human_input_active_ms = 150,
+      .on_preempt =
+          [&](PreemptionReasonV1 reason) {
+            events.push_back(
+                "onPreempt:" +
+                std::string(preemptionReasonName(reason)));
+          },
+  };
+}
+
+void initializeFixtureManager(
+    AgentControlLeaseManager& manager, FakeClock& clock,
+    FakeController& controller, std::string lease_id) {
+  CHECK(!manager.attach("1"));
+  std::optional<AdapterResultV1<PlayerHostCapabilitiesV1>> refreshed;
+  manager.refreshCapabilities(
+      [&](auto result) { refreshed = std::move(result); });
+  CHECK(refreshed && refreshed->ok());
+  auto lease = localLease(clock.epoch, std::move(lease_id));
+  CHECK(!manager.grantLease(lease));
+  controller.leases = {remoteLease(lease)};
+}
+
+void testSharedControlGateDefaultsAndWindowFixture(
+    const graphql::Json& fixture) {
+  const auto expected = fixture["defaults"];
+  CHECK(expected["humanInputActiveMs"].asInt64() == 150);
+  ReadyControl ready("lease-human");
+  NativePlayerControlGate gate(
+      [&](PreemptionReasonV1 reason) {
+        ready.events.push_back(
+            "fallback:" +
+            std::string(preemptionReasonName(reason)));
+      },
+      fixtureGateOptions(ready.clock, ready.events));
+  checkFixtureSnapshot(gate.snapshot(), expected["initialSnapshot"]);
+
+  std::vector<NativePlayerControlGateSnapshotV1> emissions;
+  bool record = false;
+  auto unsubscribe = gate.subscribe([&](const auto& value) {
+    emissions.push_back(value);
+    if (record) ready.events.push_back(snapshotToken(value));
+  });
+  checkFixtureSnapshot(emissions.back(), expected["subscribedSnapshot"]);
+  auto unbind = gate.bind(ready.manager, ready.controller);
+  checkFixtureSnapshot(gate.snapshot(), expected["boundSnapshot"]);
+
+  ready.events.clear();
+  emissions.clear();
+  record = true;
+  gate.onHumanKeyboardInput();
+  ready.events.push_back("human-handler");
+  checkFixtureOrder(ready.events, expected["humanInputOrder"]);
+  checkFixtureSnapshots(emissions, expected["humanInputEmissions"]);
+  checkFixtureSnapshot(gate.snapshot(), expected["afterHumanInput"]);
+  CHECK(gate.humanInputActive() ==
+        expected["window"]["activeAtZero"].asBool());
+  ready.clock.advance(149);
+  CHECK(gate.humanInputActive() ==
+        expected["window"]["activeAt149Ms"].asBool());
+  ready.clock.advance(1);
+  CHECK(gate.humanInputActive() ==
+        expected["window"]["activeAt150Ms"].asBool());
+
+  unsubscribe();
+  unbind();
+}
+
+void testSharedControlGateRebindStopFixture(
+    const graphql::Json& fixture) {
+  const auto expected = fixture["rebindOfflineStop"];
+  FakeClock clock;
+  std::vector<std::string> events;
+  std::string context = "context-1";
+  FakePlayerHost firstHost(events, clock);
+  FakePlayerHost secondHost(events, clock);
+  AgentControlLeaseManagerOptionsV1 managerOptions;
+  managerOptions.clock = &clock;
+  managerOptions.context_version = [&] { return context; };
+  AgentControlLeaseManager firstManager(firstHost, managerOptions);
+  AgentControlLeaseManager secondManager(secondHost, managerOptions);
+  FakeController firstController(events);
+  FakeController secondController(events);
+  initializeFixtureManager(
+      firstManager, clock, firstController, "lease-first");
+  initializeFixtureManager(
+      secondManager, clock, secondController, "lease-second");
+
+  NativePlayerControlGate gate(
+      [&](PreemptionReasonV1 reason) {
+        events.push_back(
+            "fallback:" +
+            std::string(preemptionReasonName(reason)));
+      },
+      fixtureGateOptions(clock, events));
+  std::vector<NativePlayerControlGateSnapshotV1> emissions;
+  bool record = false;
+  auto unsubscribe = gate.subscribe([&](const auto& value) {
+    emissions.push_back(value);
+    if (record) events.push_back(snapshotToken(value));
+  });
+  auto firstUnbind = gate.bind(firstManager, firstController);
+
+  events.clear();
+  emissions.clear();
+  record = true;
+  auto secondUnbind = gate.bind(secondManager, secondController);
+  checkFixtureOrder(events, expected["rebindOrder"]);
+  checkFixtureSnapshots(emissions, expected["rebindEmissions"]);
+  checkFixtureSnapshot(gate.snapshot(), expected["reboundSnapshot"]);
+
+  events.clear();
+  emissions.clear();
+  secondController.throw_on_stop = true;
+  gate.stop();
+  checkFixtureOrder(events, expected["stopOrder"]);
+  checkFixtureSnapshots(emissions, expected["stopEmissions"]);
+  checkFixtureSnapshot(gate.snapshot(), expected["stoppedSnapshot"]);
+
+  auto resetLease = localLease(clock.epoch, "lease-reset");
+  CHECK(!secondManager.grantLease(resetLease));
+  secondController.leases = {remoteLease(resetLease)};
+  events.clear();
+  emissions.clear();
+  auto resetUnbind = gate.bind(secondManager, secondController);
+  checkFixtureSnapshot(
+      gate.snapshot(), expected["reboundAfterStopSnapshot"]);
+
+  events.clear();
+  emissions.clear();
+  resetUnbind();
+  checkFixtureOrder(events, expected["unbindOrder"]);
+  checkFixtureSnapshots(emissions, expected["unbindEmissions"]);
+  checkFixtureSnapshot(gate.snapshot(), expected["unboundSnapshot"]);
+
+  firstUnbind();
+  secondUnbind();
+  unsubscribe();
+}
+
+void invokeFixtureHook(NativePlayerControlGate& gate,
+                       std::string_view action) {
+  if (action == "keyboard") {
+    gate.onHumanKeyboardInput();
+  } else if (action == "escape") {
+    gate.onHumanKeyboardInput(
+        NativePlayerControlKeyboardInputV1::Escape);
+  } else if (action == "pointer") {
+    gate.onHumanPointerInput();
+  } else if (action == "movement") {
+    gate.onHumanMovementInput();
+  } else if (action == "pause") {
+    gate.pause();
+  } else if (action == "stop") {
+    gate.stop();
+  } else if (action == "death") {
+    gate.onDeath();
+  } else if (action == "contextChanged") {
+    gate.onContextChanged();
+  } else if (action == "permissionChanged") {
+    gate.onPermissionChanged();
+  } else if (action == "controlTargetChanged") {
+    gate.onControlTargetChanged();
+  } else if (action == "disconnected") {
+    gate.onDisconnected();
+  } else if (action == "pagehide" || action == "offline" ||
+             action == "backgrounded") {
+    gate.onBackgrounded();
+  } else {
+    CHECK(false);
+  }
+}
+
+void testSharedControlGateHooksFixture(
+    const graphql::Json& fixture) {
+  fixture["imperativeHooks"].forEach(
+      [&](const graphql::Json& fixtureCase) {
+        const std::string action = fixtureCase["action"].asString();
+        ReadyControl ready("lease-" + action);
+        NativePlayerControlGate gate(
+            [&](PreemptionReasonV1 reason) {
+              ready.events.push_back(
+                  "fallback:" +
+                  std::string(preemptionReasonName(reason)));
+            },
+            fixtureGateOptions(ready.clock, ready.events));
+        auto unbind = gate.bind(ready.manager, ready.controller);
+        ready.events.clear();
+        invokeFixtureHook(gate, action);
+        checkFixtureOrder(ready.events, fixtureCase["order"]);
+        checkFixtureSnapshot(gate.snapshot(), fixtureCase["snapshot"]);
+        CHECK(gate.snapshot().last_preemption ==
+              std::optional<PreemptionReasonV1>{
+                  fixtureReason(
+                      fixtureCase["expectedReason"].asStringView())});
+        unbind();
+      });
+}
+
+void testSharedControlGateReasonVocabularyFixture(
+    const graphql::Json& fixture) {
+  std::vector<std::string> nativeReasons;
+  for (const auto reason : kClosedPreemptionReasonsV1) {
+    nativeReasons.emplace_back(preemptionReasonName(reason));
+  }
+  CHECK(nativeReasons == fixtureStrings(fixture["reasonVocabulary"]));
+
+  std::size_t index = 0;
+  fixture["imperativeReasons"].forEach(
+      [&](const graphql::Json& fixtureCase) {
+        const auto reason =
+            fixtureReason(fixtureCase["reason"].asStringView());
+        ReadyControl ready(
+            "lease-reason-" + std::to_string(index++));
+        NativePlayerControlGate gate(
+            [&](PreemptionReasonV1 fallbackReason) {
+              ready.events.push_back(
+                  "fallback:" +
+                  std::string(
+                      preemptionReasonName(fallbackReason)));
+            },
+            fixtureGateOptions(ready.clock, ready.events));
+        auto unbind = gate.bind(ready.manager, ready.controller);
+        ready.events.clear();
+        gate.preempt(reason);
+        checkFixtureOrder(ready.events, fixtureCase["order"]);
+        checkFixtureSnapshot(gate.snapshot(), fixtureCase["snapshot"]);
+        unbind();
+      });
+  CHECK(index == kClosedPreemptionReasonsV1.size());
+}
+
+void testSharedControlGateFixture() {
+  const graphql::Json fixture = graphql::Json::parse(
+      fixtureText("crowdyjs-player-control-gate.v1.json"));
+  CHECK(fixture.ok());
+  CHECK(fixture["fixtureVersion"].asInt64() == 1);
+  CHECK(fixture["contractVersion"].asStringView() ==
+        "crowdy.player-control-gate/1");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "12.1.0");
+  CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
+        "a510fcecf43bf9365fc34631a64fd201382214e7");
+  CHECK(fixture["construction"]["clearAgentIntentRequired"].asBool());
+  testSharedControlGateDefaultsAndWindowFixture(fixture);
+  testSharedControlGateRebindStopFixture(fixture);
+  testSharedControlGateHooksFixture(fixture);
+  testSharedControlGateReasonVocabularyFixture(fixture);
+}
+
+void testMissingFallbackClearFailsClosed() {
+  ReadyControl ready;
+  bool rejected = false;
+  try {
+    NativePlayerControlGate gate(
+        NativePlayerControlGate::ClearAgentIntent{},
+        gateOptions(ready.clock));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  CHECK(rejected);
+}
+
 }  // namespace
 
 int main() {
@@ -529,6 +919,8 @@ int main() {
   testStaleLeaseControllerFailureAndNoController();
   testSubscriptionsExceptionsAndDestruction();
   testReentrantListenerCannotTargetReplacementController();
+  testSharedControlGateFixture();
+  testMissingFallbackClearFailsClosed();
   std::printf("native_control_gate_test passed\n");
   return 0;
 }

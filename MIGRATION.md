@@ -1,5 +1,11 @@
 # CrowdyCPP migration notes
 
+## 0.14.1 Windows replication fix
+
+0.14.1 is a drop-in patch for 0.14.0. Winsock UDP connections are now
+configured nonblocking, so `Connection::pump(0)` and manual-pump clients return
+immediately when no datagram is available instead of blocking the caller.
+
 ## 0.14.0 strict portable-parity release
 
 0.14.0 is not purely additive. It closes every portable gap against the pinned

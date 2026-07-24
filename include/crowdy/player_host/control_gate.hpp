@@ -66,12 +66,14 @@ class INativePlayerControlGateController {
  */
 class NativePlayerControlGate {
  public:
+  using ClearAgentIntent =
+      std::function<void(PreemptionReasonV1)>;
   using Listener =
       std::function<void(const NativePlayerControlGateSnapshotV1&)>;
   using Unbind = std::function<void()>;
 
   explicit NativePlayerControlGate(
-      std::function<void(PreemptionReasonV1)> clear_agent_intent = {},
+      ClearAgentIntent clear_agent_intent,
       NativePlayerControlGateOptionsV1 options = {});
   ~NativePlayerControlGate();
 

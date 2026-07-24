@@ -21,7 +21,7 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = parseArgs(process.argv.slice(2));
 const crowdyjs = resolveCrowdyJsPath(root, args.crowdyjs);
-assertCrowdyJsParityTarget(root, crowdyjs);
+const target = assertCrowdyJsParityTarget(root, crowdyjs);
 const fixtureDirectory = join(root, 'tools', 'parity', 'fixtures');
 const cppDescriptorPath = join(
   fixtureDirectory,
@@ -58,12 +58,17 @@ for (const path of [jsDescriptorPath, jsTypesPath, jsSchemaPath, jsRegistryPath]
 const jsDescriptorText = readFileSync(jsDescriptorPath, 'utf8');
 const jsDescriptorFixture = JSON.parse(jsDescriptorText);
 validateDescriptorFixture(jsDescriptorFixture);
+const descriptorFixture = {
+  ...jsDescriptorFixture,
+  crowdyJs: target,
+};
 
 const preemptionReasons = parsePreemptionReasons(
   readFileSync(jsTypesPath, 'utf8'),
 );
 const preemptionFixture = {
   contractVersion: 'crowdy.studio-agent/1',
+  crowdyJs: target,
   digest: sha256(JSON.stringify(preemptionReasons)),
   reasons: preemptionReasons,
 };
@@ -71,7 +76,7 @@ const preemptionFixture = {
 if (args.write) {
   writeFileSync(
     cppDescriptorPath,
-    `${JSON.stringify(jsDescriptorFixture, null, 2)}\n`,
+    `${JSON.stringify(descriptorFixture, null, 2)}\n`,
   );
   writeFileSync(
     cppPreemptionPath,
@@ -85,7 +90,7 @@ const cppDescriptorFixture = JSON.parse(
 assertDeepEqual(
   'descriptor fixture',
   cppDescriptorFixture,
-  jsDescriptorFixture,
+  descriptorFixture,
 );
 const cppPreemptionFixture = JSON.parse(
   readFileSync(cppPreemptionPath, 'utf8'),
@@ -144,6 +149,7 @@ assertEqual(
 );
 const toolsFixture = {
   contractVersion: 'crowdy.agent-tools/1',
+  crowdyJs: target,
   registryDigest: subsetRegistry.registryDigest,
   tools: subsetRegistry.list().map(({ descriptor, descriptorDigest }) => ({
     descriptor,

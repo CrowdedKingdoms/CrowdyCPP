@@ -2,8 +2,10 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -11,6 +13,7 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/agent/schema.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/studio/integration.hpp"
 #include "test_util.hpp"
@@ -91,9 +94,58 @@ class FakeCrypto final : public core::ICrypto {
   }
 };
 
+class FixtureCrypto final : public core::ICrypto {
+ public:
+  bool hmacSha256(Bytes key, Bytes message,
+                  std::uint8_t* out) const override {
+    std::string input(
+        reinterpret_cast<const char*>(key.data()), key.size());
+    input.append(
+        reinterpret_cast<const char*>(message.data()), message.size());
+    return digest(input, out);
+  }
+
+  bool sha256(Bytes message, std::uint8_t* out) const override {
+    return digest(
+        std::string_view(
+            reinterpret_cast<const char*>(message.data()),
+            message.size()),
+        out);
+  }
+
+  bool constantTimeEquals(const std::uint8_t* left,
+                          const std::uint8_t* right,
+                          std::size_t size) const override {
+    std::uint8_t difference = 0;
+    for (std::size_t index = 0; index < size; ++index) {
+      difference |=
+          static_cast<std::uint8_t>(left[index] ^ right[index]);
+    }
+    return difference == 0;
+  }
+
+  bool randomBytes(std::uint8_t* out, std::size_t size) const override {
+    for (std::size_t index = 0; index < size; ++index) {
+      out[index] = static_cast<std::uint8_t>(index + 1);
+    }
+    return true;
+  }
+
+ private:
+  static bool digest(std::string_view value, std::uint8_t* out) {
+    const std::string encoded = agent::sha256Digest(value);
+    for (std::size_t index = 0; index < 32; ++index) {
+      const auto hex = encoded.substr(7 + index * 2, 2);
+      out[index] = static_cast<std::uint8_t>(
+          std::stoul(hex, nullptr, 16));
+    }
+    return true;
+  }
+};
+
 class FakeClock final : public core::IClock {
  public:
-  std::int64_t epoch = 1'753'393'600'000LL;
+  std::int64_t epoch = 1'784'894'400'000LL;
   std::int64_t monotonic = 0;
   std::int64_t epochMillis() const override { return epoch; }
   std::int64_t monotonicMillis() const override { return monotonic; }
@@ -118,18 +170,29 @@ CrowdyStudioProject project(std::string id, std::string revision) {
   value.ownerUserId = "7";
   value.gridId = "500";
   value.kind = CrowdyStudioProjectKind::Server;
-  value.metadata.name = "Native Studio";
-  value.metadata.serverModuleName = "native-studio";
+  value.metadata.name =
+      value.projectId == "project-1" ? "Fixture Studio"
+                                      : "Second project";
+  if (value.projectId == "project-1") {
+    value.metadata.description = "Cross-SDK projection fixture";
+  }
+  value.metadata.serverModuleName =
+      value.projectId == "project-1" ? "fixture-server"
+                                      : "second-server";
   value.files = {
-      file(CrowdyStudioTarget::Server, "Cargo.toml", "[package]"),
+      file(CrowdyStudioTarget::Server, "Cargo.toml",
+           "[package]\nname = \"fixture\"\n"),
       file(CrowdyStudioTarget::Server, "src/lib.rs", "pub fn invoke() {}"),
   };
   value.sdkVersion = "0.1.5";
   value.revision = {std::move(revision), "2026-07-24T00:00:00.000Z"};
   value.fileCount = 2;
-  value.totalBytes = "30";
+  value.totalBytes = "45";
   value.createdAt = "2026-07-24T00:00:00.000Z";
-  value.updatedAt = "2026-07-24T00:00:00.000Z";
+  value.updatedAt =
+      value.projectId == "project-1"
+          ? "2026-07-24T00:00:00.000Z"
+          : "2026-07-24T00:00:01.000Z";
   return value;
 }
 
@@ -531,6 +594,620 @@ CrowdyStudioControllerHostAdapterOptions hostOptions(
     };
   }
   return options;
+}
+
+std::string studioFixtureText(std::string_view name) {
+  const std::string path =
+      std::string(CROWDY_PARITY_FIXTURE_DIR) + "/" + std::string(name);
+  std::ifstream input(path, std::ios::binary);
+  CHECK(input.good());
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  return contents.str();
+}
+
+std::string_view fixtureTargetName(StudioTargetV1 value) {
+  return value == StudioTargetV1::Server ? "SERVER" : "CLIENT";
+}
+
+std::string_view fixturePairingName(
+    StudioPairingPreferenceV1 value) {
+  switch (value) {
+    case StudioPairingPreferenceV1::None: return "NONE";
+    case StudioPairingPreferenceV1::Optional: return "OPTIONAL";
+    case StudioPairingPreferenceV1::Required: return "REQUIRED";
+  }
+  return "";
+}
+
+std::string_view fixtureSourceName(StudioFileSourceV1 value) {
+  switch (value) {
+    case StudioFileSourceV1::Project: return "PROJECT";
+    case StudioFileSourceV1::PersonalLibrary:
+      return "PERSONAL_LIBRARY";
+    case StudioFileSourceV1::Common: return "COMMON";
+  }
+  return "";
+}
+
+std::string_view fixtureSaveStateName(StudioSaveStateV1 value) {
+  switch (value) {
+    case StudioSaveStateV1::Saving: return "SAVING";
+    case StudioSaveStateV1::Saved: return "SAVED";
+    case StudioSaveStateV1::Conflict: return "CONFLICT";
+    case StudioSaveStateV1::Offline: return "OFFLINE";
+  }
+  return "";
+}
+
+std::string_view fixtureProjectKindName(StudioProjectKindV1 value) {
+  switch (value) {
+    case StudioProjectKindV1::Server: return "SERVER";
+    case StudioProjectKindV1::Client: return "CLIENT";
+    case StudioProjectKindV1::FullStack: return "FULL_STACK";
+  }
+  return "";
+}
+
+std::string_view fixtureRuntimePhaseName(
+    StudioRuntimePhaseV1 value) {
+  switch (value) {
+    case StudioRuntimePhaseV1::Idle: return "IDLE";
+    case StudioRuntimePhaseV1::TestingDraft: return "TESTING_DRAFT";
+    case StudioRuntimePhaseV1::DeployingLive:
+      return "DEPLOYING_LIVE";
+    case StudioRuntimePhaseV1::Compiling: return "COMPILING";
+    case StudioRuntimePhaseV1::Enabling: return "ENABLING";
+    case StudioRuntimePhaseV1::Running: return "RUNNING";
+    case StudioRuntimePhaseV1::CompileFailed:
+      return "COMPILE_FAILED";
+    case StudioRuntimePhaseV1::Stopping: return "STOPPING";
+    case StudioRuntimePhaseV1::Stopped: return "STOPPED";
+    case StudioRuntimePhaseV1::PartialFailure:
+      return "PARTIAL_FAILURE";
+    case StudioRuntimePhaseV1::Error: return "ERROR";
+  }
+  return "";
+}
+
+std::string_view fixtureRuntimeSyncName(StudioRuntimeSyncV1 value) {
+  switch (value) {
+    case StudioRuntimeSyncV1::NeverRun: return "NEVER_RUN";
+    case StudioRuntimeSyncV1::RunningSaved:
+      return "RUNNING_SAVED";
+    case StudioRuntimeSyncV1::RunningStale:
+      return "RUNNING_STALE";
+    case StudioRuntimeSyncV1::Stopped: return "STOPPED";
+  }
+  return "";
+}
+
+graphql::JVal fixtureRuntimeJson(
+    const StudioRuntimeStatusV1& value) {
+  graphql::JVal result;
+  result["phase"] = fixtureRuntimePhaseName(value.phase);
+  result["savedRevision"] = value.saved_revision;
+  if (value.running_revision) {
+    result["runningRevision"] = *value.running_revision;
+  }
+  result["sync"] = fixtureRuntimeSyncName(value.sync);
+  if (value.target) result["target"] = fixtureTargetName(*value.target);
+  if (value.draft) result["draft"] = *value.draft;
+  if (value.message) result["message"] = *value.message;
+  return result;
+}
+
+graphql::JVal fixtureProjectJson(
+    const StudioProjectProjectionV1& value) {
+  graphql::JVal result;
+  result["projectId"] = value.project_id;
+  result["name"] = value.name;
+  if (value.description) result["description"] = *value.description;
+  result["kind"] = fixtureProjectKindName(value.kind);
+  result["revision"] = value.revision;
+  graphql::JArray files;
+  for (const auto& fileValue : value.files) {
+    graphql::JVal item;
+    item["target"] = fixtureTargetName(fileValue.target);
+    item["path"] = fileValue.path;
+    item["contentHash"] = fileValue.content_hash;
+    item["byteLength"] =
+        static_cast<std::int64_t>(fileValue.byte_length);
+    files.emplace_back(std::move(item));
+  }
+  result["files"] = std::move(files);
+  if (value.server_module_name) {
+    result["serverModuleName"] = *value.server_module_name;
+  }
+  if (value.client_module_name) {
+    result["clientModuleName"] = *value.client_module_name;
+  }
+  result["pairingPreference"] =
+      fixturePairingName(value.pairing_preference);
+  result["updatedAt"] = value.updated_at;
+  return result;
+}
+
+graphql::JVal fixtureStudioOutputJson(
+    std::string_view name, const NativeToolOutputV1& output) {
+  if (name == "studio.context.get") {
+    const auto& value = std::get<StudioContextV1>(output);
+    graphql::JVal result;
+    result["appRef"] = value.app_ref;
+    if (value.project_ref) result["projectRef"] = *value.project_ref;
+    result["gridRef"] = value.grid_ref;
+    result["contextVersion"] = value.context_version;
+    result["saveState"] = fixtureSaveStateName(value.save_state);
+    result["runtime"] = fixtureRuntimeJson(value.runtime);
+    if (value.client_epoch) result["clientEpoch"] = *value.client_epoch;
+    graphql::JArray kinds;
+    for (const auto kind : value.lease_kinds) {
+      kinds.emplace_back(
+          kind == LeaseKindV1::Workspace ? "WORKSPACE" : "PLAY");
+    }
+    result["leaseKinds"] = std::move(kinds);
+    if (value.host_capability_revision) {
+      result["hostCapabilityRevision"] =
+          *value.host_capability_revision;
+    }
+    return result;
+  }
+  if (name == "studio.state.get") {
+    const auto& value = std::get<StudioStateV1>(output);
+    graphql::JVal result;
+    if (value.project) {
+      result["project"] = fixtureProjectJson(*value.project);
+    }
+    graphql::JArray files;
+    for (const auto& fileValue : value.open_files) {
+      graphql::JVal item;
+      item["source"] = fixtureSourceName(fileValue.source);
+      item["target"] = fixtureTargetName(fileValue.target);
+      item["path"] = fileValue.path;
+      files.emplace_back(std::move(item));
+    }
+    result["openFiles"] = std::move(files);
+    result["saveState"] = fixtureSaveStateName(value.save_state);
+    result["runtime"] = fixtureRuntimeJson(value.runtime);
+    return result;
+  }
+  if (name == "project.select") {
+    const auto& value =
+        std::get<StudioProjectSelectResultV1>(output);
+    return graphql::JVal::object(
+        {{"selectedProjectRef", value.selected_project_ref},
+         {"revision", value.revision}});
+  }
+  if (name == "workspace.tab.open" ||
+      name == "workspace.tab.close") {
+    return graphql::JVal::object(
+        {{"ok", std::get<StudioOkV1>(output).ok}});
+  }
+  if (name == "diagnostics.local.get") {
+    const auto& value = std::get<StudioDiagnosticsV1>(output);
+    graphql::JVal result;
+    graphql::JArray diagnostics;
+    for (const auto& diagnostic : value.diagnostics) {
+      graphql::JVal item;
+      item["source"] =
+          diagnostic.source == StudioDiagnosticSourceV1::LocalAdvisory
+              ? "LOCAL_ADVISORY"
+              : diagnostic.source == StudioDiagnosticSourceV1::Rustc
+                    ? "RUSTC"
+                    : "RUNTIME";
+      item["target"] = fixtureTargetName(diagnostic.target);
+      item["path"] = diagnostic.path;
+      item["line"] = static_cast<std::int64_t>(diagnostic.line);
+      item["column"] = static_cast<std::int64_t>(diagnostic.column);
+      switch (diagnostic.severity) {
+        case StudioDiagnosticSeverityV1::Error:
+          item["severity"] = "ERROR";
+          break;
+        case StudioDiagnosticSeverityV1::Warning:
+          item["severity"] = "WARNING";
+          break;
+        case StudioDiagnosticSeverityV1::Info:
+          item["severity"] = "INFO";
+          break;
+        case StudioDiagnosticSeverityV1::Hint:
+          item["severity"] = "HINT";
+          break;
+      }
+      if (diagnostic.code) item["code"] = *diagnostic.code;
+      item["message"] = diagnostic.message;
+      diagnostics.emplace_back(std::move(item));
+    }
+    result["diagnostics"] = std::move(diagnostics);
+    return result;
+  }
+  if (name == "runtime.status.get") {
+    return fixtureRuntimeJson(
+        std::get<StudioRuntimeStatusV1>(output));
+  }
+  if (name == "runtime.test_draft" ||
+      name == "runtime.deploy_live") {
+    const auto& value =
+        std::get<StudioRuntimePlanResultV1>(output);
+    graphql::JVal result;
+    result["runtime"] = fixtureRuntimeJson(value.runtime);
+    graphql::JArray targets;
+    for (const auto targetValue : value.targets) {
+      targets.emplace_back(fixtureTargetName(targetValue));
+    }
+    result[name == "runtime.test_draft" ? "compiledTargets"
+                                         : "deployedTargets"] =
+        std::move(targets);
+    return result;
+  }
+  if (name == "runtime.invoke") {
+    const auto& value =
+        std::get<StudioRuntimeInvokeResultV1>(output);
+    graphql::JVal result;
+    result["resultType"] =
+        value.result_type == StudioRuntimeResultTypeV1::Empty
+            ? "EMPTY"
+            : value.result_type == StudioRuntimeResultTypeV1::Text
+                  ? "TEXT"
+                  : "BASE64";
+    result["result"] = value.result;
+    result["fuelUsed"] = value.fuel_used;
+    result["durationUs"] =
+        static_cast<std::int64_t>(value.duration_us);
+    return result;
+  }
+  const auto& value =
+      std::get<StudioRuntimeStopResultV1>(output);
+  graphql::JVal result;
+  result["serverStopped"] = value.server_stopped;
+  result["clientStopped"] = value.client_stopped;
+  graphql::JArray failures;
+  for (const auto& failure : value.failures) {
+    failures.emplace_back(failure);
+  }
+  result["failures"] = std::move(failures);
+  return result;
+}
+
+StudioTargetV1 fixtureTarget(std::string_view value) {
+  CHECK(value == "SERVER" || value == "CLIENT");
+  return value == "SERVER" ? StudioTargetV1::Server
+                           : StudioTargetV1::Client;
+}
+
+std::vector<StudioTargetV1> fixtureTargets(
+    const graphql::Json& values) {
+  std::vector<StudioTargetV1> result;
+  values.forEach([&](const graphql::Json& value) {
+    result.push_back(fixtureTarget(value.asStringView()));
+  });
+  return result;
+}
+
+NativeToolArgumentsV1 fixtureArguments(
+    std::string_view name, const graphql::Json& input) {
+  if (name == "studio.context.get" ||
+      name == "studio.state.get" ||
+      name == "diagnostics.local.get" ||
+      name == "runtime.status.get" || name == "runtime.stop") {
+    return NoArgumentsV1{};
+  }
+  if (name == "project.select") {
+    return StudioProjectSelectRequestV1{
+        .project_ref = input["projectRef"].asString()};
+  }
+  if (name == "workspace.tab.open" ||
+      name == "workspace.tab.close") {
+    StudioFileTabRequestV1 request;
+    const auto source = input["source"].asStringView();
+    request.source =
+        source == "PROJECT"
+            ? StudioFileSourceV1::Project
+            : source == "PERSONAL_LIBRARY"
+                  ? StudioFileSourceV1::PersonalLibrary
+                  : StudioFileSourceV1::Common;
+    request.target = fixtureTarget(input["target"].asStringView());
+    request.path = input["path"].asString();
+    if (input["referenceRef"].ok()) {
+      request.reference_ref = input["referenceRef"].asString();
+    }
+    return request;
+  }
+  if (name == "runtime.test_draft") {
+    return StudioRuntimeTestDraftRequestV1{
+        .expected_revision =
+            input["expectedRevision"].asString(),
+        .targets = fixtureTargets(input["targets"])};
+  }
+  if (name == "runtime.deploy_live") {
+    const auto pairing = input["pairingPreference"].asStringView();
+    return StudioRuntimeDeployLiveRequestV1{
+        .expected_revision =
+            input["expectedRevision"].asString(),
+        .project_content_hash =
+            input["projectContentHash"].asString(),
+        .targets = fixtureTargets(input["targets"]),
+        .pairing_preference =
+            pairing == "NONE"
+                ? StudioPairingPreferenceV1::None
+                : pairing == "OPTIONAL"
+                      ? StudioPairingPreferenceV1::Optional
+                      : StudioPairingPreferenceV1::Required,
+        .draft = input["draft"].asBool()};
+  }
+  CHECK(name == "runtime.invoke");
+  StudioRuntimeInvokeRequestV1 request;
+  request.export_name = input["exportName"].asString();
+  request.environment =
+      input["environment"].asStringView() == "DRAFT"
+          ? StudioRuntimeEnvironmentV1::Draft
+          : StudioRuntimeEnvironmentV1::Live;
+  input["params"].forEach([&](const graphql::Json& parameter) {
+    const auto type = parameter["type"].asStringView();
+    request.params.push_back({
+        .name = parameter["name"].asString(),
+        .type = type == "STRING"
+                    ? StudioRuntimeParameterTypeV1::String
+                    : type == "DECIMAL"
+                          ? StudioRuntimeParameterTypeV1::Decimal
+                          : StudioRuntimeParameterTypeV1::Boolean,
+        .value = parameter["value"].asString(),
+    });
+  });
+  return request;
+}
+
+const NativeLocalToolContractV1& fixtureContract(
+    std::string_view name) {
+  for (const auto& contract : nativeLocalToolContractsV1()) {
+    if (contract.name == name) return contract;
+  }
+  CHECK(false);
+  return nativeLocalToolContractsV1().front();
+}
+
+NativeToolInvocationV1 fixtureInvocation(
+    const graphql::Json& operation, std::size_t sequence) {
+  const std::string name = operation["tool"].asString();
+  const auto& contract = fixtureContract(name);
+  NativeToolInvocationV1 invocation;
+  invocation.session_id = "session-1";
+  invocation.run_id = "run-1";
+  invocation.tool_call_id =
+      "fixture-" + std::to_string(sequence);
+  invocation.name = name;
+  invocation.descriptor_digest =
+      std::string(contract.descriptor_digest);
+  invocation.arguments =
+      fixtureArguments(name, operation["input"]);
+  invocation.argument_hash =
+      "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  invocation.context_version = "context-1";
+  invocation.client_epoch = "1";
+  if (operation["leaseId"].ok()) {
+    invocation.lease_id = operation["leaseId"].asString();
+  }
+  if (operation["approvalGrant"].ok()) {
+    invocation.approval_grant =
+        operation["approvalGrant"].asString();
+  }
+  invocation.deadline =
+      operation["deadlineMs"].asInt64() == 1
+          ? "2026-07-24T12:00:00.001Z"
+          : "2026-07-24T12:02:00.000Z";
+  return invocation;
+}
+
+NativeToolDispatcherOptionsV1 fixtureDispatcherOptions(
+    const FakeClock& clock) {
+  NativeToolDispatcherOptionsV1 options;
+  options.clock = &clock;
+  options.session_id =
+      [] { return std::optional<std::string>("session-1"); };
+  options.client_epoch =
+      [] { return std::optional<std::string>("1"); };
+  options.context_version = [] { return std::string("context-1"); };
+  options.mode = [] { return NativeAgentModeV1::Build; };
+  options.is_lease_active =
+      [](std::string_view id, LeaseKindV1 kind) {
+        return (kind == LeaseKindV1::Workspace &&
+                id == "workspace-lease") ||
+               (kind == LeaseKindV1::Play &&
+                id == "play-lease");
+      };
+  options.validate_approval_grant =
+      [](const NativeToolInvocationV1& invocation) {
+        return invocation.approval_grant == "approved";
+      };
+  return options;
+}
+
+std::vector<CrowdyStudioEditorDiagnostic>
+fixtureLocalDiagnostics(bool enabled) {
+  if (!enabled) return {};
+  return {{
+      .source = CrowdyStudioEditorDiagnosticSource::LocalAdvisory,
+      .target = CrowdyStudioTarget::Server,
+      .path = "src/lib.rs",
+      .line = 3,
+      .column = 5,
+      .severity = CrowdyStudioEditorDiagnosticSeverity::Warning,
+      .code = "unused",
+      .message = "unused value",
+  }};
+}
+
+CrowdyStudioControllerHostAdapterOptions fixtureHostOptions(
+    std::vector<CrowdyStudioEditorDiagnostic>* diagnostics) {
+  auto options = hostOptions();
+  options.localDiagnostics = [diagnostics] { return *diagnostics; };
+  return options;
+}
+
+struct FixtureStudioHarness {
+  FakeClock clock;
+  FixtureCrypto crypto;
+  FakeProjectProvider provider;
+  FakeRuntime runtime;
+  FakeApproval approval;
+  std::vector<CrowdyStudioEditorDiagnostic> diagnostics;
+  FakePlayerHost playerHost;
+  AgentControlLeaseManager leases;
+  CrowdyStudioController controller;
+  CrowdyStudioControllerHostAdapter host;
+  NativeToolDispatcherV1 dispatcher;
+  std::size_t sequence = 0;
+
+  explicit FixtureStudioHarness(bool withDiagnostics)
+      : diagnostics(fixtureLocalDiagnostics(withDiagnostics)),
+        leases(playerHost),
+        controller(controllerOptions(clock), provider, runtime, crypto,
+                   clock, nullptr, &approval),
+        host(controller, crypto, fixtureHostOptions(&diagnostics)),
+        dispatcher(leases, &host,
+                   fixtureDispatcherOptions(clock)) {
+    controller.initialize();
+  }
+
+  NativeToolResultV1 run(const graphql::Json& operation) {
+    std::optional<NativeToolResultV1> result;
+    dispatcher.dispatch(
+        fixtureInvocation(operation, ++sequence),
+        [&](NativeToolResultV1 value) {
+          result = std::move(value);
+        });
+    CHECK(result.has_value());
+    return std::move(*result);
+  }
+};
+
+std::string_view fixtureStatusName(NativeToolResultStatusV1 status) {
+  switch (status) {
+    case NativeToolResultStatusV1::Succeeded: return "SUCCEEDED";
+    case NativeToolResultStatusV1::Failed: return "FAILED";
+    case NativeToolResultStatusV1::Cancelled: return "CANCELLED";
+    case NativeToolResultStatusV1::TimedOut: return "TIMED_OUT";
+    case NativeToolResultStatusV1::OutcomeUnknown:
+      return "OUTCOME_UNKNOWN";
+  }
+  return "";
+}
+
+void checkFixtureResult(const NativeToolResultV1& actual,
+                        const graphql::Json& fixtureCase) {
+  const auto expected = fixtureCase["expected"];
+  CHECK(fixtureStatusName(actual.status) ==
+        expected["status"].asStringView());
+  if (expected["errorCode"].ok()) {
+    CHECK(actual.error.has_value());
+    CHECK(actual.error->code ==
+          expected["errorCode"].asString());
+  } else {
+    CHECK(!actual.error);
+  }
+  if (expected["output"].ok()) {
+    CHECK(actual.output.has_value());
+    const auto projected = graphql::Json::parse(
+        fixtureStudioOutputJson(
+            fixtureCase["tool"].asStringView(), *actual.output)
+            .dump());
+    CHECK(projected.ok());
+    const std::string actualJson = agent::canonicalJson(projected);
+    const std::string expectedJson =
+        agent::canonicalJson(expected["output"]);
+    if (actualJson != expectedJson) {
+      std::fprintf(
+          stderr,
+          "Studio fixture mismatch for %s\nactual: %s\nexpected: %s\n",
+          fixtureCase["name"].asString().c_str(), actualJson.c_str(),
+          expectedJson.c_str());
+    }
+    CHECK(actualJson == expectedJson);
+  } else {
+    CHECK(!actual.output);
+  }
+}
+
+class HoldingStudioHost final : public CrowdyStudioHostAdapter {
+ public:
+  void dispatch(StudioNativeToolKindV1,
+                const StudioNativeToolRequestV1&,
+                const ValidatedStudioGateV1&,
+                CancellationTokenV1,
+                StudioToolCallbackV1 callback) override {
+    pending = std::move(callback);
+  }
+
+  void clearAgentOperation(PreemptionReasonV1) noexcept override {
+    ++clears;
+  }
+
+  std::optional<StudioToolCallbackV1> pending;
+  int clears = 0;
+};
+
+void testSharedStudioHostFixture() {
+  const graphql::Json fixture = graphql::Json::parse(
+      studioFixtureText("crowdyjs-studio-host-tools.v1.json"));
+  CHECK(fixture.ok());
+  CHECK(fixture["fixtureVersion"].asInt64() == 1);
+  CHECK(fixture["contractVersion"].asStringView() ==
+        "crowdy.studio-host-tools/1");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "12.1.0");
+  CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
+        "a510fcecf43bf9365fc34631a64fd201382214e7");
+  CHECK_EQ(fixture["toolNames"].size(), std::size_t{11});
+
+  std::size_t successCount = 0;
+  fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
+    const auto category = fixtureCase["category"].asStringView();
+    if (category != "success" && category != "approval") return;
+    FixtureStudioHarness harness(
+        fixtureCase["tool"].asStringView() ==
+        "diagnostics.local.get");
+    if (fixtureCase["setup"].ok()) {
+      fixtureCase["setup"].forEach(
+          [&](const graphql::Json& setup) {
+            const auto result = harness.run(setup);
+            CHECK(result.status ==
+                  NativeToolResultStatusV1::Succeeded);
+          });
+    }
+    const auto result = harness.run(fixtureCase);
+    checkFixtureResult(result, fixtureCase);
+    if (category == "success") ++successCount;
+  });
+  CHECK_EQ(successCount, std::size_t{11});
+
+  fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
+    const auto category = fixtureCase["category"].asStringView();
+    if (category != "cancellation" &&
+        category != "outcome-unknown") {
+      return;
+    }
+    FakeClock clock;
+    FakePlayerHost playerHost;
+    AgentControlLeaseManager leases(playerHost);
+    HoldingStudioHost host;
+    NativeToolDispatcherV1 dispatcher(
+        leases, &host, fixtureDispatcherOptions(clock));
+    std::optional<NativeToolResultV1> result;
+    dispatcher.dispatch(
+        fixtureInvocation(fixtureCase, 1),
+        [&](NativeToolResultV1 value) {
+          result = std::move(value);
+        });
+    CHECK(!result);
+    if (category == "cancellation") {
+      dispatcher.cancelActive(PreemptionReasonV1::HUMAN_INPUT);
+    } else {
+      clock.epoch += 2;
+      clock.monotonic += 2;
+      dispatcher.tick();
+    }
+    CHECK(result.has_value());
+    checkFixtureResult(*result, fixtureCase);
+    CHECK_EQ(host.clears, 1);
+  });
 }
 
 void testEveryStudioToolMapping() {
@@ -959,6 +1636,7 @@ void testCrowdyClientConstructionHelper() {
 }  // namespace
 
 int main() {
+  testSharedStudioHostFixture();
   testEveryStudioToolMapping();
   testGateCancellationHashAndPreemptionFencing();
   testEditorRoundTripsPollTickAndRelayout();

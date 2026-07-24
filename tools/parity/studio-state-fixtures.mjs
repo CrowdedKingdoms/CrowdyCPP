@@ -10,18 +10,24 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { resolveCrowdyJsPath } from './crowdyjs-path.mjs';
+import {
+  assertCrowdyJsParityTarget,
+  resolveCrowdyJsPath,
+} from './crowdyjs-path.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const crowdyjs = resolveCrowdyJsPath(root, parseArgs(process.argv.slice(2)));
+const target = assertCrowdyJsParityTarget(root, crowdyjs);
 const fixtureDirectory = join(root, 'tools', 'parity', 'fixtures');
 const diagnosticsFixture = readFixture(
   join(fixtureDirectory, 'crowdy-studio-diagnostics.v1.json'),
   'crowdy.studio-diagnostics/1',
+  target,
 );
 const runtimeFixture = readFixture(
   join(fixtureDirectory, 'crowdy-studio-runtime-sync.v1.json'),
   'crowdy.studio-runtime-sync-projection/1',
+  target,
 );
 
 const diagnosticsModulePath = join(
@@ -99,7 +105,7 @@ function parseArgs(raw) {
   return crowdyjs;
 }
 
-function readFixture(path, contractVersion) {
+function readFixture(path, contractVersion, expectedTarget) {
   const fixture = JSON.parse(readFileSync(path, 'utf8'));
   if (
     fixture.contractVersion !== contractVersion ||
@@ -108,5 +114,10 @@ function readFixture(path, contractVersion) {
   ) {
     throw new Error(`invalid Studio state fixture: ${path}`);
   }
+  assert.deepEqual(
+    fixture.crowdyJs,
+    expectedTarget,
+    `Studio state fixture has stale CrowdyJS target metadata: ${path}`,
+  );
   return fixture;
 }

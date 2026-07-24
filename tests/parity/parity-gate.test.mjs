@@ -50,9 +50,39 @@ test('cross-cutting Studio exports stay explicitly audited', () => {
     matrix,
     /control-gate\.ts#PlayerControlGate` \| native equivalent/u,
   );
+  assert.match(
+    matrix,
+    /editor\.ts#CrowdyStudioEditorAdapter` \| native equivalent/u,
+  );
   assert.match(matrix, /mount\.ts#mountCrowdyStudio` \| browser exclusion/u);
+  assert.match(
+    matrix,
+    /styles\.ts#CROWDY_STUDIO_STYLES` \| browser exclusion/u,
+  );
   assert.match(matrix, /`embed-focus-trap`: browser exclusion/u);
   assert.match(matrix, /`player-glue-worker-package`: browser exclusion/u);
+});
+
+test('unused method aliases are stale gate failures', () => {
+  const result = runMutatedParity((source) =>
+    source.replace(
+      'const METHOD_ALIASES = {',
+      "const METHOD_ALIASES = {\n  'RemovedParityClass.removed': 'missing',",
+    ),
+  );
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, /stale=1/u);
+});
+
+test('portable editor surfaces cannot regress to browser exclusions', () => {
+  const result = runMutatedParity((source) =>
+    source.replace(
+      /('src\/crowdy-studio\/editor\.ts': exportModule\([\s\S]*?\n\s+\],\n\s+)CATEGORY\.NATIVE,/u,
+      '$1CATEGORY.BROWSER,',
+    ),
+  );
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, /unclassified=1/u);
 });
 
 test('matrix drift is a gate failure', () => {
@@ -98,4 +128,40 @@ function runParity(...extra) {
       encoding: 'utf8',
     },
   );
+}
+
+function runMutatedParity(mutate) {
+  const directory = mkdtempSync(join(repo, '.parity-mutation-'));
+  try {
+    const original = readFileSync(
+      join(repo, 'tools', 'parity', 'parity.mjs'),
+      'utf8',
+    );
+    const rooted = mutate(original).replace(
+      "const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');",
+      `const root = ${JSON.stringify(repo)};`,
+    );
+    writeFileSync(join(directory, 'parity.mjs'), rooted);
+    for (const dependency of ['schema-surface.mjs', 'crowdyjs-path.mjs']) {
+      writeFileSync(
+        join(directory, dependency),
+        readFileSync(join(repo, 'tools', 'parity', dependency), 'utf8'),
+      );
+    }
+    return spawnSync(
+      process.execPath,
+      [
+        join(directory, 'parity.mjs'),
+        '--crowdyjs',
+        crowdyjs,
+        '--strict',
+      ],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+      },
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }

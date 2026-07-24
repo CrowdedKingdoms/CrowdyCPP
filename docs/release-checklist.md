@@ -15,13 +15,16 @@ node tools/parity/parity.mjs \
   --check docs/parity-matrix.md \
   --strict
 node tools/parity/agent-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/control-gate-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/studio-host-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 node tools/parity/layout-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 node tools/parity/studio-state-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 npm test
 ```
 
-The parity command above is the command used by CI. The tools reject a
-same-version CrowdyJS checkout at any commit other than the package pin.
+The parity command above is the command used by CI. The tools reject tracked
+CrowdyJS checkout changes, a same-version checkout at any commit other than
+the package pin, or mismatched fixture target metadata.
 
 ## Default build and tests
 

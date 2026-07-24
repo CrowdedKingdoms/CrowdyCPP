@@ -98,11 +98,15 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCROWDY_WITH_CURL=${{ matrix.default_transports }}
           -DCROWDY_WITH_CURL_WEBSOCKETS=${{ matrix.default_transports }}
+          -DCROWDY_BUILD_E2E=${{ runner.os == 'Windows' && 'OFF' || 'ON' }}
+          -DCROWDY_BUILD_BENCHMARKS=OFF
+          -DCROWDY_BUILD_EXAMPLES=OFF
           ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
       - name: Build
         run: cmake --build build --config Release -j 4
       - name: Unit tests
-        run: ctest --test-dir build -C Release --output-on-failure
+        timeout-minutes: 10
+        run: ctest --test-dir build -C Release --timeout 120 --output-on-failure
 
   no-exception-build-test:
     runs-on: ubuntu-latest

@@ -26,6 +26,12 @@ enum class CrowdyStudioFileProvenance { Authored, Library, Common };
 enum class CrowdyStudioCommonStatus { Draft, Published, Archived };
 enum class CrowdyStudioReferenceSource { PersonalLibrary, Common };
 enum class CrowdyStudioPatchOperation { Create, Replace };
+enum class CrowdyStudioSynchronizationCapability {
+  AtomicPatch,
+  CheckpointList,
+  CheckpointEvents,
+  ApprovedRestore,
+};
 
 inline constexpr std::string_view toString(CrowdyStudioTarget value) {
   return value == CrowdyStudioTarget::Server ? "SERVER" : "CLIENT";
@@ -72,6 +78,21 @@ inline constexpr std::string_view toString(CrowdyStudioCommonStatus value) {
 inline constexpr std::string_view toString(CrowdyStudioReferenceSource value) {
   return value == CrowdyStudioReferenceSource::PersonalLibrary ? "LIBRARY"
                                                                : "COMMON";
+}
+
+inline constexpr std::string_view toString(
+    CrowdyStudioSynchronizationCapability value) {
+  switch (value) {
+    case CrowdyStudioSynchronizationCapability::AtomicPatch:
+      return "ATOMIC_PATCH";
+    case CrowdyStudioSynchronizationCapability::CheckpointList:
+      return "CHECKPOINT_LIST";
+    case CrowdyStudioSynchronizationCapability::CheckpointEvents:
+      return "CHECKPOINT_EVENTS";
+    case CrowdyStudioSynchronizationCapability::ApprovedRestore:
+      return "APPROVED_RESTORE";
+  }
+  return "";
 }
 
 inline constexpr CrowdyStudioProjectKind projectKind(
@@ -455,6 +476,28 @@ class CrowdyStudioIdempotencyConflictError : public CrowdyStudioError {
       : CrowdyStudioError("IDEMPOTENCY_CONFLICT", message) {}
 };
 
+class CrowdyStudioCapabilityUnavailableError : public CrowdyStudioError {
+ public:
+  explicit CrowdyStudioCapabilityUnavailableError(
+      CrowdyStudioSynchronizationCapability capability,
+      std::string message = {})
+      : CrowdyStudioError(
+            "CROWDY_STUDIO_CAPABILITY_UNAVAILABLE",
+            message.empty()
+                ? "Crowdy Studio synchronization capability " +
+                      std::string(toString(capability)) +
+                      " is unavailable"
+                : message),
+        capability_(capability) {}
+
+  CrowdyStudioSynchronizationCapability capability() const {
+    return capability_;
+  }
+
+ private:
+  CrowdyStudioSynchronizationCapability capability_;
+};
+
 class CrowdyStudioOfflineError : public CrowdyStudioError {
  public:
   explicit CrowdyStudioOfflineError(
@@ -516,6 +559,15 @@ struct CrowdyStudioCheckpointMetadata {
   std::optional<std::string> restoredAt;
 };
 
+/// Scope supplied by an authenticated agent integration when forwarding one
+/// durable CHECKPOINT_CREATED/CHECKPOINT_RESTORED event to Studio. The event
+/// contains metadata only; source content and restore authority are absent.
+struct CrowdyStudioCheckpointEvent {
+  CrowdyStudioProjectScope scope;
+  std::string projectId;
+  CrowdyStudioCheckpointMetadata checkpoint;
+};
+
 struct CrowdyStudioAtomicPatchResult {
   CrowdyStudioProject project;
   CrowdyStudioCheckpointMetadata checkpoint;
@@ -535,6 +587,14 @@ struct CrowdyStudioCheckpointRestoreResult {
   CrowdyStudioCheckpointMetadata preRestoreCheckpoint;
 };
 
+/**
+ * Explicit host/orchestrator bridge for durable synchronization capabilities.
+ *
+ * The published Game and Management GraphQL schemas do not expose generic
+ * checkpoint, atomic-patch, or approved-restore roots. Implementations must
+ * bridge an independently authorized durable service; they must not infer this
+ * authority from CrowdyStudioAPI::saveProject or a caller-supplied grant.
+ */
 class ICrowdyStudioSynchronizationProvider {
  public:
   virtual ~ICrowdyStudioSynchronizationProvider() = default;

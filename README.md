@@ -355,6 +355,19 @@ studio.updateFile(crowdy::studio::CrowdyStudioTarget::Server,
 studio.tick();  // engine-loop autosave/retry/monitor pump
 ```
 
+`CrowdyStudioState::authoritativeDiagnostics` and `localDiagnostics` are typed
+`CrowdyStudioDiagnostic` values with target-relative ranges, severity, source,
+message, and optional rustc code. `parseRustcDiagnostics()` accepts bounded
+human/JSON rustc output; the string overload of `setLocalDiagnostics()` and
+the `*DiagnosticTexts()` helpers remain for older engine views.
+
+Wallet balance is optional observation, not authoring authority. Inject
+`CrowdyStudioPlayerWalletProvider` (the read-only adapter over
+`PlayerWalletAPI::balance()`) as the controller's final constructor argument
+to populate `state.wallet` whenever the visible Usage surface refreshes.
+Wallet read failures clear that optional snapshot and do not block editing,
+saving, compilation, or deployment.
+
 Runtime actions are revision-bound:
 
 - draft/live plans must name the exact complete project target set;
@@ -369,11 +382,24 @@ Runtime actions are revision-bound:
 - `state.runtimeSync` explicitly distinguishes never-run, running-saved,
   running-stale, and stopped state.
 
+The published GraphQL schemas have durable agent checkpoint events, but no
+generic checkpoint-list, atomic-patch, or approved-restore root.
+`ICrowdyStudioSynchronizationProvider` is therefore an explicit
+host/orchestrator bridge, not a generated GraphQL adapter. Missing bridge
+operations throw `CrowdyStudioCapabilityUnavailableError`. Integrations can
+convert a scope-fenced `AgentCheckpoint` with
+`crowdyStudioCheckpointEventFromAgentV1()` and feed the metadata to
+`ingestCheckpointEvent()`; that observation never creates restore authority.
+Approved restore still requires both the injected durable bridge and the exact
+external approval gate.
+
 The synchronization and runtime interfaces are intentionally server-free in
 unit tests. They do not grant grid permissions or source visibility: Game API
 ownership, target write/run permissions, and admission checks still execute on
-every playerCompute call. See [MIGRATION.md](MIGRATION.md) for source-behavior
-and runtime-ownership notes.
+every playerCompute call. The installed Studio parity fixtures pin the common
+CrowdyJS runtime projection while retaining native content-hash, module, and
+pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
+runtime-ownership notes.
 
 ## Native player-host and local tool integration
 

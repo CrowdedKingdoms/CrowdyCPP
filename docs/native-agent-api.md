@@ -93,6 +93,23 @@ Studio should also provide:
 - `onPreempt(reason)` to stop local effects before best-effort server cleanup;
 - `onLeaseChanged(lease)` to bind/release visible workspace or Play authority.
 
+`crowdyStudioAgentRuntimeV1()`, `crowdyStudioAgentStateV1()`, and
+`crowdyStudioAgentLocalDiagnosticsV1()` are the reference typed projections
+from the headless Studio state into these exact local-tool outputs. The runtime
+projection intentionally exposes the CrowdyJS common subset while the native
+controller retains its content hash, selected module names, pairing
+preference, and start timestamp for local safety checks.
+
+Checkpoint events are observations, not mutation authority.
+`crowdyStudioCheckpointEventFromAgentV1()` converts source-free durable
+`AgentCheckpoint` metadata into a scope-fenced Studio event, and
+`CrowdyStudioController::ingestCheckpointEvent()` verifies the open project
+before updating state. The published GraphQL SDL has no generic
+checkpoint-list, atomic-patch, or approved-restore root. Those controller
+operations require an explicit durable `ICrowdyStudioSynchronizationProvider`;
+approved restore additionally requires `ICrowdyStudioApprovalGate`. Missing
+capabilities fail with `CrowdyStudioCapabilityUnavailableError`.
+
 See [Native player-host integration](native-player-host.md) for a complete
 construction and game-loop example.
 

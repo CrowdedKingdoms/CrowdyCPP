@@ -266,9 +266,11 @@ if(CROWDY_NO_EXCEPTIONS)
   # build; the strict no-exception facade omits those optional layers.
   set(CROWDY_AGENT_SOURCES)
   set(CROWDY_PLAYER_HOST_SOURCES)
+  set(CROWDY_STUDIO_SOURCES)
 else()
   file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
   file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
+  file(GLOB CROWDY_STUDIO_SOURCES CONFIGURE_DEPENDS src/studio/*.cpp)
 endif()
 add_library(crowdy STATIC
   src/client.cpp
@@ -277,6 +279,7 @@ add_library(crowdy STATIC
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
   ${CROWDY_PLAYER_HOST_SOURCES}
+  ${CROWDY_STUDIO_SOURCES}
 )
 target_include_directories(crowdy PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -345,7 +348,9 @@ if(CROWDY_NO_EXCEPTIONS)
           PATTERN "kit" EXCLUDE
           PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE
+          PATTERN "agent_projection.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
+          PATTERN "diagnostics.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE
           PATTERN "models.hpp" EXCLUDE
           PATTERN "model_mirror.hpp" EXCLUDE)
@@ -356,6 +361,10 @@ else()
           tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
           tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
           DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
+  install(FILES
+          tools/parity/fixtures/crowdy-studio-diagnostics.v1.json
+          tools/parity/fixtures/crowdy-studio-runtime-sync.v1.json
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/studio)
 endif()
 install(EXPORT CrowdyCPPTargets
         NAMESPACE CrowdyCPP::

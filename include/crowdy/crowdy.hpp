@@ -33,7 +33,9 @@
 #endif
 #include "crowdy/session/world_session.hpp"
 #ifndef CROWDY_NO_EXCEPTIONS
+#include "crowdy/studio/agent_projection.hpp"
 #include "crowdy/studio/controller.hpp"
+#include "crowdy/studio/diagnostics.hpp"
 #include "crowdy/studio/runtime.hpp"
 #endif
 #include "crowdy/world.hpp"

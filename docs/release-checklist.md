@@ -15,6 +15,7 @@ node tools/parity/parity.mjs \
   --check docs/parity-matrix.md \
   --strict
 node tools/parity/agent-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/studio-state-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 npm test
 ```
 

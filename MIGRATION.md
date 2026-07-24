@@ -93,13 +93,31 @@ Key integration points:
   configured dispatcher/game thread.
 - Call `CrowdyStudioController::tick()` from the engine loop for autosave,
   offline retry, and visible monitoring refreshes.
-- Inject `ICrowdyStudioSynchronizationProvider` for atomic agent patches and
-  durable checkpoints, `ICrowdyStudioRuntime` (or
+- Consume `CrowdyStudioDiagnostic` from the authoritative/local state vectors.
+  Existing string producers can keep using the
+  `setLocalDiagnostics(std::vector<std::string>)` overload; existing text-only
+  views can use
+  `localDiagnosticTexts()` or `authoritativeDiagnosticTexts()`.
+- Inject `ICrowdyStudioSynchronizationProvider` only when the host has an
+  independently authorized durable atomic-patch/checkpoint service,
+  `ICrowdyStudioRuntime` (or
   `CrowdyStudioPlayerComputeRuntime`) for playerCompute execution, and
   `ICrowdyStudioApprovalGate` for exact live/restore approval.
+- Optionally inject `ICrowdyStudioWalletProvider` as the last controller
+  argument. `CrowdyStudioPlayerWalletProvider` adapts only the viewer-scoped
+  `PlayerWalletAPI::balance()` read; failures leave authoring operational.
 - Live deployment no longer has an unapproved convenience overload. Pass the
   exact plan from `makeDeploymentPlan()` plus an opaque grant issued and
   checked by the agent layer.
+
+There are no generic checkpoint-list, atomic-patch, or approved-restore roots
+in the published GraphQL SDL. Without an injected bridge those calls now fail
+with `CrowdyStudioCapabilityUnavailableError` instead of suggesting that
+ordinary project-save GraphQL authority is sufficient. Durable
+`AgentCheckpoint` event metadata can be mapped with
+`crowdyStudioCheckpointEventFromAgentV1()` and scope-checked by
+`ingestCheckpointEvent()`; restore still requires a separate exact approval
+grant and bridge.
 
 The native phase intentionally excludes DOM, Monaco, CSS, browser Rust workers,
 and engine rendering. It also does not add a generic GraphQL executor or any

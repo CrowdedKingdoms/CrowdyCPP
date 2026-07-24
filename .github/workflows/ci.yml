@@ -118,13 +118,17 @@ jobs:
           -DCROWDY_BUILD_BENCHMARKS=OFF
       - name: Build
         run: cmake --build build-no-exceptions -j 4
-      - name: Full no-exception unit matrix
+      - name: Reduced no-exception unit matrix
         run: >
           ctest --test-dir build-no-exceptions
           --output-on-failure
       - name: Install and link no-exception umbrella consumer
         run: |
           cmake --install build-no-exceptions --prefix "$RUNNER_TEMP/crowdy-noexceptions"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/agent/controller.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/player_host/player_host.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/controller.hpp"
+          test -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio_agent.hpp"
           cmake -S tests/consumer -B build-noexceptions-consumer \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-noexceptions"
           cmake --build build-noexceptions-consumer -j 4

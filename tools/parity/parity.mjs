@@ -220,7 +220,6 @@ const METHOD_ALIASES = {
   'UsageAPI.orgSummary': 'orgSummary',
   'AvatarStateStore.publicState': 'identityState',
   'ChunkStore.get': 'find',
-  'ErrorStore.last': 'recent',
   'HostTracker.isHost': 'amIHost',
   'RemoteActorLane.count': 'size',
   'RemoteActorLane.get': 'find',

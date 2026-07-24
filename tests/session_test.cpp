@@ -236,9 +236,24 @@ void run() {
 
   CHECK(!session.errors().recent().empty());
   CHECK_EQ(session.errors().total(), std::uint64_t{1});
-  const AttributedError& err = session.errors().recent().back();
+  const AttributedError& err = session.errors().recent().front();
   CHECK_EQ(static_cast<int>(err.code), 7);
   CHECK_EQ(static_cast<int>(err.kind), static_cast<int>(SendKind::ActorUpdate));
+  CHECK(err.actorUuid.has_value());
+  CHECK(*err.actorUuid == session.actorUuid());
+  CHECK(session.errors().last() == &err);
+  CHECK(session.errors().lastFor(session.actorUuid()) == &err);
+  CHECK_EQ(session.errors().recent(1).size(), 1u);
+
+  session.errors().recordSend(250, SendKind::VoxelUpdate, other);
+  session.errors().ingest(
+      {250, static_cast<wire::ErrorCode>(8)}, 1700000000600LL);
+  CHECK_EQ(session.errors().total(), std::uint64_t{2});
+  CHECK_EQ(session.errors().recent().front().sequence, 250);
+  CHECK_EQ(session.errors().recent().back().sequence, seqUsed);
+  CHECK(session.errors().last() == &session.errors().recent().front());
+  CHECK(session.errors().lastFor(other) ==
+        &session.errors().recent().front());
 
   // --- Optimistic local voxel edit sends a VOXEL_UPDATE_REQUEST.
   const std::uint8_t stateBytes[] = {1};
@@ -313,7 +328,7 @@ void run() {
   CHECK(mobLane.revision() >= 2);
   session.errors().clear();
   CHECK(session.errors().recent().empty());
-  CHECK_EQ(session.errors().total(), std::uint64_t{1});
+  CHECK_EQ(session.errors().total(), std::uint64_t{2});
 
   session.dispose();
 }

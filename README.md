@@ -168,9 +168,10 @@ Dependencies (all replaceable through interfaces):
 The wire and replication layers depend only on BSD/Winsock sockets and the
 `ICrypto` interface — no libcurl, no JSON.
 
-CMake requires libcurl 8.13+ and feature-detects its WebSocket symbols because
-older releases do not provide the fragmented-message semantics this backend
-needs. If support is absent (or
+The default HTTP transport works with older supported libcurl releases. The
+optional default WebSocket backend requires libcurl 8.13+ because older
+releases do not provide the fragmented-message semantics it needs. CMake
+feature-detects that backend; if support is absent (or
 `CROWDY_WITH_CURL_WEBSOCKETS=OFF`), the SDK builds with a clear no-default
 fallback and `makeCurlWebSocketTransport()` returns null; injected engine
 transports continue to work on Linux, macOS, and Windows. The factory also
@@ -178,10 +179,13 @@ checks that the linked libcurl is 8.13+ and actually advertises both `ws` and
 `wss`, since some distributions expose the APIs while compiling those
 protocols out.
 
-`CROWDY_NO_EXCEPTIONS=ON` enables the non-throwing compatibility path for
-blocking GraphQL requests (failures return an invalid `Json`); use `*Async`
-callbacks when typed failure details are required. Injected transports in this
-mode must not throw across the SDK boundary.
+`CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
+core GraphQL outcomes, auth/portal, replication, portable domains, and session
+stores remain available. Agent/controller, player-host, Game Kit,
+`ContainerMirror`, and headless Studio controller headers are not installed
+because their validation contracts throw. Blocking GraphQL failures return an
+invalid `Json`; use `*Async` callbacks for typed details. Injected transports
+must not throw across the SDK boundary.
 
 ## Quick start
 
@@ -189,6 +193,8 @@ mode must not throw across the SDK boundary.
 #include <crowdy/crowdy.hpp>
 
 int main() {
+  const std::string appId = "42";  // GraphQL BigInt stays a decimal string.
+
   // 1) Identity client (Management API) — passwordless sign-in.
   crowdy::CrowdyClient identity(crowdy::ClientConfig{
       .managementUrl = "https://management.example.com",
@@ -205,13 +211,23 @@ int main() {
 
   // 3) Connect the native replication client (assigns a server, installs the
   //    UDP session, waits for session-ready).
-  crowdy::replication::Config repl{.appId = appId};
+  const auto appIdInt = crowdy::graphql::parseBigInt(minted.appId);
+  const auto tokenIdInt = minted.gameTokenIdInt64();
+  if (!appIdInt || !tokenIdInt || !minted.gameApiUrl.has_value()) return 2;
+  crowdy::replication::Config repl{
+      .appId = *appIdInt,
+      .token = {.token = minted.token,
+                .gameTokenId = *tokenIdInt,
+                .expiresAtEpochMs = 0},  // Parse minted.expiresAt in production.
+  };
   // 4) Install receive handlers and join the world.
   crowdy::replication::Handlers handlers;
   handlers.actorUpdate = [](const crowdy::replication::SpatialNotification& u) {
     // u.uuid, u.chunk, u.payload (span over the datagram — copy if you keep it)
   };
-  auto conn = game.replication().connect(repl, handlers);
+  auto connected = game.replication().connectWithStatus(repl, handlers);
+  if (!connected.ok()) return 3;
+  auto conn = connected.connection;
   conn->sendActorUpdate({.chunk = {0, 0, 0},
                          .uuid = myActorUuid,
                          .payload = poseBytes,
@@ -221,6 +237,10 @@ int main() {
   // 5) Pump notifications from your game loop (or use the owned-thread mode).
   while (running) {
     conn->poll();
+    if (conn->state() == crowdy::replication::ConnState::Failed ||
+        conn->state() == crowdy::replication::ConnState::Closed) {
+      return 4;
+    }
   }
 }
 ```
@@ -510,10 +530,10 @@ pay into a wallet, a plot purchase can grant enforced build permissions):
 | Progression (RPG, arcade) | `progressionBlueprint` → `kit.progression()` | XP/levels on a configurable curve, skill trees with prerequisite chains, achievements, host-gated rating. |
 | Loot (RPG, roguelike) | `lootBlueprint` → `kit.loot()` | Weighted tables compiled into seed-driven server expressions (clients can't reroll), atomic single-claim drops, event-triggered drops. |
 | Quests (RPG, live-ops) | `questsBlueprint` → `kit.quests()` | Event-driven progress via automations, atomic reward turn-in (items + currency in one transaction), cron daily resets. |
-| Combat (action, MMO) | `combatBlueprint` → `kit.combat()` | Server-authoritative damage/death/respawn, status-effect ticks over automation selectors, turn-based and host-synced modes. |
+| Combat (action, MMO) | `combatBlueprint` → `kit.combat()` | Server-authoritative damage/death/respawn plus turn-based and host-synced modes. |
 | Matches & lobbies (arena, board, card) | `matchesBlueprint` → `kit.matches()` | Session lobbies, rounds, turn order via the platform's session-turn authority, scores, per-match notification channel (notify-to-pull re-pulls on ping). |
 | Hidden information (card games) | `decksBlueprint` → `kit.decks()` | Hidden hands via owner-visibility properties, server-dealt shuffles by position — opponents' cards never reach your client. |
-| Living world (farming, survival) | `worldsimBlueprint` → `kit.worldsim()` | Day/night clock with spatial notifications, resource nodes with regen + atomic gather, crops, wave counters — all automation-driven. |
+| Living world (farming, survival) | `worldsimBlueprint` → `kit.worldsim()` | Day/night clock with spatial notifications, atomic gather/crop functions, and wave counters. |
 | Social (MMO, co-op) | `guildBlueprint` → `kit.social()` | Parties and guilds over teams + channels, guild chat, territory grants, guild hall (a group-permission lock) + guild bank (a shared inventory) composites. |
 | Leaderboards (arcade, competitive) | `leaderboardsBlueprint` → `kit.leaderboards()` | Trusted keep-best submits (server/host/automation authority — anti-cheat by construction), ranking reads, cron season resets. |
 | Monetization | `featureGate` → `kit.features()` | Feature keys granted per access tier; AND a gate into any builder's policy (`andPolicies(..., featureGate("vip"))`) to tier-gate a capability. |
@@ -524,6 +544,11 @@ so reward-granting functions are never plain player calls. The C++ builders
 emit **the same model definitions as CrowdyJS's** (verified structurally in
 CI-adjacent tooling), so a world deployed from either SDK is playable from
 both, and studios can seed from TypeScript tooling while the game ships C++.
+The pinned CrowdyJS blueprint currently emits selector JSON that the deployed
+Game API cannot execute for combat status ticks and automatic node/crop
+regeneration. CrowdyCPP preserves that structural parity but does not claim
+those automations as operational; use explicit scheduling until the
+coordinated CrowdyJS/Game API blueprint contract is corrected.
 
 ## Wrapping CrowdyCPP in engines
 
@@ -749,10 +774,10 @@ external CMake build.
 - `ctest` — offline unit tests (wire codec golden vectors, HMAC vectors,
   GraphQL-WebSocket handshake/reconnect/frame/cancellation behavior, bundle
   parsing, malformed-input fuzz, codec round-trips).
-- A build configured with `CROWDY_NO_EXCEPTIONS=ON` runs the full
-  non-throwing ctest matrix. Only assertions whose subject is a
-  blocking exception translation are replaced by equivalent fail-closed or
-  async `GraphQLOutcome` checks; their test targets are not dropped.
+- A build configured with `CROWDY_NO_EXCEPTIONS=ON` compiles with
+  `-fno-exceptions` and runs the applicable reduced-surface matrix. The
+  package omits exception-contract layers listed in [Build](#build), and its
+  install test verifies those unsupported headers are not shipped.
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
   refresh/reconnect, opt-in marketplace chunk claim/release) that run against

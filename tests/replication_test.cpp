@@ -114,6 +114,15 @@ void run() {
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
 
+  {
+    auto attemptProvider = std::make_shared<StubProvider>(server.port);
+    ReplicationClient client(attemptProvider, core::opensslCrypto());
+    auto attempt = client.connectWithStatus(cfg);
+    CHECK(attempt.ok());
+    CHECK(attempt.connection != nullptr);
+    attempt.connection->disconnect();
+  }
+
   Connection conn(cfg, provider, core::opensslCrypto());
 
   int actorUpdates = 0, voxelUpdates = 0, errors = 0, statusChanges = 0;

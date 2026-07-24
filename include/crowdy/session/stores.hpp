@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <functional>
 #include <map>
@@ -547,6 +549,7 @@ struct AttributedError {
   wire::ErrorCode code;
   std::uint8_t sequence;
   SendKind kind;
+  std::optional<core::ActorUuid> actorUuid;
   std::int64_t atMs;
 };
 
@@ -554,22 +557,54 @@ struct AttributedError {
 /// with the kind of send that used that sequence.
 class ErrorStore {
  public:
-  void recordSend(std::uint8_t sequence, SendKind kind) { sent_[sequence] = kind; }
+  struct SentPacketRecord {
+    SendKind kind = SendKind::Unknown;
+    std::optional<core::ActorUuid> actorUuid;
+  };
 
-  void ingest(const replication::GenericError& e, std::int64_t nowMs) {
-    AttributedError err{e.code, e.sequence, sent_[e.sequence], nowMs};
-    recent_.push_back(err);
-    if (recent_.size() > kMaxErrors) recent_.pop_front();
-    total_.fetch_add(1, std::memory_order_relaxed);
-    if (onError_) onError_(recent_.back());
+  void recordSend(std::uint8_t sequence, SendKind kind,
+                  std::optional<core::ActorUuid> actorUuid = std::nullopt) {
+    sent_[sequence] = SentPacketRecord{kind, std::move(actorUuid)};
   }
 
-  const std::deque<AttributedError>& recent() const { return recent_; }
+  void ingest(const replication::GenericError& e, std::int64_t nowMs) {
+    const auto& send = sent_[e.sequence];
+    AttributedError err{e.code, e.sequence,
+                        send ? send->kind : SendKind::Unknown,
+                        send ? send->actorUuid
+                             : std::optional<core::ActorUuid>{},
+                        nowMs};
+    recent_.push_front(err);
+    if (recent_.size() > kMaxErrors) recent_.pop_back();
+    total_.fetch_add(1, std::memory_order_relaxed);
+    if (onError_) onError_(recent_.front());
+  }
 
-  /// The most recent error attributed to a given send kind, if any.
+  /// Most recent errors first.
+  const std::deque<AttributedError>& recent() const { return recent_; }
+  std::vector<AttributedError> recent(std::size_t limit) const {
+    const auto count = std::min(limit, recent_.size());
+    return {recent_.begin(), recent_.begin() +
+                                 static_cast<std::ptrdiff_t>(count)};
+  }
+
+  /// The single most recent error, if any.
+  const AttributedError* last() const {
+    return recent_.empty() ? nullptr : &recent_.front();
+  }
+
+  /// Native convenience: the most recent error for a send family.
   const AttributedError* lastFor(SendKind kind) const {
-    for (auto it = recent_.rbegin(); it != recent_.rend(); ++it) {
-      if (it->kind == kind) return &*it;
+    for (const auto& error : recent_) {
+      if (error.kind == kind) return &error;
+    }
+    return nullptr;
+  }
+
+  /// The most recent error attributed to one actor UUID.
+  const AttributedError* lastFor(const core::ActorUuid& uuid) const {
+    for (const auto& error : recent_) {
+      if (error.actorUuid && *error.actorUuid == uuid) return &error;
     }
     return nullptr;
   }
@@ -577,7 +612,9 @@ class ErrorStore {
   /// Observe every attributed error as it arrives (poll-thread callback).
   void onError(std::function<void(const AttributedError&)> cb) { onError_ = std::move(cb); }
 
-  void clear() { recent_.clear(); }
+  void clear() {
+    recent_.clear();
+  }
   /// Lifetime count; clear() intentionally only clears the retained ring.
   std::uint64_t total() const {
     return total_.load(std::memory_order_relaxed);
@@ -585,7 +622,7 @@ class ErrorStore {
 
  private:
   static constexpr std::size_t kMaxErrors = 64;
-  SendKind sent_[256] = {};
+  std::optional<SentPacketRecord> sent_[256];
   std::deque<AttributedError> recent_;
   std::function<void(const AttributedError&)> onError_;
   std::atomic<std::uint64_t> total_{0};

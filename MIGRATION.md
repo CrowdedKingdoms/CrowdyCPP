@@ -35,6 +35,20 @@ introduces non-copyable owning runtime types.
 - Store revision, queue, error, local-actor, and private-avatar observability
   are real bounded snapshots/counters; lifetime totals are not reset by
   clearing retained rings.
+- `AppTokenResponse::gameTokenId` and `AuthResponse::gameTokenId` are decimal
+  strings. Use the checked `gameTokenIdInt64()` helper only at the native UDP
+  wire boundary. Token route URLs and nullable profile fields now use
+  `NullableString`, preserving GraphQL null separately from `""`.
+- Native replication startup requires complete `Config::token` metadata.
+  Prefer `ReplicationClient::connectWithStatus()` so assignment/socket
+  failures are not discarded; the old `connect()` convenience remains.
+- `ClientConfig::crypto` is the injection point for non-OpenSSL builds.
+  Direct `Connection` construction still requires an `ICrypto`; with OpenSSL
+  disabled, omitted crypto fails with `CryptoUnavailable` rather than leaving
+  an unresolved symbol.
+- `CROWDY_NO_EXCEPTIONS=ON` is a reduced package profile. It does not install
+  Agent/controller, player-host, Game Kit, `ContainerMirror`, or headless
+  Studio controller headers; use the normal package for those layers.
 
 ### Runtime ownership and copyability
 

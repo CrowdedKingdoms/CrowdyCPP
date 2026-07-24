@@ -24,6 +24,19 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.14.0 release validation
+
+On 2026-07-24, the dev deployment passed live `e2e_crowdy_studio`,
+`e2e_agentic_studio`, `e2e_marketplace_claims`, and
+`e2e_gameplay_token_refresh` from the release branch. Agent validation covered
+controller create/attach/replay, a provider-backed ASK run, BUILD binding,
+Play heartbeat/lease/takeover, and native dispatcher cancellation through the
+durable HTTP polling fallback. The builder's libcurl 8.5 lacks a supported
+default WebSocket backend, so `e2e_graphql_websocket` exited 77 at its explicit
+transport-availability gate. Reconnect/frame/cancellation behavior remains
+covered by injected-transport offline tests; this is not represented as a
+live WebSocket pass.
+
 ## CrowdyJS e2e suites
 
 The TypeScript SDK's end-to-end suites are the primary parity target.

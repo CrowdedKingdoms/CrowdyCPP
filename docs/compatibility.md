@@ -38,6 +38,12 @@ artifact-byte decoding is portable and is available through
 `marketplace().clientArtifactBytes(...)`.
 Portable gaps, unclassified differences, and stale classifications are zero.
 
+Known coordinated limitation: the pinned CrowdyJS/CrowdyCPP Game Kit
+blueprints retain combat status-tick and worldsim node/crop selector forms that
+the deployed Game API does not currently execute. Runtime helpers remain
+available, but those automatic schedules are not claimed as supported until
+the shared blueprint/server contract changes in both SDKs.
+
 ## CrowdyCPP 0.x source and ABI policy
 
 Until 1.0, each minor release may contain source-incompatible or ABI-incompatible

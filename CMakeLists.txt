@@ -335,12 +335,25 @@ endif()
 install(TARGETS ${CROWDY_INSTALL_TARGETS} crowdy_wire
         EXPORT CrowdyCPPTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES
-        tools/parity/fixtures/crowdyjs-agent-tools.v1.json
-        tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
-        tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
+if(CROWDY_NO_EXCEPTIONS)
+  # The strict -fno-exceptions profile intentionally omits owning layers whose
+  # validation contracts throw. Do not install headers that cannot be backed
+  # by this package's reduced crowdy library.
+  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+          PATTERN "agent" EXCLUDE
+          PATTERN "player_host" EXCLUDE
+          PATTERN "kit" EXCLUDE
+          PATTERN "controller.hpp" EXCLUDE
+          PATTERN "runtime.hpp" EXCLUDE
+          PATTERN "model_mirror.hpp" EXCLUDE)
+else()
+  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(FILES
+          tools/parity/fixtures/crowdyjs-agent-tools.v1.json
+          tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
+          tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
+endif()
 install(EXPORT CrowdyCPPTargets
         NAMESPACE CrowdyCPP::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)

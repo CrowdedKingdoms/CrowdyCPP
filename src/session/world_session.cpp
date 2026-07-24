@@ -79,7 +79,9 @@ void WorldSession::tick() {
 
   // 2) Presence send loop.
   self_->tick(nowMs);
-  if (auto seq = self_->lastSequence()) errors_.recordSend(*seq, SendKind::ActorUpdate);
+  if (auto seq = self_->lastSequence()) {
+    errors_.recordSend(*seq, SendKind::ActorUpdate, self_->uuid());
+  }
 
   // 3) Staleness reaping.
   if (nowMs - lastReapMs_ >= config_.reapIntervalMs) {

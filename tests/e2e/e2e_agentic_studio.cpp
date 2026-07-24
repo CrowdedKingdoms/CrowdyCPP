@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -18,8 +19,67 @@ bool decimalAtLeast(std::string_view left, std::string_view right) {
   return left >= right;
 }
 
+class AgentRuntimeHarness {
+ public:
+  virtual ~AgentRuntimeHarness() = default;
+  virtual agent::CrowdyStudioAgentController& controller() = 0;
+  virtual std::size_t poll() = 0;
+};
+
+class WebSocketAgentRuntimeHarness final : public AgentRuntimeHarness {
+ public:
+  explicit WebSocketAgentRuntimeHarness(
+      std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime> runtime)
+      : runtime_(std::move(runtime)) {}
+  agent::CrowdyStudioAgentController& controller() override {
+    return runtime_->controller();
+  }
+  std::size_t poll() override { return runtime_->poll(); }
+
+ private:
+  std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime> runtime_;
+};
+
+class PollingAgentRuntimeHarness final : public AgentRuntimeHarness {
+ public:
+  PollingAgentRuntimeHarness(
+      domains::CrowdyStudioAgentAPI& api,
+      agent::CrowdyStudioAgentControllerOptions options)
+      : transport_(api),
+        controller_(bind(api, std::move(options), transport_)) {}
+  agent::CrowdyStudioAgentController& controller() override {
+    return controller_;
+  }
+  std::size_t poll() override { return controller_.poll(); }
+
+ private:
+  static agent::CrowdyStudioAgentControllerOptions bind(
+      domains::CrowdyStudioAgentAPI& api,
+      agent::CrowdyStudioAgentControllerOptions options,
+      agent::CrowdyStudioAgentGraphQLTransport& transport) {
+    options.transport = &transport;
+    options.subscriptionAdapter = nullptr;
+    if (!options.dispatcher) options.dispatcher = api.dispatcher();
+    return options;
+  }
+
+  agent::CrowdyStudioAgentGraphQLTransport transport_;
+  agent::CrowdyStudioAgentController controller_;
+};
+
+std::unique_ptr<AgentRuntimeHarness> createAgentRuntime(
+    CrowdyClient& game, agent::CrowdyStudioAgentControllerOptions options) {
+  if (game.config().webSocketTransport ||
+      graphql::curlWebSocketTransportAvailable()) {
+    return std::make_unique<WebSocketAgentRuntimeHarness>(
+        game.createCrowdyStudioAgentController(std::move(options)));
+  }
+  return std::make_unique<PollingAgentRuntimeHarness>(
+      game.crowdyStudioAgent(), std::move(options));
+}
+
 template <typename Predicate>
-bool pumpUntil(agent::CrowdyStudioAgentControllerRuntime& runtime,
+bool pumpUntil(AgentRuntimeHarness& runtime,
                Predicate&& done, int timeoutMs = 10'000) {
   const auto started = std::chrono::steady_clock::now();
   while (std::chrono::steady_clock::now() - started <
@@ -33,7 +93,7 @@ bool pumpUntil(agent::CrowdyStudioAgentControllerRuntime& runtime,
 }
 
 template <typename Start>
-bool waitForAgentVoid(agent::CrowdyStudioAgentControllerRuntime& runtime,
+bool waitForAgentVoid(AgentRuntimeHarness& runtime,
                       Start&& start, const char* context,
                       int timeoutMs = 10'000) {
   bool finished = false;
@@ -173,9 +233,8 @@ int main() try {
   if (!game.config().webSocketTransport &&
       !graphql::curlWebSocketTransportAvailable()) {
     std::puts(
-        "No injected or default GraphQL WebSocket transport is available for "
-        "the live Agent Controller; skipping");
-    return 77;
+        "No default GraphQL WebSocket transport is available; exercising the "
+        "controller's durable HTTP polling fallback");
   }
   const std::string suffix = e2e::runSuffix();
 
@@ -229,8 +288,7 @@ int main() try {
     hostAttachError = manager.attach(liveClientEpoch);
   };
 
-  auto askRuntime =
-      game.createCrowdyStudioAgentController(std::move(askOptions));
+  auto askRuntime = createAgentRuntime(game, std::move(askOptions));
   E2E_CHECK(waitForAgentVoid(
       *askRuntime,
       [&](auto callback) {
@@ -248,12 +306,6 @@ int main() try {
   E2E_CHECK(askRuntime->controller().state().session.has_value());
   E2E_CHECK(askRuntime->controller().state().session->mode ==
             agent::AgentMode::Ask);
-  E2E_CHECK(pumpUntil(
-      *askRuntime,
-      [&] {
-        return askRuntime->controller().state().lastHeartbeatAt.has_value();
-      },
-      5'000));
 
   E2E_SUBTEST(
       "live epoch binds native dispatcher cancellation to human takeover");
@@ -308,19 +360,13 @@ int main() try {
       *askRuntime->controller().state().clientEpoch;
   E2E_CHECK(reattachedEpoch != firstEpoch);
   E2E_CHECK(decimalAtLeast(reattachedEpoch, firstEpoch));
-
-  E2E_CHECK(waitForAgentVoid(
-      *askRuntime,
-      [&](auto callback) {
-        askRuntime->controller().pause(std::move(callback));
-      },
-      "pause ASK controller"));
   E2E_CHECK(waitForAgentVoid(
       *askRuntime,
       [&](auto callback) {
         askRuntime->controller().resume(std::move(callback));
       },
-      "resume ASK controller"));
+      "resume preempted ASK controller"));
+
   E2E_CHECK(pumpUntil(
       *askRuntime,
       [&] {
@@ -334,8 +380,7 @@ int main() try {
   askRuntime.reset();
 
   auto replayOptions = attachOptions(askSessionId, suffix + "-ask");
-  auto replayRuntime =
-      game.createCrowdyStudioAgentController(std::move(replayOptions));
+  auto replayRuntime = createAgentRuntime(game, std::move(replayOptions));
   E2E_CHECK(waitForAgentVoid(
       *replayRuntime,
       [&](auto callback) {
@@ -349,6 +394,12 @@ int main() try {
             reattachedEpoch);
   E2E_CHECK(decimalAtLeast(
       replayRuntime->controller().state().lastContiguousSeq, replayFloor));
+  E2E_CHECK(waitForAgentVoid(
+      *replayRuntime,
+      [&](auto callback) {
+        replayRuntime->controller().resume(std::move(callback));
+      },
+      "resume replay-attached ASK controller"));
 
   if (e2e::envFlag("CROWDY_E2E_AGENT_RUN")) {
     bool finished = false;
@@ -380,8 +431,7 @@ int main() try {
   auto buildOptions = createOptions(
       agent::AgentMode::Build, cfg.appId, suffix + "-build", projectId,
       gridId);
-  auto buildRuntime =
-      game.createCrowdyStudioAgentController(std::move(buildOptions));
+  auto buildRuntime = createAgentRuntime(game, std::move(buildOptions));
   E2E_CHECK(waitForAgentVoid(
       *buildRuntime,
       [&](auto callback) {
@@ -413,8 +463,7 @@ int main() try {
       auto playOptions = createOptions(
           agent::AgentMode::Play, cfg.appId, suffix + "-play", std::nullopt,
           gridId);
-      auto playRuntime =
-          game.createCrowdyStudioAgentController(std::move(playOptions));
+      auto playRuntime = createAgentRuntime(game, std::move(playOptions));
       E2E_CHECK(waitForAgentVoid(
           *playRuntime,
           [&](auto callback) {
@@ -442,6 +491,14 @@ int main() try {
       E2E_CHECK(!grantFailure);
       E2E_CHECK(lease &&
                 lease->status == agent::AgentLeaseStatus::Active);
+      E2E_CHECK(pumpUntil(
+          *playRuntime,
+          [&] {
+            return playRuntime->controller()
+                .state()
+                .lastHeartbeatAt.has_value();
+          },
+          5'000));
 
       E2E_CHECK(waitForAgentVoid(
           *playRuntime,

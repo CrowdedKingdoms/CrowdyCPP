@@ -267,13 +267,25 @@ class Connection {
 /// provider). One Connection per app.
 class ReplicationClient {
  public:
+  struct ConnectResult {
+    std::shared_ptr<Connection> connection;
+    Status status;
+
+    bool ok() const { return status.ok() && connection != nullptr; }
+  };
+
   ReplicationClient(std::shared_ptr<ISessionProvider> provider,
                     const core::ICrypto& crypto)
       : provider_(std::move(provider)), crypto_(crypto) {}
 
-  /// Create and connect a Connection for `config` (token material may be
-  /// omitted when the session provider refreshes it — but the initial token
-  /// must be present for signing).
+  /// Create and connect a Connection while preserving the initial assignment
+  /// or socket failure. The initial token is required for UDP signing.
+  ConnectResult connectWithStatus(const Config& config,
+                                  Handlers handlers = {});
+
+  /// Compatibility convenience. Prefer connectWithStatus() when startup
+  /// failures must be reported directly; this still leaves the Connection in
+  /// Failed state when the initial connect did not succeed.
   std::shared_ptr<Connection> connect(const Config& config, Handlers handlers = {});
 
   /// Most recently created connection, when still alive. CrowdyClient uses

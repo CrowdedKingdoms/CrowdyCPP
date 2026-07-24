@@ -584,15 +584,20 @@ std::size_t Connection::poll(std::size_t maxEvents) {
 
 // ---------------------------------------------------------------------------
 
-std::shared_ptr<Connection> ReplicationClient::connect(const Config& config, Handlers handlers) {
+ReplicationClient::ConnectResult ReplicationClient::connectWithStatus(
+    const Config& config, Handlers handlers) {
   auto conn = std::make_shared<Connection>(config, provider_, crypto_);
   conn->setHandlers(std::move(handlers));
   {
     std::lock_guard lock(connectionMutex_);
     activeConnection_ = conn;
   }
-  conn->connect();
-  return conn;
+  return {conn, conn->connect()};
+}
+
+std::shared_ptr<Connection> ReplicationClient::connect(
+    const Config& config, Handlers handlers) {
+  return connectWithStatus(config, std::move(handlers)).connection;
 }
 
 }  // namespace crowdy::replication

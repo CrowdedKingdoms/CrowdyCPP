@@ -42,6 +42,10 @@ add_executable(agent_controller_test agent_controller_test.cpp)
 target_link_libraries(agent_controller_test PRIVATE crowdy)
 add_test(NAME agent_controller_test COMMAND agent_controller_test)
 
+add_executable(player_host_test player_host_test.cpp)
+target_link_libraries(player_host_test PRIVATE crowdy)
+add_test(NAME player_host_test COMMAND player_host_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

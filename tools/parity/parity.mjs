@@ -389,9 +389,7 @@ const CLASS_MAP = {
   AgentControlLeaseManager: 'AgentControlLeaseManager',
 };
 
-const STRICT_NATIVE_SURFACE_GAPS = [
-  'Native player host: tool dispatcher, Studio/player-host adapters, lease manager, immediate human preemption, and late-result fencing.',
-];
+const STRICT_NATIVE_SURFACE_GAPS = [];
 
 if (!existsSync(join(crowdyjsPath, 'schema.gql'))) {
   fail(

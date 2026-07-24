@@ -30,12 +30,11 @@ import {
   parseSchemaSurface,
   rootFieldEntries,
 } from './schema-surface.mjs';
+import { resolveCrowdyJsPath } from './crowdyjs-path.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const options = parseArgs(process.argv.slice(2));
-const crowdyjsPath = resolve(
-  options.crowdyjs ?? join(root, '..', 'CrowdyJS'),
-);
+const crowdyjsPath = resolveCrowdyJsPath(root, options.crowdyjs);
 
 const CATEGORY = Object.freeze({
   PORTABLE: 'portable-gap',

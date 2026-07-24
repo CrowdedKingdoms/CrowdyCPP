@@ -230,6 +230,7 @@ void testSynchronousGameplayRefresh() {
   CHECK(statusCalls > 0);
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
 void testRefreshFailureRetainsOldToken() {
   auto transport = std::make_shared<PortableTransport>();
   transport->failRefresh = true;
@@ -250,6 +251,22 @@ void testRefreshFailureRetainsOldToken() {
   CHECK(connection->connect().ok());
   CHECK_EQ(bearer(transport->requests.back()), "Bearer " + kOldToken);
 }
+#else
+void testBlockingRefreshFailureFailsClosedWithoutExceptions() {
+  auto transport = std::make_shared<PortableTransport>();
+  transport->failRefresh = true;
+  CrowdyClient client(portableConfig(transport));
+  client.setToken(kOldToken);
+
+  // Blocking request() has no typed failure channel in this mode. Verify the
+  // compatibility wrapper returns no token and never replaces the old bearer;
+  // the async lifecycle test below still checks the exact Refresh-stage error.
+  const auto refreshed = client.portal().refresh();
+  CHECK(refreshed.token.empty());
+  CHECK_EQ(client.getToken(), kOldToken);
+  CHECK_EQ(transport->refreshCalls, 1);
+}
+#endif
 
 void testReconnectFailureRetainsFreshToken() {
   auto transport = std::make_shared<PortableTransport>();
@@ -363,7 +380,11 @@ void testDurableStoreObservability() {
 int main() {
   testEndpointNormalization();
   testSynchronousGameplayRefresh();
+#ifndef CROWDY_NO_EXCEPTIONS
   testRefreshFailureRetainsOldToken();
+#else
+  testBlockingRefreshFailureFailsClosedWithoutExceptions();
+#endif
   testReconnectFailureRetainsFreshToken();
   testAsyncGameplayRefreshUsesPoll();
   testAsyncRefreshFailureUsesPollAndRetainsOldToken();

@@ -37,6 +37,8 @@ jobs:
         working-directory: CrowdyJS
         run: npm ci && npm run build
       - name: Parser and gate unit tests
+        env:
+          CROWDYJS_PATH: ${{ github.workspace }}/CrowdyJS
         run: npm test
       - name: Check deterministic C++ codegen
         run: node scripts/codegen.mjs --check
@@ -95,3 +97,22 @@ jobs:
         run: cmake --build build --config Release -j 4
       - name: Unit tests
         run: ctest --test-dir build -C Release --output-on-failure
+
+  no-exception-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+      - name: Configure non-throwing GraphQL compatibility paths
+        run: >
+          cmake -S . -B build-no-exceptions -DCMAKE_BUILD_TYPE=Release
+          -DCROWDY_NO_EXCEPTIONS=ON
+          -DCROWDY_BUILD_E2E=OFF
+          -DCROWDY_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build-no-exceptions -j 4
+      - name: Full no-exception unit matrix
+        run: >
+          ctest --test-dir build-no-exceptions
+          --output-on-failure

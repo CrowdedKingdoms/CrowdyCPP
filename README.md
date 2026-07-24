@@ -669,19 +669,25 @@ CrowdyCPP tracks one reviewed CrowdyJS commit in
 `.github/workflows/ci.yml`. After either SDK changes its public surface:
 
 ```bash
+# Optional for nonstandard layouts. Otherwise tools resolve ../CrowdyJS,
+# ./CrowdyJS (CI), then the sibling of this worktree's primary git checkout.
+export CROWDYJS_PATH=/path/to/CrowdyJS
+
 # Compare both schemas in both directions, audit roots/methods, and refresh docs.
-node tools/parity/parity.mjs --crowdyjs /path/to/CrowdyJS \
-  --write docs/parity-matrix.md
-node tools/parity/parity.mjs --crowdyjs /path/to/CrowdyJS \
-  --check docs/parity-matrix.md
+node tools/parity/parity.mjs --write docs/parity-matrix.md
+npm run check:parity
 
 # CrowdyJS must be built first; verifies all 28 descriptor digests and the
 # closed 16-reason preemption vocabulary against C++ schema/codegen fixtures.
-node tools/parity/agent-fixtures.mjs --crowdyjs /path/to/CrowdyJS
+npm run check:agent-fixtures
 
 # Parser/gate behavior.
 npm test
 ```
+
+An explicitly configured `CROWDYJS_PATH` is authoritative and fails clearly
+when invalid. Automatic resolution likewise fails if no deterministic
+sibling/CI/worktree checkout exists; it never skips or weakens parity.
 
 The reviewed baseline accepts only named classifications. A **portable gap** is
 shown as missing work and is not presented as parity; native equivalents and
@@ -710,6 +716,10 @@ external CMake build.
 - `ctest` — offline unit tests (wire codec golden vectors, HMAC vectors,
   GraphQL-WebSocket handshake/reconnect/frame/cancellation behavior, bundle
   parsing, malformed-input fuzz, codec round-trips).
+- A build configured with `CROWDY_NO_EXCEPTIONS=ON` runs the full
+  non-throwing ctest matrix. Only assertions whose subject is a
+  blocking exception translation are replaced by equivalent fail-closed or
+  async `GraphQLOutcome` checks; their test targets are not dropped.
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
   refresh/reconnect, opt-in marketplace chunk claim/release) that run against

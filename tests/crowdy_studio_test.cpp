@@ -172,6 +172,10 @@ void testApiMappingAndInputSemantics() {
   client.poll();
   CHECK(callbackCalled);
 
+#ifndef CROWDY_NO_EXCEPTIONS
+  // These two assertions cover typed translation of exceptions from the
+  // blocking GraphQL API. Non-throwing builds retain all mapping/controller
+  // coverage above and exercise GraphQLOutcome failures in async API tests.
   transport->responses.push_back(
       {200,
        R"({"errors":[{"message":"CROWDY_STUDIO_REVISION_CONFLICT: stale","extensions":{"code":"CROWDY_STUDIO_REVISION_CONFLICT"}}]})"});
@@ -194,6 +198,36 @@ void testApiMappingAndInputSemantics() {
     idempotencyConflict = error.code() == "IDEMPOTENCY_CONFLICT";
   }
   CHECK(idempotencyConflict);
+#else
+  bool revisionOutcome = false;
+  transport->responses.push_back(
+      {200,
+       R"({"errors":[{"message":"CROWDY_STUDIO_REVISION_CONFLICT: stale","extensions":{"code":"CROWDY_STUDIO_REVISION_CONFLICT"}}]})"});
+  client.crowdyStudio().saveProjectMetadataAsync(
+      metadata, [&](graphql::GraphQLOutcome outcome,
+                    CrowdyStudioProject) {
+        revisionOutcome =
+            !outcome.ok() && !outcome.errors.empty() &&
+            outcome.errors.front().code ==
+                "CROWDY_STUDIO_REVISION_CONFLICT";
+      });
+  client.poll();
+  CHECK(revisionOutcome);
+
+  bool idempotencyOutcome = false;
+  transport->responses.push_back(
+      {200,
+       R"({"errors":[{"message":"retry key changed input","extensions":{"code":"IDEMPOTENCY_CONFLICT"}}]})"});
+  client.crowdyStudio().saveProjectMetadataAsync(
+      metadata, [&](graphql::GraphQLOutcome outcome,
+                    CrowdyStudioProject) {
+        idempotencyOutcome =
+            !outcome.ok() && !outcome.errors.empty() &&
+            outcome.errors.front().code == "IDEMPOTENCY_CONFLICT";
+      });
+  client.poll();
+  CHECK(idempotencyOutcome);
+#endif
 }
 
 CrowdyStudioProjectFile sourceFile(

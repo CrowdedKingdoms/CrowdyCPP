@@ -242,6 +242,19 @@ void testKitVerdictErrors() {
 
   transport->response = {
       200,
+      R"({"data":{"gameModelInvoke":{"eventId":"event-1","functionName":"mine","success":false,"returnValueJson":null,"errorMessage":"payload denial","mutationsApplied":[]}}})"};
+  KitInvokeResult payloadVerdict =
+      kitInvoke(client.gameModel(), "1", "mine", "container-1");
+  CHECK(!payloadVerdict.success);
+  CHECK_EQ(payloadVerdict.errorMessage, "payload denial");
+  CHECK(payloadVerdict.raw.ok());
+
+#ifndef CROWDY_NO_EXCEPTIONS
+  // Legacy GraphQL-error verdict translation is specific to the throwing
+  // blocking API. The resolved success=false payload path above is the
+  // authoritative non-throwing contract and remains covered in every build.
+  transport->response = {
+      200,
       R"({"errors":[{"message":"Invoke params violate the 'mine' contract: params.x must be an integer","extensions":{"code":"BAD_REQUEST"}}]})"};
   KitInvokeResult verdict =
       kitInvoke(client.gameModel(), "1", "mine", "container-1");
@@ -274,6 +287,7 @@ void testKitVerdictErrors() {
     CHECK_EQ(error.code(), "BAD_REQUEST");
   }
   CHECK(rethrew);
+#endif
 }
 
 }  // namespace

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {
-  existsSync,
   mkdtempSync,
   rmSync,
   writeFileSync,
@@ -9,19 +8,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { resolveCrowdyJsPath } from '../../tools/parity/crowdyjs-path.mjs';
 
 const repo = resolve(import.meta.dirname, '..', '..');
-const crowdyjs = [
-  process.env.CROWDYJS_PATH,
-  join(repo, 'CrowdyJS'),
-  join(repo, '..', 'CrowdyJS'),
-].find((candidate) => candidate && existsSync(join(candidate, 'schema.gql')));
-
-if (!crowdyjs) {
-  throw new Error(
-    'CrowdyJS checkout not found; set CROWDYJS_PATH for parity gate tests',
-  );
-}
+const crowdyjs = resolveCrowdyJsPath(repo);
 
 test('reviewed parity baseline and generated matrix pass', () => {
   const result = runParity('--check', 'docs/parity-matrix.md');
@@ -44,6 +34,22 @@ test('matrix drift is a gate failure', () => {
     assert.equal(result.status, 1, result.stderr || result.stdout);
     assert.match(result.stderr, /is stale/u);
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('CrowdyJS resolver fails clearly when no checkout exists', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'crowdycpp-no-js-'));
+  const configured = process.env.CROWDYJS_PATH;
+  try {
+    delete process.env.CROWDYJS_PATH;
+    assert.throws(
+      () => resolveCrowdyJsPath(directory),
+      /Set CROWDYJS_PATH.*Checked:/u,
+    );
+  } finally {
+    if (configured === undefined) delete process.env.CROWDYJS_PATH;
+    else process.env.CROWDYJS_PATH = configured;
     rmSync(directory, { recursive: true, force: true });
   }
 });

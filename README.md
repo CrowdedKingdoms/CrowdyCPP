@@ -132,7 +132,9 @@ include/crowdy/          public headers
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
 operations/              GraphQL operation documents (codegen input)
-schema.gql               committed schema snapshot (merged Management + Game API SDL)
+schema.management.gql    exact published Management API SDL snapshot
+schema.game.gql          exact published Game API SDL snapshot
+schema.gql               merged snapshot used for cross-SDK schema comparison
 scripts/                 schema sync + codegen (Node, maintainers only)
 tests/                   unit tests (ctest) + env-gated e2e tests
 benchmarks/              micro + end-to-end benchmarks
@@ -647,21 +649,25 @@ never need network access or sibling repos:
 # Maintainer-only Node dependencies (not part of a CMake consumer build).
 npm ci
 
-# Maintainers: refresh the schema snapshot from the published production SDLs
-node scripts/schema-sync.mjs            # writes schema.gql
+# Maintainers: refresh exact endpoint snapshots + the merged comparison schema
+node scripts/schema-sync.mjs            # writes schema.*.gql + schema.gql
 node scripts/codegen.mjs                # regenerates include/crowdy/generated/
-# commit schema.gql and include/crowdy/generated/ together
+# commit all schema snapshots and include/crowdy/generated/ together
 ```
 
-`scripts/schema-sync.mjs` downloads the published SDLs
+`scripts/schema-sync.mjs` downloads and commits the exact published SDLs
 (`https://docs.crowdedkingdoms.com/schema/management-api.graphql` and
-`.../game-api.graphql`) and merges them; `--management <path|url>` /
+`.../game-api.graphql`) before merging them; `--management <path|url>` /
 `--game <path|url>` override the sources. Operation documents live in
 `operations/<domain>/*.graphql` and follow the same shapes as CrowdyJS.
 The merge uses the same GraphQL merge/printer pipeline as CrowdyJS; `--check`
-compares a committed snapshot with explicitly supplied sources without writing.
-Codegen embeds the schema and operation-input digests in both generated headers,
-and `node scripts/codegen.mjs --check` verifies them without modifying files.
+compares all three committed snapshots with explicitly supplied sources without
+writing. Codegen isolates each named operation with only its transitive
+fragments and validates it against the exact Management and Game SDLs; an
+operation invalid on both planes fails generation. It embeds both endpoint
+schema digests plus the merged schema and operation-input digests in generated
+headers, and `node scripts/codegen.mjs --check` verifies them without modifying
+files.
 
 ### Parity maintenance gates
 
@@ -675,6 +681,7 @@ export CROWDYJS_PATH=/path/to/CrowdyJS
 
 # Compare both schemas in both directions, audit roots/methods, and refresh docs.
 node tools/parity/parity.mjs --write docs/parity-matrix.md
+npm run check:operations
 npm run check:parity
 
 # CrowdyJS must be built first; verifies all 28 descriptor digests and the

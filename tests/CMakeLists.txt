@@ -43,6 +43,10 @@ if(NOT CROWDY_NO_EXCEPTIONS)
   add_test(NAME player_runtime_surface_test COMMAND player_runtime_surface_test)
 endif()
 
+add_executable(public_api_parity_test public_api_parity_test.cpp)
+target_link_libraries(public_api_parity_test PRIVATE crowdy)
+add_test(NAME public_api_parity_test COMMAND public_api_parity_test)
+
 add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)

@@ -225,7 +225,7 @@ GraphQLAgentEventSubscriptionAdapter::subscribe(
       };
 
   auto handle = subscriptions_.subscribe(
-      gen::crowdyStudioAgent::kCrowdyStudioAgentDocument, variables,
+      gen::crowdyStudioAgent::documentFor("CrowdyStudioAgentEvents"), variables,
       "CrowdyStudioAgentEvents", std::move(graphCallbacks));
   return std::make_unique<GraphQLAgentEventSubscription>(
       std::move(handle));

@@ -161,10 +161,10 @@ class GameAppsAPI : public DomainBase {
 
  private:
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
-    return execUnwrap(gen::gameApps::kGameAppsDocument, vars, op);
+    return execUnwrap(gen::gameApps::documentFor(op), vars, op);
   }
   void runAsync(std::string_view op, const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::gameApps::kGameAppsDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::gameApps::documentFor(op), vars, op, std::move(cb));
   }
   graphql::Json byInput(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;

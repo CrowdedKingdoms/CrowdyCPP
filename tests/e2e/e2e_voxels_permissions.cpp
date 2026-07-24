@@ -158,7 +158,7 @@ int run() {
   historyVars["to"] = isoFromEpochMs(editEndMs);
   // Raw document: the VoxelUpdateHistory operation takes top-level args.
   graphql::Json history = p.game->graphqlClient()
-                              .request(gen::voxels::kVoxelUpdateHistoryDocument, historyVars,
+                              .request(gen::voxels::documentFor("VoxelUpdateHistory"), historyVars,
                                        "VoxelUpdateHistory")["voxelUpdateHistory"];
   bool sawEdit = false;
   history.forEach([&](graphql::Json entry) {

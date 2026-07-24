@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -19,8 +20,8 @@
 /// acquisition is an entitlement write, and the paid modes ship with P4b.
 /// Publishing snapshots artifact hashes and the DERIVED capability summary,
 /// never source; installs consent to the summary's hash. The browser-side
-/// artifact-byte decode + broker handoff is CrowdyJS-only (04 §7); native
-/// clients use clientArtifact() and decode the base64 payload themselves.
+/// broker handoff is runtime-specific; native clients can use
+/// clientArtifactBytes() to decode the portable artifact payload.
 namespace crowdy::domains {
 
 class MarketplaceAPI {
@@ -39,6 +40,9 @@ class MarketplaceAPI {
   };
 
  public:
+  using ArtifactBytesCallback = std::function<void(
+      graphql::GraphQLOutcome, ClientArtifactBytes)>;
+
   MarketplaceAPI(std::shared_ptr<graphql::GraphQLClient> game,
                  std::shared_ptr<graphql::GraphQLClient> management)
       : game_(std::move(game)), management_(std::move(management)) {}
@@ -152,6 +156,31 @@ class MarketplaceAPI {
   }
   void clientArtifactAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
     game_.runAsync("MarketplaceClientArtifact", vars, std::move(cb));
+  }
+  /// Fetch and base64-decode an acquired/attached CLIENT artifact for a native
+  /// sandbox/runtime. fuelPerDispatch remains a decimal GraphQL BigInt string.
+  ClientArtifactBytes clientArtifactBytes(const graphql::JVal& vars) const {
+    return requireArtifactBytes(clientArtifact(vars));
+  }
+  void clientArtifactBytesAsync(const graphql::JVal& vars,
+                                ArtifactBytesCallback cb) const {
+    clientArtifactAsync(
+        vars,
+        [cb = std::move(cb)](graphql::GraphQLOutcome outcome) mutable {
+          ClientArtifactBytes decoded;
+          if (outcome.ok()) {
+            auto value = decodeClientArtifactBytes(outcome.data);
+            if (value) {
+              decoded = std::move(*value);
+            } else {
+              outcome.status = Errc::Malformed;
+              outcome.kind = graphql::GraphQLErrorKind::Protocol;
+              outcome.errorMessage =
+                  "playerCodeClientArtifact returned invalid artifact bytes";
+            }
+          }
+          cb(std::move(outcome), std::move(decoded));
+        });
   }
 
   // -- D4 grid claim flows (Game API) --------------------------------------------
@@ -476,6 +505,18 @@ class MarketplaceAPI {
   }
 
  private:
+  static ClientArtifactBytes requireArtifactBytes(
+      const graphql::Json& artifact) {
+    auto decoded = decodeClientArtifactBytes(artifact);
+    if (decoded) return std::move(*decoded);
+#ifndef CROWDY_NO_EXCEPTIONS
+    throw graphql::CrowdyProtocolError(
+        "playerCodeClientArtifact returned invalid artifact bytes");
+#else
+    return {};
+#endif
+  }
+
   Endpoint game_;
   Endpoint management_;
 };

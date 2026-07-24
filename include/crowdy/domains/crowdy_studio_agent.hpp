@@ -263,7 +263,7 @@ class CrowdyStudioAgentAPI {
   }
   graphql::Json game(std::string_view operation,
                      const graphql::JVal& vars) const {
-    auto data = game_->request(gen::crowdyStudioAgent::kCrowdyStudioAgentDocument,
+    auto data = game_->request(gen::crowdyStudioAgent::documentFor(operation),
                                vars, operation);
     graphql::Json result;
     data.forEachMember([&](std::string_view, graphql::Json value) {
@@ -273,7 +273,7 @@ class CrowdyStudioAgentAPI {
   }
   void gameAsync(std::string_view operation, const graphql::JVal& vars,
                  graphql::GraphQLCallback cb) const {
-    unwrapAsync(game_, gen::crowdyStudioAgent::kCrowdyStudioAgentDocument,
+    unwrapAsync(game_, gen::crowdyStudioAgent::documentFor(operation),
                 operation, vars, std::move(cb));
   }
   graphql::Json gameInput(std::string_view operation,
@@ -287,7 +287,7 @@ class CrowdyStudioAgentAPI {
   graphql::Json management(std::string_view operation,
                            const graphql::JVal& vars) const {
     auto data = management_->request(
-        gen::crowdyStudioAgent::kCrowdyStudioAgentManagementDocument, vars,
+        gen::crowdyStudioAgent::documentFor(operation), vars,
         operation);
     graphql::Json result;
     data.forEachMember([&](std::string_view, graphql::Json value) {
@@ -299,7 +299,7 @@ class CrowdyStudioAgentAPI {
                        graphql::GraphQLCallback cb) const {
     unwrapAsync(
         management_,
-        gen::crowdyStudioAgent::kCrowdyStudioAgentManagementDocument,
+        gen::crowdyStudioAgent::documentFor(operation),
         operation, vars, std::move(cb));
   }
   graphql::Json managementInput(std::string_view operation,

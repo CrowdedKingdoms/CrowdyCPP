@@ -2,8 +2,10 @@
 
 #include <cctype>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "crowdy/core/base64.hpp"
 #include "crowdy/core/crypto.hpp"
@@ -265,22 +267,33 @@ class PortalAPI : public DomainBase {
   }
 
   /// Record the user's consent for an app (call from the consent screen).
-  graphql::Json authorizeApp(std::string_view appId) const {
+  graphql::Json authorizeApp(
+      std::string_view appId,
+      std::optional<std::vector<std::string>> scopes = std::nullopt) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
+    setScopes(vars["input"], scopes);
     return execUnwrap(
         "mutation AuthorizeApp($input: AuthorizeAppInput!) { authorizeApp(input: $input) {"
         " grantId appId status scopes } }",
         vars);
   }
 
-  void authorizeAppAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+  void authorizeAppAsync(
+      std::string_view appId,
+      std::optional<std::vector<std::string>> scopes,
+      graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"]["appId"] = appId;
+    setScopes(vars["input"], scopes);
     execUnwrapAsync(
         "mutation AuthorizeApp($input: AuthorizeAppInput!) { authorizeApp(input: $input) {"
         " grantId appId status scopes } }",
         vars, {}, std::move(cb));
+  }
+  void authorizeAppAsync(std::string_view appId,
+                         graphql::GraphQLCallback cb) const {
+    authorizeAppAsync(appId, std::nullopt, std::move(cb));
   }
 
   /// Revoke a prior authorization; also revokes the user's live tokens for it.
@@ -340,6 +353,16 @@ class PortalAPI : public DomainBase {
   }
 
  private:
+  static void setScopes(
+      graphql::JVal& input,
+      const std::optional<std::vector<std::string>>& scopes) {
+    if (!scopes) return;
+    graphql::JArray values;
+    values.reserve(scopes->size());
+    for (const auto& scope : *scopes) values.emplace_back(scope);
+    input["scopes"] = graphql::JVal(std::move(values));
+  }
+
   static std::string urlEncode(std::string_view s) {
     static constexpr char kHex[] = "0123456789ABCDEF";
     std::string out;

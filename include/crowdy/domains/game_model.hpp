@@ -72,20 +72,20 @@ class GameModelAPI : public DomainBase {
   graphql::Json deletePropertyDef(std::string_view appId, const graphql::JVal& args) const {
     graphql::JVal vars = args;
     vars["appId"] = appId;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelDeletePropertyDef");
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeletePropertyDef"), vars, "GameModelDeletePropertyDef");
   }
   void deletePropertyDefAsync(std::string_view appId, const graphql::JVal& args,
                               graphql::GraphQLCallback cb) const {
     graphql::JVal vars = args;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelDeletePropertyDef",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeletePropertyDef"), vars, "GameModelDeletePropertyDef",
                     std::move(cb));
   }
   graphql::Json deleteContainerType(std::string_view appId, std::string_view typeName) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteContainerType"), vars,
                       "GameModelDeleteContainerType");
   }
   void deleteContainerTypeAsync(std::string_view appId, std::string_view typeName,
@@ -93,7 +93,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelDeleteContainerType",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteContainerType"), vars, "GameModelDeleteContainerType",
                     std::move(cb));
   }
   graphql::Json upsertFunction(const graphql::JVal& input) const {
@@ -106,14 +106,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelDeleteFunction");
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteFunction"), vars, "GameModelDeleteFunction");
   }
   void deleteFunctionAsync(std::string_view appId, std::string_view name,
                            graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelDeleteFunction",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteFunction"), vars, "GameModelDeleteFunction",
                     std::move(cb));
   }
   graphql::Json setPolicy(const graphql::JVal& input) const {
@@ -147,14 +147,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelTypeSchema");
+    return execUnwrap(gen::gameModel::documentFor("GameModelTypeSchema"), vars, "GameModelTypeSchema");
   }
   void typeSchemaAsync(std::string_view appId, std::string_view typeName,
                        graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelTypeSchema",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelTypeSchema"), vars, "GameModelTypeSchema",
                     std::move(cb));
   }
   graphql::Json containerTypes(std::string_view appId) const {
@@ -167,42 +167,42 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelPropertyDefs");
+    return execUnwrap(gen::gameModel::documentFor("GameModelPropertyDefs"), vars, "GameModelPropertyDefs");
   }
   void propertyDefsAsync(std::string_view appId, std::string_view typeName,
                          graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["typeName"] = typeName;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelPropertyDefs",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelPropertyDefs"), vars, "GameModelPropertyDefs",
                     std::move(cb));
   }
   graphql::Json function(std::string_view appId, std::string_view name) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelFunction");
+    return execUnwrap(gen::gameModel::documentFor("GameModelFunction"), vars, "GameModelFunction");
   }
   void functionAsync(std::string_view appId, std::string_view name,
                      graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelFunction",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelFunction"), vars, "GameModelFunction",
                     std::move(cb));
   }
   graphql::Json functions(std::string_view appId, std::string_view containerTypeName = {}) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!containerTypeName.empty()) vars["containerTypeName"] = containerTypeName;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelFunctions");
+    return execUnwrap(gen::gameModel::documentFor("GameModelFunctions"), vars, "GameModelFunctions");
   }
   void functionsAsync(std::string_view appId, std::string_view containerTypeName,
                       graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!containerTypeName.empty()) vars["containerTypeName"] = containerTypeName;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelFunctions",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelFunctions"), vars, "GameModelFunctions",
                     std::move(cb));
   }
   graphql::Json features(std::string_view appId) const {
@@ -215,14 +215,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!tierId.empty()) vars["tierId"] = tierId;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, "GameModelTierFeatures");
+    return execUnwrap(gen::gameModel::documentFor("GameModelTierFeatures"), vars, "GameModelTierFeatures");
   }
   void tierFeaturesAsync(std::string_view appId, std::string_view tierId,
                          graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!tierId.empty()) vars["tierId"] = tierId;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, "GameModelTierFeatures",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelTierFeatures"), vars, "GameModelTierFeatures",
                     std::move(cb));
   }
   graphql::Json policy(std::string_view appId) const {
@@ -253,14 +253,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelDeleteContainer");
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteContainer"), vars, "GameModelDeleteContainer");
   }
   void deleteContainerAsync(std::string_view appId, std::string_view containerId,
                             graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelDeleteContainer",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteContainer"), vars, "GameModelDeleteContainer",
                     std::move(cb));
   }
   graphql::Json setProperty(const graphql::JVal& input) const {
@@ -279,14 +279,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["edgeId"] = edgeId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelDeleteEdge");
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteEdge"), vars, "GameModelDeleteEdge");
   }
   void deleteEdgeAsync(std::string_view appId, std::string_view edgeId,
                        graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["edgeId"] = edgeId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelDeleteEdge",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteEdge"), vars, "GameModelDeleteEdge",
                     std::move(cb));
   }
 
@@ -304,14 +304,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainer");
+    return execUnwrap(gen::gameModel::documentFor("GameModelContainer"), vars, "GameModelContainer");
   }
   void containerAsync(std::string_view appId, std::string_view containerId,
                       graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainer",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelContainer"), vars, "GameModelContainer",
                     std::move(cb));
   }
   graphql::Json containers(std::string_view appId,
@@ -323,7 +323,7 @@ class GameModelAPI : public DomainBase {
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
     if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers");
+    return execUnwrap(gen::gameModel::documentFor("GameModelContainers"), vars, "GameModelContainers");
   }
   void containersAsync(std::string_view appId, std::string_view typeName,
                        std::string_view sessionId, graphql::GraphQLCallback cb) const {
@@ -338,7 +338,7 @@ class GameModelAPI : public DomainBase {
     if (!typeName.empty()) vars["typeName"] = typeName;
     if (!sessionId.empty()) vars["sessionId"] = sessionId;
     if (!bindingKey.empty()) vars["bindingKey"] = bindingKey;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelContainers"), vars, "GameModelContainers",
                     std::move(cb));
   }
   /// Get-by-key convenience. The schema uniqueness constraint means this
@@ -367,7 +367,7 @@ class GameModelAPI : public DomainBase {
     if (!where.isNull()) vars["where"] = where;
     if (limit >= 0) vars["limit"] = limit;
     if (offset >= 0) vars["offset"] = offset;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers");
+    return execUnwrap(gen::gameModel::documentFor("GameModelContainers"), vars, "GameModelContainers");
   }
   void containersWhereAsync(std::string_view appId, std::string_view typeName,
                             const graphql::JVal& where, int limit, int offset,
@@ -388,7 +388,7 @@ class GameModelAPI : public DomainBase {
     if (!where.isNull()) vars["where"] = where;
     if (limit >= 0) vars["limit"] = limit;
     if (offset >= 0) vars["offset"] = offset;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainers",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelContainers"), vars, "GameModelContainers",
                     std::move(cb));
   }
 
@@ -489,7 +489,7 @@ class GameModelAPI : public DomainBase {
           if (shared->reconnect) shared->reconnect(std::move(info));
         };
     return subscriptions_->subscribe(
-        gen::gameModel::kGameModelRuntimeDocument, vars,
+        gen::gameModel::documentFor("GameModelContainerChanged"), vars,
         "GameModelContainerChanged", std::move(graph));
   }
   graphql::SubscriptionHandle containerChanged(
@@ -501,21 +501,21 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainerState");
+    return execUnwrap(gen::gameModel::documentFor("GameModelContainerState"), vars, "GameModelContainerState");
   }
   void containerStateAsync(std::string_view appId, std::string_view containerId,
                            graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["containerId"] = containerId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelContainerState",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelContainerState"), vars, "GameModelContainerState",
                     std::move(cb));
   }
   graphql::Json traverse(const graphql::JVal& vars) const {
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelTraverse");
+    return execUnwrap(gen::gameModel::documentFor("GameModelTraverse"), vars, "GameModelTraverse");
   }
   void traverseAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelTraverse",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelTraverse"), vars, "GameModelTraverse",
                     std::move(cb));
   }
 
@@ -541,42 +541,42 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["sessionId"] = sessionId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelSession");
+    return execUnwrap(gen::gameModel::documentFor("GameModelSession"), vars, "GameModelSession");
   }
   void sessionAsync(std::string_view appId, std::string_view sessionId,
                     graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["sessionId"] = sessionId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelSession",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelSession"), vars, "GameModelSession",
                     std::move(cb));
   }
   graphql::Json sessions(std::string_view appId, std::string_view status = {}) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!status.empty()) vars["status"] = status;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelSessions");
+    return execUnwrap(gen::gameModel::documentFor("GameModelSessions"), vars, "GameModelSessions");
   }
   void sessionsAsync(std::string_view appId, std::string_view status,
                      graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!status.empty()) vars["status"] = status;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelSessions",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelSessions"), vars, "GameModelSessions",
                     std::move(cb));
   }
   graphql::Json events(const graphql::JVal& vars) const {
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelEvents");
+    return execUnwrap(gen::gameModel::documentFor("GameModelEvents"), vars, "GameModelEvents");
   }
   void eventsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelEvents",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelEvents"), vars, "GameModelEvents",
                     std::move(cb));
   }
   graphql::Json eventsConnection(const graphql::JVal& vars) const {
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelEventsConnection");
+    return execUnwrap(gen::gameModel::documentFor("GameModelEventsConnection"), vars, "GameModelEventsConnection");
   }
   void eventsConnectionAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelEventsConnection",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelEventsConnection"), vars, "GameModelEventsConnection",
                     std::move(cb));
   }
   /// Diagnostics: stitch one flow correlation id (a UUID from the flowId
@@ -591,14 +591,14 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["flowId"] = flowId;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelFlow");
+    return execUnwrap(gen::gameModel::documentFor("GameModelFlow"), vars, "GameModelFlow");
   }
   void flowAsync(std::string_view appId, std::string_view flowId,
                  graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["flowId"] = flowId;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, "GameModelFlow",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelFlow"), vars, "GameModelFlow",
                     std::move(cb));
   }
 
@@ -614,7 +614,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteAutomation"), vars,
                       "GameModelDeleteAutomation");
   }
   void deleteAutomationAsync(std::string_view appId, std::string_view name,
@@ -622,7 +622,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelDeleteAutomation",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteAutomation"), vars, "GameModelDeleteAutomation",
                     std::move(cb));
   }
   graphql::Json setAutomationEnabled(std::string_view appId, std::string_view name,
@@ -631,7 +631,7 @@ class GameModelAPI : public DomainBase {
     vars["appId"] = appId;
     vars["name"] = name;
     vars["enabled"] = enabled;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelSetAutomationEnabled"), vars,
                       "GameModelSetAutomationEnabled");
   }
   void setAutomationEnabledAsync(std::string_view appId, std::string_view name, bool enabled,
@@ -640,7 +640,7 @@ class GameModelAPI : public DomainBase {
     vars["appId"] = appId;
     vars["name"] = name;
     vars["enabled"] = enabled;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars,
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelSetAutomationEnabled"), vars,
                     "GameModelSetAutomationEnabled", std::move(cb));
   }
   graphql::Json upsertAutomationTrigger(const graphql::JVal& input) const {
@@ -653,7 +653,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["triggerId"] = triggerId;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelDeleteAutomationTrigger"), vars,
                       "GameModelDeleteAutomationTrigger");
   }
   void deleteAutomationTriggerAsync(std::string_view appId, std::string_view triggerId,
@@ -661,7 +661,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["triggerId"] = triggerId;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars,
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelDeleteAutomationTrigger"), vars,
                     "GameModelDeleteAutomationTrigger", std::move(cb));
   }
   graphql::Json setAutomationPolicy(const graphql::JVal& input) const {
@@ -674,7 +674,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelRunAutomation"), vars,
                       "GameModelRunAutomation");
   }
   void runAutomationAsync(std::string_view appId, std::string_view name,
@@ -682,32 +682,32 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelRunAutomation",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelRunAutomation"), vars, "GameModelRunAutomation",
                     std::move(cb));
   }
   graphql::Json automationsList(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomations");
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomations"), vars, "GameModelAutomations");
   }
   void automationsListAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomations",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomations"), vars, "GameModelAutomations",
                     std::move(cb));
   }
   graphql::Json automation(std::string_view appId, std::string_view name) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomation");
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomation"), vars, "GameModelAutomation");
   }
   void automationAsync(std::string_view appId, std::string_view name,
                        graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     vars["name"] = name;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomation",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomation"), vars, "GameModelAutomation",
                     std::move(cb));
   }
   graphql::Json automationTriggers(std::string_view appId,
@@ -715,7 +715,7 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!automationName.empty()) vars["automationName"] = automationName;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomationTriggers"), vars,
                       "GameModelAutomationTriggers");
   }
   void automationTriggersAsync(std::string_view appId, std::string_view automationName,
@@ -723,34 +723,34 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!automationName.empty()) vars["automationName"] = automationName;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars,
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomationTriggers"), vars,
                     "GameModelAutomationTriggers", std::move(cb));
   }
   graphql::Json automationPolicy(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomationPolicy"), vars,
                       "GameModelAutomationPolicy");
   }
   void automationPolicyAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomationPolicy",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomationPolicy"), vars, "GameModelAutomationPolicy",
                     std::move(cb));
   }
   graphql::Json automationRuns(const graphql::JVal& vars) const {
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomationRuns"), vars,
                       "GameModelAutomationRuns");
   }
   void automationRunsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomationRuns",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomationRuns"), vars, "GameModelAutomationRuns",
                     std::move(cb));
   }
   graphql::Json automationStats(std::string_view appId, int windowMinutes = 0) const {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (windowMinutes > 0) vars["windowMinutes"] = std::int64_t{windowMinutes};
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelAutomationStats"), vars,
                       "GameModelAutomationStats");
   }
   void automationStatsAsync(std::string_view appId, int windowMinutes,
@@ -758,19 +758,19 @@ class GameModelAPI : public DomainBase {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (windowMinutes > 0) vars["windowMinutes"] = std::int64_t{windowMinutes};
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAutomationStats",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAutomationStats"), vars, "GameModelAutomationStats",
                     std::move(cb));
   }
   graphql::Json appDiagnostics(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars,
+    return execUnwrap(gen::gameModel::documentFor("GameModelAppDiagnostics"), vars,
                       "GameModelAppDiagnostics");
   }
   void appDiagnosticsAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, "GameModelAppDiagnostics",
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelAppDiagnostics"), vars, "GameModelAppDiagnostics",
                     std::move(cb));
   }
 
@@ -778,46 +778,46 @@ class GameModelAPI : public DomainBase {
   graphql::Json studio(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, op);
+    return execUnwrap(gen::gameModel::documentFor(op), vars, op);
   }
   void studioAsync(std::string_view op, const graphql::JVal& input,
                    graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::gameModel::documentFor(op), vars, op, std::move(cb));
   }
   graphql::Json studioByApp(std::string_view op, std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    return execUnwrap(gen::gameModel::kGameModelStudioDocument, vars, op);
+    return execUnwrap(gen::gameModel::documentFor(op), vars, op);
   }
   void studioByAppAsync(std::string_view op, std::string_view appId,
                         graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["appId"] = appId;
-    execUnwrapAsync(gen::gameModel::kGameModelStudioDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::gameModel::documentFor(op), vars, op, std::move(cb));
   }
   graphql::Json runtime(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::gameModel::kGameModelRuntimeDocument, vars, op);
+    return execUnwrap(gen::gameModel::documentFor(op), vars, op);
   }
   void runtimeAsync(std::string_view op, const graphql::JVal& input,
                     graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::gameModel::kGameModelRuntimeDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::gameModel::documentFor(op), vars, op, std::move(cb));
   }
   graphql::Json automations(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;
-    return execUnwrap(gen::gameModel::kGameModelAutomationsDocument, vars, op);
+    return execUnwrap(gen::gameModel::documentFor(op), vars, op);
   }
   void automationsAsync(std::string_view op, const graphql::JVal& input,
                         graphql::GraphQLCallback cb) const {
     graphql::JVal vars;
     vars["input"] = input;
-    execUnwrapAsync(gen::gameModel::kGameModelAutomationsDocument, vars, op, std::move(cb));
+    execUnwrapAsync(gen::gameModel::documentFor(op), vars, op, std::move(cb));
   }
 
   std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions_;

@@ -19,8 +19,13 @@ release.
   the typed metadata feed. The returned `SubscriptionHandle` cancels on
   destruction.
 - `gameModel().ensureContainer(input)` and the `bindingKey` list filter require
-  the current Game API. `marketplace().appListingVersions(vars)` is a
-  Management API studio read.
+  Game API 2026-07-24 or newer.
+  `marketplace().appListingVersions(vars)` requires Management API 2026-07-24
+  or newer. Both operations are validated against their exact published
+  endpoint SDL, not the merged schema snapshot.
+- Native CLIENT runtimes can use `playerCompute().artifactBytes(...)` and
+  `marketplace().clientArtifactBytes(...)` for validated base64 decoding plus
+  artifact hash, decimal-string fuel, nullable contract, and version metadata.
 - `SaveStateStore::set` and `patch` now update the local cache and mark it
   dirty; call `save()` to persist. `dirty()` and `lastSavedAt()` expose the
   save lifecycle. This corrects the old C++ `patch` behavior, which persisted

@@ -33,6 +33,8 @@
 ///                               (cross-app isolation suites)
 ///   CROWDY_E2E_OPERATOR_EMAIL   an is_operator account (operator suite)
 ///   CROWDY_E2E_MULTI_SERVER=1   deployment runs 2+ replication servers
+///   CROWDY_E2E_CLAIM_CHUNK_X/Y/Z
+///                               reserved free chunk for SELF_CLAIM coverage
 ///   CROWDY_E2E_SLOW=1           enable slow suites (soak, TTL waits)
 ///
 /// The server must run with DEV_AUTH_BYPASS (dev sign-in); production-style

@@ -33,6 +33,25 @@ void Connection::setToken(const TokenInfo& token) {
   if (auto t = wire::Token64::fromString(token.token)) token64_ = *t;
 }
 
+Connection::Snapshot Connection::snapshot() const {
+  Snapshot out;
+  out.config = config_;
+  out.state = state();
+  {
+    std::lock_guard lock(tokenMutex_);
+    out.config.token = token_;
+  }
+  {
+    std::lock_guard lock(handlersMutex_);
+    out.handlers = handlers_;
+  }
+  {
+    std::lock_guard lock(assignmentMutex_);
+    out.endpoint = assignment_;
+  }
+  return out;
+}
+
 wire::Token64 Connection::tokenSnapshot() const {
   std::lock_guard lock(tokenMutex_);
   return token64_;
@@ -58,14 +77,19 @@ void Connection::setState(ConnState next) {
 Status Connection::doAssign() {
   auto assigned = provider_->assignServer();
   if (!assigned.ok()) return assigned.error();
-  assignment_ = assigned.value();
+  const Assignment endpoint = assigned.value();
 
-  const std::string& host = (config_.preferIpv6 && !assignment_.ip6.empty()) ? assignment_.ip6
-                                                                             : assignment_.ip4;
-  if (host.empty() || assignment_.clientPort <= 0) return Errc::Rejected;
+  const std::string& host =
+      (config_.preferIpv6 && !endpoint.ip6.empty()) ? endpoint.ip6 : endpoint.ip4;
+  if (host.empty() || endpoint.clientPort <= 0) return Errc::Rejected;
 
-  Status st = socket_.open(host, assignment_.clientPort, config_.socketRecvBufferBytes);
+  Status st =
+      socket_.open(host, endpoint.clientPort, config_.socketRecvBufferBytes);
   if (!st.ok()) return st;
+  {
+    std::lock_guard lock(assignmentMutex_);
+    assignment_ = endpoint;
+  }
 
   readyAtMs_ = clock_.monotonicMillis() + config_.sessionReadyWaitMs;
   lastRecvMs_ = 0;
@@ -563,6 +587,10 @@ std::size_t Connection::poll(std::size_t maxEvents) {
 std::shared_ptr<Connection> ReplicationClient::connect(const Config& config, Handlers handlers) {
   auto conn = std::make_shared<Connection>(config, provider_);
   conn->setHandlers(std::move(handlers));
+  {
+    std::lock_guard lock(connectionMutex_);
+    activeConnection_ = conn;
+  }
   conn->connect();
   return conn;
 }

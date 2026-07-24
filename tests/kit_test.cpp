@@ -1,6 +1,9 @@
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 
+#include "crowdy/client.hpp"
+#include "crowdy/graphql/http.hpp"
 #include "crowdy/kit/actions.hpp"
 #include "crowdy/kit/inventory.hpp"
 #include "test_util.hpp"
@@ -9,6 +12,15 @@ using namespace crowdy;
 using namespace crowdy::kit;
 
 namespace {
+
+class KitTransport final : public graphql::IHttpTransport {
+ public:
+  graphql::HttpResponse response;
+
+  graphql::HttpResponse send(const graphql::HttpRequest&) override {
+    return response;
+  }
+};
 
 void testPolicyJson() {
   CHECK_EQ(kitPolicyJson(ownerOfSelfPolicy()), R"({"type":"owner_of_self"})");
@@ -207,6 +219,63 @@ void testOptimisticAction() {
   CHECK_EQ(seen, "retry-1");
 }
 
+void testKitVerdictErrors() {
+  const std::string violationMessage =
+      "Invoke params violate the 'mine' contract: params.x must be an integer";
+  graphql::CrowdyGraphQLError violation(
+      {{violationMessage, "BAD_REQUEST", "", "computeInvoke"}});
+  CHECK(isKitVerdictError(violation));
+  graphql::CrowdyGraphQLError forbidden(
+      {{"not authorized", "FORBIDDEN", "", "gameModelInvoke"}});
+  CHECK(isKitVerdictError(forbidden));
+  graphql::CrowdyGraphQLError unrelated(
+      {{"Module is disabled", "BAD_REQUEST", "", "computeInvoke"}});
+  CHECK(!isKitVerdictError(unrelated));
+  std::runtime_error network("Invoke params violate but this is not GraphQL");
+  CHECK(!isKitVerdictError(network));
+
+  auto transport = std::make_shared<KitTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.invalid";
+  config.transport = transport;
+  CrowdyClient client(std::move(config));
+
+  transport->response = {
+      200,
+      R"({"errors":[{"message":"Invoke params violate the 'mine' contract: params.x must be an integer","extensions":{"code":"BAD_REQUEST"}}]})"};
+  KitInvokeResult verdict =
+      kitInvoke(client.gameModel(), "1", "mine", "container-1");
+  CHECK(!verdict.success);
+  CHECK_EQ(verdict.errorMessage, violationMessage);
+  CHECK(verdict.raw.ok());
+  CHECK(!verdict.raw["success"].asBool());
+  CHECK_EQ(verdict.raw["functionName"].asString(), "mine");
+  CHECK_EQ(verdict.raw["errorMessage"].asString(), violationMessage);
+  CHECK(verdict.raw["mutationsApplied"].isArray());
+  CHECK_EQ(verdict.raw["mutationsApplied"].size(), 0u);
+
+  transport->response = {
+      200,
+      R"({"errors":[{"message":"not authorized to invoke 'mine'","extensions":{"code":"FORBIDDEN"}}]})"};
+  KitInvokeResult denied =
+      kitInvoke(client.gameModel(), "1", "mine", "container-1");
+  CHECK(!denied.success);
+  CHECK_EQ(denied.errorMessage, "not authorized to invoke 'mine'");
+  CHECK(!denied.raw["success"].asBool());
+
+  transport->response = {
+      200,
+      R"({"errors":[{"message":"Module 'bwf-actions' is disabled","extensions":{"code":"BAD_REQUEST"}}]})"};
+  bool rethrew = false;
+  try {
+    (void)kitInvoke(client.gameModel(), "1", "mine", "container-1");
+  } catch (const graphql::CrowdyGraphQLError& error) {
+    rethrew = true;
+    CHECK_EQ(error.code(), "BAD_REQUEST");
+  }
+  CHECK(rethrew);
+}
+
 }  // namespace
 
 int main() {
@@ -219,6 +288,7 @@ int main() {
   testComposeBlueprints();
   testOwnerHelpers();
   testOptimisticAction();
+  testKitVerdictErrors();
   std::puts("kit_test OK");
   return 0;
 }

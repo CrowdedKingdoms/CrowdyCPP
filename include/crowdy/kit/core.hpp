@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "crowdy/domains/game_model.hpp"
+#include "crowdy/graphql/errors.hpp"
 
 /// Game Kit core — blueprints and the deploy/invoke machinery, mirroring
 /// CrowdyJS's kit/blueprints/core and kit/shared modules.
@@ -330,9 +331,44 @@ struct KitInvokeResult {
   Json raw;                 ///< full server result (event id, mutations, ...)
 };
 
+inline constexpr std::string_view kInvokeContractViolationPrefix =
+    "Invoke params violate";
+
+/// True when a thrown GraphQL failure is a gameplay referee verdict rather
+/// than a transport/session error. Legacy FORBIDDEN invoke denials and the
+/// stable BAD_REQUEST invoke-contract prefix map to success=false; unrelated
+/// BAD_REQUESTs and non-GraphQL exceptions still throw.
+inline bool isKitVerdictError(const std::exception& error) {
+  const auto* graphqlError =
+      dynamic_cast<const graphql::CrowdyGraphQLError*>(&error);
+  if (!graphqlError) return false;
+  if (graphqlError->code() == "FORBIDDEN") return true;
+  return graphqlError->code() == "BAD_REQUEST" &&
+         std::string_view(graphqlError->what())
+             .starts_with(kInvokeContractViolationPrefix);
+}
+
+inline KitInvokeResult kitVerdict(std::string_view functionName,
+                                  std::string_view message) {
+  JVal raw;
+  raw["eventId"] = "";
+  raw["functionName"] = functionName;
+  raw["success"] = false;
+  raw["returnValueJson"] = nullptr;
+  raw["errorMessage"] = message;
+  raw["mutationsApplied"] = JVal(JArray{});
+
+  KitInvokeResult result;
+  result.success = false;
+  result.errorMessage = std::string(message);
+  result.raw = Json::parse(raw.dump());
+  return result;
+}
+
 /// Invoke a model function and wrap the result. Authority denials are part
 /// of the result (success = false), never exceptions — whether the server
-/// reports them in the payload or as a FORBIDDEN GraphQL error.
+/// reports them in the payload, as a legacy FORBIDDEN GraphQL error, or as a
+/// BAD_REQUEST beginning with the stable invoke-contract violation prefix.
 inline KitInvokeResult kitInvoke(domains::GameModelAPI& gameModel, std::string_view appId,
                                  std::string_view functionName, std::string_view selfContainerId,
                                  const JVal& params = JVal(), std::string_view sessionId = {}) {
@@ -348,11 +384,7 @@ inline KitInvokeResult kitInvoke(domains::GameModelAPI& gameModel, std::string_v
   try {
     raw = gameModel.invoke(input);
   } catch (const graphql::CrowdyGraphQLError& e) {
-    if (e.code() == "FORBIDDEN") {
-      result.success = false;
-      result.errorMessage = e.what();
-      return result;
-    }
+    if (isKitVerdictError(e)) return kitVerdict(functionName, e.what());
     throw;
   }
   result.raw = raw;

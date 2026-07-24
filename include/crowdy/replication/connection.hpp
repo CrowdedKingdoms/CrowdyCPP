@@ -61,6 +61,17 @@ class Connection {
   /// refreshes proactively through the session provider).
   void setToken(const TokenInfo& token);
 
+  /// Stable lifecycle snapshot used by CrowdyClient's gameplay-token
+  /// rotation. Handlers are copied so reconnecting the same native endpoint
+  /// cannot lose or duplicate subscriptions.
+  struct Snapshot {
+    Config config;
+    Handlers handlers;
+    ConnState state = ConnState::Idle;
+    Assignment endpoint;
+  };
+  Snapshot snapshot() const;
+
   // ----- Sends (thread-safe; never throw; return the sequence number) -------
 
   Result<std::uint8_t> sendActorUpdate(const SpatialSend& p) {
@@ -168,7 +179,13 @@ class Connection {
   };
   Stats stats() const;
 
+  /// Current assigned endpoint. Prefer assignmentSnapshot() when reading
+  /// concurrently with reconnect housekeeping.
   const Assignment& assignment() const { return assignment_; }
+  Assignment assignmentSnapshot() const {
+    std::lock_guard lock(assignmentMutex_);
+    return assignment_;
+  }
 
  private:
   // One parsed inbound message, copied off the receive buffer for the ring.
@@ -211,6 +228,7 @@ class Connection {
   const core::ILogger& logger_;
 
   UdpSocket socket_;
+  mutable std::mutex assignmentMutex_;
   Assignment assignment_;
 
   mutable std::mutex tokenMutex_;
@@ -218,7 +236,7 @@ class Connection {
   wire::Token64 token64_{};
 
   Handlers handlers_;
-  std::mutex handlersMutex_;
+  mutable std::mutex handlersMutex_;
 
   core::SpscRing<Event> ring_;
   std::atomic<ConnState> state_{ConnState::Idle};
@@ -257,8 +275,18 @@ class ReplicationClient {
   /// must be present for signing).
   std::shared_ptr<Connection> connect(const Config& config, Handlers handlers = {});
 
+  /// Most recently created connection, when still alive. CrowdyClient uses
+  /// this to rotate an active gameplay token without owning user connection
+  /// handles or introducing the browser UDP-proxy lifecycle.
+  std::shared_ptr<Connection> activeConnection() const {
+    std::lock_guard lock(connectionMutex_);
+    return activeConnection_.lock();
+  }
+
  private:
   std::shared_ptr<ISessionProvider> provider_;
+  mutable std::mutex connectionMutex_;
+  std::weak_ptr<Connection> activeConnection_;
 };
 
 }  // namespace crowdy::replication

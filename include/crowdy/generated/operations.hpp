@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
-// operations sha256: edc2241c82ab5d1c02b244af770f0580a20559825709f75a96a234741e553b63
+// operations sha256: 0305d334a6daba53ea2ff420039370f3e2d7a38b0d4e1b221ee4dfca00e0580f
 
 #pragma once
 
@@ -3632,6 +3632,55 @@ mutation MarketplaceClaimGridOwnership($appId: BigInt!, $gridId: BigInt!) {
   }
 }
 
+mutation MarketplaceClaimGridChunk(
+  $appId: BigInt!
+  $chunk: ChunkCoordinatesInput!
+) {
+  claimGridChunk(appId: $appId, chunk: $chunk) {
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    policy
+    ownership {
+      gridOwnershipId
+      ownerKind
+      ownerRef
+      tenure
+      acquiredVia
+      acquiredAt
+      expiresAt
+    }
+    moddable
+    effectivePermissionKeys
+  }
+}
+
+mutation MarketplaceReleaseClaimedGrid($appId: BigInt!, $gridId: BigInt!) {
+  releaseClaimedGrid(appId: $appId, gridId: $gridId) {
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    policy
+    released
+  }
+}
+
 mutation MarketplaceDecideGridClaim(
   $appId: BigInt!
   $requestId: String!
@@ -3881,6 +3930,8 @@ inline constexpr std::string_view kMarketplaceConsentGridClientModOperationName 
 inline constexpr std::string_view kMarketplaceGridClaimPolicyOperationName = "MarketplaceGridClaimPolicy";
 inline constexpr std::string_view kMarketplaceGridClaimRequestsOperationName = "MarketplaceGridClaimRequests";
 inline constexpr std::string_view kMarketplaceClaimGridOwnershipOperationName = "MarketplaceClaimGridOwnership";
+inline constexpr std::string_view kMarketplaceClaimGridChunkOperationName = "MarketplaceClaimGridChunk";
+inline constexpr std::string_view kMarketplaceReleaseClaimedGridOperationName = "MarketplaceReleaseClaimedGrid";
 inline constexpr std::string_view kMarketplaceDecideGridClaimOperationName = "MarketplaceDecideGridClaim";
 inline constexpr std::string_view kMarketplaceIssueGridClaimInviteOperationName = "MarketplaceIssueGridClaimInvite";
 inline constexpr std::string_view kMarketplaceAdmissionQueueOperationName = "MarketplaceAdmissionQueue";

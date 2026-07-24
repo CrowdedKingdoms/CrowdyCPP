@@ -23,6 +23,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
 | `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
+| `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
 | `CROWDY_E2E_SLOW=1` | no | enable long-running suites (soak, cache-TTL waits) |
 
 \* a few legacy suites can run with pre-entitled fixed accounts
@@ -62,7 +63,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_cross_server`, `e2e_operator` | `CROWDY_E2E_MULTI_SERVER=1` / `CROWDY_E2E_OPERATOR_EMAIL` |
+| `e2e_optional` | `e2e_cross_server`, `e2e_marketplace_claims`, `e2e_operator` | multi-server flag / free claim coordinate / operator account |
 
 ## Notes for reruns
 
@@ -72,6 +73,9 @@ Run a single suite directly for its per-subtest output:
 - Each suite owns a disjoint chunk-coordinate band (base
   `{100000..500000 + suite*100, 0, ...}`) so parallel suites don't cross
   spatial fan-out.
+- `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
+  It releases the grid before passing; choose a coordinate reserved for the
+  test deployment and an app configured with `SELF_CLAIM`.
 - `assignServer failed: No available servers found` during connect is
   transient on small deployments (server-status heartbeats briefly lapse) and
   is absorbed by the harness's assignment retry — not a failure.

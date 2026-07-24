@@ -200,6 +200,75 @@ void testPlayerWalletUsesManagementPlane() {
   CHECK(transport->last.body.find(R"("markupBps":2000)") != std::string::npos);
 }
 
+void testMarketplaceChunkClaimsUseAppTokenGamePlane() {
+  auto transport = std::make_shared<CaptureTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.invalid";
+  config.managementUrl = "https://management.invalid";
+  config.transport = transport;
+  CrowdyClient client(std::move(config));
+  const std::string appToken(64, 'a');
+  client.setToken(appToken);
+
+  transport->response = {
+      200,
+      R"({"data":{"claimGridChunk":{"gridId":"42","lowChunk":{"x":"-2","y":"3","z":"7"},"highChunk":{"x":"-2","y":"3","z":"7"},"policy":"SELF_CLAIM","ownership":{"gridOwnershipId":"ownership-42","ownerKind":"USER","ownerRef":"7","tenure":"OWNED","acquiredVia":"self_claim_chunk","acquiredAt":"2026-07-22T00:00:00.000Z","expiresAt":null},"moddable":true,"effectivePermissionKeys":["access","update_voxel_data","write_server_code","run_server_code"]}}})"};
+  graphql::Json claimed =
+      client.marketplace().claimGridChunk("2", domains::ChunkRef{-2, 3, 7});
+  CHECK_EQ(claimed["gridId"].asString(), "42");
+  CHECK_EQ(claimed["lowChunk"]["x"].asString(), "-2");
+  CHECK_EQ(claimed["ownership"]["ownerRef"].asString(), "7");
+  CHECK(claimed["moddable"].asBool());
+  CHECK_EQ(transport->last.url, "https://game.invalid/graphql");
+  CHECK(transport->last.body.find("MarketplaceClaimGridChunk") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(
+            R"("appId":"2","chunk":{"x":"-2","y":"3","z":"7"})") !=
+        std::string::npos);
+  bool bearerFound = false;
+  for (const auto& [name, value] : transport->last.headers) {
+    if (name == "Authorization" && value == "Bearer " + appToken) {
+      bearerFound = true;
+    }
+  }
+  CHECK(bearerFound);
+
+  bool claimAsyncCalled = false;
+  client.marketplace().claimGridChunkAsync(
+      "2", domains::ChunkRef{-2, 3, 7},
+      [&](graphql::GraphQLOutcome out) {
+        claimAsyncCalled = true;
+        CHECK(out.ok());
+        CHECK_EQ(out.data["gridId"].asString(), "42");
+      });
+  CHECK(!claimAsyncCalled);
+  client.poll();
+  CHECK(claimAsyncCalled);
+
+  transport->response = {
+      200,
+      R"({"data":{"releaseClaimedGrid":{"gridId":"42","lowChunk":{"x":"-2","y":"3","z":"7"},"highChunk":{"x":"-2","y":"3","z":"7"},"policy":"SELF_CLAIM","released":true}}})"};
+  graphql::Json released =
+      client.marketplace().releaseClaimedGrid("2", "42");
+  CHECK_EQ(released["gridId"].asString(), "42");
+  CHECK(released["released"].asBool());
+  CHECK(transport->last.body.find("MarketplaceReleaseClaimedGrid") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(R"("appId":"2","gridId":"42")") !=
+        std::string::npos);
+
+  bool releaseAsyncCalled = false;
+  client.marketplace().releaseClaimedGridAsync(
+      "2", "42", [&](graphql::GraphQLOutcome out) {
+        releaseAsyncCalled = true;
+        CHECK(out.ok());
+        CHECK(out.data["released"].asBool());
+      });
+  CHECK(!releaseAsyncCalled);
+  client.poll();
+  CHECK(releaseAsyncCalled);
+}
+
 }  // namespace
 
 int main() {
@@ -208,6 +277,7 @@ int main() {
   testPlayerModelAndAutomationsUseGamePlane();
   testPlayerUsageAndSwitchesUseGamePlane();
   testPlayerWalletUsesManagementPlane();
+  testMarketplaceChunkClaimsUseAppTokenGamePlane();
   std::printf("player_runtime_surface_test passed\n");
   return 0;
 }

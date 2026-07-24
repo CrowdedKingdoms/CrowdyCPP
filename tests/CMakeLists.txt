@@ -18,6 +18,10 @@ add_executable(player_runtime_surface_test player_runtime_surface_test.cpp)
 target_link_libraries(player_runtime_surface_test PRIVATE crowdy)
 add_test(NAME player_runtime_surface_test COMMAND player_runtime_surface_test)
 
+add_executable(client_portable_test client_portable_test.cpp)
+target_link_libraries(client_portable_test PRIVATE crowdy)
+add_test(NAME client_portable_test COMMAND client_portable_test)
+
 add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)

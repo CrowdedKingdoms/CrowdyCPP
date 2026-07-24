@@ -81,6 +81,17 @@ Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes) {
     return Errc::SocketError;
   }
 
+#ifdef _WIN32
+  // recv(..., timeoutMs=0) is the manual-pump fast path and must never block.
+  // POSIX uses MSG_DONTWAIT below; Winsock requires the socket itself to be
+  // non-blocking so a drained socket returns WSAEWOULDBLOCK.
+  u_long nonBlocking = 1;
+  if (::ioctlsocket(fd, FIONBIO, &nonBlocking) != 0) {
+    ::closesocket(fd);
+    return Errc::SocketError;
+  }
+#endif
+
   fd_ = static_cast<long long>(fd);
   return Errc::Ok;
 }

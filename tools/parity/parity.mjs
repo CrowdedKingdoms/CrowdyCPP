@@ -84,15 +84,6 @@ const ROOT_CLASSIFICATIONS = {
     'Query',
     [
       'appPlayerCodeListingVersions',
-      'cpCrowdyStudioAgentPlatformPolicy',
-      'crowdyStudioAgentBudget',
-      'crowdyStudioAgentEffectivePolicy',
-      'crowdyStudioAgentHistory',
-      'crowdyStudioAgentPolicy',
-      'crowdyStudioAgentSession',
-      'crowdyStudioAgentSessions',
-      'crowdyStudioAgentToolDescriptors',
-      'crowdyStudioAgentUsage',
       'crowdyStudioCommonFiles',
       'crowdyStudioLibraryFiles',
       'crowdyStudioProject',
@@ -127,31 +118,6 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.PORTABLE,
     'portable Crowdy Studio mutation; later Crowdy Studio phase',
   ),
-  ...classifyNames(
-    'Mutation',
-    [
-      'crowdyStudioAgentCreateSession',
-      'crowdyStudioAgentAttachClient',
-      'crowdyStudioAgentSetMode',
-      'crowdyStudioAgentAcknowledgeEvents',
-      'crowdyStudioAgentHeartbeat',
-      'crowdyStudioAgentSendMessage',
-      'crowdyStudioAgentApproveTool',
-      'crowdyStudioAgentRejectTool',
-      'crowdyStudioAgentToolResult',
-      'crowdyStudioAgentGrantLease',
-      'crowdyStudioAgentRevokeLease',
-      'crowdyStudioAgentPause',
-      'crowdyStudioAgentResume',
-      'crowdyStudioAgentCancelRun',
-      'crowdyStudioAgentCloseSession',
-      'setCrowdyStudioAgentPolicy',
-      'cpSetCrowdyStudioAgentPlatformPolicy',
-      'cpSetCrowdyStudioAgentAppKill',
-    ],
-    CATEGORY.PORTABLE,
-    'portable Agentic Studio mutation; later agent-controller phase',
-  ),
   'Mutation.gameModelEnsureContainer': classification(
     CATEGORY.PORTABLE,
     'canonical API operation is newer than CrowdyJS v12 and has no C++ wrapper',
@@ -159,10 +125,6 @@ const ROOT_CLASSIFICATIONS = {
   'Subscription.gameModelContainerChanged': classification(
     CATEGORY.PORTABLE,
     'portable GraphQL-WebSocket stream; later graphql-ws phase',
-  ),
-  'Subscription.crowdyStudioAgentEvents': classification(
-    CATEGORY.PORTABLE,
-    'portable ordered agent event stream; later graphql-ws/agent phase',
   ),
   ...classifyNames(
     'Mutation',
@@ -367,6 +329,7 @@ const METHOD_ALIASES = {
   'GameModelAPI.automations': 'automationsList',
   'GameModelAPI.getFunction': 'function',
   'OperatorAPI.usage': 'usageSummary',
+  'CrowdyAgentGraphQLTransport.toolResult': 'browserToolResult',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -469,8 +432,8 @@ const CLASS_MAP = {
   CrowdyStudioAPI: 'CrowdyStudioAPI',
   CrowdyStudioController: 'CrowdyStudioController',
   CrowdyStudioAgentController: 'CrowdyStudioAgentController',
-  CrowdyAgentGraphQLTransport: 'CrowdyAgentGraphQLTransport',
-  CrowdyAgentToolRegistry: 'CrowdyAgentToolRegistry',
+  CrowdyAgentGraphQLTransport: 'CrowdyStudioAgentGraphQLTransport',
+  CrowdyAgentToolRegistry: 'AgentToolRegistry',
   AgentControlLeaseManager: 'AgentControlLeaseManager',
 };
 
@@ -478,7 +441,6 @@ const STRICT_NATIVE_SURFACE_GAPS = [
   'Gameplay: claim/release grid chunks, safe gameplay-token rotation, /graphql endpoint normalization, and kit verdict-error mapping.',
   'Crowdy Studio: cloud project/library/common-file domain plus headless revision, checkpoint, patch, and runtime controller.',
   'Realtime: pluggable graphql-transport-ws client with RAII subscriptions, reconnect, replay, and game-thread dispatch.',
-  'Agentic Studio: generated operations, descriptor validation, durable controller, approvals, budgets, heartbeat, and epoch fencing.',
   'Native player host: tool dispatcher, Studio/player-host adapters, lease manager, immediate human preemption, and late-result fencing.',
 ];
 
@@ -1014,7 +976,7 @@ function cppClassMethods() {
         }
         if (!visible) continue;
         const methodMatch = rawLine.match(
-          /^\s{2}[\w:<>&,*\s]+?[&*\s](\w+)\s*\(/u,
+          /^\s{2}[^=;{}]+?[&*\s](\w+)\s*\(/u,
         );
         if (
           methodMatch &&

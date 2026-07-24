@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
-// operations sha256: edc2241c82ab5d1c02b244af770f0580a20559825709f75a96a234741e553b63
+// operations sha256: 2d4aa0bd3712b4925cbda122f0a7df62752527d66b0dbd150bc1a01832d535ca
 
 #pragma once
 
@@ -2070,6 +2070,668 @@ inline constexpr std::string_view kCpComputePlatformCeilingsOperationName = "CpC
 inline constexpr std::string_view kCpSetComputePlatformCeilingsOperationName = "CpSetComputePlatformCeilings";
 
 }  // namespace controlPlane
+
+namespace crowdyStudioAgent {
+
+/// crowdyStudioAgent/CrowdyStudioAgent.graphql
+inline constexpr std::string_view kCrowdyStudioAgentDocument = R"gql(fragment CrowdyAgentErrorFields on AgentError {
+  code
+  message
+  retryable
+  remediation
+  field
+  requiredScope
+}
+
+fragment CrowdyAgentRunFields on AgentRun {
+  runId
+  status
+  providerRounds
+  toolCalls
+  errorCode
+  terminalReason
+  reason
+  startedAt
+  finishedAt
+  createdAt
+  cancelled
+}
+
+fragment CrowdyAgentLeaseFields on AgentLease {
+  leaseId
+  kind
+  status
+  clientEpoch
+  scopes
+  holder
+  contextVersion
+  controlledEntityId
+  hostCapabilityRevision
+  expectedProjectRevision
+  grantedAt
+  expiresAt
+  revokedReason
+}
+
+fragment CrowdyAgentApprovalFields on AgentApproval {
+  approvalId
+  toolCallId
+  argumentHash
+  status
+  safeSummary
+  clientEpoch
+  expiresAt
+  approved
+  rejected
+}
+
+fragment CrowdyAgentSessionFields on AgentSession {
+  contractVersion
+  sessionId
+  appId
+  projectId
+  gridId
+  mode
+  requestedModel
+  model
+  resolvedModel
+  status
+  providerDataConsent
+  registryDigest
+  providerPolicyVersion
+  appPolicyVersion
+  contextVersion
+  currentClientEpoch
+  clientEpoch
+  lastEventSeq
+  currentRun {
+    ...CrowdyAgentRunFields
+  }
+  activeLeases {
+    ...CrowdyAgentLeaseFields
+  }
+  pendingApproval {
+    ...CrowdyAgentApprovalFields
+  }
+  createdAt
+  updatedAt
+  closedAt
+}
+
+fragment CrowdyAgentBudgetFields on AgentBudget {
+  dimensions {
+    name
+    scope
+    limit
+    reserved
+    consumed
+    remaining
+    unit
+  }
+  resetAt
+  platformFunded
+  payer
+}
+
+fragment CrowdyAgentToolDescriptorFields on AgentToolDescriptor {
+  schemaVersion
+  name
+  wireName
+  version
+  summary
+  executor
+  modes
+  risk
+  riskEffects
+  riskReversible
+  scopes
+  scopeRequirementsJson
+  approvalRequired
+  approvalPolicy
+  approvalReasons
+  approvalMaxTtlSeconds
+  idempotencyClass
+  idempotencyKeyScope
+  timeoutMs
+  inputSchemaJson
+  outputSchemaJson
+  inputRedactionJson
+  outputRedactionJson
+  maxPersistedBytes
+  descriptorJson
+  descriptorDigest
+}
+
+fragment CrowdyAgentEventBaseFields on AgentEventBase {
+  protocolVersion
+  eventId
+  sessionId
+  seq
+  type
+  runId
+  version
+  createdAt
+}
+
+fragment CrowdyAgentEventFields on CrowdyStudioAgentEvent {
+  __typename
+  ...CrowdyAgentEventBaseFields
+  ... on AgentLifecycleEvent {
+    lifecycleMode: mode
+    lifecycleClientEpoch: clientEpoch
+    lifecycleReplayAfterSeq: replayAfterSeq
+    lifecycleReason: reason
+    lifecycleContextVersion: contextVersion
+  }
+  ... on AgentMessageEvent {
+    messageEventId: messageId
+    messageRole: role
+    messageContent: content
+  }
+  ... on AgentRunEvent {
+    runStatus: status
+    runCode: code
+    runReason: reason
+    runError: error {
+      ...CrowdyAgentErrorFields
+    }
+  }
+  ... on AgentToolEvent {
+    toolEventCallId: toolCallId
+    toolEventName: toolName
+    toolEventVersion: toolVersion
+    toolStatus: status
+    toolSafeSummary: safeSummary
+    toolDescriptorDigest: descriptorDigest
+    toolArgumentHash: argumentHash
+    toolExecutor: executor
+    toolContextVersion: contextVersion
+    toolClientEpoch: clientEpoch
+    toolArgumentsJson: argumentsJson
+    toolLeaseId: leaseId
+    toolApprovalGrant: approvalGrant
+    toolIdempotencyKey: idempotencyKey
+    toolResultJson: resultJson
+    toolInvocation: invocation {
+      protocolVersion
+      sessionId
+      runId
+      toolCallId
+      name
+      version
+      descriptorDigest
+      argumentsJson
+      argumentHash
+      contextVersion
+      clientEpoch
+      leaseId
+      approvalGrant
+      idempotencyKey
+      deadline
+    }
+    toolResult: result {
+      protocolVersion
+      toolCallId
+      status
+      outputJson
+      error {
+        ...CrowdyAgentErrorFields
+      }
+      observedContextVersion
+      startedAt
+      finishedAt
+    }
+    toolError: error {
+      ...CrowdyAgentErrorFields
+    }
+    toolDeadline: deadline
+  }
+  ... on AgentApprovalEvent {
+    approvalEventId: approvalId
+    approvalToolCallId: toolCallId
+    approvalArgumentHash: argumentHash
+    approvalStatus: status
+    approvalSafeSummary: safeSummary
+    approvalReasons: reasons
+    approvalExpiresAt: expiresAt
+  }
+  ... on AgentLeaseEvent {
+    leaseEventId: leaseId
+    leaseKind: kind
+    leaseStatus: status
+    leaseClientEpoch: clientEpoch
+    leaseScopes: scopes
+    leaseHolder: holder
+    leaseContextVersion: contextVersion
+    leaseControlledEntityId: controlledEntityId
+    leaseHostCapabilityRevision: hostCapabilityRevision
+    leaseExpectedProjectRevision: expectedProjectRevision
+    leaseGrantedAt: grantedAt
+    leaseExpiresAt: expiresAt
+    leaseReason: reason
+  }
+  ... on AgentCheckpointEvent {
+    checkpointEventId: checkpointId
+    checkpointProjectRevision: projectRevision
+    checkpointContentHash: contentHash
+    checkpointReason: reason
+    checkpointFiles: files {
+      target
+      path
+      contentHash
+      byteLength
+    }
+    checkpointRestoredAt: restoredAt
+  }
+  ... on AgentBudgetEvent {
+    budgetSnapshot: budget {
+      ...CrowdyAgentBudgetFields
+    }
+  }
+}
+
+query CrowdyStudioAgentSession($sessionId: String!) {
+  crowdyStudioAgentSession(sessionId: $sessionId) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+query CrowdyStudioAgentSessions($appId: BigInt!, $after: String, $first: Int) {
+  crowdyStudioAgentSessions(appId: $appId, after: $after, first: $first) {
+    edges {
+      cursor
+      node {
+        ...CrowdyAgentSessionFields
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ...CrowdyAgentSessionFields
+    }
+    endCursor
+    hasNextPage
+  }
+}
+
+query CrowdyStudioAgentHistory(
+  $sessionId: String!
+  $afterSeq: BigInt
+  $first: Int
+) {
+  crowdyStudioAgentHistory(
+    sessionId: $sessionId
+    afterSeq: $afterSeq
+    first: $first
+  ) {
+    edges {
+      cursor
+      node {
+        ...CrowdyAgentEventFields
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    events {
+      ...CrowdyAgentEventFields
+    }
+    hasMore
+  }
+}
+
+query CrowdyStudioAgentToolDescriptors($sessionId: String!) {
+  crowdyStudioAgentToolDescriptors(sessionId: $sessionId) {
+    registryDigest
+    tools {
+      ...CrowdyAgentToolDescriptorFields
+    }
+  }
+}
+
+query CrowdyStudioAgentBudget($sessionId: String!) {
+  crowdyStudioAgentBudget(sessionId: $sessionId) {
+    ...CrowdyAgentBudgetFields
+  }
+}
+
+mutation CrowdyStudioAgentCreateSession($input: CreateAgentSessionInput!) {
+  crowdyStudioAgentCreateSession(input: $input) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+mutation CrowdyStudioAgentAttachClient($input: AttachAgentClientInput!) {
+  crowdyStudioAgentAttachClient(input: $input) {
+    session {
+      ...CrowdyAgentSessionFields
+    }
+    clientEpoch
+    replayAfterSeq
+  }
+}
+
+mutation CrowdyStudioAgentSetMode($input: SetAgentModeInput!) {
+  crowdyStudioAgentSetMode(input: $input) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+mutation CrowdyStudioAgentAcknowledgeEvents(
+  $input: AcknowledgeAgentEventsInput!
+) {
+  crowdyStudioAgentAcknowledgeEvents(input: $input) {
+    throughSeq
+  }
+}
+
+mutation CrowdyStudioAgentHeartbeat($input: AgentHeartbeatInput!) {
+  crowdyStudioAgentHeartbeat(input: $input) {
+    serverTime
+    playLeaseFreshUntil
+    workspaceLeaseExpiresAt
+  }
+}
+
+mutation CrowdyStudioAgentSendMessage($input: SendAgentMessageInput!) {
+  crowdyStudioAgentSendMessage(input: $input) {
+    ...CrowdyAgentRunFields
+  }
+}
+
+mutation CrowdyStudioAgentApproveTool($input: DecideAgentToolInput!) {
+  crowdyStudioAgentApproveTool(input: $input) {
+    ...CrowdyAgentApprovalFields
+  }
+}
+
+mutation CrowdyStudioAgentRejectTool($input: DecideAgentToolInput!) {
+  crowdyStudioAgentRejectTool(input: $input) {
+    ...CrowdyAgentApprovalFields
+  }
+}
+
+mutation CrowdyStudioAgentToolResult($input: AgentToolResultInput!) {
+  crowdyStudioAgentToolResult(input: $input) {
+    toolCallId
+    toolName
+    status
+    argumentHash
+    error {
+      ...CrowdyAgentErrorFields
+    }
+    accepted
+  }
+}
+
+mutation CrowdyStudioAgentGrantLease($input: GrantAgentLeaseInput!) {
+  crowdyStudioAgentGrantLease(input: $input) {
+    ...CrowdyAgentLeaseFields
+  }
+}
+
+mutation CrowdyStudioAgentRevokeLease($input: RevokeAgentLeaseInput!) {
+  crowdyStudioAgentRevokeLease(input: $input) {
+    ...CrowdyAgentLeaseFields
+  }
+}
+
+mutation CrowdyStudioAgentPause($input: AgentSessionControlInput!) {
+  crowdyStudioAgentPause(input: $input) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+mutation CrowdyStudioAgentResume($input: AgentSessionControlInput!) {
+  crowdyStudioAgentResume(input: $input) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+mutation CrowdyStudioAgentCancelRun($input: CancelAgentRunInput!) {
+  crowdyStudioAgentCancelRun(input: $input) {
+    ...CrowdyAgentRunFields
+  }
+}
+
+mutation CrowdyStudioAgentCloseSession($input: AgentSessionControlInput!) {
+  crowdyStudioAgentCloseSession(input: $input) {
+    ...CrowdyAgentSessionFields
+  }
+}
+
+subscription CrowdyStudioAgentEvents(
+  $sessionId: String!
+  $afterSeq: BigInt!
+  $clientEpoch: BigInt!
+) {
+  crowdyStudioAgentEvents(
+    sessionId: $sessionId
+    afterSeq: $afterSeq
+    clientEpoch: $clientEpoch
+  ) {
+    ...CrowdyAgentEventFields
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioAgentSessionOperationName = "CrowdyStudioAgentSession";
+inline constexpr std::string_view kCrowdyStudioAgentSessionsOperationName = "CrowdyStudioAgentSessions";
+inline constexpr std::string_view kCrowdyStudioAgentHistoryOperationName = "CrowdyStudioAgentHistory";
+inline constexpr std::string_view kCrowdyStudioAgentToolDescriptorsOperationName = "CrowdyStudioAgentToolDescriptors";
+inline constexpr std::string_view kCrowdyStudioAgentBudgetOperationName = "CrowdyStudioAgentBudget";
+inline constexpr std::string_view kCrowdyStudioAgentCreateSessionOperationName = "CrowdyStudioAgentCreateSession";
+inline constexpr std::string_view kCrowdyStudioAgentAttachClientOperationName = "CrowdyStudioAgentAttachClient";
+inline constexpr std::string_view kCrowdyStudioAgentSetModeOperationName = "CrowdyStudioAgentSetMode";
+inline constexpr std::string_view kCrowdyStudioAgentAcknowledgeEventsOperationName = "CrowdyStudioAgentAcknowledgeEvents";
+inline constexpr std::string_view kCrowdyStudioAgentHeartbeatOperationName = "CrowdyStudioAgentHeartbeat";
+inline constexpr std::string_view kCrowdyStudioAgentSendMessageOperationName = "CrowdyStudioAgentSendMessage";
+inline constexpr std::string_view kCrowdyStudioAgentApproveToolOperationName = "CrowdyStudioAgentApproveTool";
+inline constexpr std::string_view kCrowdyStudioAgentRejectToolOperationName = "CrowdyStudioAgentRejectTool";
+inline constexpr std::string_view kCrowdyStudioAgentToolResultOperationName = "CrowdyStudioAgentToolResult";
+inline constexpr std::string_view kCrowdyStudioAgentGrantLeaseOperationName = "CrowdyStudioAgentGrantLease";
+inline constexpr std::string_view kCrowdyStudioAgentRevokeLeaseOperationName = "CrowdyStudioAgentRevokeLease";
+inline constexpr std::string_view kCrowdyStudioAgentPauseOperationName = "CrowdyStudioAgentPause";
+inline constexpr std::string_view kCrowdyStudioAgentResumeOperationName = "CrowdyStudioAgentResume";
+inline constexpr std::string_view kCrowdyStudioAgentCancelRunOperationName = "CrowdyStudioAgentCancelRun";
+inline constexpr std::string_view kCrowdyStudioAgentCloseSessionOperationName = "CrowdyStudioAgentCloseSession";
+inline constexpr std::string_view kCrowdyStudioAgentEventsOperationName = "CrowdyStudioAgentEvents";
+
+/// crowdyStudioAgent/CrowdyStudioAgentManagement.graphql
+inline constexpr std::string_view kCrowdyStudioAgentManagementDocument = R"gql(fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
+  kind
+  appId
+  enabled
+  killSwitch
+  operatorKillSwitch
+  disableReasonCode
+  disableReason
+  allowedModelIds
+  allowedToolNames
+  allowedModes
+  allowedRiskClasses
+  turnLimits {
+    providerRequests
+    inputTokens
+    outputTokens
+    reasoningTokens
+    totalTokens
+    providerCostMicrousd
+    toolCalls
+    toolRounds
+    compiles
+    wallClockMs
+    concurrentProviderRequests
+  }
+  sessionLimits {
+    providerRequests
+    inputTokens
+    outputTokens
+    reasoningTokens
+    totalTokens
+    providerCostMicrousd
+    toolCalls
+    compiles
+    concurrentRuns
+  }
+  playerDayLimits {
+    providerRequests
+    inputTokens
+    outputTokens
+    reasoningTokens
+    totalTokens
+    providerCostMicrousd
+    toolCalls
+    compiles
+    concurrentSessions
+    concurrentRunsPerApp
+  }
+  retention {
+    assistantChunkHours
+    detailedContextHours
+    sessionDataDays
+    usageDays
+  }
+  privacy {
+    requireZdr
+    denyDataCollection
+    allowPrivateSource
+    requirePrivateSourceConsent
+    persistProviderBodies
+  }
+  funding {
+    billingMode
+    payerKind
+    rateCardId
+    walletDebitEnabled
+  }
+  revision
+  platformRevision
+  appRevision
+  effectiveRevision
+  createdAt
+  updatedAt
+}
+
+fragment CrowdyStudioAgentUsageFields on CrowdyStudioAgentUsagePage {
+  records {
+    usageId
+    appId
+    userId
+    sessionId
+    runId
+    provider
+    providerGenerationId
+    resolvedModelId
+    accountingStatus
+    requestCount
+    promptTokens
+    completionTokens
+    reasoningTokens
+    cachedTokens
+    nativePromptTokens
+    nativeCompletionTokens
+    nativeReasoningTokens
+    nativeCachedTokens
+    toolCalls
+    toolRounds
+    compileCount
+    wallClockMs
+    reservedCostMicrousd
+    providerCostUsd
+    upstreamInferenceCostUsd
+    zdrEnforced
+    dataCollectionDenied
+    platformPolicyRevision
+    appPolicyRevision
+    billingMode
+    payerKind
+    occurredAt
+    ingestedAt
+  }
+  summary {
+    requestCount
+    promptTokens
+    completionTokens
+    reasoningTokens
+    cachedTokens
+    toolCalls
+    toolRounds
+    compileCount
+    wallClockMs
+    providerCostUsd
+  }
+  since
+  until
+}
+
+query CrowdyStudioAgentPolicy($appId: BigInt!) {
+  crowdyStudioAgentPolicy(appId: $appId) {
+    ...CrowdyStudioAgentPolicyFields
+  }
+}
+
+query CrowdyStudioAgentEffectivePolicy($appId: BigInt!) {
+  crowdyStudioAgentEffectivePolicy(appId: $appId) {
+    ...CrowdyStudioAgentPolicyFields
+  }
+}
+
+query CrowdyStudioAgentUsage(
+  $appId: BigInt!
+  $since: DateTime
+  $until: DateTime
+  $limit: Int
+) {
+  crowdyStudioAgentUsage(
+    appId: $appId
+    since: $since
+    until: $until
+    limit: $limit
+  ) {
+    ...CrowdyStudioAgentUsageFields
+  }
+}
+
+mutation CrowdyStudioAgentSetPolicy(
+  $input: SetCrowdyStudioAgentAppPolicyInput!
+) {
+  setCrowdyStudioAgentPolicy(input: $input) {
+    ...CrowdyStudioAgentPolicyFields
+  }
+}
+
+query CpCrowdyStudioAgentPlatformPolicy {
+  cpCrowdyStudioAgentPlatformPolicy {
+    ...CrowdyStudioAgentPolicyFields
+  }
+}
+
+mutation CpSetCrowdyStudioAgentPlatformPolicy(
+  $input: SetCrowdyStudioAgentPlatformPolicyInput!
+) {
+  cpSetCrowdyStudioAgentPlatformPolicy(input: $input) {
+    ...CrowdyStudioAgentPolicyFields
+  }
+}
+
+mutation CpSetCrowdyStudioAgentAppKill(
+  $input: SetCrowdyStudioAgentOperatorAppKillInput!
+) {
+  cpSetCrowdyStudioAgentAppKill(input: $input) {
+    ...CrowdyStudioAgentPolicyFields
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioAgentPolicyOperationName = "CrowdyStudioAgentPolicy";
+inline constexpr std::string_view kCrowdyStudioAgentEffectivePolicyOperationName = "CrowdyStudioAgentEffectivePolicy";
+inline constexpr std::string_view kCrowdyStudioAgentUsageOperationName = "CrowdyStudioAgentUsage";
+inline constexpr std::string_view kCrowdyStudioAgentSetPolicyOperationName = "CrowdyStudioAgentSetPolicy";
+inline constexpr std::string_view kCpCrowdyStudioAgentPlatformPolicyOperationName = "CpCrowdyStudioAgentPlatformPolicy";
+inline constexpr std::string_view kCpSetCrowdyStudioAgentPlatformPolicyOperationName = "CpSetCrowdyStudioAgentPlatformPolicy";
+inline constexpr std::string_view kCpSetCrowdyStudioAgentAppKillOperationName = "CpSetCrowdyStudioAgentAppKill";
+
+}  // namespace crowdyStudioAgent
 
 namespace environments {
 

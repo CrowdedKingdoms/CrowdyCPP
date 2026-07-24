@@ -111,6 +111,8 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   marketplace_ = std::make_unique<domains::MarketplaceAPI>(gameGql_, managementGql_);
   playerModel_ = std::make_unique<domains::PlayerModelAPI>(gameGql_);
   gameApps_ = std::make_unique<domains::GameAppsAPI>(gameGql_);
+  crowdyStudioAgent_ = std::make_unique<domains::CrowdyStudioAgentAPI>(
+      gameGql_, managementGql_, dispatcher_);
 
   admin_ = std::make_unique<domains::AdminAPI>(managementGql_, gameApps_.get());
 }

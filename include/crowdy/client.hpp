@@ -7,6 +7,7 @@
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/compute.hpp"
+#include "crowdy/domains/crowdy_studio_agent.hpp"
 #include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/domains/marketplace.hpp"
@@ -99,6 +100,11 @@ class CrowdyClient {
   domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
   domains::PlatformAPI& platform() { return *platform_; }
+  /// Durable provider-neutral Agentic Crowdy Studio runtime plus its
+  /// Management policy/usage/operator controls.
+  domains::CrowdyStudioAgentAPI& crowdyStudioAgent() {
+    return *crowdyStudioAgent_;
+  }
 
   // ----- Async API completion --------------------------------------------------
   /// Drain finished async API callbacks on the calling thread. Call once per
@@ -158,6 +164,7 @@ class CrowdyClient {
   std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
   std::unique_ptr<domains::PlatformAPI> platform_;
+  std::unique_ptr<domains::CrowdyStudioAgentAPI> crowdyStudioAgent_;
   std::unique_ptr<domains::AdminAPI> admin_;
   std::unique_ptr<domains::OperatorAPI> operatorApi_;
   std::unique_ptr<replication::ReplicationClient> replication_;

@@ -25,6 +25,17 @@ endif()
 
 find_package(Threads REQUIRED)
 
+# Embed the committed canonical 28-tool fixture in the native registry. This
+# configure step is offline and does not require CrowdyJS or Node.
+file(READ
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
+  CROWDY_AGENT_FIXTURE_JSON)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+  cmake/agent_fixture.hpp.in
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_agent_fixture.hpp"
+  @ONLY)
+
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)
 target_include_directories(crowdy_yyjson PUBLIC
@@ -97,10 +108,12 @@ endif()
 
 # ---- client facade + domains + session + kit
 file(GLOB CROWDY_DOMAIN_SOURCES CONFIGURE_DEPENDS src/domains/*.cpp)
+file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
 file(GLOB CROWDY_SESSION_SOURCES CONFIGURE_DEPENDS src/session/*.cpp)
 file(GLOB CROWDY_KIT_SOURCES CONFIGURE_DEPENDS src/kit/*.cpp)
 add_library(crowdy STATIC
   src/client.cpp
+  ${CROWDY_AGENT_SOURCES}
   ${CROWDY_DOMAIN_SOURCES}
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
@@ -108,6 +121,8 @@ add_library(crowdy STATIC
 target_include_directories(crowdy PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_include_directories(crowdy PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(crowdy PUBLIC crowdy_graphql crowdy_replication)
 if(CROWDY_WITH_CURL)
   target_link_libraries(crowdy PUBLIC crowdy_http_curl)
@@ -152,6 +167,11 @@ install(TARGETS ${CROWDY_INSTALL_TARGETS} crowdy_wire
         EXPORT CrowdyCPPTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES
+        tools/parity/fixtures/crowdyjs-agent-tools.v1.json
+        tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
+        tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
 install(EXPORT CrowdyCPPTargets
         NAMESPACE CrowdyCPP::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CrowdyCPP)

@@ -89,6 +89,10 @@ if(NOT CROWDY_NO_EXCEPTIONS)
   add_executable(studio_integration_test studio_integration_test.cpp)
   target_link_libraries(studio_integration_test PRIVATE crowdy)
   add_test(NAME studio_integration_test COMMAND studio_integration_test)
+
+  add_executable(native_control_gate_test native_control_gate_test.cpp)
+  target_link_libraries(native_control_gate_test PRIVATE crowdy)
+  add_test(NAME native_control_gate_test COMMAND native_control_gate_test)
 endif()
 
 add_executable(codec_struct_test codec_struct_test.cpp)

@@ -47,6 +47,12 @@ add_executable(public_api_parity_test public_api_parity_test.cpp)
 target_link_libraries(public_api_parity_test PRIVATE crowdy)
 add_test(NAME public_api_parity_test COMMAND public_api_parity_test)
 
+add_executable(studio_layout_test studio_layout_test.cpp)
+target_include_directories(studio_layout_test PRIVATE
+  "${PROJECT_BINARY_DIR}/generated")
+target_link_libraries(studio_layout_test PRIVATE crowdy)
+add_test(NAME studio_layout_test COMMAND studio_layout_test)
+
 add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)

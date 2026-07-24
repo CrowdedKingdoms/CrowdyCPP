@@ -20,13 +20,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Read pinned CrowdyJS parity target
         id: crowdyjs-target
-        run: echo "commit=$(jq -r '.crowdyjsParityTarget.commit' package.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(jq -r '.crowdyjsParityTarget.version' package.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r '.crowdyjsParityTarget.commit' package.json)" >> "$GITHUB_OUTPUT"
       - name: Check out pinned CrowdyJS parity target
         uses: actions/checkout@v4
         with:
           repository: CrowdedKingdoms/CrowdyJS
           ref: ${{ steps.crowdyjs-target.outputs.commit }}
           path: CrowdyJS
+      - name: Verify exact CrowdyJS parity target
+        run: |
+          test "$(jq -r '.version' CrowdyJS/package.json)" = "${{ steps.crowdyjs-target.outputs.version }}"
+          test "$(git -C CrowdyJS rev-parse HEAD)" = "${{ steps.crowdyjs-target.outputs.commit }}"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -56,6 +62,10 @@ jobs:
       - name: Check agent descriptor and preemption fixtures
         run: >
           node tools/parity/agent-fixtures.mjs
+          --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
+      - name: Check Crowdy Studio layout fixture
+        run: >
+          node tools/parity/layout-fixtures.mjs
           --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
       - name: Install native parity dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
@@ -135,6 +145,7 @@ jobs:
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/controller.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/models.hpp"
+          test -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/layout.hpp"
           test -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio_agent.hpp"
           shopt -s globstar
           for header in "$RUNNER_TEMP"/crowdy-noexceptions/include/crowdy/**/*.hpp; do
@@ -170,6 +181,7 @@ jobs:
       - name: Install and link external consumer
         run: |
           cmake --install build-crypto-off --prefix "$RUNNER_TEMP/crowdy-install"
+          test -e "$RUNNER_TEMP/crowdy-install/include/crowdy/studio/layout.hpp"
           cmake -S tests/consumer -B build-crypto-off-consumer \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-install"
           cmake --build build-crypto-off-consumer -j 4

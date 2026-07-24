@@ -32,6 +32,7 @@
 #include "crowdy/session/model_mirror.hpp"
 #endif
 #include "crowdy/session/world_session.hpp"
+#include "crowdy/studio/layout.hpp"
 #ifndef CROWDY_NO_EXCEPTIONS
 #include "crowdy/studio/controller.hpp"
 #include "crowdy/studio/runtime.hpp"

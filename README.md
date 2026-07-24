@@ -33,8 +33,8 @@ natively.
 
 **v0.14.1 strict portable-parity target:** the release gate reports zero
 portable gaps, unclassified differences, and stale classifications against
-CrowdyJS 12.0.0 at
-`a9c620c021c83c39f630dca4bb3e46b76691ac2d`. This is not a claim that the
+CrowdyJS 12.1.0 at
+`a510fcecf43bf9365fc34631a64fd201382214e7`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native
 equivalents and browser-only exclusions. Production Agentic Studio uses typed
 GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
@@ -75,11 +75,14 @@ refresh failure (old token retained) from reconnect failure (fresh token
 retained). Routed HTTP and WebSocket bases normalize to one `/graphql`, while
 explicit complete custom endpoints are preserved.
 
-**Crowdy Studio (CrowdyJS 12.0.0 portable surface):** `crowdyStudio()` is the typed,
+**Crowdy Studio (CrowdyJS 12.1.0 portable surface):** `crowdyStudio()` is the typed,
 app-scoped project/library/common-file API, including optimistic atomic saves,
 archive/restore, provenance-preserving imports, authored-module recovery, and
 permission-gated common publication. `crowdy::studio::CrowdyStudioController`
 is the headless project/autosave/conflict/checkpoint/runtime state machine.
+`crowdy::studio::StudioLayoutController` mirrors the four-pane persistent
+layout contract through injected storage, without assuming a native filesystem
+or process-global settings service.
 Engines inject synchronization, approval, crypto, clock, and CLIENT artifact
 runtime seams; CrowdyCPP does not ship DOM, Monaco, CSS, a Rust worker, or an
 engine renderer.
@@ -89,7 +92,7 @@ engine renderer.
 `crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
 epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
 tool seam. The immutable 28-tool registry is verified against the pinned
-CrowdyJS 12.0.0 canonical SHA-256 fixtures. There is no provider client, DOM
+CrowdyJS 12.1.0 canonical SHA-256 fixtures. There is no provider client, DOM
 driver, raw GraphQL/UDP executor, or generic tool authority in this surface.
 See [Native Agentic Studio](docs/native-agent-api.md).
 
@@ -181,7 +184,8 @@ protocols out.
 
 `CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
 core GraphQL outcomes, auth/portal, replication, non-authoring domains, and
-session stores remain available. Compute authoring, Crowdy Studio project
+session stores remain available. The independent Crowdy Studio pane-layout
+header remains available. Compute authoring, Crowdy Studio project
 models/API/controller, Agent/controller, player-host, Game Kit, and
 `ContainerMirror` headers are not installed because their validation
 contracts throw. Blocking GraphQL failures return an invalid `Json`; use
@@ -719,8 +723,8 @@ files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS 12.0.0 at
-`a4624c9193cb943b8a922ecea5013a9e48dcc2fb`. The source of truth is
+CrowdyCPP tracks CrowdyJS 12.1.0 at
+`a510fcecf43bf9365fc34631a64fd201382214e7`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:
@@ -737,8 +741,9 @@ npm run check:operations
 npm run check:parity
 
 # CrowdyJS must be built first; verifies all 28 descriptor digests and the
-# closed 16-reason preemption vocabulary against C++ schema/codegen fixtures.
+# closed 16-reason preemption vocabulary plus portable Studio layout vectors.
 npm run check:agent-fixtures
+npm run check:layout-fixtures
 
 # Parser/gate behavior.
 npm test
@@ -765,10 +770,12 @@ node tools/parity/blueprints-diff.mjs /tmp/js.json /tmp/cpp.json
 ```
 
 When intentionally changing the target, update the pinned CrowdyJS SHA, sync
-the descriptor/preemption fixtures with `agent-fixtures.mjs --write`,
-regenerate `docs/parity-matrix.md`, and commit the schema plus both generated
-headers in the same change. None of these maintainer gates run during a normal
-external CMake build.
+the descriptor/preemption fixtures with `agent-fixtures.mjs --write` and the
+Studio layout fixture with `layout-fixtures.mjs --write`,
+regenerate `docs/parity-matrix.md`, and commit the pin plus changed fixtures
+and generated evidence together. Include schema snapshots and generated
+headers whenever the target also changes SDL. None of these maintainer gates
+run during a normal external CMake build.
 
 ## Tests
 

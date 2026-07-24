@@ -164,6 +164,18 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
   ),
+  'PlayerControlGate.start': classification(
+    CATEGORY.BROWSER,
+    'browser capture listeners translate DOM input, visibility, and offline events into native gate calls',
+  ),
+  'PlayerControlGate.humanInputActive': classification(
+    CATEGORY.BROWSER,
+    'browser-only recent-input indicator is derived from DOM event timing',
+  ),
+  'PlayerControlGate.subscribe': classification(
+    CATEGORY.NATIVE,
+    'AgentControlLeaseManagerOptionsV1.on_change publishes immutable native gate snapshots',
+  ),
 };
 
 const CLASS_CLASSIFICATIONS = {
@@ -174,6 +186,50 @@ const CLASS_CLASSIFICATIONS = {
   BrowserSessionPkceStore: classification(
     CATEGORY.BROWSER,
     'browser sessionStorage helper; native applications own verifier persistence',
+  ),
+  CrowdyStudioAgentDomShell: classification(
+    CATEGORY.BROWSER,
+    'accessible agent dock is a DOM rendering shell over the portable controller',
+  ),
+  CrowdyStudioDomShell: classification(
+    CATEGORY.BROWSER,
+    'Studio workspace shell owns DOM elements, browser events, and CSS layout',
+  ),
+  AgentControlBanner: classification(
+    CATEGORY.BROWSER,
+    'always-visible control banner is browser DOM chrome over the native lease gate',
+  ),
+  VirtualFileSystem: classification(
+    CATEGORY.BROWSER,
+    'bounded VFS is the Monaco/browser-language-worker workspace; native editors own their document model',
+  ),
+  VfsLimitError: classification(
+    CATEGORY.BROWSER,
+    'VFS limit errors belong to the Monaco/browser-language-worker workspace',
+  ),
+  WorkerMessageReader: classification(
+    CATEGORY.BROWSER,
+    'vscode-jsonrpc adapter transports messages through a browser Web Worker',
+  ),
+  WorkerMessageWriter: classification(
+    CATEGORY.BROWSER,
+    'vscode-jsonrpc adapter transports messages through a browser Web Worker',
+  ),
+  WorkerLanguageClient: classification(
+    CATEGORY.BROWSER,
+    'browser Rust LSP client owns Web Worker lifecycle and browser timers',
+  ),
+  CrowdyStudioEmbedDock: classification(
+    CATEGORY.BROWSER,
+    'embed dock owns window geometry, PointerEvent capture, ARIA, and localStorage',
+  ),
+  CrowdyStudioTextHud: classification(
+    CATEGORY.BROWSER,
+    'text HUD renders untrusted presentation output into game-owned DOM',
+  ),
+  CrowdyStudioEmbed: classification(
+    CATEGORY.BROWSER,
+    'embed panel owns responsive DOM chrome, focus trapping, and browser input suppression',
   ),
 };
 
@@ -225,6 +281,15 @@ const METHOD_ALIASES = {
   'RemoteActorLane.get': 'find',
   'RemoteActorStore.count': 'size',
   'RemoteActorStore.get': 'find',
+  'PlayerControlGate.bind': 'attach',
+  'PlayerControlGate.destroy': 'disconnect',
+  'PlayerControlGate.pause': 'preempt',
+  'PlayerControlGate.stop': 'preempt',
+  'PlayerControlGate.death': 'onDeath',
+  'PlayerControlGate.contextChanged': 'onContextChanged',
+  'PlayerControlGate.permissionChanged': 'onPermissionChanged',
+  'PlayerControlGate.controlTargetChanged': 'onControlledEntityChanged',
+  'PlayerControlGate.disconnected': 'disconnect',
 };
 
 const ASYNC_TWIN_WAIVERS = {
@@ -309,6 +374,218 @@ const CLASS_MAP = {
   CrowdyAgentToolRegistry: 'AgentToolRegistry',
   AgentControlLeaseManager: 'AgentControlLeaseManager',
   CrowdyAgentBrowserToolDispatcher: 'NativeBrowserToolDispatcherAdapter',
+  StudioLayoutController: 'StudioLayoutController',
+  PlayerControlGate: 'AgentControlLeaseManager',
+};
+
+const CROSS_CUTTING_EXPORT_MODULES = {
+  'src/crowdy-studio/layout.ts': exportModule(
+    [
+      'STUDIO_LAYOUT_STORAGE_KEY',
+      'STUDIO_PANE_IDS',
+      'StudioLayoutController',
+      'StudioLayoutControllerOptions',
+      'StudioLayoutListener',
+      'StudioLayoutState',
+      'StudioLayoutStorage',
+      'StudioPaneId',
+      'StudioPaneSizeRange',
+      'clampStudioPaneSize',
+      'studioPaneSizeRange',
+    ],
+    CATEGORY.NATIVE,
+    'headless pane state has an installed crowdy/studio/layout.hpp equivalent',
+    {
+      STUDIO_LAYOUT_STORAGE_KEY: 'STUDIO_LAYOUT_STORAGE_KEY',
+      STUDIO_PANE_IDS: 'STUDIO_PANE_IDS',
+      StudioLayoutController: 'StudioLayoutController',
+      StudioLayoutControllerOptions: 'StudioLayoutControllerOptions',
+      StudioLayoutListener: 'StudioLayoutListener',
+      StudioLayoutState: 'StudioLayoutState',
+      StudioLayoutStorage: 'ICrowdyStudioLayoutStorage',
+      StudioPaneId: 'StudioPaneId',
+      StudioPaneSizeRange: 'StudioPaneSizeRange',
+      clampStudioPaneSize: 'clampStudioPaneSize',
+      studioPaneSizeRange: 'studioPaneSizeRange',
+    },
+    'include/crowdy/studio/layout.hpp',
+  ),
+  'src/player-host/control-gate.ts': exportModule(
+    [
+      'PlayerControlGate',
+      'PlayerControlGateAgentControl',
+      'PlayerControlGateOptions',
+      'PlayerControlGateSnapshot',
+    ],
+    CATEGORY.NATIVE,
+    'browser takeover seam maps to the native AgentControlLeaseManager authority gate',
+    {
+      PlayerControlGate: 'AgentControlLeaseManager',
+      PlayerControlGateAgentControl: 'CrowdyStudioAgentController',
+      PlayerControlGateOptions: 'AgentControlLeaseManagerOptionsV1',
+      PlayerControlGateSnapshot: 'AgentControlLeaseSnapshotV1',
+    },
+    {
+      PlayerControlGate: 'include/crowdy/player_host/lease_manager.hpp',
+      PlayerControlGateAgentControl: 'include/crowdy/agent/controller.hpp',
+      PlayerControlGateOptions: 'include/crowdy/player_host/lease_manager.hpp',
+      PlayerControlGateSnapshot: 'include/crowdy/player_host/lease_manager.hpp',
+    },
+  ),
+  'src/crowdy-studio/editor.ts': exportModule(
+    [
+      'CrowdyStudioEditorAdapter',
+      'CrowdyStudioEditorCallbacks',
+      'CrowdyStudioEditorMode',
+    ],
+    CATEGORY.BROWSER,
+    'editor adapter is the DOM mount contract; native engines bind the headless controller directly',
+  ),
+  'src/crowdy-studio/mount.ts': exportModule(
+    [
+      'CrowdyStudioHandle',
+      'MountCrowdyStudioAgentOptions',
+      'MountCrowdyStudioOptions',
+      'mountCrowdyStudio',
+      'observeCrowdyStudioEditorLayout',
+    ],
+    CATEGORY.BROWSER,
+    'mount surface owns DOM hosts, ResizeObserver, Monaco, and textarea fallback',
+  ),
+  'src/crowdy-studio/monaco-editor.ts': exportModule(
+    [
+      'MonacoCrowdyStudioEditorOptions',
+      'createMonacoCrowdyStudioEditor',
+      'isCurrentDiagnosticVersion',
+    ],
+    CATEGORY.BROWSER,
+    'Monaco adapter and its VFS/LSP worker are browser editor infrastructure',
+  ),
+  'src/crowdy-studio/agent-dom-shell.ts': exportModule(
+    ['CrowdyStudioAgentDomShell', 'CrowdyStudioAgentDomShellOptions'],
+    CATEGORY.BROWSER,
+    'agent dock is an accessible DOM shell over portable agent state',
+  ),
+  'src/crowdy-studio/dom-shell.ts': exportModule(
+    ['CrowdyStudioDomShell'],
+    CATEGORY.BROWSER,
+    'workspace rendering, menus, panes, and browser events belong to the DOM shell',
+  ),
+  'src/crowdy-studio/splitter.ts': exportModule(
+    [
+      'PaneSplitterHandle',
+      'PaneSplitterOptions',
+      'PaneSplitterRange',
+      'createPaneSplitter',
+    ],
+    CATEGORY.BROWSER,
+    'splitter is PointerEvent, keyboard, ARIA, and HTMLElement behavior',
+  ),
+  'src/crowdy-studio/textarea-editor.ts': exportModule(
+    ['createTextareaCrowdyStudioEditor'],
+    CATEGORY.BROWSER,
+    'fallback editor creates and drives browser textarea elements',
+  ),
+  'src/live-coding/vfs.ts': exportModule(
+    [
+      'DEFAULT_VFS_LIMITS',
+      'VfsLimitError',
+      'VirtualDocument',
+      'VirtualFileSystem',
+      'VirtualFileSystemLimits',
+      'offsetAt',
+    ],
+    CATEGORY.BROWSER,
+    'VFS is the bounded Monaco/browser-language-worker document workspace',
+  ),
+  'src/live-coding/worker-transport.ts': exportModule(
+    [
+      'Disposable',
+      'LanguageWorkerLike',
+      'WorkerLanguageClient',
+      'WorkerLanguageClientOptions',
+      'WorkerMessageReader',
+      'WorkerMessageWriter',
+      'createDefaultRustLanguageWorker',
+      'isWorkerLspMessage',
+    ],
+    CATEGORY.BROWSER,
+    'worker transport binds vscode-jsonrpc to browser Web Worker messaging',
+  ),
+  'src/player-host/control-banner.ts': exportModule(
+    [
+      'AGENT_CONTROL_BANNER_STYLES',
+      'AgentControlBanner',
+      'AgentControlBannerController',
+      'ensureAgentControlBannerStyles',
+    ],
+    CATEGORY.BROWSER,
+    'control banner and styles are browser DOM safety chrome',
+  ),
+  'src/crowdy-studio/embed/dock.ts': exportModule(
+    [
+      'CROWDY_STUDIO_EMBED_DEFAULT_DOCK_RATIO',
+      'CROWDY_STUDIO_EMBED_DOCK_WIDTH_STORAGE_KEY',
+      'CROWDY_STUDIO_EMBED_MIN_DOCK_WIDTH_PX',
+      'CROWDY_STUDIO_EMBED_MIN_GAME_WIDTH_PX',
+      'CROWDY_STUDIO_EMBED_NARROW_BREAKPOINT_PX',
+      'CROWDY_STUDIO_EMBED_SPLITTER_WIDTH_PX',
+      'CrowdyStudioEmbedDock',
+      'CrowdyStudioEmbedDockStorage',
+      'CrowdyStudioEmbedDockWidthRange',
+      'addBodyClass',
+      'clampCrowdyStudioEmbedDockWidth',
+      'crowdyStudioEmbedDockWidthRange',
+      'removeBodyClass',
+    ],
+    CATEGORY.BROWSER,
+    'embed dock owns viewport geometry, DOM classes, pointer capture, ARIA, and localStorage',
+  ),
+  'src/crowdy-studio/embed/embed-styles.ts': exportModule(
+    ['CROWDY_STUDIO_EMBED_STYLES', 'ensureCrowdyStudioEmbedStyles'],
+    CATEGORY.BROWSER,
+    'embed presentation is CSS text injected into a browser document',
+  ),
+  'src/crowdy-studio/embed/hud-layer.ts': exportModule(
+    ['CrowdyStudioHudEntry', 'CrowdyStudioTextHud'],
+    CATEGORY.BROWSER,
+    'HUD layer renders text-only player presentation into game-owned DOM',
+  ),
+  'src/crowdy-studio/embed/panel.ts': exportModule(
+    [
+      'CrowdyStudioEmbed',
+      'CrowdyStudioEmbedAgentSessionOptions',
+      'CrowdyStudioEmbedContext',
+      'CrowdyStudioEmbedDisplayMode',
+      'CrowdyStudioEmbedHandle',
+      'CrowdyStudioEmbedOptions',
+      'CrowdyStudioEmbedServices',
+      'CrowdyStudioEmbedTargetPermission',
+      'CrowdyStudioEmbedTargetPermissions',
+      'createCrowdyStudioEmbed',
+    ],
+    CATEGORY.BROWSER,
+    'embed panel owns responsive DOM docking, modal focus, and gameplay-input suppression',
+  ),
+};
+
+const CROSS_CUTTING_BEHAVIORS = {
+  'embed-focus-trap': {
+    path: 'src/crowdy-studio/embed/panel.ts',
+    markers: ['private trapTab(', 'function focusableElements('],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'modal focus trap enumerates and redirects browser DOM focus',
+    ),
+  },
+  'player-glue-worker-package': {
+    path: 'package.json',
+    packageExport: './player-glue-worker',
+    classification: classification(
+      CATEGORY.BROWSER,
+      'published subpath is the browser Web Worker entry; native CLIENT runtimes use injected engine sandboxes',
+    ),
+  },
 };
 
 const STRICT_NATIVE_SURFACE_GAPS = [];
@@ -336,6 +613,7 @@ for (const field of inlineRootFields()) usedFields.add(field);
 const endpointOperationContracts = operationEndpointContracts();
 const keyDtoContracts = keyDtoContractResults();
 const endpointPlaneParity = endpointPlaneParityResults();
+const crossCuttingSurfaces = crossCuttingSurfaceResults();
 
 const state = {
   unclassified: [],
@@ -353,6 +631,8 @@ const state = {
   asyncTwinsChecked: 0,
   dtoFieldsChecked: keyDtoContracts.checked,
   endpointPlanesChecked: endpointPlaneParity.checked,
+  crossCuttingExportsChecked: crossCuttingSurfaces.exports.length,
+  crossCuttingBehaviorsChecked: crossCuttingSurfaces.behaviors.length,
 };
 for (const contract of endpointOperationContracts) {
   if (contract.validEndpoints.length === 0) {
@@ -363,6 +643,8 @@ for (const contract of endpointOperationContracts) {
 }
 state.unclassified.push(...keyDtoContracts.failures);
 state.unclassified.push(...endpointPlaneParity.failures);
+state.unclassified.push(...crossCuttingSurfaces.failures);
+state.stale.push(...crossCuttingSurfaces.stale);
 
 const targetVersion = JSON.parse(
   readFileSync(join(crowdyjsPath, 'package.json'), 'utf8'),
@@ -542,6 +824,27 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
   report += '\n';
 }
 
+report += '## Crowdy Studio cross-cutting export audit\n\n';
+report +=
+  '| CrowdyJS export | Classification |\n' +
+  '|---|---|\n';
+for (const entry of crossCuttingSurfaces.exports) {
+  const id = `export:${entry.module}.${entry.symbol}`;
+  recordClassification(state, entry.classification, id);
+  report +=
+    `| \`${escapeCell(`${entry.module}#${entry.symbol}`)}\` | ` +
+    `${escapeCell(renderClassification(entry.classification))} |\n`;
+}
+report += '\n';
+for (const entry of crossCuttingSurfaces.behaviors) {
+  const id = `surface:${entry.id}`;
+  recordClassification(state, entry.classification, id);
+  report +=
+    `- \`${escapeInlineCode(entry.id)}\`: ` +
+    `${renderClassification(entry.classification)}\n`;
+}
+report += '\n';
+
 report += '## Strict-native surfaces not represented by one method\n\n';
 for (const gap of STRICT_NATIVE_SURFACE_GAPS) {
   state.portable.push(`surface:${gap}`);
@@ -564,6 +867,10 @@ report += `- C++ sync/async method twins checked: ${state.asyncTwinsChecked}\n`;
 report +=
   `- Reviewed async-twin waivers: ${state.usedAsyncTwinWaivers.size}\n`;
 report += `- Key DTO fields type-checked: ${state.dtoFieldsChecked}\n`;
+report +=
+  `- Cross-cutting Studio exports checked: ${state.crossCuttingExportsChecked}\n`;
+report +=
+  `- Cross-cutting browser behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
@@ -663,6 +970,140 @@ function classifyNames(rootName, names, category, reason) {
   return Object.fromEntries(
     names.map((name) => [`${rootName}.${name}`, classification(category, reason)]),
   );
+}
+
+function exportModule(
+  symbols,
+  category,
+  reason,
+  nativeSymbols = {},
+  nativePaths = null,
+) {
+  return {
+    symbols: [...symbols].sort(),
+    classification: classification(category, reason),
+    nativeSymbols,
+    nativePaths,
+  };
+}
+
+function crossCuttingSurfaceResults() {
+  const exports = [];
+  const behaviors = [];
+  const failures = [];
+  const stale = [];
+  const cppSources = new Map();
+
+  for (const [module, baseline] of Object.entries(
+    CROSS_CUTTING_EXPORT_MODULES,
+  )) {
+    const path = join(crowdyjsPath, ...module.split('/'));
+    if (!existsSync(path)) {
+      stale.push(`export-module:${module} (module missing)`);
+      continue;
+    }
+    const actual = typescriptExports(readFileSync(path, 'utf8'));
+    const expected = new Set(baseline.symbols);
+    for (const symbol of actual) {
+      if (!expected.has(symbol)) {
+        failures.push(`export:${module}.${symbol} (new cross-cutting export)`);
+      }
+    }
+    for (const symbol of baseline.symbols) {
+      const id = `export:${module}.${symbol}`;
+      if (!actual.has(symbol)) {
+        stale.push(id);
+        continue;
+      }
+      exports.push({
+        module,
+        symbol,
+        classification: baseline.classification,
+      });
+      if (baseline.classification.category !== CATEGORY.NATIVE) continue;
+
+      const nativeSymbol = baseline.nativeSymbols[symbol];
+      const nativePath =
+        typeof baseline.nativePaths === 'string'
+          ? baseline.nativePaths
+          : baseline.nativePaths?.[symbol];
+      if (!nativeSymbol || !nativePath) {
+        failures.push(`${id} (native equivalent is not specified)`);
+        continue;
+      }
+      if (!cppSources.has(nativePath)) {
+        const fullPath = join(root, ...nativePath.split('/'));
+        cppSources.set(
+          nativePath,
+          existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : null,
+        );
+      }
+      const cppSource = cppSources.get(nativePath);
+      const identifier = new RegExp(
+        `\\b${escapeRegExp(nativeSymbol)}\\b`,
+        'u',
+      );
+      if (cppSource === null || !identifier.test(cppSource)) {
+        failures.push(
+          `${id} (missing ${nativeSymbol} in ${nativePath})`,
+        );
+      }
+    }
+  }
+
+  for (const [id, baseline] of Object.entries(CROSS_CUTTING_BEHAVIORS)) {
+    const path = join(crowdyjsPath, ...baseline.path.split('/'));
+    if (!existsSync(path)) {
+      stale.push(`surface:${id} (source missing)`);
+      continue;
+    }
+    const source = readFileSync(path, 'utf8');
+    let found = true;
+    if (baseline.packageExport) {
+      const manifest = JSON.parse(source);
+      found = Object.hasOwn(manifest.exports ?? {}, baseline.packageExport);
+    } else {
+      found = baseline.markers.every((marker) => source.includes(marker));
+    }
+    if (!found) {
+      stale.push(`surface:${id}`);
+      continue;
+    }
+    behaviors.push({ id, classification: baseline.classification });
+  }
+
+  exports.sort(
+    (left, right) =>
+      left.module.localeCompare(right.module) ||
+      left.symbol.localeCompare(right.symbol),
+  );
+  behaviors.sort((left, right) => left.id.localeCompare(right.id));
+  return { exports, behaviors, failures, stale };
+}
+
+function typescriptExports(source) {
+  const names = new Set();
+  const declarationPattern =
+    /\bexport\s+(?:(?:declare|abstract|async)\s+)*(?:class|function|const|let|var|interface|type|enum)\s+([A-Za-z_]\w*)/gu;
+  for (const match of source.matchAll(declarationPattern)) names.add(match[1]);
+
+  const listPattern =
+    /\bexport\s+(?:type\s+)?\{([\s\S]*?)\}\s*(?:from\s+['"][^'"]+['"]\s*)?;/gu;
+  for (const match of source.matchAll(listPattern)) {
+    for (const raw of match[1].split(',')) {
+      const value = raw.replace(/\/\*[\s\S]*?\*\//gu, '').trim();
+      if (!value) continue;
+      const withoutType = value.replace(/^type\s+/u, '');
+      const parts = withoutType.split(/\s+as\s+/u);
+      const exported = parts.at(-1)?.trim();
+      if (/^[A-Za-z_]\w*$/u.test(exported ?? '')) names.add(exported);
+    }
+  }
+  return names;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function renderClassification(value) {
@@ -1078,7 +1519,12 @@ function collectTsClasses(crowdyjs) {
   mergeClasses(all, tsClassMethods(join(crowdyjs, 'src'), ['world.ts']));
   mergeClasses(
     all,
-    tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio'), ['controller.ts']),
+    tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio'), [
+      'agent-dom-shell.ts',
+      'controller.ts',
+      'dom-shell.ts',
+      'layout.ts',
+    ]),
   );
   mergeClasses(
     all,
@@ -1091,7 +1537,26 @@ function collectTsClasses(crowdyjs) {
   );
   mergeClasses(
     all,
-    tsClassMethods(join(crowdyjs, 'src', 'player-host'), ['lease-manager.ts']),
+    tsClassMethods(join(crowdyjs, 'src', 'player-host'), [
+      'control-banner.ts',
+      'control-gate.ts',
+      'lease-manager.ts',
+    ]),
+  );
+  mergeClasses(
+    all,
+    tsClassMethods(join(crowdyjs, 'src', 'live-coding'), [
+      'vfs.ts',
+      'worker-transport.ts',
+    ]),
+  );
+  mergeClasses(
+    all,
+    tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio', 'embed'), [
+      'dock.ts',
+      'hud-layer.ts',
+      'panel.ts',
+    ]),
   );
   return all;
 }

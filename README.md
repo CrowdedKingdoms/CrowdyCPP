@@ -180,12 +180,13 @@ checks that the linked libcurl is 8.13+ and actually advertises both `ws` and
 protocols out.
 
 `CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
-core GraphQL outcomes, auth/portal, replication, portable domains, and session
-stores remain available. Agent/controller, player-host, Game Kit,
-`ContainerMirror`, and headless Studio controller headers are not installed
-because their validation contracts throw. Blocking GraphQL failures return an
-invalid `Json`; use `*Async` callbacks for typed details. Injected transports
-must not throw across the SDK boundary.
+core GraphQL outcomes, auth/portal, replication, non-authoring domains, and
+session stores remain available. Compute authoring, Crowdy Studio project
+models/API/controller, Agent/controller, player-host, Game Kit, and
+`ContainerMirror` headers are not installed because their validation
+contracts throw. Blocking GraphQL failures return an invalid `Json`; use
+`*Async` callbacks for typed details. Injected transports must not throw
+across the SDK boundary.
 
 ## Quick start
 

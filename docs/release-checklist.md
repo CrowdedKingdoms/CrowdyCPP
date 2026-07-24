@@ -56,9 +56,10 @@ cmake --build build-release-no-exceptions -j
 ctest --test-dir build-release-no-exceptions --output-on-failure
 ```
 
-Install this profile and verify the reduced package omits Agent/controller,
-player-host, Game Kit, `ContainerMirror`, and headless Studio controller
-headers while the umbrella consumer still links.
+Install this profile and verify the reduced package omits Compute authoring,
+Crowdy Studio project API/models/controller, Agent/controller, player-host,
+Game Kit, and `ContainerMirror` headers while the umbrella consumer still
+links.
 
 ## OpenSSL-off library build
 

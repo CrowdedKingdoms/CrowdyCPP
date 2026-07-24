@@ -343,8 +343,11 @@ if(CROWDY_NO_EXCEPTIONS)
           PATTERN "agent" EXCLUDE
           PATTERN "player_host" EXCLUDE
           PATTERN "kit" EXCLUDE
+          PATTERN "compute.hpp" EXCLUDE
+          PATTERN "crowdy_studio.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE
+          PATTERN "models.hpp" EXCLUDE
           PATTERN "model_mirror.hpp" EXCLUDE)
 else()
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

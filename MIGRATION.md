@@ -47,8 +47,9 @@ introduces non-copyable owning runtime types.
   disabled, omitted crypto fails with `CryptoUnavailable` rather than leaving
   an unresolved symbol.
 - `CROWDY_NO_EXCEPTIONS=ON` is a reduced package profile. It does not install
-  Agent/controller, player-host, Game Kit, `ContainerMirror`, or headless
-  Studio controller headers; use the normal package for those layers.
+  Compute authoring, Crowdy Studio project API/models/controller,
+  Agent/controller, player-host, Game Kit, or `ContainerMirror` headers; use
+  the normal package for those layers.
 
 ### Runtime ownership and copyability
 

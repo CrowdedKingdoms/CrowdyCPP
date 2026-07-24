@@ -127,8 +127,20 @@ jobs:
           cmake --install build-no-exceptions --prefix "$RUNNER_TEMP/crowdy-noexceptions"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/agent/controller.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/player_host/player_host.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/compute.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/controller.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/models.hpp"
           test -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio_agent.hpp"
+          shopt -s globstar
+          for header in "$RUNNER_TEMP"/crowdy-noexceptions/include/crowdy/**/*.hpp; do
+            printf '#include <%s>\nint main() { return 0; }\n' \
+              "${header#"$RUNNER_TEMP/crowdy-noexceptions/include/"}" |
+              c++ -std=c++20 -fno-exceptions \
+                -DCROWDY_NO_EXCEPTIONS=1 \
+                -I"$RUNNER_TEMP/crowdy-noexceptions/include" \
+                -fsyntax-only -x c++ -
+          done
           cmake -S tests/consumer -B build-noexceptions-consumer \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-noexceptions"
           cmake --build build-noexceptions-consumer -j 4

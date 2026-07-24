@@ -87,6 +87,8 @@ include/crowdy/          public headers
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
   kit/                   Game Kit (blueprints + runtime helpers)
+  player_host/           typed Play capabilities, observations, leases, adapters
+  agent/                 native local-tool dispatcher (no model/server fallback)
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
 operations/              GraphQL operation documents (codegen input)
@@ -198,6 +200,44 @@ payments() / quotas() / environments() / usage() / sharedEnvironment()`.
 Operator surface (platform operations, requires operator rights):
 `client.operator_()`. The SDK never relaxes server-side authorization — these
 are typed wrappers; the caller still needs the right token and permission.
+
+## Native player-host and local tool integration
+
+Native games can expose agent-addressable Play controls without browser APIs
+through the installed headers under `crowdy/player_host/` and
+`crowdy/agent/native_tool_dispatcher.hpp`.
+
+- `PlayerHostAdapterV1` is the only gameplay execution boundary. Implement it
+  over the same movement, inventory, interaction, crafting, mount, combat,
+  chat, and travel intent services that human controls use. Do not hand an
+  adapter a generic `CrowdyClient`, transport, input-injection, or raw network
+  escape hatch.
+- `AgentControlLeaseManager` binds Play authority to the exact client epoch,
+  game context, controlled entity, capability revision, lease scopes, fresh
+  observation, heartbeat, and command rate. Call `tick()` from the game thread.
+  Human input, Escape, Stop, death, disconnect, and permission/admission/context
+  changes call the corresponding synchronous preemption method.
+- `NativeToolDispatcherV1` is an execute-once callback router for the 14
+  mandatory `game.*` tools and the 11 native Studio/runtime tools. It validates
+  canonical v12 descriptor digests, typed input/output bounds, mode, deadline,
+  epoch, context, lease, and approval metadata; late or ambiguous effects are
+  never blindly retried. Server, model, and provider tools have no local
+  fallback.
+- `CrowdyStudioHostAdapter` connects local Studio/runtime tools to the same
+  headless Studio controller used by human actions. Engine adapters own thread
+  scheduling; callbacks may complete inline or later, and cancellation tokens
+  provide a cooperative stop signal while the dispatcher fences late results.
+
+World coordinates, distances, health values, fuel, revisions, and other
+contract values that may exceed a native or JSON number remain decimal
+strings. The typed schemas reject non-canonical forms before an adapter runs.
+
+The future native Agent Controller integration is intentionally narrow: pass
+its validated typed tool-call envelope to `NativeToolDispatcherV1::dispatch`,
+provide its canonical argument-hash and exact approval-grant validators,
+forward the returned `NativeToolResultV1` callback to the controller's result
+acknowledgement path, call `cancelActive(reason)` on controller preemption, and
+clear execute-once records only after the attached session is closed.
 
 ## The native replication client
 

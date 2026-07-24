@@ -62,6 +62,12 @@ class FakeTransport final : public agent::IAgentTransport {
   int heartbeatCount = 0;
   int attachEpoch = 0;
   int approveCount = 0;
+  bool holdAcknowledgements = false;
+  struct PendingAcknowledgement {
+    std::string throughSeq;
+    agent::AgentCallback<std::string> callback;
+  };
+  std::vector<PendingAcknowledgement> pendingAcknowledgements;
 
   void getSession(std::string,
                   agent::AgentCallback<agent::AgentSession> callback) override {
@@ -147,8 +153,20 @@ class FakeTransport final : public agent::IAgentTransport {
       agent::AgentMutationContext, std::string throughSeq,
       agent::AgentCallback<std::string> callback) override {
     acknowledgements.push_back(throughSeq);
+    if (holdAcknowledgements) {
+      pendingAcknowledgements.push_back(
+          {std::move(throughSeq), std::move(callback)});
+      return;
+    }
     callback(agent::AgentOutcome<std::string>::success(
         std::move(throughSeq)));
+  }
+
+  void completeAcknowledgement(std::size_t index) {
+    CHECK(index < pendingAcknowledgements.size());
+    auto pending = std::move(pendingAcknowledgements[index]);
+    pending.callback(agent::AgentOutcome<std::string>::success(
+        std::move(pending.throughSeq)));
   }
 
   void heartbeat(
@@ -487,6 +505,38 @@ void testReconnectFencesStaleEpoch() {
   CHECK(harness.controller->state().session->mode == agent::AgentMode::Build);
 }
 
+void testStaleAcknowledgementDoesNotStallReattachedGeneration() {
+  Harness harness;
+  harness.initialize();
+  harness.transport.holdAcknowledgements = true;
+
+  harness.subscriptions.emit(
+      0, lifecycleEvent("1", agent::AgentEventType::ModeSelected));
+  pump(*harness.controller);
+  CHECK_EQ(harness.transport.pendingAcknowledgements.size(), std::size_t{1});
+  CHECK(harness.controller->state().lastAcknowledgedSeq == "0");
+
+  harness.controller->reconnect();
+  pump(*harness.controller);
+  CHECK(harness.controller->state().clientEpoch == "2");
+  CHECK_EQ(harness.subscriptions.slots.size(), std::size_t{2});
+  CHECK(harness.controller->state().lastAcknowledgedSeq == "1");
+
+  harness.subscriptions.emit(
+      1, lifecycleEvent("2", agent::AgentEventType::ModeSelected));
+  pump(*harness.controller);
+  CHECK_EQ(harness.transport.pendingAcknowledgements.size(), std::size_t{2});
+  CHECK(harness.transport.acknowledgements.back() == "2");
+
+  harness.transport.completeAcknowledgement(0);
+  pump(*harness.controller);
+  CHECK(harness.controller->state().lastAcknowledgedSeq == "1");
+
+  harness.transport.completeAcknowledgement(1);
+  pump(*harness.controller);
+  CHECK(harness.controller->state().lastAcknowledgedSeq == "2");
+}
+
 void testApprovalBudgetAndPolicyKill() {
   Harness harness;
   harness.initialize();
@@ -720,6 +770,7 @@ void testPollingFallbackAndLifecycleControls() {
 int main() {
   testReplayGapDedupAndAck();
   testReconnectFencesStaleEpoch();
+  testStaleAcknowledgementDoesNotStallReattachedGeneration();
   testApprovalBudgetAndPolicyKill();
   testWorkspaceRenewalAndHumanEdit();
   testOutcomeUnknownAndLateResultFencing();

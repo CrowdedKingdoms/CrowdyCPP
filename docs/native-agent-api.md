@@ -79,10 +79,12 @@ The bridge revalidates descriptor digest, epoch, context, lease, approval,
 input/output schema, deadline, and execute-once identity. It converts generic
 event JSON field-by-field into closed native variants and canonicalizes the
 typed result JSON. Ambiguous effects return `OUTCOME_UNKNOWN` and are never
-retried. Studio project edits and player commands route through the same
-intent services as human actions. They never receive a raw `CrowdyClient`,
-GraphQL executor, UDP connection, provider credential, shell, filesystem, or
-generic tool callback.
+retried. Once an effectful host dispatch starts, timeout, preemption, context
+fencing, or invalid output also returns `OUTCOME_UNKNOWN`; validation and
+other definitive failures detected before an effect remain `FAILED`. Studio
+project edits and player commands route through the same intent services as
+human actions. They never receive a raw `CrowdyClient`, GraphQL executor, UDP
+connection, provider credential, shell, filesystem, or generic tool callback.
 
 Studio should also provide:
 

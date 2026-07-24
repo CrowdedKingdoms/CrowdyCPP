@@ -2,6 +2,10 @@
 
 #include <curl/curl.h>
 
+#if LIBCURL_VERSION_NUM < 0x080d00
+#error "CrowdyCPP curl WebSockets require libcurl 8.13 or newer"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -568,7 +572,10 @@ class CurlWebSocketTransport final : public IWebSocketTransport {
 
 bool runtimeHasWebSockets() noexcept {
   const curl_version_info_data* info = curl_version_info(CURLVERSION_NOW);
-  if (!info || !info->protocols) return false;
+  // curl 8.13 fixed the fragmented-message flag semantics this backend uses
+  // to distinguish continuation frames from complete messages. Refuse a
+  // mismatched older runtime even when compiled against newer headers.
+  if (!info || info->version_num < 0x080d00 || !info->protocols) return false;
   bool ws = false;
   bool wss = false;
   for (const char* const* protocol = info->protocols; *protocol; ++protocol) {

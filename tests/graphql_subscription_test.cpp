@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -9,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "crowdy/agent/client_runtime.hpp"
 #include "crowdy/agent/transport.hpp"
 #include "crowdy/client.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
@@ -157,6 +159,27 @@ class FakeHttpTransport final : public IHttpTransport {
   }
 };
 
+class TickingBrowserDispatcher final
+    : public agent::IAgentBrowserToolDispatcher {
+ public:
+  void dispatch(
+      agent::AgentToolInvocation,
+      agent::AgentCallback<agent::AgentToolResult> callback) override {
+    callback(agent::AgentOutcome<agent::AgentToolResult>::failure(
+        agent::makeAgentError("AGENT_HOST_UNAVAILABLE",
+                              "test dispatcher has no tools")));
+  }
+  void cancelActive(agent::AgentPreemptionReason) override {
+    ++cancellations;
+  }
+  void clearClosedSession() override { ++clears; }
+  void tick() override { ++ticks; }
+
+  int ticks = 0;
+  int cancellations = 0;
+  int clears = 0;
+};
+
 template <typename Predicate>
 void waitFor(Predicate predicate, long timeoutMs = 1000) {
   const auto deadline = std::chrono::steady_clock::now() +
@@ -196,18 +219,37 @@ void acknowledge(const std::shared_ptr<FakeConnection>& connection) {
 }
 
 void testEndpointNormalization() {
-  auto check = [](std::string_view input, std::string_view expected) {
-    auto result = normalizeGraphQLWebSocketUrl(input);
+  auto check = [](std::string_view input,
+                  GraphQLWebSocketEndpointKind kind,
+                  std::string_view expected) {
+    auto result = normalizeGraphQLWebSocketUrl(input, kind);
     CHECK(result.ok());
     CHECK(result.value() == expected);
   };
-  check("http://example.test", "ws://example.test/graphql");
-  check("https://example.test/", "wss://example.test/graphql");
-  check("ws://example.test/api", "ws://example.test/api/graphql");
+  check("http://example.test", GraphQLWebSocketEndpointKind::ApiBase,
+        "ws://example.test/graphql");
+  check("https://example.test/", GraphQLWebSocketEndpointKind::ApiBase,
+        "wss://example.test/graphql");
+  check("ws://example.test/api/", GraphQLWebSocketEndpointKind::ApiBase,
+        "ws://example.test/api/graphql");
   check("wss://example.test/api/graphql",
+        GraphQLWebSocketEndpointKind::ApiBase,
         "wss://example.test/api/graphql");
   check("https://example.test/graphql/graphql/?region=us",
+        GraphQLWebSocketEndpointKind::ApiBase,
         "wss://example.test/graphql?region=us");
+  check("http://example.test/subscriptions/",
+        GraphQLWebSocketEndpointKind::Complete,
+        "ws://example.test/subscriptions/");
+  check("wss://example.test/subscriptions/",
+        GraphQLWebSocketEndpointKind::Complete,
+        "wss://example.test/subscriptions/");
+  check("https://example.test/custom/events?region=us",
+        GraphQLWebSocketEndpointKind::Complete,
+        "wss://example.test/custom/events?region=us");
+  check("ws://example.test/graphql/graphql/",
+        GraphQLWebSocketEndpointKind::Complete,
+        "ws://example.test/graphql/graphql/");
   CHECK(!normalizeGraphQLWebSocketUrl("ftp://example.test").ok());
   CHECK(!normalizeGraphQLWebSocketUrl("https://example.test/#fragment").ok());
 }
@@ -342,6 +384,117 @@ void testCancellationSuppressesQueuedDelivery() {
   CHECK(complete["type"].asString() == "complete");
   CHECK(complete["id"].asString() == "1");
   CHECK(!connection->closes().empty());
+}
+
+void testCancellationSuppressesQueuedTerminalAndReconnectDelivery() {
+  {
+    auto transport = std::make_shared<FakeTransport>();
+    auto dispatcher = std::make_shared<Dispatcher>();
+    auto client =
+        makeClient(transport, std::make_shared<AuthState>(), dispatcher);
+    bool completed = false;
+    GraphQLSubscriptionCallbacks callbacks;
+    callbacks.onComplete = [&] { completed = true; };
+    {
+      auto handle = client->subscribe(
+          "subscription { watch { value } }", JVal(), {},
+          std::move(callbacks));
+      const auto connection = transport->connection(0);
+      acknowledge(connection);
+      connection->emitText(R"({"id":"1","type":"complete"})");
+      CHECK(!handle.active());
+    }
+    dispatcher->drain();
+    CHECK(!completed);
+  }
+
+  {
+    auto transport = std::make_shared<FakeTransport>();
+    auto dispatcher = std::make_shared<Dispatcher>();
+    auto client =
+        makeClient(transport, std::make_shared<AuthState>(), dispatcher);
+    bool errored = false;
+    GraphQLSubscriptionCallbacks callbacks;
+    callbacks.onError = [&](GraphQLSubscriptionError) { errored = true; };
+    auto handle = client->subscribe(
+        "subscription { watch { value } }", JVal(), {},
+        std::move(callbacks));
+    const auto connection = transport->connection(0);
+    acknowledge(connection);
+    connection->emitText(
+        R"({"id":"1","type":"error","payload":[{"message":"denied","extensions":{"code":"FORBIDDEN"}}]})");
+    CHECK(!handle.active());
+    handle.cancel();
+    dispatcher->drain();
+    CHECK(!errored);
+  }
+
+  {
+    GraphQLSubscriptionOptions options;
+    options.initialReconnectDelayMs = 0;
+    options.maxReconnectDelayMs = 0;
+    options.reconnectJitter = 0;
+    auto transport = std::make_shared<FakeTransport>();
+    auto dispatcher = std::make_shared<Dispatcher>();
+    auto client = makeClient(transport, std::make_shared<AuthState>(),
+                             dispatcher, options);
+    bool reconnected = false;
+    GraphQLSubscriptionCallbacks callbacks;
+    callbacks.onReconnect =
+        [&](GraphQLReconnectInfo) { reconnected = true; };
+    auto handle = client->subscribe(
+        "subscription { watch { value } }", JVal(), {},
+        std::move(callbacks));
+    const auto first = transport->connection(0);
+    acknowledge(first);
+    first->emitClose(1012, "service restart");
+    waitFor([&] { return transport->connectionCount() == 2; });
+    acknowledge(transport->connection(1));
+    handle.cancel();
+    dispatcher->drain();
+    CHECK(!reconnected);
+  }
+}
+
+void testCancellationWaitsForInFlightDelivery() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<Dispatcher>();
+  auto client =
+      makeClient(transport, std::make_shared<AuthState>(), dispatcher);
+
+  std::promise<void> callbackStarted;
+  auto callbackStartedFuture = callbackStarted.get_future();
+  std::promise<void> releaseCallback;
+  auto releaseCallbackFuture = releaseCallback.get_future().share();
+  GraphQLSubscriptionCallbacks callbacks;
+  callbacks.onNext = [&](GraphQLSubscriptionOutcome) {
+    callbackStarted.set_value();
+    releaseCallbackFuture.wait();
+  };
+  auto handle = client->subscribe(
+      "subscription { watch { value } }", JVal(), {},
+      std::move(callbacks));
+  const auto connection = transport->connection(0);
+  acknowledge(connection);
+  connection->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"watch":{"value":1}}}})");
+
+  auto draining = std::async(std::launch::async,
+                             [&] { return dispatcher->drain(); });
+  callbackStartedFuture.wait();
+  std::promise<void> cancelStarted;
+  auto cancelStartedFuture = cancelStarted.get_future();
+  auto cancelling = std::async(std::launch::async, [&] {
+    cancelStarted.set_value();
+    handle.cancel();
+  });
+  cancelStartedFuture.wait();
+  CHECK(cancelling.wait_for(std::chrono::milliseconds(25)) ==
+        std::future_status::timeout);
+  releaseCallback.set_value();
+  cancelling.get();
+  CHECK_EQ(draining.get(), std::size_t{1});
+  CHECK(!handle.active());
 }
 
 void testServerCompleteAndCloseMapping() {
@@ -713,8 +866,45 @@ void testTypedAgentGraphqlSubscription() {
   CHECK(!failed);
   CHECK(event.seq == "1");
   CHECK(event.type == agent::AgentEventType::ModeSelected);
+
+  bool cancelledDelivery = false;
+  auto cancelled = transport.subscribeEvents(
+      {"session-1", "1", "1"},
+      {[&](agent::AgentEvent) { cancelledDelivery = true; },
+       [&](agent::AgentError) { cancelledDelivery = true; },
+       [&] { cancelledDelivery = true; },
+       [&] { cancelledDelivery = true; }});
+  connection->emitText(
+      R"({"id":"2","type":"next","payload":{"data":{"crowdyStudioAgentEvents":{"__typename":"AgentLifecycleEvent","protocolVersion":"crowdy.agent-event/1","eventId":"event-2","sessionId":"session-1","seq":"2","type":"MODE_SELECTED","runId":null,"version":"crowdy.agent-event/1","createdAt":"2026-07-24T00:00:00.000Z","lifecycleMode":"ASK","lifecycleClientEpoch":null,"lifecycleReplayAfterSeq":null,"lifecycleReason":null,"lifecycleContextVersion":null}}}})");
+  cancelled->close();
+  transport.poll();
+  CHECK(!cancelledDelivery);
+
   handle->close();
   client.poll();
+}
+
+void testControllerFactoryOwnsAdaptersAndPumpsTools() {
+  auto webSocket = std::make_shared<FakeTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.example.test";
+  config.transport = std::make_shared<FakeHttpTransport>();
+  config.webSocketTransport = webSocket;
+  CrowdyClient client(std::move(config));
+
+  TickingBrowserDispatcher tools;
+  agent::CrowdyStudioAgentControllerOptions options;
+  options.sessionId = "session-1";
+  options.browserDispatcher = &tools;
+  auto runtime =
+      client.createCrowdyStudioAgentController(std::move(options));
+  CHECK(runtime);
+  CHECK(runtime->controller().state().connection ==
+        agent::AgentConnectionState::Disconnected);
+  CHECK_EQ(runtime->poll(), std::size_t{0});
+  CHECK_EQ(tools.ticks, 1);
+  runtime.reset();
+  CHECK_EQ(tools.cancellations, 1);
 }
 
 }  // namespace
@@ -725,6 +915,8 @@ int main() {
   testReuseHttpAuthAndDispatcher();
   testHandshakeAuthParsePingAndDispatcher();
   testCancellationSuppressesQueuedDelivery();
+  testCancellationSuppressesQueuedTerminalAndReconnectDelivery();
+  testCancellationWaitsForInFlightDelivery();
   testServerCompleteAndCloseMapping();
   testReconnectReplayAndStaleConnectionFencing();
   testTerminalGraphqlErrors();
@@ -733,6 +925,7 @@ int main() {
   testCrowdyClientInjectionAndPoll();
   testTypedGameModelContainerChanged();
   testTypedAgentGraphqlSubscription();
+  testControllerFactoryOwnsAdaptersAndPumpsTools();
   std::printf("graphql_subscription_test passed\n");
   return 0;
 }

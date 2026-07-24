@@ -158,6 +158,7 @@ void testEndpointNormalization() {
     CrowdyClient client(std::move(config));
     CHECK_EQ(client.graphqlClient().endpoint(), testCase.expectedHttp);
     CHECK_EQ(client.websocketEndpoint(), testCase.expectedWs);
+    CHECK_EQ(client.subscriptions().endpoint(), testCase.expectedWs);
     CHECK_EQ(client.managementClient().endpoint(),
              "https://management.invalid/graphql");
   }
@@ -179,6 +180,8 @@ void testEndpointNormalization() {
            "https://custom.invalid/management-query/");
   CHECK_EQ(explicitEndpoints.websocketEndpoint(),
            "wss://custom.invalid/subscriptions/");
+  CHECK_EQ(explicitEndpoints.subscriptions().endpoint(),
+           "wss://custom.invalid/subscriptions/");
 
   ClientConfig customPaths;
   customPaths.httpUrl = "https://game.invalid/root/";
@@ -194,6 +197,8 @@ void testEndpointNormalization() {
   CHECK_EQ(relativeEndpoints.managementClient().endpoint(),
            "https://management.invalid/root/identity/query");
   CHECK_EQ(relativeEndpoints.websocketEndpoint(),
+           "wss://game.invalid/root/stream");
+  CHECK_EQ(relativeEndpoints.subscriptions().endpoint(),
            "wss://game.invalid/root/stream");
 }
 

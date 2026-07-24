@@ -560,6 +560,9 @@ struct NativeToolDispatcherV1::Impl
                              NativeToolResultStatusV1 status =
                                  NativeToolResultStatusV1::Failed,
                              std::int64_t started_ms = 0) const {
+    if (status == NativeToolResultStatusV1::OutcomeUnknown) {
+      reason.retryable = false;
+    }
     auto result = resultBase(
         invocation, status,
         started_ms == 0 ? clock.epochMillis() : started_ms);
@@ -693,11 +696,21 @@ struct NativeToolDispatcherV1::Impl
           shutting_down;
     }
     if (!cancellation_in_progress) {
+      const auto* resolved =
+          contract(record->invocation.name, record->invocation.version);
+      const bool ambiguous = resolved && resolved->effectful;
       finish(record,
              failure(record->invocation,
-                     error("AGENT_CONTEXT_STALE",
-                           "late native result was fenced after context change"),
-                     NativeToolResultStatusV1::Failed, record->started_ms));
+                     error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                                     : "AGENT_CONTEXT_STALE",
+                           ambiguous
+                               ? "effectful native result was fenced after "
+                                 "context change"
+                               : "late native result was fenced after context "
+                                 "change"),
+                     ambiguous ? NativeToolResultStatusV1::OutcomeUnknown
+                               : NativeToolResultStatusV1::Failed,
+                     record->started_ms));
     }
     return false;
   }
@@ -777,13 +790,7 @@ void NativeToolDispatcherV1::Impl::dispatch(
   const NativeLocalToolContractV1* resolved = nullptr;
   if (const auto validation = validateEnvelope(invocation, now, resolved)) {
     completion(failure(
-        invocation, *validation,
-        validation->code == "AGENT_TOOL_TIMEOUT"
-            ? (resolved && resolved->effectful
-                   ? NativeToolResultStatusV1::OutcomeUnknown
-                   : NativeToolResultStatusV1::TimedOut)
-            : NativeToolResultStatusV1::Failed,
-        now));
+        invocation, *validation, NativeToolResultStatusV1::Failed, now));
     return;
   }
 
@@ -1133,13 +1140,18 @@ void NativeToolDispatcherV1::Impl::executeStudio(
               },
               std::move(*result.value));
           if (!validOutput(record->invocation.name, output)) {
+            const auto* resolved =
+                contract(record->invocation.name, record->invocation.version);
+            const bool ambiguous = resolved && resolved->effectful;
             self->finish(
                 record,
                 self->failure(
                     record->invocation,
                     error("AGENT_TOOL_OUTPUT_INVALID",
                           "native Studio output failed schema validation"),
-                    NativeToolResultStatusV1::Failed, record->started_ms));
+                    ambiguous ? NativeToolResultStatusV1::OutcomeUnknown
+                              : NativeToolResultStatusV1::Failed,
+                    record->started_ms));
             return;
           }
           auto completed = self->resultBase(
@@ -1233,11 +1245,19 @@ void NativeToolDispatcherV1::Impl::cancelActive(PreemptionReasonV1 reason) {
   }
   for (const auto& record : active) record->cancellation->cancel();
   for (const auto& record : active) {
+    const auto* resolved =
+        contract(record->invocation.name, record->invocation.version);
+    const bool ambiguous = resolved && resolved->effectful;
     finish(record,
            failure(record->invocation,
-                   error("AGENT_CANCELLED",
-                         "native tool was cancelled by local preemption"),
-                   NativeToolResultStatusV1::Cancelled,
+                   error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                                   : "AGENT_CANCELLED",
+                         ambiguous
+                             ? "effectful native tool was preempted after "
+                               "host dispatch"
+                             : "native tool was cancelled by local preemption"),
+                   ambiguous ? NativeToolResultStatusV1::OutcomeUnknown
+                             : NativeToolResultStatusV1::Cancelled,
                    record->started_ms));
   }
 }

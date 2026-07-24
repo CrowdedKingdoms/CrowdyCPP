@@ -35,10 +35,20 @@ struct GraphQLSubscriptionOptions {
   std::uint32_t reconnectRandomSeed = 0;
 };
 
+enum class GraphQLWebSocketEndpointKind {
+  /// An API base URL whose path must end in exactly one `/graphql`.
+  ApiBase,
+  /// An explicitly complete endpoint. Its path, trailing slash, and query are
+  /// preserved while HTTP(S) schemes are converted to WS(S).
+  Complete,
+};
+
 struct GraphQLSubscriptionClientConfig {
-  /// HTTP(S) or WS(S) API base/endpoint; normalized to exactly one /graphql.
+  /// HTTP(S) or WS(S) API base or explicitly complete endpoint.
   std::string endpoint;
   GraphQLSubscriptionOptions options;
+  GraphQLWebSocketEndpointKind endpointKind =
+      GraphQLWebSocketEndpointKind::ApiBase;
 };
 
 struct GraphQLSubscriptionRequest {
@@ -166,9 +176,13 @@ class GraphQLSubscriptionClient {
   std::shared_ptr<Impl> impl_;
 };
 
-/// Convert http/https to ws/wss, preserve ws/wss, remove trailing duplicate
-/// GraphQL endpoint segments, and finish with exactly one `/graphql`.
-Result<std::string> normalizeGraphQLWebSocketUrl(std::string_view endpoint);
+/// Convert http/https to ws/wss and preserve ws/wss. API bases remove trailing
+/// duplicate GraphQL segments and finish with exactly one `/graphql`; complete
+/// endpoints preserve their explicitly configured path, query, and slash.
+Result<std::string> normalizeGraphQLWebSocketUrl(
+    std::string_view endpoint,
+    GraphQLWebSocketEndpointKind kind =
+        GraphQLWebSocketEndpointKind::ApiBase);
 
 /// Stable terminal-code classification used by reconnect policy. Exposed so
 /// higher-level generic controllers can make the same decision for partial

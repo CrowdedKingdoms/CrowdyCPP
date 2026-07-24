@@ -386,11 +386,13 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   managementSubscriptions_ =
       std::make_shared<graphql::GraphQLSubscriptionClient>(
           graphql::GraphQLSubscriptionClientConfig{
-              managementEndpoint, config_.webSocket},
+              managementEndpoint, config_.webSocket,
+              graphql::GraphQLWebSocketEndpointKind::Complete},
           webSocketTransport_, auth_, dispatcher_);
   gameSubscriptions_ = std::make_shared<graphql::GraphQLSubscriptionClient>(
       graphql::GraphQLSubscriptionClientConfig{
-          gameSubscriptionEndpoint, config_.webSocket},
+          gameSubscriptionEndpoint, config_.webSocket,
+          graphql::GraphQLWebSocketEndpointKind::Complete},
       webSocketTransport_, auth_, dispatcher_);
 
   // Management-plane domains.

@@ -199,6 +199,7 @@ void CrowdyStudioAgentController::beginAttach(
   workspaceHeartbeatInFlight_ = false;
   historyInFlight_ = false;
   gapRecoveryInFlight_ = false;
+  acknowledgeGeneration_.reset();
   if (connection == AgentConnectionState::Reconnecting) {
     preemptLocal(AgentPreemptionReason::Disconnected);
   }
@@ -726,26 +727,30 @@ void CrowdyStudioAgentController::scheduleAcknowledge(
   if (decimalGreater(state_.lastContiguousSeq, pendingAcknowledge_)) {
     pendingAcknowledge_ = state_.lastContiguousSeq;
   }
-  if (!acknowledgeInFlight_) sendAcknowledgement(generation);
+  if (!acknowledgeGeneration_) sendAcknowledgement(generation);
 }
 
 void CrowdyStudioAgentController::sendAcknowledgement(
     std::uint64_t generation) {
-  if (generation != generation_ || acknowledgeInFlight_ ||
+  if (generation != generation_ || acknowledgeGeneration_ ||
       !state_.clientEpoch ||
       !decimalGreater(pendingAcknowledge_,
                       state_.lastAcknowledgedSeq)) {
     return;
   }
-  acknowledgeInFlight_ = true;
+  acknowledgeGeneration_ = generation;
   const auto through = pendingAcknowledge_;
   transport_.acknowledgeEvents(
       mutationContext("ack-" + through), through,
       deliver([generation, through](
                   CrowdyStudioAgentController& self,
                   AgentOutcome<std::string> outcome) {
+        const bool ownsCompletion =
+            self.acknowledgeGeneration_ &&
+            *self.acknowledgeGeneration_ == generation;
+        if (ownsCompletion) self.acknowledgeGeneration_.reset();
         if (generation != self.generation_) return;
-        self.acknowledgeInFlight_ = false;
+        if (!ownsCompletion) return;
         if (!outcome.ok()) {
           self.handleDisconnect(*outcome.error, generation);
           return;
@@ -1207,6 +1212,7 @@ void CrowdyStudioAgentController::close(AgentVoidCallback callback) {
         self.state_.clientEpoch.reset();
         self.state_.leases.clear();
         self.state_.approvals.clear();
+        self.acknowledgeGeneration_.reset();
         self.heartbeatInFlight_ = false;
         self.workspaceHeartbeatInFlight_ = false;
         if (self.options_.browserDispatcher) {
@@ -1259,6 +1265,7 @@ void CrowdyStudioAgentController::projectSelectionChanged(
   }
   preemptLocal(AgentPreemptionReason::ContextChanged);
   ++generation_;
+  acknowledgeGeneration_.reset();
   if (subscription_) subscription_->close();
   subscription_.reset();
   state_.connection = AgentConnectionState::Error;
@@ -1300,6 +1307,7 @@ void CrowdyStudioAgentController::destroy() {
   if (destroyed_) return;
   destroyed_ = true;
   ++generation_;
+  acknowledgeGeneration_.reset();
   ++effectGeneration_;
   if (subscription_) subscription_->close();
   subscription_.reset();
@@ -1323,7 +1331,7 @@ void CrowdyStudioAgentController::handleDisconnect(
   workspaceHeartbeatInFlight_ = false;
   historyInFlight_ = false;
   gapRecoveryInFlight_ = false;
-  acknowledgeInFlight_ = false;
+  acknowledgeGeneration_.reset();
   const auto reason =
       error.code == "AGENT_OPERATOR_KILLED"
           ? AgentPreemptionReason::OperatorKill

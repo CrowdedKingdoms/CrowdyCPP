@@ -1,5 +1,7 @@
-add_executable(bench_codec bench_codec.cpp)
-target_link_libraries(bench_codec PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)
+if(TARGET crowdy_crypto_openssl)
+  add_executable(bench_codec bench_codec.cpp)
+  target_link_libraries(bench_codec PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)
+endif()
 
 if(NOT WIN32)
   add_executable(bench_e2e_latency bench_e2e_latency.cpp)

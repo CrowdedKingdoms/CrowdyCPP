@@ -2,10 +2,10 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
-// schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
+// schema.gql sha256: d576813b2a81be3b36f3c34acc021924a56637fee65f2384c4e35a40ce3742ca
 // schema.management.gql sha256: 9fbdc1beab8482ae3bb032a6f9646535c57c7d48cf9a86186f2848ab2bb6b158
-// schema.game.gql sha256: 1a326c6ba21f926692aac37089e5a72d957f5bd9ca9ff39f4109c17c042a4de1
-// operations sha256: 87b8501c9398bd5ff5f419ebfac9a1b4cf6799055c847d78584916227775af9c
+// schema.game.gql sha256: a288c419233c4eacfd0dd2b5f771edd9cdae87e490afd5299a4881190b93994e
+// operations sha256: 8864354edaabd2e00e3ccab2cc0b1e2a047c9a6681351ef6bf856a37a6f55620
 
 #pragma once
 
@@ -823,6 +823,28 @@ inline constexpr std::string_view toString(CrowdyStudioTarget v) {
 inline std::optional<CrowdyStudioTarget> crowdyStudioTargetFromString(std::string_view s) {
   if (s == "SERVER") return CrowdyStudioTarget::SERVER;
   if (s == "CLIENT") return CrowdyStudioTarget::CLIENT;
+  return std::nullopt;
+}
+
+enum class GameModelPlayerCountStatus {
+  FRESH,
+  PARTIAL,
+  UNAVAILABLE,
+};
+
+inline constexpr std::string_view toString(GameModelPlayerCountStatus v) {
+  switch (v) {
+    case GameModelPlayerCountStatus::FRESH: return "FRESH";
+    case GameModelPlayerCountStatus::PARTIAL: return "PARTIAL";
+    case GameModelPlayerCountStatus::UNAVAILABLE: return "UNAVAILABLE";
+  }
+  return "";
+}
+
+inline std::optional<GameModelPlayerCountStatus> gameModelPlayerCountStatusFromString(std::string_view s) {
+  if (s == "FRESH") return GameModelPlayerCountStatus::FRESH;
+  if (s == "PARTIAL") return GameModelPlayerCountStatus::PARTIAL;
+  if (s == "UNAVAILABLE") return GameModelPlayerCountStatus::UNAVAILABLE;
   return std::nullopt;
 }
 

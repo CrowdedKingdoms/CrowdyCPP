@@ -57,6 +57,6 @@ installed-library ABI. Consumers should review `MIGRATION.md` and rebuild when
 moving between minors.
 
 The installed `CrowdyCPPConfigVersion.cmake` uses CMake's
-`SameMinorVersion` policy. A request for `0.15` may select a compatible newer
-`0.15.x` package, but no `0.16.x` package is accepted as compatible merely
+`SameMinorVersion` policy. A request for `0.16` may select a compatible newer
+`0.16.x` package, but no `0.17.x` package is accepted as compatible merely
 because both versions have major version `0`.

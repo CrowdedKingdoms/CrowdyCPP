@@ -448,6 +448,8 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   dispatcher_ = std::move(other.dispatcher_);
   gameGql_ = std::move(other.gameGql_);
   managementGql_ = std::move(other.managementGql_);
+  fallbackAsyncTransport_ =
+      std::move(other.fallbackAsyncTransport_);
   websocketEndpoint_ = std::move(other.websocketEndpoint_);
   webSocketTransport_ = std::move(other.webSocketTransport_);
   gameSubscriptions_ = std::move(other.gameSubscriptions_);
@@ -507,8 +509,8 @@ void CrowdyClient::ensureNonblockingAsyncTransport() {
 std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
 CrowdyClient::createCrowdyStudioAgentController(
     agent::CrowdyStudioAgentControllerOptions options) {
+  ensureNonblockingAsyncTransport();
   if (!webSocketTransport_) {
-    ensureNonblockingAsyncTransport();
     return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
         *crowdyStudioAgent_, std::move(options));
   }
@@ -554,7 +556,7 @@ CrowdyClient::createCrowdyStudioIntegration(
 
   studio::CrowdyStudioAgentRuntimeFactory agentFactory;
   if (options.agent) {
-    if (!webSocketTransport_) ensureNonblockingAsyncTransport();
+    ensureNonblockingAsyncTransport();
     auto agentApi = std::make_shared<domains::CrowdyStudioAgentAPI>(
         gameGql_, managementGql_, dispatcher_);
     auto subscriptions = gameSubscriptions_;

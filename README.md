@@ -691,8 +691,8 @@ Each new minor release may make source or ABI changes, even though the major
 version remains `0`; consumers must review the migration notes and rebuild.
 
 The installed CMake package follows that policy with `SameMinorVersion`.
-For example, `find_package(CrowdyCPP 0.15 CONFIG REQUIRED)` can select a newer
-`0.15.x` package, but it will not accept `0.16.x`. No compatibility is promised
+For example, `find_package(CrowdyCPP 0.16 CONFIG REQUIRED)` can select a newer
+`0.16.x` package, but it will not accept `0.17.x`. No compatibility is promised
 between arbitrary `0.x` minors.
 
 ## Server compatibility

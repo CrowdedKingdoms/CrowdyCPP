@@ -73,6 +73,9 @@ while (running) {
 `poll()` always pumps both the client/platform dispatcher and the optional
 Agent runtime. It never runs Studio autosave, monitor HTTP, compile polling, or
 sleep. `runStudioMaintenance()` is the explicit serialized maintenance lane.
+When Agent HTTP has no injected async transport, `CrowdyClient` installs a
+single worker-thread adapter around `IHttpTransport`; custom synchronous
+transports must therefore honor the interface's thread-safety requirement.
 Call it from a deliberately blocking engine phase, or from a worker only when
 all Studio controller access is serialized onto that worker; never run it
 concurrently with editor/controller access. Potentially blocking native Studio

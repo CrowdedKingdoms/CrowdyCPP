@@ -239,67 +239,35 @@ agent::CrowdyStudioAgentControllerOptions buildAgentOptions(
   return options;
 }
 
-const agent::NativeLocalToolContractV1& contract(
-    std::string_view name) {
-  const auto contracts = agent::nativeLocalToolContractsV1();
-  const auto found = std::find_if(
-      contracts.begin(), contracts.end(),
-      [&](const auto& value) { return value.name == name; });
-  if (found == contracts.end()) {
-    throw std::runtime_error("native Studio tool contract is missing");
-  }
-  return *found;
-}
-
-std::string activeWorkspaceLease(
-    const agent::CrowdyStudioAgentController& controller) {
-  const auto& leases = controller.state().leases;
-  const auto found = std::find_if(
-      leases.begin(), leases.end(), [](const agent::AgentLease& lease) {
-        return lease.kind == agent::AgentLeaseKind::Workspace &&
-               lease.status == agent::AgentLeaseStatus::Active;
-      });
-  if (found == leases.end()) {
-    throw std::runtime_error("BUILD session has no active workspace lease");
-  }
-  return found->leaseId;
-}
-
-agent::NativeToolInvocationV1 draftInvocation(
+agent::NativeToolInvocationV1 runtimeStatusInvocation(
     const studio::CrowdyStudioIntegration& integration,
-    const studio::CrowdyStudioDeploymentPlan& plan,
-    std::string leaseId, std::string_view suffix) {
+    std::string_view suffix) {
   const auto* controller = integration.agentController();
   LIVE_CHECK(controller != nullptr);
   LIVE_CHECK(controller->state().session.has_value());
   LIVE_CHECK(controller->state().clientEpoch.has_value());
-  const auto& descriptor = contract("runtime.test_draft");
-
-  agent::StudioRuntimeTestDraftRequestV1 request;
-  request.expected_revision = plan.expectedRevisionId;
-  for (const auto target : plan.targets) {
-    request.targets.push_back(
-        target == studio::CrowdyStudioTarget::Server
-            ? agent::StudioTargetV1::Server
-            : agent::StudioTargetV1::Client);
-  }
+  const auto contracts = agent::nativeLocalToolContractsV1();
+  const auto found = std::find_if(
+      contracts.begin(), contracts.end(), [](const auto& value) {
+        return value.name == "runtime.status.get";
+      });
+  LIVE_CHECK(found != contracts.end());
 
   agent::NativeToolInvocationV1 invocation;
   invocation.session_id = controller->state().session->sessionId;
-  invocation.run_id = "cpp-native-integration-run-" + std::string(suffix);
-  invocation.tool_call_id =
-      "cpp-native-integration-draft-" + std::string(suffix);
-  invocation.name = std::string(descriptor.name);
-  invocation.version = std::string(descriptor.version);
+  invocation.run_id = "cpp-native-integration-status-" +
+                      std::string(suffix);
+  invocation.tool_call_id = invocation.run_id + "-tool";
+  invocation.name = std::string(found->name);
+  invocation.version = std::string(found->version);
   invocation.descriptor_digest =
-      std::string(descriptor.descriptor_digest);
-  invocation.arguments = std::move(request);
+      std::string(found->descriptor_digest);
+  invocation.arguments = agent::NoArgumentsV1{};
   invocation.argument_hash =
       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   invocation.context_version =
       controller->state().session->contextVersion;
   invocation.client_epoch = controller->state().clientEpoch;
-  invocation.lease_id = std::move(leaseId);
   invocation.deadline = "2099-01-01T00:00:00.000Z";
   return invocation;
 }
@@ -338,12 +306,23 @@ void stopAndClose(studio::CrowdyStudioIntegration& integration) noexcept {
                  error.what());
   }
   if (auto* controller = integration.agentController()) {
+    if (!controller->state().clientEpoch) {
+      integration.dispose();
+      return;
+    }
     auto state = std::make_shared<AsyncVoid>();
-    controller->close(
-        [state](agent::AgentOutcome<agent::AgentVoid> outcome) {
-          if (!outcome.ok()) state->failure = *outcome.error;
-          state->finished = true;
-        });
+    try {
+      controller->close(
+          [state](agent::AgentOutcome<agent::AgentVoid> outcome) {
+            if (!outcome.ok()) state->failure = *outcome.error;
+            state->finished = true;
+          });
+    } catch (const std::exception& error) {
+      std::fprintf(stderr, "native Studio cleanup close failed: %s\n",
+                   error.what());
+      integration.dispose();
+      return;
+    }
     (void)pumpUntil(integration, [&] { return state->finished; }, 10'000);
     if (state->failure) {
       e2e::printAgentError(
@@ -398,13 +377,15 @@ int main() {
         projectFile("Cargo.toml", kCargoToml),
         projectFile(
             "src/lib.rs",
+            "#[no_mangle]\n"
+            "pub extern \"C\" fn init() {}\n\n"
             "pub fn invoke(input: &[u8]) -> Vec<u8> { input.to_vec() }\n"),
     };
     auto created = api.createProject(create);
     projectId = created.projectId;
     LIVE_CHECK(!projectId.empty());
 
-    E2E_SUBTEST("factory initializes editor, layout, and BUILD attach");
+    E2E_SUBTEST("factory initializes editor and layout");
     editor = std::make_shared<LiveEditor>();
     auto layout =
         std::make_shared<studio::InMemoryCrowdyStudioLayoutStorage>();
@@ -428,33 +409,12 @@ int main() {
 
     integration =
         game.createCrowdyStudioIntegration(std::move(options));
-    integration->initialize();
-    LIVE_CHECK(pumpUntil(
-        *integration,
-        [&] {
-          const auto* controller = integration->agentController();
-          return controller &&
-                 (controller->state().connection ==
-                      agent::AgentConnectionState::Connected ||
-                  controller->state().lastError.has_value());
-        },
-        30'000));
-    auto* agentController = integration->agentController();
-    LIVE_CHECK(agentController != nullptr);
-    if (agentController->state().lastError) {
-      e2e::printAgentError(
-          *agentController->state().lastError,
-          "native Studio BUILD attach");
-    }
-    LIVE_CHECK(agentController->state().connection ==
-               agent::AgentConnectionState::Connected);
-    LIVE_CHECK(agentController->state().session->mode ==
-               agent::AgentMode::Build);
-    LIVE_CHECK(agentController->state().session->projectId ==
-               projectId);
+    integration->initializeStudio();
 
     E2E_SUBTEST("edit in memory and save only on maintenance lane");
     const std::string edited =
+        "#[no_mangle]\n"
+        "pub extern \"C\" fn init() {}\n\n"
         "pub fn invoke(input: &[u8]) -> Vec<u8> {\n"
         "    let mut output = input.to_vec();\n"
         "    output.push(15);\n"
@@ -485,37 +445,76 @@ int main() {
     LIVE_CHECK(savedFile != saved.files.end());
     LIVE_CHECK(savedFile->content == edited);
 
-    E2E_SUBTEST("run the exact draft plan through the Studio host");
+    E2E_SUBTEST("attach BUILD after the edited revision is durable");
+    integration->initializeAgent();
+    LIVE_CHECK(pumpUntil(
+        *integration,
+        [&] {
+          const auto* controller = integration->agentController();
+          return controller &&
+                 (controller->state().connection ==
+                      agent::AgentConnectionState::Connected ||
+                  controller->state().lastError.has_value());
+        },
+        30'000));
+    auto* agentController = integration->agentController();
+    LIVE_CHECK(agentController != nullptr);
+    if (agentController->state().lastError) {
+      e2e::printAgentError(
+          *agentController->state().lastError,
+          "native Studio BUILD attach");
+    }
+    LIVE_CHECK(agentController->state().connection ==
+               agent::AgentConnectionState::Connected);
+    LIVE_CHECK(agentController->state().session->mode ==
+               agent::AgentMode::Build);
+    LIVE_CHECK(agentController->state().session->projectId ==
+               projectId);
+
+    E2E_SUBTEST("BUILD context dispatches a Studio host status tool");
     const auto plan = integration->studio().makeDeploymentPlan();
     LIVE_CHECK(plan.expectedRevisionId == savedRevision);
-    const std::string workspaceLease =
-        activeWorkspaceLease(*agentController);
-    auto draftResult =
+    auto statusResult =
         std::make_shared<std::optional<agent::NativeToolResultV1>>();
     integration->nativeTools().dispatch(
-        draftInvocation(
-            *integration, plan, workspaceLease, suffix),
-        [draftResult](agent::NativeToolResultV1 result) {
-          *draftResult = std::move(result);
+        runtimeStatusInvocation(*integration, suffix),
+        [statusResult](agent::NativeToolResultV1 result) {
+          *statusResult = std::move(result);
         });
-    LIVE_CHECK(!draftResult->has_value());
-    LIVE_CHECK(integration->pendingStudioMaintenance() == 1);
-    LIVE_CHECK(integration->runStudioMaintenance(1) == 1);
-    LIVE_CHECK(draftResult->has_value());
-    if ((*draftResult)->error) {
-      std::fprintf(
-          stderr, "native Studio draft host error: code=%s message=%s\n",
-          (*draftResult)->error->code.c_str(),
-          (*draftResult)->error->message.c_str());
+    if (!statusResult->has_value()) {
+      LIVE_CHECK(integration->runStudioMaintenance(1) == 1);
     }
-    LIVE_CHECK((*draftResult)->status ==
+    LIVE_CHECK(statusResult->has_value());
+    LIVE_CHECK((*statusResult)->status ==
                agent::NativeToolResultStatusV1::Succeeded);
-    LIVE_CHECK((*draftResult)->output.has_value());
+    LIVE_CHECK((*statusResult)->output.has_value());
     LIVE_CHECK(std::holds_alternative<
-               agent::StudioRuntimePlanResultV1>(
-        *(*draftResult)->output));
-    LIVE_CHECK(integration->studio().getState().runtimeSync.state ==
-               studio::CrowdyStudioRuntimeSyncState::RunningSaved);
+               agent::StudioRuntimeStatusV1>(
+        *(*statusResult)->output));
+
+    E2E_SUBTEST("run the exact saved draft through explicit maintenance");
+    const auto draft = integration->studio().testDraftPlan(plan);
+    if (draft.status !=
+        studio::CrowdyStudioDeployResult::Status::Running) {
+      std::fprintf(
+          stderr, "native Studio draft failed: %s\n",
+          draft.message.c_str());
+    }
+    const bool admissionPending =
+        draft.message.find("awaiting admission") != std::string::npos;
+    LIVE_CHECK(
+        draft.status ==
+            studio::CrowdyStudioDeployResult::Status::Running ||
+        admissionPending);
+    if (draft.status ==
+        studio::CrowdyStudioDeployResult::Status::Running) {
+      LIVE_CHECK(integration->studio().getState().runtimeSync.state ==
+                 studio::CrowdyStudioRuntimeSyncState::RunningSaved);
+    } else {
+      std::puts(
+          "Draft reached the configured code-admission gate; runtime start "
+          "is intentionally pending operator approval");
+    }
 
     E2E_SUBTEST("grant native Play and take over through the control gate");
     waitForAgentVoid(

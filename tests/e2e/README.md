@@ -97,9 +97,9 @@ Run a single suite directly for its per-subtest output:
 - `e2e_native_studio_integration` uses the production
   `CrowdyClient::createCrowdyStudioIntegration` factory end to end. It creates
   and archives a disposable project, edits and saves through the in-memory
-  editor plus explicit maintenance lane, attaches BUILD, runs the exact draft
-  plan through the native Studio host, grants a Play lease, and verifies
-  synchronous control-gate takeover. The published APIs do not advertise a
+  editor plus explicit maintenance lane, attaches BUILD, dispatches a native
+  Studio status tool, submits the exact saved draft, grants a Play lease, and
+  verifies synchronous control-gate takeover. The published APIs do not advertise a
   generic approved-restore capability, so that live subtest is skipped unless
   an independent synchronization and approval provider is injected. Setting
   the capability assertion without such a provider fails closed.

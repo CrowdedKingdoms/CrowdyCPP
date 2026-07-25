@@ -333,12 +333,23 @@ CrowdyStudioIntegration::agentController() const {
 }
 
 void CrowdyStudioIntegration::initialize() {
+  initializeStudio();
+  initializeAgent();
+}
+
+void CrowdyStudioIntegration::initializeStudio() {
   if (disposed_) {
     throw std::runtime_error("CrowdyStudioIntegration is disposed");
   }
   if (!studioInitialized_) {
     controller_->initialize();
     studioInitialized_ = true;
+  }
+}
+
+void CrowdyStudioIntegration::initializeAgent() {
+  if (disposed_) {
+    throw std::runtime_error("CrowdyStudioIntegration is disposed");
   }
   if (agentRuntime_ && !agentInitialized_) {
     agentRuntime_->controller().initialize();

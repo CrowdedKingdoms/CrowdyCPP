@@ -499,6 +499,10 @@ replication::ReplicationClient& CrowdyClient::replication() {
 std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
 CrowdyClient::createCrowdyStudioAgentController(
     agent::CrowdyStudioAgentControllerOptions options) {
+  if (!webSocketTransport_) {
+    return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
+        *crowdyStudioAgent_, std::move(options));
+  }
   return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
       *crowdyStudioAgent_, *gameSubscriptions_, std::move(options));
 }
@@ -544,13 +548,21 @@ CrowdyClient::createCrowdyStudioIntegration(
     auto agentApi = std::make_shared<domains::CrowdyStudioAgentAPI>(
         gameGql_, managementGql_, dispatcher_);
     auto subscriptions = gameSubscriptions_;
+    const bool realtimeAvailable =
+        static_cast<bool>(webSocketTransport_);
     agentFactory =
         [agentApi = std::move(agentApi),
-         subscriptions = std::move(subscriptions)](
+         subscriptions = std::move(subscriptions),
+         realtimeAvailable](
             agent::CrowdyStudioAgentControllerOptions agentOptions) {
+          if (!realtimeAvailable) {
+            return std::make_unique<
+                agent::CrowdyStudioAgentControllerRuntime>(
+                agentApi, std::move(agentOptions));
+          }
           return std::make_unique<
               agent::CrowdyStudioAgentControllerRuntime>(
-              agentApi, subscriptions, std::move(agentOptions));
+              *agentApi, *subscriptions, std::move(agentOptions));
         };
   }
   return studio::CrowdyStudioIntegration::create(

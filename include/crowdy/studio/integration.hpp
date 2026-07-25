@@ -121,6 +121,8 @@ class CrowdyStudioIntegration {
     return *nativeDispatcher_;
   }
 
+  void initializeStudio();
+  void initializeAgent();
   void initialize();
   /** Nonblocking platform/Agent callback and deadline pump. */
   std::size_t poll();

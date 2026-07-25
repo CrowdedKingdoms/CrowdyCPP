@@ -28,12 +28,13 @@ labels.
 
 The 0.15 release branch adds `e2e_native_studio_integration`, which uses the
 real `CrowdyClient::createCrowdyStudioIntegration` factory for a disposable
-project edit/save, BUILD attach, scheduled native Studio draft tool, Play lease,
-and synchronous human-input takeover. Default CI compiles the executable and
-records exit-77 when its deployment variables are absent. No 0.15 live run is
-claimed in this document until an environment is explicitly selected. The
-2026-07-24 local release run passed all 24 offline unit tests and compiled all
-53 e2e executables; all 53 reported exit-77 skips with no deployment configured.
+project edit/save, BUILD attach, native Studio host dispatch, draft submission,
+Play lease, and synchronous human-input takeover. A 2026-07-24 dev run passed
+that flow; the draft reached the deployment's configured code-admission gate
+and correctly remained pending operator approval. Default CI still compiles
+the executable and records exit-77 when deployment variables are absent. The
+local release run also passed all 24 offline unit tests and compiled all 53 e2e
+executables.
 
 Approved restore has deterministic integration coverage in
 `studio_integration_test`. A live restore is intentionally not inferred from

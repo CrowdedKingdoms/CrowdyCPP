@@ -21,6 +21,13 @@ class CrowdyStudioAgentControllerRuntime {
       CrowdyStudioAgentControllerOptions options)
       : transport_(api, subscriptions),
         controller_(bind(std::move(options), transport_, api)) {}
+  /// Durable HTTP polling fallback for native builds without an injected or
+  /// compatible default WebSocket transport.
+  CrowdyStudioAgentControllerRuntime(
+      domains::CrowdyStudioAgentAPI& api,
+      CrowdyStudioAgentControllerOptions options)
+      : transport_(api),
+        controller_(bindPolling(std::move(options), transport_, api)) {}
 
   CrowdyStudioAgentControllerRuntime(
       std::shared_ptr<domains::CrowdyStudioAgentAPI> api,
@@ -32,6 +39,13 @@ class CrowdyStudioAgentControllerRuntime {
                    requireSubscriptions(subscriptionsOwner_)),
         controller_(bind(std::move(options), transport_,
                          requireApi(apiOwner_))) {}
+  CrowdyStudioAgentControllerRuntime(
+      std::shared_ptr<domains::CrowdyStudioAgentAPI> api,
+      CrowdyStudioAgentControllerOptions options)
+      : apiOwner_(std::move(api)),
+        transport_(requireApi(apiOwner_)),
+        controller_(bindPolling(std::move(options), transport_,
+                                requireApi(apiOwner_))) {}
 
   CrowdyStudioAgentController& controller() { return controller_; }
   const CrowdyStudioAgentController& controller() const {
@@ -65,6 +79,15 @@ class CrowdyStudioAgentControllerRuntime {
       domains::CrowdyStudioAgentAPI& api) {
     options.transport = &transport;
     options.subscriptionAdapter = &transport;
+    if (!options.dispatcher) options.dispatcher = api.dispatcher();
+    return options;
+  }
+  static CrowdyStudioAgentControllerOptions bindPolling(
+      CrowdyStudioAgentControllerOptions options,
+      CrowdyStudioAgentGraphQLTransport& transport,
+      domains::CrowdyStudioAgentAPI& api) {
+    options.transport = &transport;
+    options.subscriptionAdapter = nullptr;
     if (!options.dispatcher) options.dispatcher = api.dispatcher();
     return options;
   }

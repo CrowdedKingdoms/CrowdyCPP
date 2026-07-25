@@ -31,6 +31,10 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.15.1 package-consumer patch:** installed-package CI and examples now
+request the current `0.15` compatibility line. Runtime and player-count APIs are
+unchanged from 0.15.0.
+
 **v0.15.0 app-scoped player counts:** `gameModel().activePlayerCount(appId)`
 and `activePlayerCountChanged(appId, callbacks)` expose the typed snapshot and
 best-effort transition stream introduced by the matching Game API generation.
@@ -636,8 +640,8 @@ Each new minor release may make source or ABI changes, even though the major
 version remains `0`; consumers must review the migration notes and rebuild.
 
 The installed CMake package follows that policy with `SameMinorVersion`.
-For example, `find_package(CrowdyCPP 0.14 CONFIG REQUIRED)` can select a newer
-`0.14.x` package, but it will not accept `0.15.x`. No compatibility is promised
+For example, `find_package(CrowdyCPP 0.15 CONFIG REQUIRED)` can select a newer
+`0.15.x` package, but it will not accept `0.16.x`. No compatibility is promised
 between arbitrary `0.x` minors.
 
 ## Server compatibility

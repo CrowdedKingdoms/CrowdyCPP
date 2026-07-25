@@ -734,7 +734,7 @@ files.
 ### Parity maintenance gates
 
 CrowdyCPP tracks CrowdyJS 12.2.0 at
-`f2d637c4aa4add8ccf863243842096d40ec0fb5c`. The source of truth is
+`0c7081477183b2b4fdbe09dc091086a231ba2979`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:

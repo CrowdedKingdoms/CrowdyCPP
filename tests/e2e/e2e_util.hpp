@@ -41,6 +41,9 @@
 ///   CROWDY_E2E_AGENT=1          enable Agentic Studio public-API coverage
 ///   CROWDY_E2E_AGENT_PROJECT_ID saved project for BUILD-mode coverage
 ///   CROWDY_E2E_AGENT_PLAY=1     enable Play lease grant/revoke coverage
+///   CROWDY_E2E_STUDIO_APPROVED_RESTORE_CAPABILITY=1
+///                               assert that a separately injected durable
+///                               synchronization + approval provider exists
 ///   CROWDY_E2E_AGENT_POLICY_KILL=1
 ///                               explicitly enable temporary operator kill
 ///   CROWDY_E2E_WEBSOCKET=1      enable optional live GraphQL-WS coverage

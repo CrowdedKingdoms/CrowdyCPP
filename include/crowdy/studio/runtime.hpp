@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -10,6 +11,7 @@
 
 #include "crowdy/core/base64.hpp"
 #include "crowdy/domains/player_compute.hpp"
+#include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/graphql/json.hpp"
 #include "crowdy/studio/models.hpp"
 
@@ -79,6 +81,22 @@ struct CrowdyStudioUsageSnapshot {
   int maxCompilesPerHour = 0;
   std::string gateStatus;
   std::optional<std::string> gateReason;
+};
+
+struct CrowdyStudioWalletSnapshot {
+  std::string balanceCents;
+  std::string currency;
+
+  bool operator==(const CrowdyStudioWalletSnapshot&) const = default;
+};
+
+/// Optional, viewer-scoped wallet observation seam. It deliberately exposes
+/// only the caller's current balance and cannot spend, recharge, mutate billing
+/// policy, or act for another user.
+class ICrowdyStudioWalletProvider {
+ public:
+  virtual ~ICrowdyStudioWalletProvider() = default;
+  virtual CrowdyStudioWalletSnapshot balance() = 0;
 };
 
 /// Engine-owned execution of an already authorized, exact CLIENT artifact.
@@ -159,12 +177,63 @@ class ICrowdyStudioApprovalGate {
       std::string_view approvalGrant) = 0;
 };
 
+/// Minimal production adapter over the public viewer-scoped PlayerWalletAPI
+/// balance read. No billing/provider authority crosses this interface.
+class CrowdyStudioPlayerWalletProvider final
+    : public ICrowdyStudioWalletProvider {
+ public:
+  explicit CrowdyStudioPlayerWalletProvider(
+      domains::PlayerWalletAPI& playerWallet)
+      : playerWallet_(&playerWallet) {}
+
+  explicit CrowdyStudioPlayerWalletProvider(
+      std::shared_ptr<domains::PlayerWalletAPI> playerWallet)
+      : playerWalletOwner_(std::move(playerWallet)),
+        playerWallet_(playerWalletOwner_.get()) {
+    if (!playerWallet_) {
+      throw std::invalid_argument(
+          "Crowdy Studio wallet provider requires PlayerWalletAPI");
+    }
+  }
+
+  CrowdyStudioWalletSnapshot balance() override {
+    const graphql::Json value = playerWallet_->balance();
+    CrowdyStudioWalletSnapshot snapshot;
+    snapshot.balanceCents = scalarString(value["balanceCents"]);
+    snapshot.currency = value["currency"].asString();
+    if (snapshot.balanceCents.empty() || snapshot.currency.empty()) {
+      throw std::runtime_error(
+          "Player wallet balance response is incomplete");
+    }
+    return snapshot;
+  }
+
+ private:
+  static std::string scalarString(const graphql::Json& value) {
+    if (!value.ok() || value.isNull()) return {};
+    if (value.isString()) return value.asString();
+    if (value.isNumber()) return std::to_string(value.asInt64());
+    return {};
+  }
+
+  std::shared_ptr<domains::PlayerWalletAPI> playerWalletOwner_;
+  domains::PlayerWalletAPI* playerWallet_ = nullptr;
+};
+
 class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
  public:
   explicit CrowdyStudioPlayerComputeRuntime(
       domains::PlayerComputeAPI& playerCompute,
       ICrowdyStudioClientRuntime* clientRuntime = nullptr)
       : playerCompute_(playerCompute), clientRuntime_(clientRuntime) {}
+
+  CrowdyStudioPlayerComputeRuntime(
+      std::shared_ptr<domains::PlayerComputeAPI> playerCompute,
+      std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntime = {})
+      : playerComputeOwner_(std::move(playerCompute)),
+        clientRuntimeOwner_(std::move(clientRuntime)),
+        playerCompute_(requirePlayerCompute(playerComputeOwner_)),
+        clientRuntime_(clientRuntimeOwner_.get()) {}
 
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
@@ -312,6 +381,15 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
   }
 
  private:
+  static domains::PlayerComputeAPI& requirePlayerCompute(
+      const std::shared_ptr<domains::PlayerComputeAPI>& playerCompute) {
+    if (!playerCompute) {
+      throw std::invalid_argument(
+          "Crowdy Studio runtime requires PlayerComputeAPI");
+    }
+    return *playerCompute;
+  }
+
   static std::string scalarString(const graphql::Json& value) {
     if (!value.ok() || value.isNull()) return {};
     if (value.isString()) return value.asString();
@@ -342,6 +420,8 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
     return runs;
   }
 
+  std::shared_ptr<domains::PlayerComputeAPI> playerComputeOwner_;
+  std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntimeOwner_;
   domains::PlayerComputeAPI& playerCompute_;
   ICrowdyStudioClientRuntime* clientRuntime_;
 };

@@ -10,16 +10,38 @@ exact target declared by `crowdyjsParityTarget` in `package.json`, built with
 npm ci
 bash scripts/check-content-policy.sh
 npm run check:codegen
+npm run check:operations
 node tools/parity/parity.mjs \
   --crowdyjs "$CROWDYJS_PATH" \
   --check docs/parity-matrix.md \
   --strict
 node tools/parity/agent-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/control-gate-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/studio-host-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/layout-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
+node tools/parity/studio-state-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 npm test
 ```
 
-The parity command above is the command used by CI. The tools reject a
-same-version CrowdyJS checkout at any commit other than the package pin.
+The parity command above is the command used by CI. The tools reject tracked
+CrowdyJS checkout changes, a same-version checkout at any commit other than
+the package pin, or mismatched fixture target metadata.
+
+Build and compare the exact pinned blueprints:
+
+```bash
+cmake -S . -B build-release-parity \
+  -DCROWDY_BUILD_PARITY_TOOLS=ON \
+  -DCROWDY_BUILD_TESTS=OFF \
+  -DCROWDY_BUILD_E2E=OFF \
+  -DCROWDY_BUILD_BENCHMARKS=OFF \
+  -DCROWDY_BUILD_EXAMPLES=OFF
+cmake --build build-release-parity --target crowdy_blueprint_dump -j
+node tools/parity/dump-blueprints.mjs "$CROWDYJS_PATH" > /tmp/crowdyjs-blueprints.json
+./build-release-parity/crowdy_blueprint_dump > /tmp/crowdycpp-blueprints.json
+node tools/parity/blueprints-diff.mjs \
+  /tmp/crowdyjs-blueprints.json /tmp/crowdycpp-blueprints.json
+```
 
 ## Default build and tests
 
@@ -27,10 +49,12 @@ same-version CrowdyJS checkout at any commit other than the package pin.
 cmake -S . -B build-release-default -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release-default -j
 ctest --test-dir build-release-default --output-on-failure
+./build-release-default/examples/native_studio_shell
 ```
 
 Unconfigured live e2e executables must report skipped through exit 77; they are
-not default live release evidence.
+not default live release evidence. The native Studio shell is intentionally
+offline and must run without credentials.
 
 ## Curl-free build and tests
 
@@ -58,8 +82,11 @@ ctest --test-dir build-release-no-exceptions --output-on-failure
 
 Install this profile and verify the reduced package omits Compute authoring,
 Crowdy Studio project API/models/controller, Agent/controller, player-host,
-Game Kit, and `ContainerMirror` headers while the umbrella consumer still
-links.
+Game Kit, and `ContainerMirror` headers while the independent
+`crowdy/studio/layout.hpp` surface remains installed and the umbrella consumer
+still links. `no_exceptions_install_test` generates one translation unit for
+every installed header, verifies `CROWDY_NO_EXCEPTIONS` is exported to each,
+links the complete consumer, and runs it.
 
 ## OpenSSL-off library build
 
@@ -133,7 +160,12 @@ also requires `CROWDY_E2E_WEBSOCKET=1` and a default or injected transport.
 ctest --test-dir build-release-default -L e2e --output-on-failure
 ctest --test-dir build-release-default -L e2e_slow --output-on-failure
 ctest --test-dir build-release-default -L e2e_optional --output-on-failure
+ctest --test-dir build-release-default \
+  -R e2e_native_studio_integration --output-on-failure
 ```
 
 Record passes, failures, and exit-77 skips separately. A skipped live suite is
-not evidence that its platform round trip passed.
+not evidence that its platform round trip passed. Approved restore is live
+evidence only when an independently authorized synchronization provider and
+exact approval gate are injected; never treat ordinary project-save access as
+that capability.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrowdyCPP VERSION 0.15.1 LANGUAGES C CXX)
+project(CrowdyCPP VERSION 0.16.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -151,6 +151,16 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_agent_fixture.hpp"
   @ONLY)
 
+# Embed the pinned CrowdyJS layout fixture for native cross-SDK tests. The
+# generated header is build-local and remains fully offline.
+file(READ
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-studio-layout.v1.json"
+  CROWDY_STUDIO_LAYOUT_FIXTURE_JSON)
+configure_file(
+  cmake/studio_layout_fixture.hpp.in
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_studio_layout_fixture.hpp"
+  @ONLY)
+
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)
 target_include_directories(crowdy_yyjson PUBLIC
@@ -266,9 +276,11 @@ if(CROWDY_NO_EXCEPTIONS)
   # build; the strict no-exception facade omits those optional layers.
   set(CROWDY_AGENT_SOURCES)
   set(CROWDY_PLAYER_HOST_SOURCES)
+  set(CROWDY_STUDIO_SOURCES)
 else()
   file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
   file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
+  file(GLOB CROWDY_STUDIO_SOURCES CONFIGURE_DEPENDS src/studio/*.cpp)
 endif()
 add_library(crowdy STATIC
   src/client.cpp
@@ -276,6 +288,7 @@ add_library(crowdy STATIC
   ${CROWDY_DOMAIN_SOURCES}
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
+  ${CROWDY_STUDIO_SOURCES}
   ${CROWDY_PLAYER_HOST_SOURCES}
 )
 target_include_directories(crowdy PUBLIC
@@ -342,13 +355,18 @@ if(CROWDY_NO_EXCEPTIONS)
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
           PATTERN "agent" EXCLUDE
           PATTERN "player_host" EXCLUDE
+          PATTERN "studio" EXCLUDE
           PATTERN "kit" EXCLUDE
           PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE
+          PATTERN "agent_projection.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
+          PATTERN "diagnostics.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE
           PATTERN "models.hpp" EXCLUDE
           PATTERN "model_mirror.hpp" EXCLUDE)
+  install(FILES include/crowdy/studio/layout.hpp
+          DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/crowdy/studio)
 else()
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
   install(FILES
@@ -356,6 +374,10 @@ else()
           tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
           tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
           DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
+  install(FILES
+          tools/parity/fixtures/crowdy-studio-diagnostics.v1.json
+          tools/parity/fixtures/crowdy-studio-runtime-sync.v1.json
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/studio)
 endif()
 install(EXPORT CrowdyCPPTargets
         NAMESPACE CrowdyCPP::

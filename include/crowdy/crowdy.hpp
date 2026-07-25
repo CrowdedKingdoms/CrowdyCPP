@@ -32,8 +32,14 @@
 #include "crowdy/session/model_mirror.hpp"
 #endif
 #include "crowdy/session/world_session.hpp"
+#include "crowdy/studio/layout.hpp"
 #ifndef CROWDY_NO_EXCEPTIONS
+#include "crowdy/studio/agent_projection.hpp"
 #include "crowdy/studio/controller.hpp"
+#include "crowdy/studio/diagnostics.hpp"
+#include "crowdy/studio/editor.hpp"
+#include "crowdy/studio/host_adapter.hpp"
+#include "crowdy/studio/integration.hpp"
 #include "crowdy/studio/runtime.hpp"
 #endif
 #include "crowdy/world.hpp"

@@ -24,7 +24,26 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
-## 0.14.x release validation
+## 0.16.0 release validation
+
+The 0.16 release branch adds `e2e_native_studio_integration`, which uses the
+real `CrowdyClient::createCrowdyStudioIntegration` factory for a disposable
+project edit/save, BUILD attach, native Studio host dispatch, draft submission,
+Play lease, and synchronous human-input takeover. A 2026-07-24 dev run passed
+that flow; the draft reached the deployment's configured code-admission gate
+and correctly remained pending operator approval. Default CI still compiles
+the executable and records exit-77 when deployment variables are absent. The
+local release run also passed all 24 offline unit tests and compiled all 53 e2e
+executables.
+
+Approved restore has deterministic integration coverage in
+`studio_integration_test`. A live restore is intentionally not inferred from
+ordinary project-save or Agent GraphQL authority: the published deployment does
+not advertise a generic synchronization/approval provider. The live suite
+prints that subtest as skipped, and fails closed if a capability is asserted
+without an injected provider.
+
+## Historical 0.14.x live validation
 
 On 2026-07-24, the dev deployment passed live `e2e_crowdy_studio`,
 `e2e_agentic_studio`, `e2e_marketplace_claims`, and
@@ -56,6 +75,8 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | marketplace chunk claim/release | `e2e_marketplace_claims` | implemented; optional live with a reserved free chunk and `SELF_CLAIM` |
 | Crowdy Studio project CRUD/patch/draft | `e2e_crowdy_studio` | implemented; optional live with an owned Studio grid |
 | Agentic Studio ASK/BUILD | `e2e_agentic_studio` | implemented through the controller factory; optional live |
+| Native Studio factory/edit/save/BUILD/draft/Play takeover | `studio_integration_test` + `e2e_native_studio_integration` | deterministic factory/host/control coverage in default CI; complete production-factory round trip optional live |
+| Approved checkpoint restore | `studio_integration_test` + conditional `e2e_native_studio_integration` subtest | deterministic injected synchronization + exact approval coverage; live excluded until the selected deployment advertises and injects both capabilities |
 | Agentic Studio attach/replay/heartbeat | `agent_controller_test` + `e2e_agentic_studio` | fake-transport coverage in default CI; controller-factory round trip optional live |
 | Agentic Studio local dispatcher takeover | `player_host_test` + `e2e_agentic_studio` | fake-host coverage in default CI; live-session epoch binding optional live |
 | Agentic Studio Play lease/takeover | `e2e_agentic_studio` | implemented; optional live with an engine host capability/entity |

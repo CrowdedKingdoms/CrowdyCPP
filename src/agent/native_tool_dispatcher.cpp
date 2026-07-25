@@ -549,7 +549,11 @@ struct NativeToolDispatcherV1::Impl
     NativeToolResultV1 result;
     result.tool_call_id = invocation.tool_call_id;
     result.status = status;
-    result.observed_context_version = contextVersion();
+    try {
+      result.observed_context_version = contextVersion();
+    } catch (...) {
+      result.observed_context_version = invocation.context_version;
+    }
     result.started_at = isoTime(started_ms);
     result.finished_at = isoTime(clock.epochMillis());
     return result;
@@ -670,20 +674,32 @@ struct NativeToolDispatcherV1::Impl
         return false;
       }
     }
-    if (record->invocation.name == "game.control.stop") return true;
-    if (record->invocation.context_version != contextVersion()) return false;
-    if (options.client_epoch) {
-      const auto current = options.client_epoch();
-      if (!current || !record->invocation.client_epoch ||
-          *current != *record->invocation.client_epoch) {
-        return false;
+    try {
+      if (record->invocation.name == "game.control.stop") return true;
+      if (record->invocation.context_version != contextVersion()) return false;
+      if (options.client_epoch) {
+        const auto current = options.client_epoch();
+        if (!current || !record->invocation.client_epoch ||
+            *current != *record->invocation.client_epoch) {
+          return false;
+        }
       }
+      if (options.session_id) {
+        const auto current = options.session_id();
+        if (current && *current != record->invocation.session_id) return false;
+      }
+      return true;
+    } catch (...) {
+      return false;
     }
-    if (options.session_id) {
-      const auto current = options.session_id();
-      if (current && *current != record->invocation.session_id) return false;
-    }
-    return true;
+  }
+
+  bool ambiguousOutcome(const std::shared_ptr<Record>& record) const {
+    const auto* resolved =
+        contract(record->invocation.name, record->invocation.version);
+    if (!resolved || !resolved->effectful) return false;
+    if (record->invocation.name.rfind("game.", 0) == 0) return true;
+    return record->cancellation && record->cancellation->effectStarted();
   }
 
   bool acceptOrFence(const std::shared_ptr<Record>& record) {
@@ -696,9 +712,7 @@ struct NativeToolDispatcherV1::Impl
           shutting_down;
     }
     if (!cancellation_in_progress) {
-      const auto* resolved =
-          contract(record->invocation.name, record->invocation.version);
-      const bool ambiguous = resolved && resolved->effectful;
+      const bool ambiguous = ambiguousOutcome(record);
       finish(record,
              failure(record->invocation,
                      error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
@@ -788,7 +802,17 @@ void NativeToolDispatcherV1::Impl::dispatch(
     if (joined_previous) return;
   }
   const NativeLocalToolContractV1* resolved = nullptr;
-  if (const auto validation = validateEnvelope(invocation, now, resolved)) {
+  std::optional<AgentErrorV1> validation;
+  try {
+    validation = validateEnvelope(invocation, now, resolved);
+  } catch (const std::exception& failure) {
+    validation = error("AGENT_TOOL_FAILED", failure.what());
+  } catch (...) {
+    validation = error(
+        "AGENT_TOOL_FAILED",
+        "native tool provider validation failed before execution");
+  }
+  if (validation) {
     completion(failure(
         invocation, *validation, NativeToolResultStatusV1::Failed, now));
     return;
@@ -1079,9 +1103,29 @@ void NativeToolDispatcherV1::Impl::executeStudio(
                      NativeToolResultStatusV1::Failed, record->started_ms));
       return;
     }
-    if (options.is_lease_active &&
-        !options.is_lease_active(*record->invocation.lease_id,
-                                 *required_lease)) {
+    bool lease_active = true;
+    try {
+      lease_active =
+          !options.is_lease_active ||
+          options.is_lease_active(
+              *record->invocation.lease_id, *required_lease);
+    } catch (const std::exception& failure) {
+      finish(record,
+             this->failure(
+                 record->invocation,
+                 error("AGENT_TOOL_FAILED", failure.what()),
+                 NativeToolResultStatusV1::Failed, record->started_ms));
+      return;
+    } catch (...) {
+      finish(record,
+             this->failure(
+                 record->invocation,
+                 error("AGENT_TOOL_FAILED",
+                       "runtime lease provider validation failed"),
+                 NativeToolResultStatusV1::Failed, record->started_ms));
+      return;
+    }
+    if (!lease_active) {
       finish(record,
              failure(record->invocation,
                      error("AGENT_LEASE_REVOKED",
@@ -1099,8 +1143,28 @@ void NativeToolDispatcherV1::Impl::executeStudio(
                      NativeToolResultStatusV1::Failed, record->started_ms));
       return;
     }
-    if (options.validate_approval_grant &&
-        !options.validate_approval_grant(record->invocation)) {
+    bool approval_valid = true;
+    try {
+      approval_valid =
+          !options.validate_approval_grant ||
+          options.validate_approval_grant(record->invocation);
+    } catch (const std::exception& failure) {
+      finish(record,
+             this->failure(
+                 record->invocation,
+                 error("AGENT_TOOL_FAILED", failure.what()),
+                 NativeToolResultStatusV1::Failed, record->started_ms));
+      return;
+    } catch (...) {
+      finish(record,
+             this->failure(
+                 record->invocation,
+                 error("AGENT_TOOL_FAILED",
+                       "runtime approval provider validation failed"),
+                 NativeToolResultStatusV1::Failed, record->started_ms));
+      return;
+    }
+    if (!approval_valid) {
       finish(record,
              failure(record->invocation,
                      error("AGENT_APPROVAL_MISMATCH",
@@ -1140,9 +1204,7 @@ void NativeToolDispatcherV1::Impl::executeStudio(
               },
               std::move(*result.value));
           if (!validOutput(record->invocation.name, output)) {
-            const auto* resolved =
-                contract(record->invocation.name, record->invocation.version);
-            const bool ambiguous = resolved && resolved->effectful;
+            const bool ambiguous = self->ambiguousOutcome(record);
             self->finish(
                 record,
                 self->failure(
@@ -1161,11 +1223,15 @@ void NativeToolDispatcherV1::Impl::executeStudio(
           self->finish(record, std::move(completed));
         });
   } catch (...) {
+    const bool ambiguous = ambiguousOutcome(record);
     completeAdapterFailure(
         record,
-        error("AGENT_TOOL_OUTCOME_UNKNOWN",
-              "native Studio call failed after host dispatch"),
-        true);
+        error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
+                        : "AGENT_TOOL_FAILED",
+              ambiguous
+                  ? "native Studio call failed after an external effect"
+                  : "native Studio host dispatch failed before an effect"),
+        ambiguous);
   }
 }
 
@@ -1196,15 +1262,15 @@ void NativeToolDispatcherV1::Impl::tick() {
       }
     }
   }
+  for (const auto& record : expired) {
+    record->cancellation->cancel();
+  }
   if (game_active) lease_manager.preempt(PreemptionReasonV1::HUMAN_STOP);
   if (studio_active && studio_adapter) {
     studio_adapter->clearAgentOperation(PreemptionReasonV1::HUMAN_STOP);
   }
   for (const auto& record : expired) {
-    record->cancellation->cancel();
-    const auto* resolved =
-        contract(record->invocation.name, record->invocation.version);
-    const bool ambiguous = resolved && resolved->effectful;
+    const bool ambiguous = ambiguousOutcome(record);
     finish(record,
            failure(record->invocation,
                    error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"
@@ -1239,15 +1305,13 @@ void NativeToolDispatcherV1::Impl::cancelActive(PreemptionReasonV1 reason) {
   }
 
   // Both adapters synchronously clear local authority before callbacks.
+  for (const auto& record : active) record->cancellation->cancel();
   if (game_active) lease_manager.preempt(reason);
   if (studio_active && studio_adapter) {
     studio_adapter->clearAgentOperation(reason);
   }
-  for (const auto& record : active) record->cancellation->cancel();
   for (const auto& record : active) {
-    const auto* resolved =
-        contract(record->invocation.name, record->invocation.version);
-    const bool ambiguous = resolved && resolved->effectful;
+    const bool ambiguous = ambiguousOutcome(record);
     finish(record,
            failure(record->invocation,
                    error(ambiguous ? "AGENT_TOOL_OUTCOME_UNKNOWN"

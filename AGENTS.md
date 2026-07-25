@@ -21,7 +21,13 @@ When a Management/Game GraphQL surface changes:
 6. If agent contracts changed, build CrowdyJS and run
    `node tools/parity/agent-fixtures.mjs --crowdyjs <path>`. Use `--write`
    only for an intentional coordinated fixture update.
-7. Run the blueprint structural gate documented in `README.md`.
+7. If portable Studio layout changed, build CrowdyJS and run
+   `node tools/parity/layout-fixtures.mjs --crowdyjs <path>`. Use `--write`
+   only for an intentional coordinated fixture update.
+8. If player-control or native Studio host behavior changed, run
+   `control-gate-fixtures.mjs` and `studio-host-fixtures.mjs` the same way.
+   Both exact fixtures must be replayed by their focused C++ tests.
+9. Run the blueprint structural gate documented in `README.md`.
 
 The CrowdyJS commit in `package.json` is deliberately pinned and consumed by
 CI. Update that target, the generated matrix, and any

@@ -74,12 +74,22 @@ export function assertCrowdyJsParityTarget(repoRoot, crowdyJsPath) {
     readFileSync(join(crowdyJsPath, 'package.json'), 'utf8'),
   );
   let commit;
+  let trackedChanges;
   try {
     commit = execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: crowdyJsPath,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
+    trackedChanges = execFileSync(
+      'git',
+      ['status', '--porcelain', '--untracked-files=no'],
+      {
+        cwd: crowdyJsPath,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
   } catch {
     throw new Error(
       `CrowdyJS parity checkout is not a readable git checkout: ${crowdyJsPath}`,
@@ -90,6 +100,12 @@ export function assertCrowdyJsParityTarget(repoRoot, crowdyJsPath) {
     throw new Error(
       `CrowdyJS parity target mismatch: expected ${target.version} at ` +
         `${target.commit}, received ${candidate.version ?? 'unknown'} at ${commit}`,
+    );
+  }
+  if (trackedChanges) {
+    throw new Error(
+      `CrowdyJS parity target has tracked changes at ${crowdyJsPath}; ` +
+        'fixture and parity evidence must come from the exact committed tree',
     );
   }
   return target;

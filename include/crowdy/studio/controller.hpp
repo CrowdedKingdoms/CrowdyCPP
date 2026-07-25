@@ -4,8 +4,10 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <iomanip>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -19,6 +21,7 @@
 #include "crowdy/core/clock.hpp"
 #include "crowdy/core/crypto.hpp"
 #include "crowdy/graphql/json.hpp"
+#include "crowdy/studio/diagnostics.hpp"
 #include "crowdy/studio/models.hpp"
 #include "crowdy/studio/runtime.hpp"
 
@@ -59,6 +62,7 @@ struct CrowdyStudioRuntimeSync {
   std::optional<std::string> savedRevisionId;
   std::optional<std::string> runningRevisionId;
   std::optional<CrowdyStudioDeployment> deployment;
+  std::optional<std::string> startedAt;
   std::optional<std::string> runningProjectContentHash;
   std::optional<std::string> runningServerModuleName;
   std::optional<std::string> runningClientModuleName;
@@ -90,11 +94,12 @@ struct CrowdyStudioState {
       CrowdyStudioAgentActivity::Idle;
   std::vector<CrowdyStudioCheckpointMetadata> checkpoints;
   std::string buildOutput;
-  std::vector<std::string> authoritativeDiagnostics;
-  std::vector<std::string> localDiagnostics;
+  std::vector<CrowdyStudioDiagnostic> authoritativeDiagnostics;
+  std::vector<CrowdyStudioDiagnostic> localDiagnostics;
   std::vector<CrowdyStudioRun> runs;
   std::vector<CrowdyStudioRun> logs;
   std::optional<CrowdyStudioUsageSnapshot> usage;
+  std::optional<CrowdyStudioWalletSnapshot> wallet;
   std::optional<CrowdyStudioInvokeResult> invokeResult;
 };
 
@@ -178,14 +183,16 @@ class CrowdyStudioController {
       ICrowdyStudioRuntime& runtime, const core::ICrypto& crypto,
       const core::IClock& clock = core::systemClock(),
       ICrowdyStudioSynchronizationProvider* synchronizationProvider = nullptr,
-      ICrowdyStudioApprovalGate* approvalGate = nullptr)
+      ICrowdyStudioApprovalGate* approvalGate = nullptr,
+      ICrowdyStudioWalletProvider* walletProvider = nullptr)
       : options_(std::move(options)),
         projectProvider_(projectProvider),
         runtime_(runtime),
         crypto_(crypto),
         clock_(clock),
         synchronizationProvider_(synchronizationProvider),
-        approvalGate_(approvalGate) {
+        approvalGate_(approvalGate),
+        walletProvider_(walletProvider) {
     if (options_.appId.empty() || options_.gridId.empty()) {
       throw std::invalid_argument(
           "Crowdy Studio requires an app-scoped appId and gridId");
@@ -511,9 +518,45 @@ class CrowdyStudioController {
     updateSettings(patch);
   }
 
-  void setLocalDiagnostics(std::vector<std::string> diagnostics) {
+  void setLocalDiagnostics(
+      std::vector<CrowdyStudioDiagnostic> diagnostics) {
     state_.localDiagnostics = std::move(diagnostics);
     notify();
+  }
+
+  /// Compatibility overload for integrations that previously supplied opaque
+  /// strings. Locations default to the active project file at 1:1.
+  void setLocalDiagnostics(std::vector<std::string> diagnostics) {
+    std::vector<CrowdyStudioDiagnostic> typed;
+    typed.reserve(diagnostics.size());
+    CrowdyStudioTarget target = CrowdyStudioTarget::Server;
+    std::string path = "src/lib.rs";
+    if (state_.activeFile && state_.activeFile->target) {
+      target = *state_.activeFile->target;
+      path = state_.activeFile->path;
+    } else if (state_.project && !state_.project->files.empty()) {
+      target = state_.project->files.front().target;
+      path = state_.project->files.front().path;
+    }
+    for (auto& message : diagnostics) {
+      CrowdyStudioDiagnostic diagnostic;
+      diagnostic.target = target;
+      diagnostic.path = path;
+      diagnostic.message = std::move(message);
+      diagnostic.source =
+          CrowdyStudioDiagnosticSource::LocalAdvisory;
+      typed.push_back(std::move(diagnostic));
+    }
+    setLocalDiagnostics(std::move(typed));
+  }
+
+  std::vector<std::string> localDiagnosticTexts() const {
+    return crowdyStudioDiagnosticTexts(state_.localDiagnostics);
+  }
+
+  std::vector<std::string> authoritativeDiagnosticTexts() const {
+    return crowdyStudioDiagnosticTexts(
+        state_.authoritativeDiagnostics);
   }
 
   bool saveNow() {
@@ -688,12 +731,32 @@ class CrowdyStudioController {
 
   std::vector<CrowdyStudioCheckpointMetadata> refreshCheckpoints() {
     const CrowdyStudioProject& project = requireProject();
-    if (synchronizationProvider_) {
-      state_.checkpoints = synchronizationProvider_->listCheckpoints(
-          scope(), project.projectId);
-      notify();
+    if (!synchronizationProvider_) {
+      throw CrowdyStudioCapabilityUnavailableError(
+          CrowdyStudioSynchronizationCapability::CheckpointList,
+          "Checkpoint listing requires an injected durable "
+          "synchronization bridge");
     }
+    state_.checkpoints = synchronizationProvider_->listCheckpoints(
+        scope(), project.projectId);
+    notify();
     return state_.checkpoints;
+  }
+
+  /// Consume metadata from a scope-fenced durable agent checkpoint event.
+  /// This does not create a checkpoint or grant restore authority.
+  void ingestCheckpointEvent(
+      const CrowdyStudioCheckpointEvent& event) {
+    const CrowdyStudioProject& project = requireProject();
+    if (event.scope.appId != options_.appId ||
+        event.scope.gridId != options_.gridId ||
+        event.projectId != project.projectId) {
+      throw std::invalid_argument(
+          "Checkpoint event crossed the open Studio project scope");
+    }
+    validateCheckpoint(event.checkpoint);
+    upsertCheckpoint(event.checkpoint);
+    notify();
   }
 
   CrowdyStudioAtomicPatchResult applyAtomicPatch(
@@ -709,8 +772,10 @@ class CrowdyStudioController {
     }
     validateAtomicPatch(baseline, input);
     if (!synchronizationProvider_) {
-      throw std::runtime_error(
-          "Atomic patches require a durable synchronization provider");
+      throw CrowdyStudioCapabilityUnavailableError(
+          CrowdyStudioSynchronizationCapability::AtomicPatch,
+          "Atomic patches require an injected durable synchronization "
+          "bridge; no checkpoint GraphQL authority is implied");
     }
     CrowdyStudioAtomicPatchResult result =
         synchronizationProvider_->applyAtomicPatch(
@@ -799,14 +864,22 @@ class CrowdyStudioController {
 
   CrowdyStudioCheckpointMetadata restoreCheckpoint(
       std::string_view checkpointId, std::string_view approvalGrant,
-      std::optional<std::string> expectedRevisionId = std::nullopt) {
+      std::optional<std::string> expectedRevisionId = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     if (!saveNow()) {
       throw std::runtime_error(
           "Resolve the current project save before restoring a checkpoint");
     }
-    if (!synchronizationProvider_ || !approvalGate_) {
-      throw std::runtime_error(
-          "Checkpoint restore requires synchronization and agent approval");
+    if (!synchronizationProvider_) {
+      throw CrowdyStudioCapabilityUnavailableError(
+          CrowdyStudioSynchronizationCapability::ApprovedRestore,
+          "Checkpoint restore requires an injected durable restore bridge");
+    }
+    if (!approvalGate_) {
+      throw CrowdyStudioCapabilityUnavailableError(
+          CrowdyStudioSynchronizationCapability::ApprovedRestore,
+          "Checkpoint restore requires an exact external agent approval "
+          "bridge");
     }
     const CrowdyStudioProject current = requireProject();
     const std::string expected =
@@ -818,6 +891,7 @@ class CrowdyStudioController {
     approvalGate_->requireRestoreApproval(
         {scope(), current.projectId, std::string(checkpointId), expected},
         approvalGrant);
+    if (onEffectStart) onEffectStart();
     CrowdyStudioCheckpointRestoreResult restored =
         synchronizationProvider_->restoreCheckpoint(
             {scope(), current.projectId, std::string(checkpointId), expected,
@@ -845,30 +919,36 @@ class CrowdyStudioController {
   }
 
   CrowdyStudioDeployResult testDraft(
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
-    return testDraftPlan(makeDeploymentPlan(), agentOperation);
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
+    return testDraftPlan(
+        makeDeploymentPlan(), agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult testDraftPlan(
       const CrowdyStudioDeploymentPlan& plan,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     return deployProject(CrowdyStudioDeployment::Draft, plan, {},
-                         agentOperation);
+                         agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult deployLive(
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
-    return deployLivePlan(plan, approvalGrant, agentOperation);
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
+    return deployLivePlan(
+        plan, approvalGrant, agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioDeployResult deployLivePlan(
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     return deployProject(CrowdyStudioDeployment::Live, plan, approvalGrant,
-                         agentOperation);
+                         agentOperation, std::move(onEffectStart));
   }
 
   CrowdyStudioStopResult stopProject() {
@@ -918,7 +998,8 @@ class CrowdyStudioController {
       std::optional<std::string> paramsJson = std::nullopt,
       std::optional<CrowdyStudioDeployment> expectedDeployment =
           std::nullopt,
-      std::optional<std::uint64_t> agentOperation = std::nullopt) {
+      std::optional<std::uint64_t> agentOperation = std::nullopt,
+      std::function<void()> onEffectStart = {}) {
     checkAgentOperation(agentOperation);
     const CrowdyStudioProject& project = requireProject();
     if (!containsTarget(projectTargets(project.kind),
@@ -942,6 +1023,7 @@ class CrowdyStudioController {
     std::string selected(exportName);
     trim(selected);
     if (selected.empty()) selected = "invoke";
+    if (onEffectStart) onEffectStart();
     CrowdyStudioInvokeResult result = runtime_.invoke(
         scope(), *state_.runtimeSync.runningServerModuleName, selected,
         paramsJson);
@@ -981,12 +1063,24 @@ class CrowdyStudioController {
       state_.logs = runtime_.logs(scope(), serverName);
     } else {
       state_.usage = runtime_.usage(options_.appId);
+      if (walletProvider_) {
+        try {
+          state_.wallet = walletProvider_->balance();
+        } catch (...) {
+          // Wallet observation is optional and never blocks project authoring,
+          // compilation, deployment, or the independent usage snapshot.
+          state_.wallet.reset();
+        }
+      } else {
+        state_.wallet.reset();
+      }
     }
     notify();
   }
 
-  /// Native autosave/retry/poll pump. Engines call this from their normal tick;
-  /// CrowdyCPP never creates a UI or background controller thread.
+  /// Potentially blocking autosave/retry/monitor maintenance. This may call
+  /// injected storage/HTTP/runtime providers; integrations run it only from
+  /// their explicit serialized Studio maintenance lane.
   void tick() {
     ensureAlive();
     const std::int64_t now = clock_.monotonicMillis();
@@ -1093,6 +1187,7 @@ class CrowdyStudioController {
     state_.runs.clear();
     state_.logs.clear();
     state_.usage.reset();
+    state_.wallet.reset();
     state_.invokeResult.reset();
     notify();
   }
@@ -1101,7 +1196,8 @@ class CrowdyStudioController {
       CrowdyStudioDeployment deployment,
       const CrowdyStudioDeploymentPlan& plan,
       std::string_view approvalGrant,
-      std::optional<std::uint64_t> agentOperation) {
+      std::optional<std::uint64_t> agentOperation,
+      std::function<void()> onEffectStart) {
     checkAgentOperation(agentOperation);
     if (!saveNow()) {
       return failedDeployment(deployment, plan,
@@ -1131,10 +1227,17 @@ class CrowdyStudioController {
     state_.buildOutput.clear();
     state_.authoritativeDiagnostics.clear();
     notify();
+    bool effectStarted = false;
+    const auto markEffectStarted = [&] {
+      if (effectStarted) return;
+      effectStarted = true;
+      if (onEffectStart) onEffectStart();
+    };
     try {
       if (plan.targets.size() == 1) {
         const auto compiled =
-            compileTarget(project, plan.targets.front(), deployment, operation);
+            compileTarget(project, plan.targets.front(), deployment, operation,
+                          markEffectStarted);
         if (!compiled) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
@@ -1145,12 +1248,14 @@ class CrowdyStudioController {
         }
       } else {
         const auto client = compileTarget(
-            project, CrowdyStudioTarget::Client, deployment, operation);
+            project, CrowdyStudioTarget::Client, deployment, operation,
+            markEffectStarted);
         if (!client) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
         const auto server = compileTarget(
-            project, CrowdyStudioTarget::Server, deployment, operation);
+            project, CrowdyStudioTarget::Server, deployment, operation,
+            markEffectStarted);
         if (!server) {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
@@ -1185,7 +1290,9 @@ class CrowdyStudioController {
           project.metadata.clientModuleName;
       state_.runtimeSync.runningPairingPreference =
           project.metadata.pairingPreference;
-      state_.runtimeSync.startedAtEpochMs = clock_.epochMillis();
+      const std::int64_t startedAt = clock_.epochMillis();
+      state_.runtimeSync.startedAt = formatEpochMillis(startedAt);
+      state_.runtimeSync.startedAtEpochMs = startedAt;
       notify();
       try {
         refreshSurface(CrowdyStudioPolledSurface::Usage);
@@ -1205,7 +1312,8 @@ class CrowdyStudioController {
 
   std::optional<CompiledTarget> compileTarget(
       const CrowdyStudioProject& project, CrowdyStudioTarget target,
-      CrowdyStudioDeployment deployment, std::uint64_t operation) {
+      CrowdyStudioDeployment deployment, std::uint64_t operation,
+      const std::function<void()>& onEffectStart) {
     assertTargetWritable(target);
     const std::string name = moduleName(project, target);
     std::vector<CrowdyStudioProjectFile> files;
@@ -1218,6 +1326,7 @@ class CrowdyStudioController {
     state_.runtime = {CrowdyStudioPhase::Compiling, target,
                       "Submitting " + name};
     notify();
+    if (onEffectStart) onEffectStart();
     const CrowdyStudioDeploySubmission submitted = runtime_.deploy(
         {scope(), target, name, files, project.sdkVersion,
          project.abiVersion, deployment});
@@ -1479,6 +1588,19 @@ class CrowdyStudioController {
         "## " + std::string(toString(target)) + "\n";
     state_.buildOutput +=
         log.empty() ? "Compiled successfully." : std::string(log);
+    state_.authoritativeDiagnostics.erase(
+        std::remove_if(
+            state_.authoritativeDiagnostics.begin(),
+            state_.authoritativeDiagnostics.end(),
+            [&](const CrowdyStudioDiagnostic& diagnostic) {
+              return diagnostic.target == target;
+            }),
+        state_.authoritativeDiagnostics.end());
+    auto parsed = parseRustcDiagnostics(log, target);
+    state_.authoritativeDiagnostics.insert(
+        state_.authoritativeDiagnostics.end(),
+        std::make_move_iterator(parsed.begin()),
+        std::make_move_iterator(parsed.end()));
     notify();
   }
 
@@ -1719,6 +1841,28 @@ class CrowdyStudioController {
     state_.checkpoints.insert(state_.checkpoints.begin(), checkpoint);
   }
 
+  static void validateCheckpoint(
+      const CrowdyStudioCheckpointMetadata& checkpoint) {
+    if (checkpoint.checkpointId.empty() ||
+        checkpoint.checkpointId.size() > 128 ||
+        checkpoint.projectRevisionId.empty() ||
+        checkpoint.projectRevisionId.size() > 40 ||
+        checkpoint.contentHash.empty() ||
+        checkpoint.contentHash.size() > 128 ||
+        checkpoint.files.size() > 128) {
+      throw std::invalid_argument(
+          "Checkpoint event metadata is outside Studio bounds");
+    }
+    for (const auto& file : checkpoint.files) {
+      (void)normalizeCrowdyStudioPath(file.path);
+      if (file.contentHash.empty() || file.contentHash.size() > 128 ||
+          file.byteLength > 1'048'576) {
+        throw std::invalid_argument(
+            "Checkpoint event file metadata is outside Studio bounds");
+      }
+    }
+  }
+
   static std::string joinFailures(
       const std::vector<std::string>& failures) {
     std::string joined;
@@ -1745,6 +1889,31 @@ class CrowdyStudioController {
     } else {
       value = std::string(first, last);
     }
+  }
+
+  static std::string formatEpochMillis(std::int64_t epochMillis) {
+    const std::time_t seconds =
+        static_cast<std::time_t>(epochMillis / 1'000);
+    std::tm utc{};
+#ifdef _WIN32
+    if (gmtime_s(&utc, &seconds) != 0) {
+      throw std::runtime_error(
+          "Crowdy Studio could not format the runtime start time");
+    }
+#else
+    if (gmtime_r(&seconds, &utc) == nullptr) {
+      throw std::runtime_error(
+          "Crowdy Studio could not format the runtime start time");
+    }
+#endif
+    std::ostringstream output;
+    output << std::setfill('0') << std::setw(4) << utc.tm_year + 1900
+           << '-' << std::setw(2) << utc.tm_mon + 1 << '-' << std::setw(2)
+           << utc.tm_mday << 'T' << std::setw(2) << utc.tm_hour << ':'
+           << std::setw(2) << utc.tm_min << ':' << std::setw(2)
+           << utc.tm_sec << '.' << std::setw(3) << epochMillis % 1'000
+           << 'Z';
+    return output.str();
   }
 
   static std::size_t surfaceIndex(
@@ -1791,6 +1960,9 @@ class CrowdyStudioController {
           *runtimeSync.deployment == CrowdyStudioDeployment::Draft
               ? "DRAFT"
               : "LIVE";
+    }
+    if (runtimeSync.startedAt) {
+      value["startedAt"] = *runtimeSync.startedAt;
     }
     if (runtimeSync.runningProjectContentHash) {
       value["runningProjectContentHash"] =
@@ -1861,6 +2033,7 @@ class CrowdyStudioController {
   const core::IClock& clock_;
   ICrowdyStudioSynchronizationProvider* synchronizationProvider_;
   ICrowdyStudioApprovalGate* approvalGate_;
+  ICrowdyStudioWalletProvider* walletProvider_;
   CrowdyStudioState state_;
   std::map<ListenerId, StateListener> listeners_;
   std::map<ListenerId, HumanEditListener> humanEditListeners_;

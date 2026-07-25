@@ -29,6 +29,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
 | `CROWDY_E2E_AGENT_PLAY=1` | no | enable Play lease grant/takeover; also set controlled-entity and host-capability vars |
+| `CROWDY_E2E_STUDIO_APPROVED_RESTORE_CAPABILITY=1` | no | assert that the host has wired an independently authorized synchronization + approval provider; the stock black-box executable fails rather than infer restore authority |
 | `CROWDY_E2E_AGENT_POLICY_KILL=1` | no | explicitly allow a temporary operator app kill/release; requires operator email |
 | `CROWDY_E2E_WEBSOCKET=1` | no | enable generic GraphQL-WS + typed container-feed live evidence; the client must have an injected or default transport |
 | `CROWDY_E2E_SLOW=1` | no | enable long-running suites (soak, cache-TTL waits) |
@@ -72,7 +73,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid / multi-server / WebSocket transport / claim coordinate / operator |
+| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid+Play host / multi-server / WebSocket transport / claim coordinate / operator |
 
 ## Notes for reruns
 
@@ -93,6 +94,15 @@ Run a single suite directly for its per-subtest output:
   fake native host to the live session epoch for takeover cancellation.
   Policy-kill coverage is a separate explicit opt-in and releases the kill
   before asserting.
+- `e2e_native_studio_integration` uses the production
+  `CrowdyClient::createCrowdyStudioIntegration` factory end to end. It creates
+  and archives a disposable project, edits and saves through the in-memory
+  editor plus explicit maintenance lane, attaches BUILD, dispatches a native
+  Studio status tool, submits the exact saved draft, grants a Play lease, and
+  verifies synchronous control-gate takeover. The published APIs do not advertise a
+  generic approved-restore capability, so that live subtest is skipped unless
+  an independent synchronization and approval provider is injected. Setting
+  the capability assertion without such a provider fails closed.
 - `e2e_graphql_websocket` exits 77 when the client has neither an injected nor
   compatible default WebSocket transport. With its explicit flag set,
   endpoint/protocol failures are failures and structured GraphQL details are

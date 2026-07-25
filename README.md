@@ -31,6 +31,20 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.16.0 native Studio target:** the release gate reports zero portable gaps,
+unclassified differences, and stale classifications against CrowdyJS 12.2.0 at
+`0c7081477183b2b4fdbe09dc091086a231ba2979`. This is not a claim that the
+implementations are identical: the generated matrix retains reviewed native
+equivalents and browser-only exclusions. Production Agentic Studio uses typed
+GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
+construction; the native player-host dispatcher has an exact
+`IAgentBrowserToolDispatcher` bridge. Native Studio adds the complete
+editor/layout/host/control assembly through
+`createCrowdyStudioIntegration()`, with nonblocking `poll()` and an explicit
+potentially-blocking maintenance lane. See the
+[compatibility matrix](docs/compatibility.md) and
+[0.16 migration notes](MIGRATION.md).
+
 **v0.15.1 package-consumer patch:** installed-package CI and examples now
 request the current `0.15` compatibility line. Runtime and player-count APIs are
 unchanged from 0.15.0.
@@ -41,20 +55,9 @@ best-effort transition stream introduced by the matching Game API generation.
 The strict portable-parity target advances to CrowdyJS 12.2.0 with zero schema
 differences, portable gaps, unclassified differences, or stale classifications.
 
-**v0.14.1 strict portable-parity target:** the release gate reports zero
-portable gaps, unclassified differences, and stale classifications against
-CrowdyJS 12.0.0 at
-`a9c620c021c83c39f630dca4bb3e46b76691ac2d`. This is not a claim that the
-implementations are identical: the generated matrix retains reviewed native
-equivalents and browser-only exclusions. Production Agentic Studio uses typed
-GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
-construction; the native player-host dispatcher has an exact
-`IAgentBrowserToolDispatcher` bridge. Game-model container metadata changes
-have a typed subscription, and current platform extensions add keyed container
-ensure/filter plus app listing-version administration. Session stores expose
-real revision, dirty/save, queue, error, local-actor, and owner-private avatar
-observability. See the [compatibility matrix](docs/compatibility.md) and
-[0.14 migration notes](MIGRATION.md).
+**v0.14.1:** strict portable parity, production Agentic Studio controller
+ownership, typed container subscriptions, current platform extensions, and the
+Windows nonblocking manual-pump fix remain the previous release line.
 
 **v0.10.0:** operator compute-ceilings coverage (`operator_().computePlatformCeilings()`
 / `setComputePlatformCeilings(input)` — the Track F platform-ceilings surface;
@@ -85,11 +88,14 @@ refresh failure (old token retained) from reconnect failure (fresh token
 retained). Routed HTTP and WebSocket bases normalize to one `/graphql`, while
 explicit complete custom endpoints are preserved.
 
-**Crowdy Studio (CrowdyJS 12.0.0 portable surface):** `crowdyStudio()` is the typed,
+**Crowdy Studio (CrowdyJS 12.1+ portable surface):** `crowdyStudio()` is the typed,
 app-scoped project/library/common-file API, including optimistic atomic saves,
 archive/restore, provenance-preserving imports, authored-module recovery, and
 permission-gated common publication. `crowdy::studio::CrowdyStudioController`
 is the headless project/autosave/conflict/checkpoint/runtime state machine.
+`crowdy::studio::StudioLayoutController` mirrors the four-pane persistent
+layout contract through injected storage, without assuming a native filesystem
+or process-global settings service.
 Engines inject synchronization, approval, crypto, clock, and CLIENT artifact
 runtime seams; CrowdyCPP does not ship DOM, Monaco, CSS, a Rust worker, or an
 engine renderer.
@@ -99,7 +105,7 @@ engine renderer.
 `crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
 epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
 tool seam. The immutable 28-tool registry is verified against the pinned
-CrowdyJS 12.0.0 canonical SHA-256 fixtures. There is no provider client, DOM
+CrowdyJS 12.2.0 canonical SHA-256 fixtures. There is no provider client, DOM
 driver, raw GraphQL/UDP executor, or generic tool authority in this surface.
 See [Native Agentic Studio](docs/native-agent-api.md).
 
@@ -191,7 +197,8 @@ protocols out.
 
 `CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
 core GraphQL outcomes, auth/portal, replication, non-authoring domains, and
-session stores remain available. Compute authoring, Crowdy Studio project
+session stores remain available. The independent Crowdy Studio pane-layout
+header remains available. Compute authoring, Crowdy Studio project
 models/API/controller, Agent/controller, player-host, Game Kit, and
 `ContainerMirror` headers are not installed because their validation
 contracts throw. Blocking GraphQL failures return an invalid `Json`; use
@@ -373,6 +380,19 @@ studio.updateFile(crowdy::studio::CrowdyStudioTarget::Server,
 studio.tick();  // engine-loop autosave/retry/monitor pump
 ```
 
+`CrowdyStudioState::authoritativeDiagnostics` and `localDiagnostics` are typed
+`CrowdyStudioDiagnostic` values with target-relative ranges, severity, source,
+message, and optional rustc code. `parseRustcDiagnostics()` accepts bounded
+human/JSON rustc output; the string overload of `setLocalDiagnostics()` and
+the `*DiagnosticTexts()` helpers remain for older engine views.
+
+Wallet balance is optional observation, not authoring authority. Inject
+`CrowdyStudioPlayerWalletProvider` (the read-only adapter over
+`PlayerWalletAPI::balance()`) as the controller's final constructor argument
+to populate `state.wallet` whenever the visible Usage surface refreshes.
+Wallet read failures clear that optional snapshot and do not block editing,
+saving, compilation, or deployment.
+
 Runtime actions are revision-bound:
 
 - draft/live plans must name the exact complete project target set;
@@ -387,11 +407,24 @@ Runtime actions are revision-bound:
 - `state.runtimeSync` explicitly distinguishes never-run, running-saved,
   running-stale, and stopped state.
 
+The published GraphQL schemas have durable agent checkpoint events, but no
+generic checkpoint-list, atomic-patch, or approved-restore root.
+`ICrowdyStudioSynchronizationProvider` is therefore an explicit
+host/orchestrator bridge, not a generated GraphQL adapter. Missing bridge
+operations throw `CrowdyStudioCapabilityUnavailableError`. Integrations can
+convert a scope-fenced `AgentCheckpoint` with
+`crowdyStudioCheckpointEventFromAgentV1()` and feed the metadata to
+`ingestCheckpointEvent()`; that observation never creates restore authority.
+Approved restore still requires both the injected durable bridge and the exact
+external approval gate.
+
 The synchronization and runtime interfaces are intentionally server-free in
 unit tests. They do not grant grid permissions or source visibility: Game API
 ownership, target write/run permissions, and admission checks still execute on
-every playerCompute call. See [MIGRATION.md](MIGRATION.md) for source-behavior
-and runtime-ownership notes.
+every playerCompute call. The installed Studio parity fixtures pin the common
+CrowdyJS runtime projection while retaining native content-hash, module, and
+pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
+runtime-ownership notes.
 
 ## Native player-host and local tool integration
 
@@ -409,6 +442,13 @@ through the installed headers under `crowdy/player_host/` and
   observation, heartbeat, and command rate. Call `tick()` from the game thread.
   Human input, Escape, Stop, death, disconnect, and permission/admission/context
   changes call the corresponding synchronous preemption method.
+- `NativePlayerControlGate` is the no-DOM/no-OS CrowdyJS 12.1 control-gate
+  equivalent. Engines report keyboard, pointer, movement, background, death,
+  permission, context, and controlled-entity transitions through imperative
+  hooks. Local intent clears before best-effort remote revoke/Pause/Stop,
+  Stop works offline, and snapshots retain the 150 ms human-input-active
+  window without a timer thread. Construction requires the fallback local
+  intent-clear callback.
 - `NativeToolDispatcherV1` is an execute-once callback router for the 14
   mandatory `game.*` tools and the 11 native Studio/runtime tools. It validates
   canonical v12 descriptor digests, typed input/output bounds, mode, deadline,
@@ -419,6 +459,16 @@ through the installed headers under `crowdy/player_host/` and
   headless Studio controller used by human actions. Engine adapters own thread
   scheduling; callbacks may complete inline or later, and cancellation tokens
   provide a cooperative stop signal while the dispatcher fences late results.
+- `CrowdyStudioControllerHostAdapter` is the concrete 11-tool controller
+  mapping. `ICrowdyStudioEditorAdapter` receives only selected/open files and
+  synchronized in-memory buffers, while `CrowdyStudioIntegration` owns the
+  controller/runtime/dispatcher/editor/optional-agent assembly plus the
+  concrete layout, lease-manager, and human-control gate. Engines inject
+  layout storage, the typed player host, and input/lifecycle events.
+- Integration `poll()` is a nonblocking platform + Agent callback/deadline
+  pump. Autosave, monitoring HTTP, compile polling/sleep, and scheduled
+  effectful Studio tools run only from the explicit serialized
+  `runStudioMaintenance()` lane (or an injected `studioHost.schedule` lane).
 
 World coordinates, distances, health values, fuel, revisions, and other
 contract values that may exceed a native or JSON number remain decimal
@@ -429,7 +479,8 @@ validates canonical JSON, converts into closed native variants, forwards
 `NativeToolResultV1` output/error/timing/context, maps cancellation reasons,
 and pumps deadlines from the controller loop. Clear execute-once records only
 after the attached session is closed. See the
-[native player-host example](docs/native-player-host.md).
+[native player-host example](docs/native-player-host.md) and
+[native Studio integration guide](docs/native-studio-integration.md).
 
 ## The native replication client
 
@@ -640,8 +691,8 @@ Each new minor release may make source or ABI changes, even though the major
 version remains `0`; consumers must review the migration notes and rebuild.
 
 The installed CMake package follows that policy with `SameMinorVersion`.
-For example, `find_package(CrowdyCPP 0.15 CONFIG REQUIRED)` can select a newer
-`0.15.x` package, but it will not accept `0.16.x`. No compatibility is promised
+For example, `find_package(CrowdyCPP 0.16 CONFIG REQUIRED)` can select a newer
+`0.16.x` package, but it will not accept `0.17.x`. No compatibility is promised
 between arbitrary `0.x` minors.
 
 ## Server compatibility
@@ -754,9 +805,13 @@ node tools/parity/parity.mjs --crowdyjs "$CROWDYJS_PATH" \
 npm run check:operations
 npm run check:parity
 
-# CrowdyJS must be built first; verifies all 28 descriptor digests and the
-# closed 16-reason preemption vocabulary against C++ schema/codegen fixtures.
+# CrowdyJS must be built first. Every fixture tool rejects tracked checkout
+# changes, a wrong package version, or a wrong commit.
 npm run check:agent-fixtures
+npm run check:control-gate-fixtures
+npm run check:studio-host-fixtures
+npm run check:layout-fixtures
+npm run check:studio-state-fixtures
 
 # Parser/gate behavior.
 npm test
@@ -783,10 +838,12 @@ node tools/parity/blueprints-diff.mjs /tmp/js.json /tmp/cpp.json
 ```
 
 When intentionally changing the target, update the pinned CrowdyJS SHA, sync
-the descriptor/preemption fixtures with `agent-fixtures.mjs --write`,
-regenerate `docs/parity-matrix.md`, and commit the schema plus both generated
-headers in the same change. None of these maintainer gates run during a normal
-external CMake build.
+the descriptor/preemption, control-gate, 11-tool Studio host, and layout
+fixtures with their `tools/parity/*-fixtures.mjs --write` commands, validate
+the shared Studio state fixtures, regenerate `docs/parity-matrix.md`, and
+commit the pin plus changed fixtures and generated evidence together. Include
+schema snapshots and generated headers whenever the target also changes SDL.
+None of these maintainer gates run during a normal external CMake build.
 
 ## Tests
 
@@ -799,8 +856,9 @@ external CMake build.
   install test verifies those unsupported headers are not shipped.
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
-  refresh/reconnect, opt-in marketplace chunk claim/release) that run against
-  a deployment you configure via
+  refresh/reconnect, opt-in marketplace chunk claim/release, and the complete
+  native Studio factory/edit/BUILD/draft/Play takeover lifecycle) that run
+  against a deployment you configure via
   environment variables (`CROWDY_E2E_MANAGEMENT_URL`, `CROWDY_E2E_HTTP_URL`,
   `CROWDY_E2E_EMAIL`, `CROWDY_E2E_APP_ID`, …). Skipped when unset.
 - `benchmarks/` — codec ns/op, HMAC throughput, and end-to-end echo latency
@@ -812,7 +870,7 @@ external CMake build.
 - [Wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats) · [HMAC](https://docs.crowdedkingdoms.com/replication-api/hmac)
 - [Management API](https://docs.crowdedkingdoms.com/management-api/intro) · [Game API](https://docs.crowdedkingdoms.com/game-api/intro)
 - [Native Agentic Studio](docs/native-agent-api.md)
-- [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
+- [Native Studio integration](docs/native-studio-integration.md) · [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
 - [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
 - [Release verification checklist](docs/release-checklist.md)
 - [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)

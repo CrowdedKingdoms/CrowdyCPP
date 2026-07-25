@@ -64,14 +64,97 @@ while (running) {
 }
 ```
 
+For a full native editor, `CrowdyStudioIntegration` owns this dispatcher chain
+and optional Agent runtime while retaining an injected editor and typed
+project/runtime services. It still borrows `AgentControlLeaseManager`; destroy
+the integration before the manager and its `PlayerHostAdapterV1`. See
+[Native Studio integration](native-studio-integration.md).
+
 Human input must synchronously preempt local intent before any asynchronous
 cleanup:
 
+Wrap the lease manager and controller with `NativePlayerControlGate`. The
+required fallback clear callback keeps Stop effective before Studio attaches
+or after the network/controller is gone; construction rejects an empty
+callback:
+
 ```cpp
-leases.onHumanInput();
-localTools.cancelActive(
-    crowdy::agent::AgentPreemptionReason::HumanInput);
+crowdy::player_host::NativePlayerControlGateOptionsV1 gateOptions;
+gateOptions.clock = &engineClock;
+gateOptions.human_input_active_ms = 150;
+
+crowdy::player_host::NativePlayerControlGate controlGate(
+    [&](auto reason) { host.clearAgentIntent(reason); }, gateOptions);
+auto unbindControl = controlGate.bind(leases, agent->controller());
+
+auto unsubscribeControl = controlGate.subscribe([](const auto& state) {
+  // state.bound, state.active_lease, state.last_preemption,
+  // state.human_input_active, state.offline_stop
+});
 ```
+
+The engine calls the imperative hooks before continuing its normal human-input
+path. They return `void`, never consume an input object, and never synthesize
+input:
+
+```cpp
+void onKeyboard(const EngineKeyEvent& event) {
+  controlGate.onHumanKeyboardInput(
+      event.key == Key::Escape
+          ? crowdy::player_host::NativePlayerControlKeyboardInputV1::Escape
+          : crowdy::player_host::NativePlayerControlKeyboardInputV1::Input);
+  gameplayKeyboard(event); // Always receives the original event.
+}
+
+void onPointerDown(const EnginePointerEvent& event) {
+  controlGate.onHumanPointerInput();
+  gameplayPointerDown(event);
+}
+
+void onLookOrMovementInput(const EngineInputEvent& event) {
+  controlGate.onHumanMovementInput();
+  gameplayMovement(event);
+}
+
+// Engine lifecycle and authority notifications:
+controlGate.onBackgrounded();          // pagehide/hidden native equivalent
+controlGate.onDisconnected();
+controlGate.onClientReattached();
+controlGate.onDeath();
+controlGate.onContextChanged();
+controlGate.onPermissionChanged();
+controlGate.onAdmissionChanged();
+controlGate.onControlTargetChanged();
+
+// User controls:
+controlGate.pause();
+controlGate.stop(); // Clears locally even with no controller/network.
+```
+
+The active-input window defaults to 150 ms and uses the injected monotonic
+clock. `snapshot()` and `humanInputActive()` evaluate it on demand, matching
+CrowdyJS 12.1; the gate has no timer thread and needs no `tick()`. The existing
+lease manager/tool dispatcher still needs its normal game-thread pump.
+
+For every takeover, local intent and the local lease are cleared before any
+best-effort remote revoke, Pause, or Stop. A locally revoked lease id is
+suppressed even if stale controller state still reports it as active, so
+network errors cannot restore control or trigger duplicate remote revocation.
+Controller calls, state access, preemption observers, and state listeners are
+exception-isolated from imperative safety hooks.
+
+`bind()` also accepts `INativePlayerControlGateController` for engine-owned
+controller wrappers. The returned unbind function is pair-specific: an old
+unbind cannot detach a replacement manager/controller pair. Keep both bound
+objects alive until unbinding; declare the unbind handle after them or call it
+explicitly before either is destroyed. Gate destruction performs a final local
+`DISCONNECTED` preemption, unbinds, and makes outstanding unsubscribe/unbind
+functions harmless.
+
+`crowdyjs-player-control-gate.v1.json` is generated from the exact pinned
+CrowdyJS build. The native fixture test replays its initial/bound snapshots,
+listener and local-clear ordering, 150 ms boundary, rebind/unbind transitions,
+offline Stop, every imperative hook, and all 16 preemption reasons.
 
 `NativeBrowserToolDispatcherAdapter` validates canonical input schemas,
 converts JSON field-by-field into closed C++ variants, propagates

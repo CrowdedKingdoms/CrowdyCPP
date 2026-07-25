@@ -35,6 +35,15 @@ if(CROWDY_NO_EXCEPTIONS)
   add_executable(no_exceptions_umbrella_test no_exceptions_umbrella_test.cpp)
   target_link_libraries(no_exceptions_umbrella_test PRIVATE crowdy)
   add_test(NAME no_exceptions_umbrella_test COMMAND no_exceptions_umbrella_test)
+  add_test(
+    NAME no_exceptions_install_test
+    COMMAND "${CMAKE_COMMAND}"
+      "-DCROWDY_BUILD_DIR=${PROJECT_BINARY_DIR}"
+      "-DCROWDY_CMAKE_COMMAND=${CMAKE_COMMAND}"
+      "-DCROWDY_CONFIG=$<CONFIG>"
+      "-DCROWDY_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
+      -P "${PROJECT_SOURCE_DIR}/tests/no_exceptions_install_test.cmake")
+  set_tests_properties(no_exceptions_install_test PROPERTIES TIMEOUT 300)
 endif()
 
 if(NOT CROWDY_NO_EXCEPTIONS)
@@ -47,6 +56,12 @@ add_executable(public_api_parity_test public_api_parity_test.cpp)
 target_link_libraries(public_api_parity_test PRIVATE crowdy)
 add_test(NAME public_api_parity_test COMMAND public_api_parity_test)
 
+add_executable(studio_layout_test studio_layout_test.cpp)
+target_include_directories(studio_layout_test PRIVATE
+  "${PROJECT_BINARY_DIR}/generated")
+target_link_libraries(studio_layout_test PRIVATE crowdy)
+add_test(NAME studio_layout_test COMMAND studio_layout_test)
+
 add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)
@@ -56,6 +71,12 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     add_executable(crowdy_studio_test crowdy_studio_test.cpp)
     target_link_libraries(crowdy_studio_test PRIVATE crowdy)
     add_test(NAME crowdy_studio_test COMMAND crowdy_studio_test)
+
+    add_executable(crowdy_studio_state_test crowdy_studio_state_test.cpp)
+    target_link_libraries(crowdy_studio_state_test PRIVATE crowdy)
+    target_compile_definitions(crowdy_studio_state_test PRIVATE
+      CROWDY_STUDIO_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+    add_test(NAME crowdy_studio_state_test COMMAND crowdy_studio_state_test)
   endif()
 
   add_executable(agent_registry_test agent_registry_test.cpp)
@@ -73,6 +94,18 @@ if(NOT CROWDY_NO_EXCEPTIONS)
   add_executable(player_host_test player_host_test.cpp)
   target_link_libraries(player_host_test PRIVATE crowdy)
   add_test(NAME player_host_test COMMAND player_host_test)
+
+  add_executable(studio_integration_test studio_integration_test.cpp)
+  target_link_libraries(studio_integration_test PRIVATE crowdy)
+  target_compile_definitions(studio_integration_test PRIVATE
+    CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+  add_test(NAME studio_integration_test COMMAND studio_integration_test)
+
+  add_executable(native_control_gate_test native_control_gate_test.cpp)
+  target_link_libraries(native_control_gate_test PRIVATE crowdy)
+  target_compile_definitions(native_control_gate_test PRIVATE
+    CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+  add_test(NAME native_control_gate_test COMMAND native_control_gate_test)
 endif()
 
 add_executable(codec_struct_test codec_struct_test.cpp)

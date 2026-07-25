@@ -1,5 +1,10 @@
 # CrowdyCPP migration notes
 
+## 0.15.1 installed-package compatibility patch
+
+0.15.1 changes no runtime API. It updates external-consumer verification to
+request the current `0.15` CMake compatibility line.
+
 ## 0.15.0 app-scoped player counts
 
 0.15.0 is additive. Native clients can query

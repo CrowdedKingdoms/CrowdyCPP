@@ -495,11 +495,20 @@ replication::ReplicationClient& CrowdyClient::replication() {
   return *replication_;
 }
 
+void CrowdyClient::ensureNonblockingAsyncTransport() {
+  if (config_.asyncTransport || fallbackAsyncTransport_) return;
+  fallbackAsyncTransport_ =
+      graphql::makeThreadedAsyncTransport(transport_);
+  gameGql_->setAsyncTransport(fallbackAsyncTransport_);
+  managementGql_->setAsyncTransport(fallbackAsyncTransport_);
+}
+
 #ifndef CROWDY_NO_EXCEPTIONS
 std::unique_ptr<agent::CrowdyStudioAgentControllerRuntime>
 CrowdyClient::createCrowdyStudioAgentController(
     agent::CrowdyStudioAgentControllerOptions options) {
   if (!webSocketTransport_) {
+    ensureNonblockingAsyncTransport();
     return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
         *crowdyStudioAgent_, std::move(options));
   }
@@ -545,6 +554,7 @@ CrowdyClient::createCrowdyStudioIntegration(
 
   studio::CrowdyStudioAgentRuntimeFactory agentFactory;
   if (options.agent) {
+    if (!webSocketTransport_) ensureNonblockingAsyncTransport();
     auto agentApi = std::make_shared<domains::CrowdyStudioAgentAPI>(
         gameGql_, managementGql_, dispatcher_);
     auto subscriptions = gameSubscriptions_;

@@ -359,6 +359,10 @@ void CrowdyStudioIntegration::initializeAgent() {
 
 std::size_t CrowdyStudioIntegration::poll() {
   if (disposed_) return 0;
+  const auto leaseBeforePoll =
+      leaseManager_ ? leaseManager_->snapshot().lease
+                    : std::optional<
+                          player_host::AgentControlLeaseV1>{};
   std::size_t callbacks = platformPoll_ ? platformPoll_() : 0;
   if (agentRuntime_) {
     callbacks += agentRuntime_->poll();
@@ -367,9 +371,8 @@ std::size_t CrowdyStudioIntegration::poll() {
     nativeDispatcher_->tick();
   }
   if (leaseManager_) {
-    const auto before = leaseManager_->snapshot().lease;
     leaseManager_->tick();
-    if (before && !leaseManager_->snapshot().lease && agentRuntime_ &&
+    if (leaseBeforePoll && !leaseManager_->snapshot().lease &&
         controlGate_) {
       controlGate_->preempt(
           player_host::PreemptionReasonV1::LEASE_EXPIRED);

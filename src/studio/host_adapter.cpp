@@ -702,6 +702,10 @@ StudioNativeToolOutputV1 CrowdyStudioControllerHostAdapter::execute(
       return mapped;
     }
     case StudioNativeToolKindV1::RuntimeStop: {
+      if (cancellation.cancelled()) {
+        fail("AGENT_CANCELLED", "runtime stop was cancelled");
+      }
+      markEffectStarted();
       const auto result = controller_.stopProject();
       return agent::StudioRuntimeStopResultV1{
           .server_stopped = result.serverStopped.value_or(true),

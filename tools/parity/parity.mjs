@@ -48,41 +48,10 @@ const CATEGORY = Object.freeze({
   COVERED: 'covered-extension',
 });
 
-// The published API schemas currently contain additions made after the pinned
-// CrowdyJS v12 snapshot. They stay classified only while exact endpoint
-// validation proves they are shipped public operations.
-const SCHEMA_BASELINE = {
-  'input:EnsureContainerInput': classification(
-    CATEGORY.COVERED,
-    'current platform extension implemented by GameModelAPI.ensureContainer',
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:GmContainer.bindingKey': classification(
-    CATEGORY.COVERED,
-    'current platform binding-key field is selected by C++ operations',
-    'member-only',
-    'CrowdyCPP',
-  ),
-  'type:GmEnsureContainerResult': classification(
-    CATEGORY.COVERED,
-    'current platform ensure result is selected by the C++ wrapper',
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:Mutation.gameModelEnsureContainer': classification(
-    CATEGORY.COVERED,
-    'current platform mutation is implemented by CrowdyCPP',
-    'member-only',
-    'CrowdyCPP',
-  ),
-  'type:Query.gameModelContainers': classification(
-    CATEGORY.COVERED,
-    'current platform bindingKey filter is implemented by CrowdyCPP',
-    'member-signature',
-    'both',
-  ),
-};
+// Current CrowdyJS and CrowdyCPP snapshots expose the same GraphQL schema.
+// Add reviewed extension classifications here only when one SDK intentionally
+// advances ahead of the other.
+const SCHEMA_BASELINE = {};
 
 const ROOT_CLASSIFICATIONS = {
   ...classifyNames(
@@ -283,6 +252,8 @@ const ASYNC_TWIN_WAIVERS = {
   'AuthAPI.setToken':
     'local AuthState write completes synchronously without transport work',
   'GameModelAPI.containerChanged':
+    'returns an asynchronous subscription handle rather than a one-shot callback',
+  'GameModelAPI.activePlayerCountChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',

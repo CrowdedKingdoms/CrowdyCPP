@@ -1,20 +1,21 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.15.0 passes the strict portable-parity gate against CrowdyJS
-12.1.0. The gate pins CrowdyJS commit
-`a510fcecf43bf9365fc34631a64fd201382214e7`; see
+CrowdyCPP 0.16.0 passes the strict portable-parity gate against CrowdyJS
+12.2.0. The gate pins CrowdyJS commit
+`0c7081477183b2b4fdbe09dc091086a231ba2979`; see
 [`parity-matrix.md`](parity-matrix.md) for the generated method-by-method
 evidence. Native equivalents and browser exclusions remain intentional, so
 this does not claim identical transports or browser behavior.
 
-| Surface | CrowdyCPP 0.15.0 | CrowdyJS 12.1.0 | Required public API generation |
+| Surface | CrowdyCPP 0.16.0 | CrowdyJS 12.2.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Generic GraphQL WebSocket | `GraphQLSubscriptionClient` | `graphql-ws` | `graphql-transport-ws` endpoint |
 | Game-model container feed | Typed `gameModel().containerChanged` | Typed `containerChanged` | Game API 2026-07+ |
-| Keyed container ensure/filter | `ensureContainer`, `bindingKey` filter | Not present in pinned v12 | Game API 2026-07-24+ |
-| App listing-version administration | `marketplace().appListingVersions` | Not present in pinned v12 | Management API 2026-07-24+ |
+| App-scoped player counts | Typed snapshot + change stream | Typed snapshot + change stream | Game API 2026-07-24+ |
+| Keyed container ensure/filter | `ensureContainer`, `bindingKey` filter | `ensureContainer`, `bindingKey` filter | Game API 2026-07-24+ |
+| App listing-version administration | `marketplace().appListingVersions` | Typed listing-version methods | Management API 2026-07-24+ |
 | Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation | Browser/headless controller | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Native Studio integration | Owned editor/layout/runtime/host/Agent/control assembly with explicit maintenance scheduling | Browser Studio composition | Project/runtime roots plus `crowdy.studio-agent/1` when Agent support is enabled |

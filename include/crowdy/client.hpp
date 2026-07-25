@@ -283,6 +283,8 @@ class CrowdyClient {
   void close();
 
  private:
+  void ensureNonblockingAsyncTransport();
+
   ClientConfig config_;
   const core::ICrypto* crypto_ = nullptr;
   std::shared_ptr<graphql::IHttpTransport> transport_;
@@ -290,6 +292,8 @@ class CrowdyClient {
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
   std::shared_ptr<graphql::GraphQLClient> gameGql_;
   std::shared_ptr<graphql::GraphQLClient> managementGql_;
+  std::shared_ptr<graphql::IAsyncHttpTransport>
+      fallbackAsyncTransport_;
   std::string websocketEndpoint_;
   std::shared_ptr<graphql::IWebSocketTransport> webSocketTransport_;
   std::shared_ptr<graphql::GraphQLSubscriptionClient> gameSubscriptions_;

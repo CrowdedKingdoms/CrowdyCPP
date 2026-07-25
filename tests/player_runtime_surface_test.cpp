@@ -457,6 +457,70 @@ void testCurrentPlatformContainerAndMarketplaceAdditions() {
   CHECK(versionsAsync);
 }
 
+void testGameModelActivePlayerCountQuery() {
+  auto transport = std::make_shared<CaptureTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.invalid";
+  config.managementUrl = "https://management.invalid";
+  config.transport = transport;
+  CrowdyClient client(std::move(config));
+
+  transport->response = {
+      200,
+      R"({"data":{"gameModelActivePlayerCount":{"appId":"42","activePlayerCount":7,"status":"PARTIAL","observedAt":null,"revision":"184467440737095516160000"}}})"};
+  const auto snapshot = client.gameModel().activePlayerCount("42");
+  CHECK(snapshot.appId == "42");
+  CHECK_EQ(snapshot.activePlayerCount, 7);
+  CHECK(snapshot.status == domains::GameModelPlayerCountStatus::PARTIAL);
+  CHECK(!snapshot.observedAt);
+  CHECK(snapshot.revision == "184467440737095516160000");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
+  CHECK(transport->last.body.find("GameModelActivePlayerCount") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(
+            "gameModelActivePlayerCount(appId: $appId)") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(R"("appId":"42")") !=
+        std::string::npos);
+
+  transport->response = {
+      200,
+      R"({"data":{"gameModelActivePlayerCount":{"appId":"42","activePlayerCount":8,"status":"FRESH","observedAt":"2026-07-24T00:00:00.000Z","revision":"13"}}})"};
+  bool asyncCalled = false;
+  client.gameModel().activePlayerCountAsync(
+      "42",
+      [&](graphql::GraphQLOutcome outcome,
+          domains::GameModelActivePlayerCountSnapshot value) {
+        asyncCalled = true;
+        CHECK(outcome.ok());
+        CHECK_EQ(value.activePlayerCount, 8);
+        CHECK(value.status == domains::GameModelPlayerCountStatus::FRESH);
+        CHECK(value.observedAt == "2026-07-24T00:00:00.000Z");
+        CHECK(value.revision == "13");
+      });
+  CHECK(!asyncCalled);
+  client.poll();
+  CHECK(asyncCalled);
+
+  transport->response = {
+      200,
+      R"({"data":{"gameModelActivePlayerCount":{"appId":"42","activePlayerCount":8,"status":"FRESH","observedAt":"2026-07-24T00:00:00.000Z","revision":"not-decimal"}}})"};
+  bool malformedCalled = false;
+  client.gameModel().activePlayerCountAsync(
+      "42",
+      [&](graphql::GraphQLOutcome outcome,
+          domains::GameModelActivePlayerCountSnapshot value) {
+        malformedCalled = true;
+        CHECK(!outcome.ok());
+        CHECK(outcome.status.code == Errc::Malformed);
+        CHECK(outcome.kind == graphql::GraphQLErrorKind::Protocol);
+        CHECK(value.revision.empty());
+      });
+  CHECK(!malformedCalled);
+  client.poll();
+  CHECK(malformedCalled);
+}
+
 }  // namespace
 
 int main() {
@@ -468,6 +532,7 @@ int main() {
   testPlayerWalletUsesManagementPlane();
   testMarketplaceChunkClaimsUseAppTokenGamePlane();
   testCurrentPlatformContainerAndMarketplaceAdditions();
+  testGameModelActivePlayerCountQuery();
   std::printf("player_runtime_surface_test passed\n");
   return 0;
 }

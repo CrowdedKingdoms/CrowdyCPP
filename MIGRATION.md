@@ -1,10 +1,10 @@
 # CrowdyCPP migration notes
 
-## 0.15.0 native Crowdy Studio integration
+## 0.16.0 native Crowdy Studio integration
 
-0.15.0 changes the public source and installed-library ABI. CrowdyCPP remains
-pre-1.0: rebuild consumers and engine wrappers, and do not load 0.15 libraries
-behind binaries compiled against 0.14 headers.
+0.16.0 changes the public source and installed-library ABI. CrowdyCPP remains
+pre-1.0: rebuild consumers and engine wrappers, and do not load 0.16 libraries
+behind binaries compiled against 0.15 headers.
 
 - Prefer `CrowdyClient::createCrowdyStudioIntegration(options)` for an
   engine-owned Studio. The returned non-copyable `CrowdyStudioIntegration`
@@ -46,7 +46,7 @@ behind binaries compiled against 0.14 headers.
   blocking lane with all controller/editor access; never call it concurrently.
 - DOM, Monaco, CSS, splitters, browser workers/VFS, renderer chrome, and
   browser input plumbing remain intentional browser exclusions. Engines own
-  equivalent presentation and sandbox implementations; 0.15 adds no hidden
+  equivalent presentation and sandbox implementations; 0.16 adds no hidden
   DOM/filesystem authority.
 
 Approved checkpoint restore is not implied by project-save access. It remains
@@ -54,6 +54,20 @@ available only when an independently authorized
 `ICrowdyStudioSynchronizationProvider` and exact
 `ICrowdyStudioApprovalGate` are both injected. The published GraphQL schema
 does not expose a generic synchronization or restore root.
+
+## 0.15.1 installed-package compatibility patch
+
+0.15.1 changes no runtime API. It updates external-consumer verification to
+request the current `0.15` CMake compatibility line.
+
+## 0.15.0 app-scoped player counts
+
+0.15.0 is additive. Native clients can query
+`gameModel().activePlayerCount(appId)` and subscribe with
+`activePlayerCountChanged(appId, callbacks)`. Only `FRESH` snapshots are
+complete; deduplicate transition events by their decimal-string revision and
+requery after reconnects or gaps. These methods require the matching
+2026-07-24 Game API generation.
 
 ## 0.14.1 Windows replication fix
 

@@ -31,23 +31,29 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.15.0 native Studio target:** the release gate reports zero
-portable gaps, unclassified differences, and stale classifications against
-CrowdyJS 12.1.0 at
-`a510fcecf43bf9365fc34631a64fd201382214e7`. This is not a claim that the
+**v0.16.0 native Studio target:** the release gate reports zero portable gaps,
+unclassified differences, and stale classifications against CrowdyJS 12.2.0 at
+`0c7081477183b2b4fdbe09dc091086a231ba2979`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native
 equivalents and browser-only exclusions. Production Agentic Studio uses typed
 GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
 construction; the native player-host dispatcher has an exact
-`IAgentBrowserToolDispatcher` bridge. Game-model container metadata changes
-have a typed subscription, and current platform extensions add keyed container
-ensure/filter plus app listing-version administration. Session stores expose
-real revision, dirty/save, queue, error, local-actor, and owner-private avatar
-observability. Native Studio now adds the complete editor/layout/host/control
-assembly through `createCrowdyStudioIntegration()`, with nonblocking `poll()`
-and an explicit potentially-blocking maintenance lane. See the
+`IAgentBrowserToolDispatcher` bridge. Native Studio adds the complete
+editor/layout/host/control assembly through
+`createCrowdyStudioIntegration()`, with nonblocking `poll()` and an explicit
+potentially-blocking maintenance lane. See the
 [compatibility matrix](docs/compatibility.md) and
-[0.15 migration notes](MIGRATION.md).
+[0.16 migration notes](MIGRATION.md).
+
+**v0.15.1 package-consumer patch:** installed-package CI and examples now
+request the current `0.15` compatibility line. Runtime and player-count APIs are
+unchanged from 0.15.0.
+
+**v0.15.0 app-scoped player counts:** `gameModel().activePlayerCount(appId)`
+and `activePlayerCountChanged(appId, callbacks)` expose the typed snapshot and
+best-effort transition stream introduced by the matching Game API generation.
+The strict portable-parity target advances to CrowdyJS 12.2.0 with zero schema
+differences, portable gaps, unclassified differences, or stale classifications.
 
 **v0.14.1:** strict portable parity, production Agentic Studio controller
 ownership, typed container subscriptions, current platform extensions, and the
@@ -82,7 +88,7 @@ refresh failure (old token retained) from reconnect failure (fresh token
 retained). Routed HTTP and WebSocket bases normalize to one `/graphql`, while
 explicit complete custom endpoints are preserved.
 
-**Crowdy Studio (CrowdyJS 12.1.0 portable surface):** `crowdyStudio()` is the typed,
+**Crowdy Studio (CrowdyJS 12.1+ portable surface):** `crowdyStudio()` is the typed,
 app-scoped project/library/common-file API, including optimistic atomic saves,
 archive/restore, provenance-preserving imports, authored-module recovery, and
 permission-gated common publication. `crowdy::studio::CrowdyStudioController`
@@ -99,7 +105,7 @@ engine renderer.
 `crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
 epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
 tool seam. The immutable 28-tool registry is verified against the pinned
-CrowdyJS 12.1.0 canonical SHA-256 fixtures. There is no provider client, DOM
+CrowdyJS 12.2.0 canonical SHA-256 fixtures. There is no provider client, DOM
 driver, raw GraphQL/UDP executor, or generic tool authority in this surface.
 See [Native Agentic Studio](docs/native-agent-api.md).
 
@@ -297,6 +303,14 @@ while (running) game.poll();  // all callbacks are delivered here
 
 Use the typed wrappers where available:
 `game.gameModel().containerChanged(...)` maps container metadata pushes, and
+`game.gameModel().activePlayerCount(appId)` returns the app-scoped session
+gauge with its completeness status and decimal revision.
+`activePlayerCountChanged(...)` is a best-effort transition feed with no
+bootstrap event: establish the feed, query the snapshot, deduplicate by
+revision, and requery after a reconnect or revision gap. Both calls require an
+app-scoped token for the same app. The gauge counts active gameplay sessions,
+not distinct users or actors; an abandoned session can remain visible for
+roughly 120 seconds while inactivity is recognized.
 `client.createCrowdyStudioAgentController(...)` owns the durable Agentic Studio
 event adapter and replay/gap-fill lifecycle. The generic client remains for
 application-specific subscriptions. `crowdy::session::ContainerMirror` does
@@ -774,8 +788,8 @@ files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS 12.1.0 at
-`a510fcecf43bf9365fc34631a64fd201382214e7`. The source of truth is
+CrowdyCPP tracks CrowdyJS 12.2.0 at
+`0c7081477183b2b4fdbe09dc091086a231ba2979`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:

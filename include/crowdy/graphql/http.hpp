@@ -83,4 +83,11 @@ class IAsyncHttpTransport {
 std::shared_ptr<IAsyncHttpTransport> makeInlineAsyncTransport(
     std::shared_ptr<IHttpTransport> sync);
 
+/// Serial worker-thread adapter for native clients that need nonblocking
+/// callback pumps but do not inject an engine HTTP stack. Requests execute
+/// away from the game thread; GraphQLClient still delivers completions through
+/// Dispatcher/poll().
+std::shared_ptr<IAsyncHttpTransport> makeThreadedAsyncTransport(
+    std::shared_ptr<IHttpTransport> sync);
+
 }  // namespace crowdy::graphql

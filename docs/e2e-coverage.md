@@ -24,9 +24,9 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
-## 0.15.0 release validation
+## 0.16.0 release validation
 
-The 0.15 release branch adds `e2e_native_studio_integration`, which uses the
+The 0.16 release branch adds `e2e_native_studio_integration`, which uses the
 real `CrowdyClient::createCrowdyStudioIntegration` factory for a disposable
 project edit/save, BUILD attach, native Studio host dispatch, draft submission,
 Play lease, and synchronous human-input takeover. A 2026-07-24 dev run passed

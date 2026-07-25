@@ -2,10 +2,10 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
-// schema.gql sha256: 3b36a83972d927d0a010b63eac2a481d5b06f1ce9ac33715be6e9f46cff22ca6
+// schema.gql sha256: d576813b2a81be3b36f3c34acc021924a56637fee65f2384c4e35a40ce3742ca
 // schema.management.gql sha256: 9fbdc1beab8482ae3bb032a6f9646535c57c7d48cf9a86186f2848ab2bb6b158
-// schema.game.gql sha256: 1a326c6ba21f926692aac37089e5a72d957f5bd9ca9ff39f4109c17c042a4de1
-// operations sha256: 87b8501c9398bd5ff5f419ebfac9a1b4cf6799055c847d78584916227775af9c
+// schema.game.gql sha256: a288c419233c4eacfd0dd2b5f771edd9cdae87e490afd5299a4881190b93994e
+// operations sha256: 8864354edaabd2e00e3ccab2cc0b1e2a047c9a6681351ef6bf856a37a6f55620
 
 #pragma once
 
@@ -9440,6 +9440,16 @@ query GameModelEventsConnection(
   }
 }
 
+query GameModelActivePlayerCount($appId: BigInt!) {
+  gameModelActivePlayerCount(appId: $appId) {
+    appId
+    activePlayerCount
+    status
+    observedAt
+    revision
+  }
+}
+
 # Cross-engine flow timeline (diagnostics; requires manage_apps and a
 # game-api with gameModelFlow, 2026-07-19+). Selections are inlined because
 # each operations file is shipped as one self-contained document.
@@ -9504,6 +9514,17 @@ query GameModelFlow($appId: BigInt!, $flowId: String!) {
       errorMessage
       circuitAction
     }
+  }
+}
+
+subscription GameModelActivePlayerCountChanged($appId: BigInt!) {
+  gameModelActivePlayerCountChanged(appId: $appId) {
+    appId
+    previousCount
+    currentCount
+    delta
+    revision
+    observedAt
   }
 }
 
@@ -9870,6 +9891,17 @@ inline constexpr std::string_view kGameModelEventsConnectionIsolatedDocument = R
 })gql";
 inline constexpr std::string_view kGameModelEventsConnectionOperationName = "GameModelEventsConnection";
 inline constexpr GraphQLEndpoint kGameModelEventsConnectionEndpoint = GraphQLEndpoint::Game;
+inline constexpr std::string_view kGameModelActivePlayerCountIsolatedDocument = R"gql(query GameModelActivePlayerCount($appId: BigInt!) {
+  gameModelActivePlayerCount(appId: $appId) {
+    appId
+    activePlayerCount
+    status
+    observedAt
+    revision
+  }
+})gql";
+inline constexpr std::string_view kGameModelActivePlayerCountOperationName = "GameModelActivePlayerCount";
+inline constexpr GraphQLEndpoint kGameModelActivePlayerCountEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelFlowIsolatedDocument = R"gql(query GameModelFlow($appId: BigInt!, $flowId: String!) {
   gameModelFlow(appId: $appId, flowId: $flowId) {
     flowId
@@ -9935,6 +9967,18 @@ inline constexpr std::string_view kGameModelFlowIsolatedDocument = R"gql(query G
 })gql";
 inline constexpr std::string_view kGameModelFlowOperationName = "GameModelFlow";
 inline constexpr GraphQLEndpoint kGameModelFlowEndpoint = GraphQLEndpoint::Game;
+inline constexpr std::string_view kGameModelActivePlayerCountChangedIsolatedDocument = R"gql(subscription GameModelActivePlayerCountChanged($appId: BigInt!) {
+  gameModelActivePlayerCountChanged(appId: $appId) {
+    appId
+    previousCount
+    currentCount
+    delta
+    revision
+    observedAt
+  }
+})gql";
+inline constexpr std::string_view kGameModelActivePlayerCountChangedOperationName = "GameModelActivePlayerCountChanged";
+inline constexpr GraphQLEndpoint kGameModelActivePlayerCountChangedEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelContainerChangedIsolatedDocument = R"gql(subscription GameModelContainerChanged($appId: BigInt!, $typeName: String, $sessionId: String) {
   gameModelContainerChanged(
     appId: $appId
@@ -10557,7 +10601,9 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameModelSessions") return kGameModelSessionsIsolatedDocument;
   if (operationName == "GameModelEvents") return kGameModelEventsIsolatedDocument;
   if (operationName == "GameModelEventsConnection") return kGameModelEventsConnectionIsolatedDocument;
+  if (operationName == "GameModelActivePlayerCount") return kGameModelActivePlayerCountIsolatedDocument;
   if (operationName == "GameModelFlow") return kGameModelFlowIsolatedDocument;
+  if (operationName == "GameModelActivePlayerCountChanged") return kGameModelActivePlayerCountChangedIsolatedDocument;
   if (operationName == "GameModelContainerChanged") return kGameModelContainerChangedIsolatedDocument;
   if (operationName == "GameModelSeed") return kGameModelSeedIsolatedDocument;
   if (operationName == "GameModelUpsertContainerType") return kGameModelUpsertContainerTypeIsolatedDocument;
@@ -10614,7 +10660,9 @@ inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
   if (operationName == "GameModelSessions") return kGameModelSessionsEndpoint;
   if (operationName == "GameModelEvents") return kGameModelEventsEndpoint;
   if (operationName == "GameModelEventsConnection") return kGameModelEventsConnectionEndpoint;
+  if (operationName == "GameModelActivePlayerCount") return kGameModelActivePlayerCountEndpoint;
   if (operationName == "GameModelFlow") return kGameModelFlowEndpoint;
+  if (operationName == "GameModelActivePlayerCountChanged") return kGameModelActivePlayerCountChangedEndpoint;
   if (operationName == "GameModelContainerChanged") return kGameModelContainerChangedEndpoint;
   if (operationName == "GameModelSeed") return kGameModelSeedEndpoint;
   if (operationName == "GameModelUpsertContainerType") return kGameModelUpsertContainerTypeEndpoint;

@@ -1,8 +1,11 @@
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "crowdy/graphql/dispatcher.hpp"
@@ -42,6 +45,14 @@ class FakeSyncTransport final : public IHttpTransport {
     return {Errc::Ok, response, {}};
   }
 #endif
+};
+
+class SlowSyncTransport final : public IHttpTransport {
+ public:
+  HttpResponse send(const HttpRequest&) override {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    return {200, R"({"data":{"ok":true}})"};
+  }
 };
 
 // An async transport that either calls back immediately or holds the callback
@@ -200,6 +211,29 @@ void testInlineFallback() {
   CHECK_EQ(got.data["n"].asInt64(), 42);
 }
 
+void testThreadedAdapterStartsWithoutBlockingCaller() {
+  auto threaded =
+      makeThreadedAsyncTransport(std::make_shared<SlowSyncTransport>());
+  std::atomic<bool> called{false};
+  HttpOutcome outcome;
+  const auto started = std::chrono::steady_clock::now();
+  threaded->sendAsync({}, [&](HttpOutcome value) {
+    outcome = std::move(value);
+    called.store(true, std::memory_order_release);
+  });
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  CHECK(elapsed < std::chrono::milliseconds(50));
+  for (int attempt = 0;
+       attempt < 200 &&
+       !called.load(std::memory_order_acquire);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  CHECK(called.load(std::memory_order_acquire));
+  CHECK(outcome.status.ok());
+  CHECK_EQ(outcome.response.status, 200);
+}
+
 #ifndef CROWDY_NO_EXCEPTIONS
 void testInlineFallbackTransportThrow() {
   auto sync = std::make_shared<FakeSyncTransport>();
@@ -320,6 +354,7 @@ int main() {
   testAsyncTransportFailure();
   testDispatcherDefersDelivery();
   testInlineFallback();
+  testThreadedAdapterStartsWithoutBlockingCaller();
 #ifndef CROWDY_NO_EXCEPTIONS
   testInlineFallbackTransportThrow();
   testAsyncStartThrowDeliversOnce();

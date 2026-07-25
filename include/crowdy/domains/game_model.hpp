@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -8,6 +10,7 @@
 #include <vector>
 
 #include "crowdy/domains/domain_base.hpp"
+#include "crowdy/generated/enums.hpp"
 #include "crowdy/generated/operations.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
 
@@ -19,6 +22,38 @@
 /// See https://docs.crowdedkingdoms.com/game-api/game-models and
 /// https://docs.crowdedkingdoms.com/game-api/autonomous-processes.
 namespace crowdy::domains {
+
+using GameModelPlayerCountStatus = gen::GameModelPlayerCountStatus;
+
+struct GameModelActivePlayerCountSnapshot {
+  std::string appId;
+  std::int32_t activePlayerCount = 0;
+  GameModelPlayerCountStatus status =
+      GameModelPlayerCountStatus::UNAVAILABLE;
+  std::optional<std::string> observedAt;
+  /// Decimal GraphQL BigInt text; never narrowed to a native integer.
+  std::string revision;
+};
+
+using GameModelActivePlayerCountCallback = std::function<void(
+    graphql::GraphQLOutcome, GameModelActivePlayerCountSnapshot)>;
+
+struct GameModelActivePlayerCountChange {
+  std::string appId;
+  std::int32_t previousCount = 0;
+  std::int32_t currentCount = 0;
+  std::int32_t delta = 0;
+  /// Decimal GraphQL BigInt text; use it to deduplicate and detect gaps.
+  std::string revision;
+  std::string observedAt;
+};
+
+struct GameModelActivePlayerCountChangedCallbacks {
+  std::function<void(GameModelActivePlayerCountChange)> next;
+  std::function<void(graphql::GraphQLSubscriptionError)> error;
+  std::function<void()> complete;
+  std::function<void(graphql::GraphQLReconnectInfo)> reconnect;
+};
 
 struct GameModelContainerChange {
   std::string appId;
@@ -300,6 +335,47 @@ class GameModelAPI : public DomainBase {
     runtimeAsync("GameModelInvoke", input, std::move(cb));
   }
 
+  /// Read the best-known app-scoped active gameplay-session count. FRESH is a
+  /// complete fleet count; PARTIAL and UNAVAILABLE must not be treated as one.
+  GameModelActivePlayerCountSnapshot activePlayerCount(
+      std::string_view appId) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    auto parsed = parseActivePlayerCountSnapshot(execUnwrap(
+        gen::gameModel::documentFor("GameModelActivePlayerCount"), vars,
+        "GameModelActivePlayerCount"));
+    if (parsed) return std::move(*parsed);
+#ifndef CROWDY_NO_EXCEPTIONS
+    throw graphql::CrowdyProtocolError(
+        "gameModelActivePlayerCount returned a malformed payload");
+#else
+    return {};
+#endif
+  }
+  void activePlayerCountAsync(
+      std::string_view appId, GameModelActivePlayerCountCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    execUnwrapAsync(
+        gen::gameModel::documentFor("GameModelActivePlayerCount"), vars,
+        "GameModelActivePlayerCount",
+        [cb = std::move(cb)](graphql::GraphQLOutcome outcome) mutable {
+          GameModelActivePlayerCountSnapshot snapshot;
+          if (outcome.ok()) {
+            auto parsed = parseActivePlayerCountSnapshot(outcome.data);
+            if (parsed) {
+              snapshot = std::move(*parsed);
+            } else {
+              outcome.status = Errc::Malformed;
+              outcome.kind = graphql::GraphQLErrorKind::Protocol;
+              outcome.errorMessage =
+                  "gameModelActivePlayerCount returned a malformed payload";
+            }
+          }
+          cb(std::move(outcome), std::move(snapshot));
+        });
+  }
+
   graphql::Json container(std::string_view appId, std::string_view containerId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
@@ -390,6 +466,86 @@ class GameModelAPI : public DomainBase {
     if (offset >= 0) vars["offset"] = offset;
     execUnwrapAsync(gen::gameModel::documentFor("GameModelContainers"), vars, "GameModelContainers",
                     std::move(cb));
+  }
+
+  /// Best-effort transition feed with no bootstrap event. Establish the stream,
+  /// then query activePlayerCount(), deduplicate by decimal revision, and
+  /// requery after reconnect or a detected revision gap.
+  graphql::SubscriptionHandle activePlayerCountChanged(
+      std::string_view appId,
+      GameModelActivePlayerCountChangedCallbacks callbacks) const {
+    if (!subscriptions_) {
+      if (callbacks.error) {
+        graphql::GraphQLSubscriptionError error;
+        error.status = Errc::NotConnected;
+        error.kind =
+            graphql::GraphQLSubscriptionErrorKind::TransportUnavailable;
+        error.code = "WEBSOCKET_TRANSPORT_UNAVAILABLE";
+        error.message =
+            "GameModelAPI has no GraphQL subscription client";
+        callbacks.error(std::move(error));
+      }
+      return {};
+    }
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    auto shared =
+        std::make_shared<GameModelActivePlayerCountChangedCallbacks>(
+            std::move(callbacks));
+    graphql::GraphQLSubscriptionCallbacks graph;
+    graph.onNext =
+        [shared](graphql::GraphQLSubscriptionOutcome outcome) mutable {
+          if (!outcome.ok()) {
+            if (shared->error) {
+              graphql::GraphQLSubscriptionError error;
+              error.status = outcome.status;
+              error.kind =
+                  graphql::GraphQLSubscriptionErrorKind::GraphQL;
+              error.errors = outcome.errors;
+              error.code = outcome.errors.empty()
+                               ? "GRAPHQL_SUBSCRIPTION_ERROR"
+                               : outcome.errors.front().code;
+              error.message =
+                  outcome.errors.empty()
+                      ? "Active-player-count subscription failed"
+                      : outcome.errors.front().message;
+              error.terminal = true;
+              shared->error(std::move(error));
+            }
+            return;
+          }
+          auto change = parseActivePlayerCountChange(
+              outcome.data["gameModelActivePlayerCountChanged"]);
+          if (!change) {
+            if (shared->error) {
+              graphql::GraphQLSubscriptionError error;
+              error.status = Errc::Malformed;
+              error.kind =
+                  graphql::GraphQLSubscriptionErrorKind::Protocol;
+              error.code = "INVALID_ACTIVE_PLAYER_COUNT_CHANGE";
+              error.message =
+                  "Active-player-count subscription payload is malformed";
+              error.terminal = true;
+              shared->error(std::move(error));
+            }
+            return;
+          }
+          if (shared->next) shared->next(std::move(*change));
+        };
+    graph.onError =
+        [shared](graphql::GraphQLSubscriptionError error) mutable {
+          if (shared->error) shared->error(std::move(error));
+        };
+    graph.onComplete = [shared] {
+      if (shared->complete) shared->complete();
+    };
+    graph.onReconnect =
+        [shared](graphql::GraphQLReconnectInfo info) mutable {
+          if (shared->reconnect) shared->reconnect(std::move(info));
+        };
+    return subscriptions_->subscribe(
+        gen::gameModel::documentFor("GameModelActivePlayerCountChanged"),
+        vars, "GameModelActivePlayerCountChanged", std::move(graph));
   }
 
   /// Typed GraphQL-WS wrapper for the notify-to-pull container feed.
@@ -775,6 +931,80 @@ class GameModelAPI : public DomainBase {
   }
 
  private:
+  static std::optional<std::int32_t> parseGraphQLInt(
+      const graphql::Json& value) {
+    if (!value.isNumber()) return std::nullopt;
+    const auto parsed = value.tryAsBigInt();
+    if (!parsed ||
+        *parsed < std::numeric_limits<std::int32_t>::min() ||
+        *parsed > std::numeric_limits<std::int32_t>::max()) {
+      return std::nullopt;
+    }
+    return static_cast<std::int32_t>(*parsed);
+  }
+
+  static std::optional<std::string> parseNonNegativeBigInt(
+      const graphql::Json& value) {
+    std::string decimal = value.asBigIntString();
+    if (decimal.empty() || decimal.front() == '-') return std::nullopt;
+    return decimal;
+  }
+
+  static std::optional<GameModelActivePlayerCountSnapshot>
+  parseActivePlayerCountSnapshot(const graphql::Json& row) {
+    if (!row.isObject()) return std::nullopt;
+    auto appId = parseNonNegativeBigInt(row["appId"]);
+    auto count = parseGraphQLInt(row["activePlayerCount"]);
+    auto status = row["status"].isString()
+                      ? gen::gameModelPlayerCountStatusFromString(
+                            row["status"].asStringView())
+                      : std::nullopt;
+    auto revision = parseNonNegativeBigInt(row["revision"]);
+    const auto observedAt = row["observedAt"];
+    if (!appId || !count || *count < 0 || !status || !revision ||
+        !observedAt.ok() ||
+        (!observedAt.isNull() && !observedAt.isString())) {
+      return std::nullopt;
+    }
+
+    GameModelActivePlayerCountSnapshot snapshot;
+    snapshot.appId = std::move(*appId);
+    snapshot.activePlayerCount = *count;
+    snapshot.status = *status;
+    if (observedAt.isString()) {
+      snapshot.observedAt = observedAt.asString();
+    }
+    snapshot.revision = std::move(*revision);
+    return snapshot;
+  }
+
+  static std::optional<GameModelActivePlayerCountChange>
+  parseActivePlayerCountChange(const graphql::Json& row) {
+    if (!row.isObject()) return std::nullopt;
+    auto appId = parseNonNegativeBigInt(row["appId"]);
+    auto previous = parseGraphQLInt(row["previousCount"]);
+    auto current = parseGraphQLInt(row["currentCount"]);
+    auto delta = parseGraphQLInt(row["delta"]);
+    auto revision = parseNonNegativeBigInt(row["revision"]);
+    const auto observedAt = row["observedAt"];
+    if (!appId || !previous || *previous < 0 || !current || *current < 0 ||
+        !delta || !revision || !observedAt.isString() ||
+        static_cast<std::int64_t>(*current) -
+                static_cast<std::int64_t>(*previous) !=
+            *delta) {
+      return std::nullopt;
+    }
+
+    GameModelActivePlayerCountChange change;
+    change.appId = std::move(*appId);
+    change.previousCount = *previous;
+    change.currentCount = *current;
+    change.delta = *delta;
+    change.revision = std::move(*revision);
+    change.observedAt = observedAt.asString();
+    return change;
+  }
+
   graphql::Json studio(std::string_view op, const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;

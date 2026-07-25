@@ -1306,9 +1306,9 @@ void testSharedStudioHostFixture() {
   CHECK(fixture["fixtureVersion"].asInt64() == 1);
   CHECK(fixture["contractVersion"].asStringView() ==
         "crowdy.studio-host-tools/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "12.1.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "12.2.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "a510fcecf43bf9365fc34631a64fd201382214e7");
+        "0c7081477183b2b4fdbe09dc091086a231ba2979");
   CHECK_EQ(fixture["toolNames"].size(), std::size_t{11});
 
   std::size_t successCount = 0;
@@ -1905,6 +1905,21 @@ void testEditorRoundTripsPollTickAndRelayout() {
   CHECK(integration->controlSnapshot().last_preemption ==
         std::optional<PreemptionReasonV1>(
             PreemptionReasonV1::HUMAN_INPUT));
+
+  lease.lease_id = "expiring-play-lease";
+  lease.granted_at = iso(clock.epoch);
+  lease.expires_at = iso(clock.epoch + 1);
+  CHECK(!integration->leaseManager().grantLease(lease));
+  integration->controlGate().refresh();
+  CHECK(integration->controlSnapshot().active_lease.has_value());
+  clock.epoch += 2;
+  clock.monotonic += 2;
+  (void)integration->poll();
+  CHECK(!integration->leaseSnapshot().lease.has_value());
+  CHECK(!integration->controlSnapshot().active_lease.has_value());
+  CHECK(integration->controlSnapshot().last_preemption ==
+        std::optional<PreemptionReasonV1>(
+            PreemptionReasonV1::LEASE_EXPIRED));
 
   integration->dispose();
   CHECK(editor->disposed);

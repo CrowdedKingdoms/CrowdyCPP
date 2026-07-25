@@ -108,7 +108,7 @@ if(NOT _configure_result EQUAL 0)
           "installed no-exception consumer configure failed")
 endif()
 execute_process(
-  COMMAND "${CROWDY_CMAKE_COMMAND}" --build "${_build}"
+  COMMAND "${CROWDY_CMAKE_COMMAND}" --build "${_build}" --parallel 4
   RESULT_VARIABLE _build_result)
 if(NOT _build_result EQUAL 0)
   message(FATAL_ERROR "installed no-exception consumer build failed")

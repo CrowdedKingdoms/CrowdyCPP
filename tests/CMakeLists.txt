@@ -43,6 +43,7 @@ if(CROWDY_NO_EXCEPTIONS)
       "-DCROWDY_CONFIG=$<CONFIG>"
       "-DCROWDY_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
       -P "${PROJECT_SOURCE_DIR}/tests/no_exceptions_install_test.cmake")
+  set_tests_properties(no_exceptions_install_test PROPERTIES TIMEOUT 300)
 endif()
 
 if(NOT CROWDY_NO_EXCEPTIONS)

@@ -13,6 +13,7 @@ set(E2E_SLOW_SUITES e2e_permission_refresh e2e_soak_two_clients)
 set(E2E_OPTIONAL_SUITES
   e2e_agentic_studio
   e2e_crowdy_studio
+  e2e_native_studio_integration
   e2e_cross_server
   e2e_graphql_websocket
   e2e_marketplace_claims

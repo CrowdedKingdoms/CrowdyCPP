@@ -88,6 +88,13 @@ Lower-level hosts can call `CrowdyStudioIntegration::create` with owned
 `ICrowdyStudioProjectProvider` and `ICrowdyStudioRuntime` implementations.
 The existing direct constructors remain available.
 
+[`examples/native_studio_shell.cpp`](../examples/native_studio_shell.cpp) is a
+credential-free, engine-neutral wiring example. It uses an in-memory editor and
+layout store, a typed intent-only player host, explicit nonblocking and
+maintenance lanes, input forwarding through `NativePlayerControlGate`, and
+ordered disposal without granting DOM, filesystem, or raw GraphQL authority to
+an adapter.
+
 ## Native Studio tools
 
 `CrowdyStudioControllerHostAdapter` implements all 11 native Studio tools:

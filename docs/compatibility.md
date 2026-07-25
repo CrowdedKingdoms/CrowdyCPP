@@ -1,13 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.14.1 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.15.0 passes the strict portable-parity gate against CrowdyJS
 12.1.0. The gate pins CrowdyJS commit
 `a510fcecf43bf9365fc34631a64fd201382214e7`; see
 [`parity-matrix.md`](parity-matrix.md) for the generated method-by-method
 evidence. Native equivalents and browser exclusions remain intentional, so
 this does not claim identical transports or browser behavior.
 
-| Surface | CrowdyCPP 0.14.1 | CrowdyJS 12.1.0 | Required public API generation |
+| Surface | CrowdyCPP 0.15.0 | CrowdyJS 12.1.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
@@ -17,6 +17,7 @@ this does not claim identical transports or browser behavior.
 | App listing-version administration | `marketplace().appListingVersions` | Not present in pinned v12 | Management API 2026-07-24+ |
 | Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation | Browser/headless controller | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
+| Native Studio integration | Owned editor/layout/runtime/host/Agent/control assembly with explicit maintenance scheduling | Browser Studio composition | Project/runtime roots plus `crowdy.studio-agent/1` when Agent support is enabled |
 | Agentic Studio HTTP + event stream | Typed controller, GraphQL-WS replay/gap-fill | Typed controller and transport | `crowdy.studio-agent/1` |
 | Local Play/Studio tools | Native player-host + closed typed dispatcher | Browser dispatcher + player host | Agent descriptor contract v1 |
 
@@ -55,6 +56,6 @@ installed-library ABI. Consumers should review `MIGRATION.md` and rebuild when
 moving between minors.
 
 The installed `CrowdyCPPConfigVersion.cmake` uses CMake's
-`SameMinorVersion` policy. A request for `0.14` may select a compatible newer
-`0.14.x` package, but no `0.15.x` package is accepted as compatible merely
+`SameMinorVersion` policy. A request for `0.15` may select a compatible newer
+`0.15.x` package, but no `0.16.x` package is accepted as compatible merely
 because both versions have major version `0`.

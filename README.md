@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.14.1 strict portable-parity target:** the release gate reports zero
+**v0.15.0 native Studio target:** the release gate reports zero
 portable gaps, unclassified differences, and stale classifications against
 CrowdyJS 12.1.0 at
 `a510fcecf43bf9365fc34631a64fd201382214e7`. This is not a claim that the
@@ -43,8 +43,15 @@ construction; the native player-host dispatcher has an exact
 have a typed subscription, and current platform extensions add keyed container
 ensure/filter plus app listing-version administration. Session stores expose
 real revision, dirty/save, queue, error, local-actor, and owner-private avatar
-observability. See the [compatibility matrix](docs/compatibility.md) and
-[0.14 migration notes](MIGRATION.md).
+observability. Native Studio now adds the complete editor/layout/host/control
+assembly through `createCrowdyStudioIntegration()`, with nonblocking `poll()`
+and an explicit potentially-blocking maintenance lane. See the
+[compatibility matrix](docs/compatibility.md) and
+[0.15 migration notes](MIGRATION.md).
+
+**v0.14.1:** strict portable parity, production Agentic Studio controller
+ownership, typed container subscriptions, current platform extensions, and the
+Windows nonblocking manual-pump fix remain the previous release line.
 
 **v0.10.0:** operator compute-ceilings coverage (`operator_().computePlatformCeilings()`
 / `setComputePlatformCeilings(input)` — the Track F platform-ceilings surface;
@@ -670,8 +677,8 @@ Each new minor release may make source or ABI changes, even though the major
 version remains `0`; consumers must review the migration notes and rebuild.
 
 The installed CMake package follows that policy with `SameMinorVersion`.
-For example, `find_package(CrowdyCPP 0.14 CONFIG REQUIRED)` can select a newer
-`0.14.x` package, but it will not accept `0.15.x`. No compatibility is promised
+For example, `find_package(CrowdyCPP 0.15 CONFIG REQUIRED)` can select a newer
+`0.15.x` package, but it will not accept `0.16.x`. No compatibility is promised
 between arbitrary `0.x` minors.
 
 ## Server compatibility
@@ -835,8 +842,9 @@ None of these maintainer gates run during a normal external CMake build.
   install test verifies those unsupported headers are not shipped.
 - `npm test` — offline Node tests for schema/parity parser behavior.
 - `tests/e2e/` — end-to-end suites (two-client fan-out, gamer journey, token
-  refresh/reconnect, opt-in marketplace chunk claim/release) that run against
-  a deployment you configure via
+  refresh/reconnect, opt-in marketplace chunk claim/release, and the complete
+  native Studio factory/edit/BUILD/draft/Play takeover lifecycle) that run
+  against a deployment you configure via
   environment variables (`CROWDY_E2E_MANAGEMENT_URL`, `CROWDY_E2E_HTTP_URL`,
   `CROWDY_E2E_EMAIL`, `CROWDY_E2E_APP_ID`, …). Skipped when unset.
 - `benchmarks/` — codec ns/op, HMAC throughput, and end-to-end echo latency

@@ -22,6 +22,39 @@ bool active(const agent::AgentLease& lease) {
   return lease.status == agent::AgentLeaseStatus::Active;
 }
 
+std::optional<player_host::LeaseScopeV1> nativeLeaseScope(
+    std::string_view scope) {
+  for (const auto candidate : player_host::kLeaseScopesV1) {
+    if (player_host::toString(candidate) == scope) return candidate;
+  }
+  return std::nullopt;
+}
+
+std::optional<player_host::AgentControlLeaseV1> nativePlayLease(
+    const agent::AgentLease& source) {
+  if (source.kind != agent::AgentLeaseKind::Play || !active(source)) {
+    return std::nullopt;
+  }
+  player_host::AgentControlLeaseV1 lease;
+  lease.lease_id = source.leaseId;
+  lease.kind = player_host::LeaseKindV1::Play;
+  lease.status = player_host::LeaseStatusV1::Active;
+  lease.client_epoch = source.clientEpoch;
+  lease.scopes.reserve(source.scopes.size());
+  for (const auto& scope : source.scopes) {
+    const auto converted = nativeLeaseScope(scope);
+    if (!converted) return std::nullopt;
+    lease.scopes.push_back(*converted);
+  }
+  lease.holder = source.holder;
+  lease.controlled_entity_id = source.controlledEntityId;
+  lease.host_capability_revision = source.hostCapabilityRevision;
+  lease.context_version = source.contextVersion;
+  lease.granted_at = source.grantedAt;
+  lease.expires_at = source.expiresAt;
+  return lease;
+}
+
 }  // namespace
 
 std::unique_ptr<CrowdyStudioIntegration>
@@ -256,11 +289,7 @@ CrowdyStudioIntegration::CrowdyStudioIntegration(
   if (!controlOptions.clock) controlOptions.clock = options.clock;
   auto clearAgentIntent =
       [this](player_host::PreemptionReasonV1 reason) {
-        if (playerHost_) {
-          playerHost_->clearAgentIntent(reason);
-        } else if (leaseManager_) {
-          leaseManager_->preempt(reason);
-        }
+        if (leaseManager_) leaseManager_->preempt(reason);
       };
   controlGate_ =
       std::make_unique<player_host::NativePlayerControlGate>(
@@ -322,8 +351,18 @@ std::size_t CrowdyStudioIntegration::poll() {
   std::size_t callbacks = platformPoll_ ? platformPoll_() : 0;
   if (agentRuntime_) {
     callbacks += agentRuntime_->poll();
+    synchronizePlayHeartbeat();
   } else {
     nativeDispatcher_->tick();
+  }
+  if (leaseManager_) {
+    const auto before = leaseManager_->snapshot().lease;
+    leaseManager_->tick();
+    if (before && !leaseManager_->snapshot().lease && agentRuntime_ &&
+        controlGate_) {
+      controlGate_->preempt(
+          player_host::PreemptionReasonV1::LEASE_EXPIRED);
+    }
   }
   return callbacks;
 }
@@ -370,6 +409,7 @@ void CrowdyStudioIntegration::relayout() {
 void CrowdyStudioIntegration::dispose() noexcept {
   if (disposed_) return;
   disposed_ = true;
+  callbackAlive_->store(false, std::memory_order_release);
   if (stateSubscription_ != 0 && controller_) {
     controller_->unsubscribe(stateSubscription_);
     stateSubscription_ = 0;
@@ -527,7 +567,74 @@ void CrowdyStudioIntegration::epochAttached(std::string_view epoch) {
 }
 
 void CrowdyStudioIntegration::leaseChanged(
-    const agent::AgentLease&) {
+    const agent::AgentLease& lease) {
+  const auto native = nativePlayLease(lease);
+  if (lease.kind == agent::AgentLeaseKind::Play && active(lease) &&
+      !native) {
+    if (controlGate_) {
+      controlGate_->preempt(
+          player_host::PreemptionReasonV1::CONTEXT_CHANGED);
+    }
+    return;
+  }
+  if (native && leaseManager_) {
+    const std::weak_ptr<std::atomic<bool>> alive = callbackAlive_;
+    leaseManager_->refreshCapabilities(
+        [this, alive, native = *native](auto result) {
+          const auto lifetime = alive.lock();
+          if (!lifetime ||
+              !lifetime->load(std::memory_order_acquire)) {
+            return;
+          }
+          if (disposed_ || !agentRuntime_ || !result.ok() ||
+              !isLeaseActive(
+                  native.lease_id, player_host::LeaseKindV1::Play)) {
+            if (!disposed_ && !result.ok() && controlGate_) {
+              controlGate_->preempt(
+                  player_host::PreemptionReasonV1::CONTROL_TARGET_CHANGED);
+            }
+            return;
+          }
+          if (const auto failure = leaseManager_->grantLease(native)) {
+            (void)failure;
+            if (controlGate_) {
+              controlGate_->preempt(
+                  player_host::PreemptionReasonV1::CONTROL_TARGET_CHANGED);
+            }
+            return;
+          }
+          if (controlGate_) controlGate_->refresh();
+        });
+  }
+  if (controlGate_) controlGate_->refresh();
+}
+
+void CrowdyStudioIntegration::synchronizePlayHeartbeat() {
+  if (!agentRuntime_ || !leaseManager_) return;
+  const auto& state = agentRuntime_->controller().state();
+  if (!state.lastHeartbeatAt ||
+      state.lastHeartbeatAt == lastAgentHeartbeatAt_) {
+    return;
+  }
+  lastAgentHeartbeatAt_ = state.lastHeartbeatAt;
+  const auto local = leaseManager_->snapshot().lease;
+  if (!local || local->status != player_host::LeaseStatusV1::Active ||
+      !local->controlled_entity_id ||
+      !local->host_capability_revision) {
+    return;
+  }
+  const auto failure = leaseManager_->heartbeat({
+      .lease_id = local->lease_id,
+      .client_epoch = local->client_epoch,
+      .context_version = local->context_version,
+      .controlled_entity_id = *local->controlled_entity_id,
+      .host_capability_revision = *local->host_capability_revision,
+  });
+  if (failure && controlGate_) {
+    const auto reason = leaseManager_->snapshot().last_preemption.value_or(
+        player_host::PreemptionReasonV1::CONTEXT_CHANGED);
+    controlGate_->preempt(reason);
+  }
   if (controlGate_) controlGate_->refresh();
 }
 

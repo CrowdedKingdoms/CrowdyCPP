@@ -395,6 +395,7 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
 class FakeApproval final : public ICrowdyStudioApprovalGate {
  public:
   int live = 0;
+  int restores = 0;
   bool failLive = false;
   bool failRestore = false;
   void requireLiveApproval(
@@ -409,12 +410,15 @@ class FakeApproval final : public ICrowdyStudioApprovalGate {
     ++live;
   }
   void requireRestoreApproval(
-      const CrowdyStudioRestoreApprovalRequest&,
-      std::string_view) override {
+      const CrowdyStudioRestoreApprovalRequest& request,
+      std::string_view grant) override {
+    CHECK(!request.checkpointId.empty());
+    CHECK(grant == "approved");
     if (failRestore) {
       throw std::runtime_error(
           "restore approval provider validation failed");
     }
+    ++restores;
   }
 };
 
@@ -438,6 +442,60 @@ class FakeSynchronization final
   }
 
   int restores = 0;
+};
+
+class SuccessfulSynchronization final
+    : public ICrowdyStudioSynchronizationProvider {
+ public:
+  explicit SuccessfulSynchronization(FakeProjectProvider& provider)
+      : provider_(provider) {}
+
+  CrowdyStudioAtomicPatchResult applyAtomicPatch(
+      const CrowdyStudioProjectScope&, std::string_view,
+      const CrowdyStudioAtomicPatchInput&) override {
+    throw std::runtime_error("atomic patch is outside this restore test");
+  }
+
+  std::vector<CrowdyStudioCheckpointMetadata> listCheckpoints(
+      const CrowdyStudioProjectScope&, std::string_view) override {
+    return {{
+        .checkpointId = "checkpoint-1",
+        .projectRevisionId = provider_.projects.front().revision.id,
+        .contentHash =
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        .reason = CrowdyStudioCheckpointMetadata::Reason::Manual,
+        .files = {},
+        .createdAt = "2026-07-24T00:00:00.000Z",
+        .restoredAt = std::nullopt,
+    }};
+  }
+
+  CrowdyStudioCheckpointRestoreResult restoreCheckpoint(
+      const CrowdyStudioCheckpointRestoreInput& input) override {
+    CHECK(input.checkpointId == "checkpoint-1");
+    CHECK(input.approvalGrant == "approved");
+    auto restored = provider_.projects.front();
+    CHECK(restored.revision.id == input.expectedRevisionId);
+    CrowdyStudioCheckpointMetadata preimage;
+    preimage.checkpointId = "pre-restore-1";
+    preimage.projectRevisionId = restored.revision.id;
+    preimage.contentHash =
+        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    preimage.reason =
+        CrowdyStudioCheckpointMetadata::Reason::RestorePreimage;
+    preimage.createdAt = "2026-07-24T00:00:01.000Z";
+    restored.revision.id =
+        std::to_string(std::stoll(restored.revision.id) + 1);
+    restored.updatedAt = "2026-07-24T00:00:02.000Z";
+    provider_.projects.front() = restored;
+    ++restores;
+    return {std::move(restored), std::move(preimage)};
+  }
+
+  int restores = 0;
+
+ private:
+  FakeProjectProvider& provider_;
 };
 
 class FakeWallet final : public ICrowdyStudioWalletProvider {
@@ -1818,8 +1876,35 @@ void testEditorRoundTripsPollTickAndRelayout() {
   CHECK_EQ(integration->runStudioMaintenance(), std::size_t{0});
   CHECK_EQ(provider->saves, 1);
 
-  integration->controlGate().stop();
+  CHECK(!integration->leaseManager().attach("1"));
+  std::optional<AdapterResultV1<PlayerHostCapabilitiesV1>> capabilities;
+  integration->leaseManager().refreshCapabilities(
+      [&](auto result) { capabilities = std::move(result); });
+  CHECK(capabilities && capabilities->ok());
+  AgentControlLeaseV1 lease;
+  lease.lease_id = "play-lease";
+  lease.kind = LeaseKindV1::Play;
+  lease.status = LeaseStatusV1::Active;
+  lease.client_epoch = "1";
+  lease.scopes = {LeaseScopeV1::Observe, LeaseScopeV1::Locomotion};
+  lease.holder = "test player";
+  lease.controlled_entity_id = "player-1";
+  lease.host_capability_revision = "capability-1";
+  lease.context_version =
+      integration->studio().getAgentContext().contextVersion;
+  lease.granted_at = iso(clock.epoch);
+  lease.expires_at = iso(clock.epoch + 30'000);
+  CHECK(!integration->leaseManager().grantLease(lease));
+  integration->controlGate().refresh();
+  CHECK(integration->controlSnapshot().active_lease.has_value());
+
+  integration->controlGate().onHumanMovementInput();
   CHECK_EQ(playerHost.clears, 1);
+  CHECK(!integration->leaseSnapshot().lease.has_value());
+  CHECK(!integration->controlSnapshot().active_lease.has_value());
+  CHECK(integration->controlSnapshot().last_preemption ==
+        std::optional<PreemptionReasonV1>(
+            PreemptionReasonV1::HUMAN_INPUT));
 
   integration->dispose();
   CHECK(editor->disposed);
@@ -1862,6 +1947,39 @@ void testOwnedWalletProviderIsNonfatal() {
 
   integration.reset();
   CHECK(walletWeak.expired());
+}
+
+void testIntegrationApprovedRestoreRequiresInjectedCapabilities() {
+  FakeClock clock;
+  auto crypto = std::make_shared<FakeCrypto>();
+  auto provider = std::make_shared<FakeProjectProvider>();
+  auto runtime = std::make_shared<FakeRuntime>();
+  auto approval = std::make_shared<FakeApproval>();
+  auto synchronization =
+      std::make_shared<SuccessfulSynchronization>(*provider);
+  FakePlayerHost playerHost;
+
+  CrowdyStudioIntegrationOptions options;
+  options.studio = controllerOptions(clock);
+  options.crypto = crypto;
+  options.clock = &clock;
+  options.synchronization = synchronization;
+  options.approval = approval;
+  options.playerHost = &playerHost;
+
+  auto integration = CrowdyStudioIntegration::create(
+      std::move(options), provider, runtime);
+  integration->initialize();
+  CHECK_EQ(integration->studio().getState().checkpoints.size(), 1U);
+  const std::string previous =
+      integration->studio().getState().project->revision.id;
+  const auto checkpoint = integration->studio().restoreCheckpoint(
+      "checkpoint-1", "approved", previous);
+  CHECK_EQ(checkpoint.checkpointId, "pre-restore-1");
+  CHECK_EQ(checkpoint.projectRevisionId, previous);
+  CHECK(integration->studio().getState().project->revision.id != previous);
+  CHECK_EQ(approval->restores, 1);
+  CHECK_EQ(synchronization->restores, 1);
 }
 
 void testConcreteIntegrationOwnershipAndDestructionOrder() {
@@ -2001,6 +2119,7 @@ int main() {
   testNonblockingPollAndScheduledDeadlineProgress();
   testEditorRoundTripsPollTickAndRelayout();
   testOwnedWalletProviderIsNonfatal();
+  testIntegrationApprovedRestoreRequiresInjectedCapabilities();
   testConcreteIntegrationOwnershipAndDestructionOrder();
   testCrowdyClientConstructionHelper();
   std::printf("studio_integration_test passed\n");

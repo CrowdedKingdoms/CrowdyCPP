@@ -1,6 +1,6 @@
 {
   "name": "crowdycpp-maintainer-tools",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",

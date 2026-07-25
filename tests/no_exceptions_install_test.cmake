@@ -22,26 +22,64 @@ if(NOT _install_result EQUAL 0)
 endif()
 
 set(_layout "${_prefix}/include/crowdy/studio/layout.hpp")
-set(_controller "${_prefix}/include/crowdy/studio/controller.hpp")
 if(NOT EXISTS "${_layout}")
   message(FATAL_ERROR "installed no-exception package omitted layout.hpp")
 endif()
-if(EXISTS "${_controller}")
-  message(FATAL_ERROR
-          "installed no-exception package retained throwing controller.hpp")
-endif()
+
+set(_throwing_studio_headers
+    agent_projection.hpp
+    controller.hpp
+    diagnostics.hpp
+    editor.hpp
+    host_adapter.hpp
+    integration.hpp
+    models.hpp
+    runtime.hpp)
+foreach(_header IN LISTS _throwing_studio_headers)
+  if(EXISTS "${_prefix}/include/crowdy/studio/${_header}")
+    message(FATAL_ERROR
+            "installed no-exception package retained throwing ${_header}")
+  endif()
+endforeach()
 
 file(MAKE_DIRECTORY "${_source}")
-file(WRITE "${_source}/CMakeLists.txt" [=[
+set(_consumer_cmake [=[
 cmake_minimum_required(VERSION 3.22)
 project(CrowdyNoExceptionsInstallConsumer LANGUAGES CXX)
 find_package(CrowdyCPP CONFIG REQUIRED)
-add_executable(no_exceptions_install_consumer main.cpp)
+set(CROWDY_NO_EXCEPTION_SOURCES
+  main.cpp
+]=])
+
+file(GLOB_RECURSE _installed_headers
+     RELATIVE "${_prefix}/include"
+     "${_prefix}/include/crowdy/*.hpp")
+if(NOT _installed_headers)
+  message(FATAL_ERROR
+          "installed no-exception package did not contain public headers")
+endif()
+foreach(_header IN LISTS _installed_headers)
+  string(MAKE_C_IDENTIFIER "${_header}" _identifier)
+  set(_source_name "${_identifier}.cpp")
+  file(WRITE "${_source}/${_source_name}"
+       "#ifndef CROWDY_NO_EXCEPTIONS\n"
+       "#error \"installed target must export CROWDY_NO_EXCEPTIONS\"\n"
+       "#endif\n"
+       "#include <${_header}>\n"
+       "void ${_identifier}_installed_header() {}\n")
+  string(APPEND _consumer_cmake "  ${_source_name}\n")
+endforeach()
+
+string(APPEND _consumer_cmake [=[
+)
+add_executable(
+  no_exceptions_install_consumer ${CROWDY_NO_EXCEPTION_SOURCES})
 target_link_libraries(
   no_exceptions_install_consumer PRIVATE CrowdyCPP::crowdy)
 target_compile_features(
   no_exceptions_install_consumer PRIVATE cxx_std_20)
 ]=])
+file(WRITE "${_source}/CMakeLists.txt" "${_consumer_cmake}")
 file(WRITE "${_source}/main.cpp" [=[
 #include <crowdy/crowdy.hpp>
 #include <crowdy/studio/layout.hpp>

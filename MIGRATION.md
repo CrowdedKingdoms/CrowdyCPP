@@ -1,5 +1,60 @@
 # CrowdyCPP migration notes
 
+## 0.15.0 native Crowdy Studio integration
+
+0.15.0 changes the public source and installed-library ABI. CrowdyCPP remains
+pre-1.0: rebuild consumers and engine wrappers, and do not load 0.15 libraries
+behind binaries compiled against 0.14 headers.
+
+- Prefer `CrowdyClient::createCrowdyStudioIntegration(options)` for an
+  engine-owned Studio. The returned non-copyable `CrowdyStudioIntegration`
+  owns the project/runtime adapters, controller, editor bridge, concrete Studio
+  host, native dispatcher, optional Agent runtime, layout controller, lease
+  manager, control gate, and wallet adapter in destruction-safe order.
+- Implement `ICrowdyStudioEditorAdapter` over in-memory buffers. Its callbacks
+  intentionally provide no `CrowdyClient`, filesystem, shell, DOM, transport,
+  or raw GraphQL authority. Existing direct-controller integrations can remain,
+  but must own every borrowed provider for the controller's full lifetime.
+- Persist pane state through `ICrowdyStudioLayoutStorage`, or retain
+  `InMemoryCrowdyStudioLayoutStorage` for session-only state. CrowdyCPP does not
+  choose a filesystem, registry, browser local storage, or process-global
+  settings service. `crowdy/studio/layout.hpp` remains available in the reduced
+  no-exception install.
+- Replace opaque diagnostic views with `CrowdyStudioDiagnostic`. Diagnostics
+  now carry target-relative path/range, severity, source, message, and optional
+  rustc code. The string setter and `*DiagnosticTexts()` accessors remain
+  compatibility helpers.
+- Wallet state is optional read-only observation. The client integration
+  installs `CrowdyStudioPlayerWalletProvider` by default; set
+  `observePlayerWallet = false` or inject `walletProvider` to override it.
+  Wallet failures clear the snapshot and never block editing, saving, testing,
+  or deployment.
+- `CrowdyStudioControllerHostAdapter` is the closed 11-tool Studio host.
+  Potentially effectful calls validate session, epoch, context, lease,
+  cancellation, and approval at the final boundary. Do not replace it with a
+  generic host call, raw operation executor, or transport callback.
+- Supply `playerHost` to let the integration own one exact
+  `AgentControlLeaseManager` shared by native dispatch and
+  `NativePlayerControlGate`. Forward existing keyboard, pointer, movement,
+  background, death, permission, admission, context, and controlled-entity
+  events through the gate. It observes takeover intent; it does not synthesize
+  or consume engine input.
+- `CrowdyStudioIntegration::poll()` (and compatibility spelling `tick()`) is
+  nonblocking. It drains platform/Agent callbacks and native deadlines only.
+  Autosave, monitoring HTTP, compile polling/sleep, and scheduled Studio host
+  effects run from `runStudioMaintenance()`. Serialize that potentially
+  blocking lane with all controller/editor access; never call it concurrently.
+- DOM, Monaco, CSS, splitters, browser workers/VFS, renderer chrome, and
+  browser input plumbing remain intentional browser exclusions. Engines own
+  equivalent presentation and sandbox implementations; 0.15 adds no hidden
+  DOM/filesystem authority.
+
+Approved checkpoint restore is not implied by project-save access. It remains
+available only when an independently authorized
+`ICrowdyStudioSynchronizationProvider` and exact
+`ICrowdyStudioApprovalGate` are both injected. The published GraphQL schema
+does not expose a generic synchronization or restore root.
+
 ## 0.14.1 Windows replication fix
 
 0.14.1 is a drop-in patch for 0.14.0. Winsock UDP connections are now

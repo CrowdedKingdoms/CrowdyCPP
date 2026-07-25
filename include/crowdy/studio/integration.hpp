@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -157,6 +158,7 @@ class CrowdyStudioIntegration {
       agent::AgentMode mode);
   void epochAttached(std::string_view epoch);
   void leaseChanged(const agent::AgentLease& lease);
+  void synchronizePlayHeartbeat();
   void preempted(agent::AgentPreemptionReason reason);
   void stateChanged(const CrowdyStudioState& state);
 
@@ -170,6 +172,8 @@ class CrowdyStudioIntegration {
   std::shared_ptr<ICrowdyStudioApprovalGate> approval_;
   std::shared_ptr<ICrowdyStudioWalletProvider> walletProvider_;
   std::shared_ptr<ICrowdyStudioLayoutStorage> layoutStorageOwner_;
+  std::shared_ptr<std::atomic<bool>> callbackAlive_ =
+      std::make_shared<std::atomic<bool>>(true);
   player_host::PlayerHostAdapterV1* playerHost_ = nullptr;
   std::unique_ptr<player_host::AgentControlLeaseManager>
       ownedLeaseManager_;
@@ -193,6 +197,7 @@ class CrowdyStudioIntegration {
   CrowdyStudioController::ListenerId stateSubscription_ = 0;
   CrowdyStudioController::ListenerId humanEditSubscription_ = 0;
   std::optional<std::string> selectedProjectId_;
+  std::optional<std::string> lastAgentHeartbeatAt_;
   bool studioInitialized_ = false;
   bool agentInitialized_ = false;
   bool disposed_ = false;

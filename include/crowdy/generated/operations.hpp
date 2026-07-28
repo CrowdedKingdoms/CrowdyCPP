@@ -2,10 +2,10 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
-// schema.gql sha256: d576813b2a81be3b36f3c34acc021924a56637fee65f2384c4e35a40ce3742ca
-// schema.management.gql sha256: 9fbdc1beab8482ae3bb032a6f9646535c57c7d48cf9a86186f2848ab2bb6b158
-// schema.game.gql sha256: a288c419233c4eacfd0dd2b5f771edd9cdae87e490afd5299a4881190b93994e
-// operations sha256: 8864354edaabd2e00e3ccab2cc0b1e2a047c9a6681351ef6bf856a37a6f55620
+// schema.gql sha256: 30c8443cfd7fa978f37374a32d2d4f5fa31b06c06cbcadb09ea4ec6505504575
+// schema.management.gql sha256: 5b644e27e529e39fb487b744e0c0b12f281ee506e1cca2d95b50d3fc5066b1c7
+// schema.game.gql sha256: 5b644e27e529e39fb487b744e0c0b12f281ee506e1cca2d95b50d3fc5066b1c7
+// operations sha256: e30650451f552cf9bf95b0d588d318810cf79254b0a1979f25c3358423f16268
 
 #pragma once
 
@@ -59,7 +59,7 @@ inline constexpr std::string_view kActorIsolatedDocument = R"gql(query Actor($uu
   }
 })gql";
 inline constexpr std::string_view kActorOperationName = "Actor";
-inline constexpr GraphQLEndpoint kActorEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kActorEndpoint = GraphQLEndpoint::Both;
 
 /// actors/Actors.graphql
 inline constexpr std::string_view kActorsDocument = R"gql(query Actors($filter: ActorFilterInput) {
@@ -124,7 +124,7 @@ inline constexpr std::string_view kActorsIsolatedDocument = R"gql(query Actors($
   }
 })gql";
 inline constexpr std::string_view kActorsOperationName = "Actors";
-inline constexpr GraphQLEndpoint kActorsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kActorsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kActorsConnectionIsolatedDocument = R"gql(query ActorsConnection($first: Int, $after: String, $filter: ActorFilterInput) {
   actorsConnection(first: $first, after: $after, filter: $filter) {
     edges {
@@ -154,7 +154,7 @@ inline constexpr std::string_view kActorsConnectionIsolatedDocument = R"gql(quer
   }
 })gql";
 inline constexpr std::string_view kActorsConnectionOperationName = "ActorsConnection";
-inline constexpr GraphQLEndpoint kActorsConnectionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kActorsConnectionEndpoint = GraphQLEndpoint::Both;
 
 /// actors/BatchLookupActors.graphql
 inline constexpr std::string_view kBatchLookupActorsDocument = R"gql(query BatchLookupActors($input: BatchActorLookupInput!) {
@@ -190,7 +190,7 @@ inline constexpr std::string_view kBatchLookupActorsIsolatedDocument = R"gql(que
   }
 })gql";
 inline constexpr std::string_view kBatchLookupActorsOperationName = "BatchLookupActors";
-inline constexpr GraphQLEndpoint kBatchLookupActorsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kBatchLookupActorsEndpoint = GraphQLEndpoint::Both;
 
 /// actors/CreateActor.graphql
 inline constexpr std::string_view kCreateActorDocument = R"gql(mutation CreateActor($input: CreateActorInput!) {
@@ -226,7 +226,7 @@ inline constexpr std::string_view kCreateActorIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kCreateActorOperationName = "CreateActor";
-inline constexpr GraphQLEndpoint kCreateActorEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateActorEndpoint = GraphQLEndpoint::Both;
 
 /// actors/DeleteActor.graphql
 inline constexpr std::string_view kDeleteActorDocument = R"gql(mutation DeleteActor($uuid: String!, $idempotencyKey: String) {
@@ -244,7 +244,7 @@ inline constexpr std::string_view kDeleteActorIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kDeleteActorOperationName = "DeleteActor";
-inline constexpr GraphQLEndpoint kDeleteActorEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteActorEndpoint = GraphQLEndpoint::Both;
 
 /// actors/UpdateActor.graphql
 inline constexpr std::string_view kUpdateActorDocument = R"gql(mutation UpdateActor($uuid: String!, $input: UpdateActorInput!) {
@@ -280,7 +280,7 @@ inline constexpr std::string_view kUpdateActorIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kUpdateActorOperationName = "UpdateActor";
-inline constexpr GraphQLEndpoint kUpdateActorEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateActorEndpoint = GraphQLEndpoint::Both;
 
 /// actors/UpdateActorState.graphql
 inline constexpr std::string_view kUpdateActorStateDocument = R"gql(mutation UpdateActorState($uuid: String!, $input: UpdateActorStateInput!) {
@@ -302,7 +302,7 @@ inline constexpr std::string_view kUpdateActorStateIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kUpdateActorStateOperationName = "UpdateActorState";
-inline constexpr GraphQLEndpoint kUpdateActorStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateActorStateEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "Actor") return kActorIsolatedDocument;
@@ -370,7 +370,7 @@ inline constexpr std::string_view kAppAccessTiersIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kAppAccessTiersOperationName = "AppAccessTiers";
-inline constexpr GraphQLEndpoint kAppAccessTiersEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppAccessTiersEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/AppGrantMemberCandidates.graphql
 inline constexpr std::string_view kAppGrantMemberCandidatesDocument = R"gql(query AppGrantMemberCandidates($appId: BigInt!) {
@@ -388,7 +388,7 @@ inline constexpr std::string_view kAppGrantMemberCandidatesIsolatedDocument = R"
   }
 })gql";
 inline constexpr std::string_view kAppGrantMemberCandidatesOperationName = "AppGrantMemberCandidates";
-inline constexpr GraphQLEndpoint kAppGrantMemberCandidatesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppGrantMemberCandidatesEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/AppUserAccessByApp.graphql
 inline constexpr std::string_view kAppUserAccessByAppDocument = R"gql(query AppUserAccessByApp(
@@ -472,7 +472,7 @@ inline constexpr std::string_view kAppUserAccessByAppIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kAppUserAccessByAppOperationName = "AppUserAccessByApp";
-inline constexpr GraphQLEndpoint kAppUserAccessByAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppUserAccessByAppEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppUserAccessConnectionIsolatedDocument = R"gql(query AppUserAccessConnection($appId: BigInt!, $first: Int, $after: String, $status: String) {
   appUserAccessConnection(
     appId: $appId
@@ -505,7 +505,7 @@ inline constexpr std::string_view kAppUserAccessConnectionIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kAppUserAccessConnectionOperationName = "AppUserAccessConnection";
-inline constexpr GraphQLEndpoint kAppUserAccessConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppUserAccessConnectionEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/ArchiveAccessTier.graphql
 inline constexpr std::string_view kArchiveAccessTierDocument = R"gql(mutation ArchiveAccessTier($tierId: BigInt!) {
@@ -523,7 +523,7 @@ inline constexpr std::string_view kArchiveAccessTierIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kArchiveAccessTierOperationName = "ArchiveAccessTier";
-inline constexpr GraphQLEndpoint kArchiveAccessTierEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kArchiveAccessTierEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/ClaimFreeAppAccess.graphql
 inline constexpr std::string_view kClaimFreeAppAccessDocument = R"gql(mutation ClaimFreeAppAccess($appId: BigInt!) {
@@ -555,7 +555,7 @@ inline constexpr std::string_view kClaimFreeAppAccessIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kClaimFreeAppAccessOperationName = "ClaimFreeAppAccess";
-inline constexpr GraphQLEndpoint kClaimFreeAppAccessEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kClaimFreeAppAccessEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/CreateAccessTier.graphql
 inline constexpr std::string_view kCreateAccessTierDocument = R"gql(mutation CreateAccessTier($input: CreateAccessTierInput!) {
@@ -595,7 +595,7 @@ inline constexpr std::string_view kCreateAccessTierIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kCreateAccessTierOperationName = "CreateAccessTier";
-inline constexpr GraphQLEndpoint kCreateAccessTierEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateAccessTierEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/GrantAppAccess.graphql
 inline constexpr std::string_view kGrantAppAccessDocument = R"gql(mutation GrantAppAccess($input: GrantAppAccessInput!) {
@@ -627,7 +627,7 @@ inline constexpr std::string_view kGrantAppAccessIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kGrantAppAccessOperationName = "GrantAppAccess";
-inline constexpr GraphQLEndpoint kGrantAppAccessEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kGrantAppAccessEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/GrantMyAppAccess.graphql
 inline constexpr std::string_view kGrantMyAppAccessDocument = R"gql(mutation GrantMyAppAccess($appId: BigInt!) {
@@ -659,7 +659,7 @@ inline constexpr std::string_view kGrantMyAppAccessIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kGrantMyAppAccessOperationName = "GrantMyAppAccess";
-inline constexpr GraphQLEndpoint kGrantMyAppAccessEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kGrantMyAppAccessEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/MyAppAccess.graphql
 inline constexpr std::string_view kMyAppAccessDocument = R"gql(query MyAppAccess($appId: BigInt!) {
@@ -691,7 +691,7 @@ inline constexpr std::string_view kMyAppAccessIsolatedDocument = R"gql(query MyA
   }
 })gql";
 inline constexpr std::string_view kMyAppAccessOperationName = "MyAppAccess";
-inline constexpr GraphQLEndpoint kMyAppAccessEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMyAppAccessEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/RevokeAppAccess.graphql
 inline constexpr std::string_view kRevokeAppAccessDocument = R"gql(mutation RevokeAppAccess($appId: BigInt!, $userId: BigInt!) {
@@ -723,7 +723,7 @@ inline constexpr std::string_view kRevokeAppAccessIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kRevokeAppAccessOperationName = "RevokeAppAccess";
-inline constexpr GraphQLEndpoint kRevokeAppAccessEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRevokeAppAccessEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/RuntimePermissions.graphql
 inline constexpr std::string_view kRuntimePermissionsDocument = R"gql(query RuntimePermissions {
@@ -733,7 +733,7 @@ inline constexpr std::string_view kRuntimePermissionsIsolatedDocument = R"gql(qu
   runtimePermissions
 })gql";
 inline constexpr std::string_view kRuntimePermissionsOperationName = "RuntimePermissions";
-inline constexpr GraphQLEndpoint kRuntimePermissionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRuntimePermissionsEndpoint = GraphQLEndpoint::Both;
 
 /// appAccess/UpdateAccessTier.graphql
 inline constexpr std::string_view kUpdateAccessTierDocument = R"gql(mutation UpdateAccessTier($tierId: BigInt!, $input: UpdateAccessTierInput!) {
@@ -771,7 +771,7 @@ inline constexpr std::string_view kUpdateAccessTierIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kUpdateAccessTierOperationName = "UpdateAccessTier";
-inline constexpr GraphQLEndpoint kUpdateAccessTierEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUpdateAccessTierEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "AppAccessTiers") return kAppAccessTiersIsolatedDocument;
@@ -861,7 +861,7 @@ inline constexpr std::string_view kAppIsolatedDocument = R"gql(query App($appId:
   }
 })gql";
 inline constexpr std::string_view kAppOperationName = "App";
-inline constexpr GraphQLEndpoint kAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppEndpoint = GraphQLEndpoint::Both;
 
 /// apps/AppBySlug.graphql
 inline constexpr std::string_view kAppBySlugDocument = R"gql(query AppBySlug($orgSlug: String!, $appSlug: String!) {
@@ -907,7 +907,7 @@ inline constexpr std::string_view kAppBySlugIsolatedDocument = R"gql(query AppBy
   }
 })gql";
 inline constexpr std::string_view kAppBySlugOperationName = "AppBySlug";
-inline constexpr GraphQLEndpoint kAppBySlugEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppBySlugEndpoint = GraphQLEndpoint::Both;
 
 /// apps/AppsForOrg.graphql
 inline constexpr std::string_view kAppsForOrgDocument = R"gql(query AppsForOrg($orgSlug: String!) {
@@ -943,7 +943,7 @@ inline constexpr std::string_view kAppsForOrgIsolatedDocument = R"gql(query Apps
   }
 })gql";
 inline constexpr std::string_view kAppsForOrgOperationName = "AppsForOrg";
-inline constexpr GraphQLEndpoint kAppsForOrgEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppsForOrgEndpoint = GraphQLEndpoint::Both;
 
 /// apps/ArchiveApp.graphql
 inline constexpr std::string_view kArchiveAppDocument = R"gql(mutation ArchiveApp($appId: BigInt!) {
@@ -961,7 +961,7 @@ inline constexpr std::string_view kArchiveAppIsolatedDocument = R"gql(mutation A
   }
 })gql";
 inline constexpr std::string_view kArchiveAppOperationName = "ArchiveApp";
-inline constexpr GraphQLEndpoint kArchiveAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kArchiveAppEndpoint = GraphQLEndpoint::Both;
 
 /// apps/CodeAdmissions.graphql
 inline constexpr std::string_view kCodeAdmissionsDocument = R"gql(fragment AppCodeAdmissionFields on AppCodeAdmission {
@@ -1010,7 +1010,7 @@ inline constexpr std::string_view kAppCodeAdmissionModeIsolatedDocument = R"gql(
   appCodeAdmissionMode(appId: $appId)
 })gql";
 inline constexpr std::string_view kAppCodeAdmissionModeOperationName = "AppCodeAdmissionMode";
-inline constexpr GraphQLEndpoint kAppCodeAdmissionModeEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppCodeAdmissionModeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppCodeAdmissionsIsolatedDocument = R"gql(query AppCodeAdmissions($appId: BigInt!, $includeRevoked: Boolean) {
   appCodeAdmissions(appId: $appId, includeRevoked: $includeRevoked) {
     ...AppCodeAdmissionFields
@@ -1028,12 +1028,12 @@ fragment AppCodeAdmissionFields on AppCodeAdmission {
   revokedAt
 })gql";
 inline constexpr std::string_view kAppCodeAdmissionsOperationName = "AppCodeAdmissions";
-inline constexpr GraphQLEndpoint kAppCodeAdmissionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppCodeAdmissionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetAppCodeAdmissionModeIsolatedDocument = R"gql(mutation SetAppCodeAdmissionMode($appId: BigInt!, $mode: CodeAdmissionMode!) {
   setAppCodeAdmissionMode(appId: $appId, mode: $mode)
 })gql";
 inline constexpr std::string_view kSetAppCodeAdmissionModeOperationName = "SetAppCodeAdmissionMode";
-inline constexpr GraphQLEndpoint kSetAppCodeAdmissionModeEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetAppCodeAdmissionModeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAdmitAppCodeIsolatedDocument = R"gql(mutation AdmitAppCode($input: AdmitAppCodeInput!) {
   admitAppCode(input: $input) {
     ...AppCodeAdmissionFields
@@ -1051,7 +1051,7 @@ fragment AppCodeAdmissionFields on AppCodeAdmission {
   revokedAt
 })gql";
 inline constexpr std::string_view kAdmitAppCodeOperationName = "AdmitAppCode";
-inline constexpr GraphQLEndpoint kAdmitAppCodeEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAdmitAppCodeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kRevokeAppCodeAdmissionIsolatedDocument = R"gql(mutation RevokeAppCodeAdmission($appId: BigInt!, $admissionId: String!) {
   revokeAppCodeAdmission(appId: $appId, admissionId: $admissionId) {
     ...AppCodeAdmissionFields
@@ -1069,7 +1069,7 @@ fragment AppCodeAdmissionFields on AppCodeAdmission {
   revokedAt
 })gql";
 inline constexpr std::string_view kRevokeAppCodeAdmissionOperationName = "RevokeAppCodeAdmission";
-inline constexpr GraphQLEndpoint kRevokeAppCodeAdmissionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRevokeAppCodeAdmissionEndpoint = GraphQLEndpoint::Both;
 
 /// apps/CreateApp.graphql
 inline constexpr std::string_view kCreateAppDocument = R"gql(mutation CreateApp($input: CreateAppInput!) {
@@ -1099,7 +1099,7 @@ inline constexpr std::string_view kCreateAppIsolatedDocument = R"gql(mutation Cr
   }
 })gql";
 inline constexpr std::string_view kCreateAppOperationName = "CreateApp";
-inline constexpr GraphQLEndpoint kCreateAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateAppEndpoint = GraphQLEndpoint::Both;
 
 /// apps/MarketplaceApps.graphql
 inline constexpr std::string_view kMarketplaceAppsDocument = R"gql(query MarketplaceApps(
@@ -1201,7 +1201,7 @@ inline constexpr std::string_view kMarketplaceAppsIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kMarketplaceAppsOperationName = "MarketplaceApps";
-inline constexpr GraphQLEndpoint kMarketplaceAppsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceAppsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppsConnectionIsolatedDocument = R"gql(query AppsConnection($first: Int, $after: String, $filter: AppMarketplaceFilterInput) {
   appsConnection(first: $first, after: $after, filter: $filter) {
     edges {
@@ -1236,7 +1236,7 @@ inline constexpr std::string_view kAppsConnectionIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kAppsConnectionOperationName = "AppsConnection";
-inline constexpr GraphQLEndpoint kAppsConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppsConnectionEndpoint = GraphQLEndpoint::Both;
 
 /// apps/MyApps.graphql
 inline constexpr std::string_view kMyAppsDocument = R"gql(query MyApps {
@@ -1282,7 +1282,7 @@ inline constexpr std::string_view kMyAppsIsolatedDocument = R"gql(query MyApps {
   }
 })gql";
 inline constexpr std::string_view kMyAppsOperationName = "MyApps";
-inline constexpr GraphQLEndpoint kMyAppsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMyAppsEndpoint = GraphQLEndpoint::Both;
 
 /// apps/SetAppVisibility.graphql
 inline constexpr std::string_view kSetAppVisibilityDocument = R"gql(mutation SetAppVisibility($appId: BigInt!, $visibility: AppVisibility!) {
@@ -1300,7 +1300,7 @@ inline constexpr std::string_view kSetAppVisibilityIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kSetAppVisibilityOperationName = "SetAppVisibility";
-inline constexpr GraphQLEndpoint kSetAppVisibilityEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetAppVisibilityEndpoint = GraphQLEndpoint::Both;
 
 /// apps/UpdateApp.graphql
 inline constexpr std::string_view kUpdateAppDocument = R"gql(mutation UpdateApp($appId: BigInt!, $input: UpdateAppInput!) {
@@ -1330,7 +1330,7 @@ inline constexpr std::string_view kUpdateAppIsolatedDocument = R"gql(mutation Up
   }
 })gql";
 inline constexpr std::string_view kUpdateAppOperationName = "UpdateApp";
-inline constexpr GraphQLEndpoint kUpdateAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUpdateAppEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "App") return kAppIsolatedDocument;
@@ -1392,7 +1392,7 @@ inline constexpr std::string_view kLogoutAllDevicesIsolatedDocument = R"gql(muta
   logoutAllDevices
 })gql";
 inline constexpr std::string_view kLogoutAllDevicesOperationName = "LogoutAllDevices";
-inline constexpr GraphQLEndpoint kLogoutAllDevicesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kLogoutAllDevicesEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "Logout") return kLogoutIsolatedDocument;
@@ -1526,7 +1526,7 @@ inline constexpr std::string_view kUserAvatarsIsolatedDocument = R"gql(query Use
   }
 })gql";
 inline constexpr std::string_view kUserAvatarsOperationName = "UserAvatars";
-inline constexpr GraphQLEndpoint kUserAvatarsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUserAvatarsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAvatarByIdIsolatedDocument = R"gql(query AvatarById($id: BigInt!) {
   avatar(id: $id) {
     avatarId
@@ -1538,7 +1538,7 @@ inline constexpr std::string_view kAvatarByIdIsolatedDocument = R"gql(query Avat
   }
 })gql";
 inline constexpr std::string_view kAvatarByIdOperationName = "AvatarById";
-inline constexpr GraphQLEndpoint kAvatarByIdEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAvatarByIdEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMyAvatarsIsolatedDocument = R"gql(query MyAvatars {
   myAvatars {
     avatarId
@@ -1550,7 +1550,7 @@ inline constexpr std::string_view kMyAvatarsIsolatedDocument = R"gql(query MyAva
   }
 })gql";
 inline constexpr std::string_view kMyAvatarsOperationName = "MyAvatars";
-inline constexpr GraphQLEndpoint kMyAvatarsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMyAvatarsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAvatarAppStateIsolatedDocument = R"gql(query AvatarAppState($appId: BigInt!, $avatarId: BigInt!) {
   avatarAppState(appId: $appId, avatarId: $avatarId) {
     appId
@@ -1561,7 +1561,7 @@ inline constexpr std::string_view kAvatarAppStateIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kAvatarAppStateOperationName = "AvatarAppState";
-inline constexpr GraphQLEndpoint kAvatarAppStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAvatarAppStateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAvatarAppStatesIsolatedDocument = R"gql(query AvatarAppStates($appId: BigInt!, $avatarIds: [BigInt!]!) {
   avatarAppStates(appId: $appId, avatarIds: $avatarIds) {
     appId
@@ -1572,7 +1572,7 @@ inline constexpr std::string_view kAvatarAppStatesIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kAvatarAppStatesOperationName = "AvatarAppStates";
-inline constexpr GraphQLEndpoint kAvatarAppStatesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAvatarAppStatesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCreateAvatarIsolatedDocument = R"gql(mutation CreateAvatar($input: CreateAvatarInput!) {
   createAvatar(input: $input) {
     avatarId
@@ -1584,7 +1584,7 @@ inline constexpr std::string_view kCreateAvatarIsolatedDocument = R"gql(mutation
   }
 })gql";
 inline constexpr std::string_view kCreateAvatarOperationName = "CreateAvatar";
-inline constexpr GraphQLEndpoint kCreateAvatarEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateAvatarEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kUpdateAvatarIsolatedDocument = R"gql(mutation UpdateAvatar($id: BigInt!, $input: UpdateAvatarInput!) {
   updateAvatar(id: $id, input: $input) {
     avatarId
@@ -1596,7 +1596,7 @@ inline constexpr std::string_view kUpdateAvatarIsolatedDocument = R"gql(mutation
   }
 })gql";
 inline constexpr std::string_view kUpdateAvatarOperationName = "UpdateAvatar";
-inline constexpr GraphQLEndpoint kUpdateAvatarEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateAvatarEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kDeleteAvatarIsolatedDocument = R"gql(mutation DeleteAvatar($id: BigInt!, $idempotencyKey: String) {
   deleteAvatar(id: $id, idempotencyKey: $idempotencyKey) {
     avatarId
@@ -1606,7 +1606,7 @@ inline constexpr std::string_view kDeleteAvatarIsolatedDocument = R"gql(mutation
   }
 })gql";
 inline constexpr std::string_view kDeleteAvatarOperationName = "DeleteAvatar";
-inline constexpr GraphQLEndpoint kDeleteAvatarEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteAvatarEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kUpdateAvatarStateIsolatedDocument = R"gql(mutation UpdateAvatarState($id: BigInt!, $input: UpdateAvatarStateInput!) {
   updateAvatarState(id: $id, input: $input) {
     avatarId
@@ -1618,7 +1618,7 @@ inline constexpr std::string_view kUpdateAvatarStateIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kUpdateAvatarStateOperationName = "UpdateAvatarState";
-inline constexpr GraphQLEndpoint kUpdateAvatarStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateAvatarStateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kUpdateAvatarAppStateIsolatedDocument = R"gql(mutation UpdateAvatarAppState($input: UpdateAvatarAppStateInput!) {
   updateAvatarAppState(input: $input) {
     appId
@@ -1629,7 +1629,7 @@ inline constexpr std::string_view kUpdateAvatarAppStateIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kUpdateAvatarAppStateOperationName = "UpdateAvatarAppState";
-inline constexpr GraphQLEndpoint kUpdateAvatarAppStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateAvatarAppStateEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "UserAvatars") return kUserAvatarsIsolatedDocument;
@@ -1689,7 +1689,7 @@ inline constexpr std::string_view kAppBudgetIsolatedDocument = R"gql(query AppBu
   }
 })gql";
 inline constexpr std::string_view kAppBudgetOperationName = "AppBudget";
-inline constexpr GraphQLEndpoint kAppBudgetEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppBudgetEndpoint = GraphQLEndpoint::Both;
 
 /// billing/AppBudgets.graphql
 inline constexpr std::string_view kAppBudgetsDocument = R"gql(query AppBudgets($orgId: BigInt!) {
@@ -1717,81 +1717,7 @@ inline constexpr std::string_view kAppBudgetsIsolatedDocument = R"gql(query AppB
   }
 })gql";
 inline constexpr std::string_view kAppBudgetsOperationName = "AppBudgets";
-inline constexpr GraphQLEndpoint kAppBudgetsEndpoint = GraphQLEndpoint::Management;
-
-/// billing/BillingTiers.graphql
-inline constexpr std::string_view kBillingTiersDocument = R"gql(query BuddyBillingTiers {
-  buddyBillingTiers {
-    tierLevel
-    messagesPerSecond
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-}
-
-query GraphqlBillingTiers {
-  graphqlBillingTiers {
-    tierLevel
-    endpointCallsPerSecond
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-}
-
-query PostgresBillingTiers {
-  postgresBillingTiers {
-    tierLevel
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-})gql";
-inline constexpr std::string_view kBuddyBillingTiersIsolatedDocument = R"gql(query BuddyBillingTiers {
-  buddyBillingTiers {
-    tierLevel
-    messagesPerSecond
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-})gql";
-inline constexpr std::string_view kBuddyBillingTiersOperationName = "BuddyBillingTiers";
-inline constexpr GraphQLEndpoint kBuddyBillingTiersEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kGraphqlBillingTiersIsolatedDocument = R"gql(query GraphqlBillingTiers {
-  graphqlBillingTiers {
-    tierLevel
-    endpointCallsPerSecond
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-})gql";
-inline constexpr std::string_view kGraphqlBillingTiersOperationName = "GraphqlBillingTiers";
-inline constexpr GraphQLEndpoint kGraphqlBillingTiersEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kPostgresBillingTiersIsolatedDocument = R"gql(query PostgresBillingTiers {
-  postgresBillingTiers {
-    tierLevel
-    bandwidthMbitPerSecond
-    chargeCents
-    currency
-    label
-    description
-  }
-})gql";
-inline constexpr std::string_view kPostgresBillingTiersOperationName = "PostgresBillingTiers";
-inline constexpr GraphQLEndpoint kPostgresBillingTiersEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppBudgetsEndpoint = GraphQLEndpoint::Both;
 
 /// billing/SetAppBudget.graphql
 inline constexpr std::string_view kSetAppBudgetDocument = R"gql(mutation SetAppBudget($orgId: BigInt!, $appId: BigInt!, $monthlyLimitCents: BigInt!) {
@@ -1823,7 +1749,7 @@ inline constexpr std::string_view kSetAppBudgetIsolatedDocument = R"gql(mutation
   }
 })gql";
 inline constexpr std::string_view kSetAppBudgetOperationName = "SetAppBudget";
-inline constexpr GraphQLEndpoint kSetAppBudgetEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetAppBudgetEndpoint = GraphQLEndpoint::Both;
 
 /// billing/WalletBalance.graphql
 inline constexpr std::string_view kWalletBalanceDocument = R"gql(query WalletBalance($orgId: BigInt!) {
@@ -1847,7 +1773,7 @@ inline constexpr std::string_view kWalletBalanceIsolatedDocument = R"gql(query W
   }
 })gql";
 inline constexpr std::string_view kWalletBalanceOperationName = "WalletBalance";
-inline constexpr GraphQLEndpoint kWalletBalanceEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kWalletBalanceEndpoint = GraphQLEndpoint::Both;
 
 /// billing/WalletTransactions.graphql
 inline constexpr std::string_view kWalletTransactionsDocument = R"gql(query WalletTransactions($orgId: BigInt!, $limit: Int, $offset: Int) {
@@ -1910,7 +1836,7 @@ inline constexpr std::string_view kWalletTransactionsIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kWalletTransactionsOperationName = "WalletTransactions";
-inline constexpr GraphQLEndpoint kWalletTransactionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kWalletTransactionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kWalletTransactionsConnectionIsolatedDocument = R"gql(query WalletTransactionsConnection($orgId: BigInt!, $first: Int, $after: String) {
   walletTransactionsConnection(orgId: $orgId, first: $first, after: $after) {
     edges {
@@ -1938,14 +1864,11 @@ inline constexpr std::string_view kWalletTransactionsConnectionIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kWalletTransactionsConnectionOperationName = "WalletTransactionsConnection";
-inline constexpr GraphQLEndpoint kWalletTransactionsConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kWalletTransactionsConnectionEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "AppBudget") return kAppBudgetIsolatedDocument;
   if (operationName == "AppBudgets") return kAppBudgetsIsolatedDocument;
-  if (operationName == "BuddyBillingTiers") return kBuddyBillingTiersIsolatedDocument;
-  if (operationName == "GraphqlBillingTiers") return kGraphqlBillingTiersIsolatedDocument;
-  if (operationName == "PostgresBillingTiers") return kPostgresBillingTiersIsolatedDocument;
   if (operationName == "SetAppBudget") return kSetAppBudgetIsolatedDocument;
   if (operationName == "WalletBalance") return kWalletBalanceIsolatedDocument;
   if (operationName == "WalletTransactions") return kWalletTransactionsIsolatedDocument;
@@ -1956,9 +1879,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
   if (operationName == "AppBudget") return kAppBudgetEndpoint;
   if (operationName == "AppBudgets") return kAppBudgetsEndpoint;
-  if (operationName == "BuddyBillingTiers") return kBuddyBillingTiersEndpoint;
-  if (operationName == "GraphqlBillingTiers") return kGraphqlBillingTiersEndpoint;
-  if (operationName == "PostgresBillingTiers") return kPostgresBillingTiersEndpoint;
   if (operationName == "SetAppBudget") return kSetAppBudgetEndpoint;
   if (operationName == "WalletBalance") return kWalletBalanceEndpoint;
   if (operationName == "WalletTransactions") return kWalletTransactionsEndpoint;
@@ -2004,7 +1924,7 @@ inline constexpr std::string_view kAddChannelMemberIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kAddChannelMemberOperationName = "AddChannelMember";
-inline constexpr GraphQLEndpoint kAddChannelMemberEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAddChannelMemberEndpoint = GraphQLEndpoint::Both;
 
 /// channels/Channel.graphql
 inline constexpr std::string_view kChannelDocument = R"gql(query Channel($groupId: BigInt!) {
@@ -2036,7 +1956,7 @@ inline constexpr std::string_view kChannelIsolatedDocument = R"gql(query Channel
   }
 })gql";
 inline constexpr std::string_view kChannelOperationName = "Channel";
-inline constexpr GraphQLEndpoint kChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/ChannelMembers.graphql
 inline constexpr std::string_view kChannelMembersDocument = R"gql(query ChannelMembers($groupId: BigInt!) {
@@ -2072,7 +1992,7 @@ inline constexpr std::string_view kChannelMembersIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kChannelMembersOperationName = "ChannelMembers";
-inline constexpr GraphQLEndpoint kChannelMembersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kChannelMembersEndpoint = GraphQLEndpoint::Both;
 
 /// channels/ChannelPolicy.graphql
 inline constexpr std::string_view kChannelPolicyDocument = R"gql(query ChannelPolicy($appId: BigInt!) {
@@ -2096,7 +2016,7 @@ inline constexpr std::string_view kChannelPolicyIsolatedDocument = R"gql(query C
   }
 })gql";
 inline constexpr std::string_view kChannelPolicyOperationName = "ChannelPolicy";
-inline constexpr GraphQLEndpoint kChannelPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kChannelPolicyEndpoint = GraphQLEndpoint::Both;
 
 /// channels/ChannelRoles.graphql
 inline constexpr std::string_view kChannelRolesDocument = R"gql(query ChannelRoles($groupId: BigInt!) {
@@ -2122,7 +2042,7 @@ inline constexpr std::string_view kChannelRolesIsolatedDocument = R"gql(query Ch
   }
 })gql";
 inline constexpr std::string_view kChannelRolesOperationName = "ChannelRoles";
-inline constexpr GraphQLEndpoint kChannelRolesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kChannelRolesEndpoint = GraphQLEndpoint::Both;
 
 /// channels/Channels.graphql
 inline constexpr std::string_view kChannelsDocument = R"gql(query Channels($appId: BigInt!) {
@@ -2154,7 +2074,7 @@ inline constexpr std::string_view kChannelsIsolatedDocument = R"gql(query Channe
   }
 })gql";
 inline constexpr std::string_view kChannelsOperationName = "Channels";
-inline constexpr GraphQLEndpoint kChannelsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kChannelsEndpoint = GraphQLEndpoint::Both;
 
 /// channels/CreateChannel.graphql
 inline constexpr std::string_view kCreateChannelDocument = R"gql(mutation CreateChannel($input: CreateChannelInput!) {
@@ -2186,7 +2106,7 @@ inline constexpr std::string_view kCreateChannelIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kCreateChannelOperationName = "CreateChannel";
-inline constexpr GraphQLEndpoint kCreateChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/CreateChannelRole.graphql
 inline constexpr std::string_view kCreateChannelRoleDocument = R"gql(mutation CreateChannelRole($input: CreateGroupRoleInput!) {
@@ -2212,7 +2132,7 @@ inline constexpr std::string_view kCreateChannelRoleIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kCreateChannelRoleOperationName = "CreateChannelRole";
-inline constexpr GraphQLEndpoint kCreateChannelRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateChannelRoleEndpoint = GraphQLEndpoint::Both;
 
 /// channels/DeleteChannel.graphql
 inline constexpr std::string_view kDeleteChannelDocument = R"gql(mutation DeleteChannel($groupId: BigInt!) {
@@ -2222,7 +2142,7 @@ inline constexpr std::string_view kDeleteChannelIsolatedDocument = R"gql(mutatio
   deleteChannel(groupId: $groupId)
 })gql";
 inline constexpr std::string_view kDeleteChannelOperationName = "DeleteChannel";
-inline constexpr GraphQLEndpoint kDeleteChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/DeleteChannelRole.graphql
 inline constexpr std::string_view kDeleteChannelRoleDocument = R"gql(mutation DeleteChannelRole($groupRoleId: BigInt!) {
@@ -2232,7 +2152,7 @@ inline constexpr std::string_view kDeleteChannelRoleIsolatedDocument = R"gql(mut
   deleteChannelRole(groupRoleId: $groupRoleId)
 })gql";
 inline constexpr std::string_view kDeleteChannelRoleOperationName = "DeleteChannelRole";
-inline constexpr GraphQLEndpoint kDeleteChannelRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteChannelRoleEndpoint = GraphQLEndpoint::Both;
 
 /// channels/JoinChannel.graphql
 inline constexpr std::string_view kJoinChannelDocument = R"gql(mutation JoinChannel($groupId: BigInt!) {
@@ -2268,7 +2188,7 @@ inline constexpr std::string_view kJoinChannelIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kJoinChannelOperationName = "JoinChannel";
-inline constexpr GraphQLEndpoint kJoinChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kJoinChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/LeaveChannel.graphql
 inline constexpr std::string_view kLeaveChannelDocument = R"gql(mutation LeaveChannel($groupId: BigInt!) {
@@ -2278,7 +2198,7 @@ inline constexpr std::string_view kLeaveChannelIsolatedDocument = R"gql(mutation
   leaveChannel(groupId: $groupId)
 })gql";
 inline constexpr std::string_view kLeaveChannelOperationName = "LeaveChannel";
-inline constexpr GraphQLEndpoint kLeaveChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kLeaveChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/MyChannels.graphql
 inline constexpr std::string_view kMyChannelsDocument = R"gql(query MyChannels($appId: BigInt!) {
@@ -2332,7 +2252,7 @@ inline constexpr std::string_view kMyChannelsIsolatedDocument = R"gql(query MyCh
   }
 })gql";
 inline constexpr std::string_view kMyChannelsOperationName = "MyChannels";
-inline constexpr GraphQLEndpoint kMyChannelsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMyChannelsEndpoint = GraphQLEndpoint::Both;
 
 /// channels/RemoveChannelMember.graphql
 inline constexpr std::string_view kRemoveChannelMemberDocument = R"gql(mutation RemoveChannelMember($groupId: BigInt!, $userId: BigInt!) {
@@ -2342,7 +2262,7 @@ inline constexpr std::string_view kRemoveChannelMemberIsolatedDocument = R"gql(m
   removeChannelMember(groupId: $groupId, userId: $userId)
 })gql";
 inline constexpr std::string_view kRemoveChannelMemberOperationName = "RemoveChannelMember";
-inline constexpr GraphQLEndpoint kRemoveChannelMemberEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRemoveChannelMemberEndpoint = GraphQLEndpoint::Both;
 
 /// channels/RequestToJoinChannel.graphql
 inline constexpr std::string_view kRequestToJoinChannelDocument = R"gql(mutation RequestToJoinChannel($groupId: BigInt!) {
@@ -2378,7 +2298,7 @@ inline constexpr std::string_view kRequestToJoinChannelIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kRequestToJoinChannelOperationName = "RequestToJoinChannel";
-inline constexpr GraphQLEndpoint kRequestToJoinChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRequestToJoinChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/SetChannelMemberRoles.graphql
 inline constexpr std::string_view kSetChannelMemberRolesDocument = R"gql(mutation SetChannelMemberRoles($input: SetMemberRolesInput!) {
@@ -2414,7 +2334,7 @@ inline constexpr std::string_view kSetChannelMemberRolesIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kSetChannelMemberRolesOperationName = "SetChannelMemberRoles";
-inline constexpr GraphQLEndpoint kSetChannelMemberRolesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kSetChannelMemberRolesEndpoint = GraphQLEndpoint::Both;
 
 /// channels/SetChannelPolicy.graphql
 inline constexpr std::string_view kSetChannelPolicyDocument = R"gql(mutation SetChannelPolicy($input: SetChannelPolicyInput!) {
@@ -2438,7 +2358,7 @@ inline constexpr std::string_view kSetChannelPolicyIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kSetChannelPolicyOperationName = "SetChannelPolicy";
-inline constexpr GraphQLEndpoint kSetChannelPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kSetChannelPolicyEndpoint = GraphQLEndpoint::Both;
 
 /// channels/UpdateChannel.graphql
 inline constexpr std::string_view kUpdateChannelDocument = R"gql(mutation UpdateChannel($input: UpdateChannelInput!) {
@@ -2470,7 +2390,7 @@ inline constexpr std::string_view kUpdateChannelIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kUpdateChannelOperationName = "UpdateChannel";
-inline constexpr GraphQLEndpoint kUpdateChannelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateChannelEndpoint = GraphQLEndpoint::Both;
 
 /// channels/UpdateChannelRole.graphql
 inline constexpr std::string_view kUpdateChannelRoleDocument = R"gql(mutation UpdateChannelRole($input: UpdateGroupRoleInput!) {
@@ -2496,7 +2416,7 @@ inline constexpr std::string_view kUpdateChannelRoleIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kUpdateChannelRoleOperationName = "UpdateChannelRole";
-inline constexpr GraphQLEndpoint kUpdateChannelRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateChannelRoleEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "AddChannelMember") return kAddChannelMemberIsolatedDocument;
@@ -2610,7 +2530,7 @@ inline constexpr std::string_view kGetChunkIsolatedDocument = R"gql(query GetChu
   }
 })gql";
 inline constexpr std::string_view kGetChunkOperationName = "GetChunk";
-inline constexpr GraphQLEndpoint kGetChunkEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGetChunkEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/GetChunkLods.graphql
 inline constexpr std::string_view kGetChunkLodsDocument = R"gql(query GetChunkLods($input: GetChunkLodsInput!) {
@@ -2646,7 +2566,7 @@ inline constexpr std::string_view kGetChunkLodsIsolatedDocument = R"gql(query Ge
   }
 })gql";
 inline constexpr std::string_view kGetChunkLodsOperationName = "GetChunkLods";
-inline constexpr GraphQLEndpoint kGetChunkLodsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGetChunkLodsEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/GetChunksByDistance.graphql
 inline constexpr std::string_view kGetChunksByDistanceDocument = R"gql(query GetChunksByDistance($input: GetChunksByDistanceInput!) {
@@ -2700,7 +2620,7 @@ inline constexpr std::string_view kGetChunksByDistanceIsolatedDocument = R"gql(q
   }
 })gql";
 inline constexpr std::string_view kGetChunksByDistanceOperationName = "GetChunksByDistance";
-inline constexpr GraphQLEndpoint kGetChunksByDistanceEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGetChunksByDistanceEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/GetVoxelList.graphql
 inline constexpr std::string_view kGetVoxelListDocument = R"gql(query GetVoxelList($input: GetVoxelListInput!) {
@@ -2758,7 +2678,7 @@ inline constexpr std::string_view kGetVoxelListIsolatedDocument = R"gql(query Ge
   }
 })gql";
 inline constexpr std::string_view kGetVoxelListOperationName = "GetVoxelList";
-inline constexpr GraphQLEndpoint kGetVoxelListEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGetVoxelListEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/UpdateChunk.graphql
 inline constexpr std::string_view kUpdateChunkDocument = R"gql(mutation UpdateChunk($input: ChunkUpdateInput!) {
@@ -2790,7 +2710,7 @@ inline constexpr std::string_view kUpdateChunkIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kUpdateChunkOperationName = "UpdateChunk";
-inline constexpr GraphQLEndpoint kUpdateChunkEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateChunkEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/UpdateChunkLods.graphql
 inline constexpr std::string_view kUpdateChunkLodsDocument = R"gql(mutation UpdateChunkLods($input: UpdateChunkLodsInput!) {
@@ -2826,7 +2746,7 @@ inline constexpr std::string_view kUpdateChunkLodsIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kUpdateChunkLodsOperationName = "UpdateChunkLods";
-inline constexpr GraphQLEndpoint kUpdateChunkLodsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateChunkLodsEndpoint = GraphQLEndpoint::Both;
 
 /// chunks/UpdateChunkState.graphql
 inline constexpr std::string_view kUpdateChunkStateDocument = R"gql(mutation UpdateChunkState($input: UpdateChunkStateInput!) {
@@ -2856,7 +2776,7 @@ inline constexpr std::string_view kUpdateChunkStateIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kUpdateChunkStateOperationName = "UpdateChunkState";
-inline constexpr GraphQLEndpoint kUpdateChunkStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateChunkStateEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GetChunk") return kGetChunkIsolatedDocument;
@@ -3160,7 +3080,7 @@ fragment ComputeModuleFields on WasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kComputeUpsertModuleOperationName = "ComputeUpsertModule";
-inline constexpr GraphQLEndpoint kComputeUpsertModuleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeUpsertModuleEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeDeployVersionIsolatedDocument = R"gql(mutation ComputeDeployVersion($input: DeployComputeVersionInput!) {
   computeDeployVersion(input: $input) {
     ...ComputeVersionFields
@@ -3182,7 +3102,7 @@ fragment ComputeVersionFields on WasmModuleVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kComputeDeployVersionOperationName = "ComputeDeployVersion";
-inline constexpr GraphQLEndpoint kComputeDeployVersionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeDeployVersionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeSetModuleEnabledIsolatedDocument = R"gql(mutation ComputeSetModuleEnabled($appId: BigInt!, $name: String!, $enabled: Boolean!) {
   computeSetModuleEnabled(appId: $appId, name: $name, enabled: $enabled) {
     ...ComputeModuleFields
@@ -3205,12 +3125,12 @@ fragment ComputeModuleFields on WasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kComputeSetModuleEnabledOperationName = "ComputeSetModuleEnabled";
-inline constexpr GraphQLEndpoint kComputeSetModuleEnabledEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeSetModuleEnabledEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeDeleteModuleIsolatedDocument = R"gql(mutation ComputeDeleteModule($appId: BigInt!, $name: String!) {
   computeDeleteModule(appId: $appId, name: $name)
 })gql";
 inline constexpr std::string_view kComputeDeleteModuleOperationName = "ComputeDeleteModule";
-inline constexpr GraphQLEndpoint kComputeDeleteModuleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeDeleteModuleEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeUpsertTriggerIsolatedDocument = R"gql(mutation ComputeUpsertTrigger($input: UpsertComputeTriggerInput!) {
   computeUpsertTrigger(input: $input) {
     ...ComputeTriggerFields
@@ -3235,12 +3155,12 @@ fragment ComputeTriggerFields on WasmModuleTrigger {
   createdAt
 })gql";
 inline constexpr std::string_view kComputeUpsertTriggerOperationName = "ComputeUpsertTrigger";
-inline constexpr GraphQLEndpoint kComputeUpsertTriggerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeUpsertTriggerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeDeleteTriggerIsolatedDocument = R"gql(mutation ComputeDeleteTrigger($appId: BigInt!, $triggerId: String!) {
   computeDeleteTrigger(appId: $appId, triggerId: $triggerId)
 })gql";
 inline constexpr std::string_view kComputeDeleteTriggerOperationName = "ComputeDeleteTrigger";
-inline constexpr GraphQLEndpoint kComputeDeleteTriggerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeDeleteTriggerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeSetPolicyIsolatedDocument = R"gql(mutation ComputeSetPolicy($input: SetComputePolicyInput!) {
   computeSetPolicy(input: $input) {
     ...ComputePolicyFields
@@ -3263,7 +3183,7 @@ fragment ComputePolicyFields on WasmModulePolicy {
   cooldownMs
 })gql";
 inline constexpr std::string_view kComputeSetPolicyOperationName = "ComputeSetPolicy";
-inline constexpr GraphQLEndpoint kComputeSetPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeSetPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeInvokeIsolatedDocument = R"gql(mutation ComputeInvoke($appId: BigInt!, $moduleName: String!, $exportName: String!, $paramsJson: String) {
   computeInvoke(
     appId: $appId
@@ -3278,7 +3198,7 @@ inline constexpr std::string_view kComputeInvokeIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kComputeInvokeOperationName = "ComputeInvoke";
-inline constexpr GraphQLEndpoint kComputeInvokeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeInvokeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModulesIsolatedDocument = R"gql(query ComputeModules($appId: BigInt!) {
   computeModules(appId: $appId) {
     ...ComputeModuleFields
@@ -3301,7 +3221,7 @@ fragment ComputeModuleFields on WasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kComputeModulesOperationName = "ComputeModules";
-inline constexpr GraphQLEndpoint kComputeModulesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModulesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleIsolatedDocument = R"gql(query ComputeModule($appId: BigInt!, $name: String!) {
   computeModule(appId: $appId, name: $name) {
     ...ComputeModuleFields
@@ -3324,7 +3244,7 @@ fragment ComputeModuleFields on WasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kComputeModuleOperationName = "ComputeModule";
-inline constexpr GraphQLEndpoint kComputeModuleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleVersionsIsolatedDocument = R"gql(query ComputeModuleVersions($appId: BigInt!, $moduleName: String!, $limit: Int) {
   computeModuleVersions(appId: $appId, moduleName: $moduleName, limit: $limit) {
     ...ComputeVersionFields
@@ -3346,7 +3266,7 @@ fragment ComputeVersionFields on WasmModuleVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kComputeModuleVersionsOperationName = "ComputeModuleVersions";
-inline constexpr GraphQLEndpoint kComputeModuleVersionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleVersionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleTriggersIsolatedDocument = R"gql(query ComputeModuleTriggers($appId: BigInt!, $moduleName: String) {
   computeModuleTriggers(appId: $appId, moduleName: $moduleName) {
     ...ComputeTriggerFields
@@ -3371,7 +3291,7 @@ fragment ComputeTriggerFields on WasmModuleTrigger {
   createdAt
 })gql";
 inline constexpr std::string_view kComputeModuleTriggersOperationName = "ComputeModuleTriggers";
-inline constexpr GraphQLEndpoint kComputeModuleTriggersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleTriggersEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModulePolicyIsolatedDocument = R"gql(query ComputeModulePolicy($appId: BigInt!) {
   computeModulePolicy(appId: $appId) {
     ...ComputePolicyFields
@@ -3394,7 +3314,7 @@ fragment ComputePolicyFields on WasmModulePolicy {
   cooldownMs
 })gql";
 inline constexpr std::string_view kComputeModulePolicyOperationName = "ComputeModulePolicy";
-inline constexpr GraphQLEndpoint kComputeModulePolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModulePolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleRunsIsolatedDocument = R"gql(query ComputeModuleRuns($appId: BigInt!, $moduleName: String, $success: Boolean, $limit: Int, $offset: Int) {
   computeModuleRuns(
     appId: $appId
@@ -3427,7 +3347,7 @@ fragment ComputeRunFields on WasmModuleRun {
   circuitAction
 })gql";
 inline constexpr std::string_view kComputeModuleRunsOperationName = "ComputeModuleRuns";
-inline constexpr GraphQLEndpoint kComputeModuleRunsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleRunsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleStatsIsolatedDocument = R"gql(query ComputeModuleStats($appId: BigInt!, $windowMinutes: Int) {
   computeModuleStats(appId: $appId, windowMinutes: $windowMinutes) {
     windowMinutes
@@ -3448,7 +3368,7 @@ inline constexpr std::string_view kComputeModuleStatsIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kComputeModuleStatsOperationName = "ComputeModuleStats";
-inline constexpr GraphQLEndpoint kComputeModuleStatsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleStatsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeModuleLogsIsolatedDocument = R"gql(query ComputeModuleLogs($appId: BigInt!, $moduleName: String, $limit: Int) {
   computeModuleLogs(appId: $appId, moduleName: $moduleName, limit: $limit) {
     ts
@@ -3459,7 +3379,7 @@ inline constexpr std::string_view kComputeModuleLogsIsolatedDocument = R"gql(que
   }
 })gql";
 inline constexpr std::string_view kComputeModuleLogsOperationName = "ComputeModuleLogs";
-inline constexpr GraphQLEndpoint kComputeModuleLogsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeModuleLogsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeAppDiagnosticsIsolatedDocument = R"gql(query ComputeAppDiagnostics($appId: BigInt!) {
   computeAppDiagnostics(appId: $appId) {
     appId
@@ -3480,7 +3400,7 @@ inline constexpr std::string_view kComputeAppDiagnosticsIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kComputeAppDiagnosticsOperationName = "ComputeAppDiagnostics";
-inline constexpr GraphQLEndpoint kComputeAppDiagnosticsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeAppDiagnosticsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeTemplatesIsolatedDocument = R"gql(query ComputeTemplates($appId: BigInt!) {
   computeTemplates(appId: $appId) {
     name
@@ -3489,7 +3409,7 @@ inline constexpr std::string_view kComputeTemplatesIsolatedDocument = R"gql(quer
   }
 })gql";
 inline constexpr std::string_view kComputeTemplatesOperationName = "ComputeTemplates";
-inline constexpr GraphQLEndpoint kComputeTemplatesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeTemplatesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kComputeDeployTemplateIsolatedDocument = R"gql(mutation ComputeDeployTemplate($appId: BigInt!, $templateName: String!, $moduleName: String) {
   computeDeployTemplate(
     appId: $appId
@@ -3516,7 +3436,7 @@ fragment ComputeModuleFields on WasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kComputeDeployTemplateOperationName = "ComputeDeployTemplate";
-inline constexpr GraphQLEndpoint kComputeDeployTemplateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kComputeDeployTemplateEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ComputeUpsertModule") return kComputeUpsertModuleIsolatedDocument;
@@ -3569,322 +3489,7 @@ inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
 namespace controlPlane {
 
 /// controlPlane/ControlPlane.graphql
-inline constexpr std::string_view kControlPlaneDocument = R"gql(query CpEnvironments($page: Int, $pageSize: Int) {
-  cpEnvironments(page: $page, pageSize: $pageSize) {
-    rows {
-      id
-      orgId
-      slug
-      displayName
-      primaryCloud
-      primaryRegion
-      status
-      deletionProtectionEnabled
-      subdomainHandle
-      createdAt
-      updatedAt
-    }
-    total
-    page
-    pageSize
-  }
-}
-
-query CpEnvironment($slug: String!) {
-  cpEnvironment(slug: $slug) {
-    id
-    orgId
-    slug
-    displayName
-    primaryCloud
-    primaryRegion
-    status
-    deletionProtectionEnabled
-    deletionProtectionSetAt
-    deletionProtectionSetByEmail
-    subdomainHandle
-    createdAt
-    updatedAt
-  }
-}
-
-query CpChangeOrders($environmentId: String, $page: Int, $pageSize: Int) {
-  cpChangeOrders(
-    environmentId: $environmentId
-    page: $page
-    pageSize: $pageSize
-  ) {
-    rows {
-      id
-      environmentId
-      kind
-      status
-      claimedBy
-      claimedAt
-      finishedAt
-      error
-      createdAt
-      updatedAt
-    }
-    total
-    page
-    pageSize
-  }
-}
-
-query CpChangeOrder($id: String!) {
-  cpChangeOrder(id: $id) {
-    order {
-      id
-      environmentId
-      kind
-      status
-      error
-      createdAt
-      updatedAt
-      finishedAt
-    }
-    tasks {
-      id
-      changeOrderId
-      kind
-      ordinal
-      status
-      error
-      createdAt
-      finishedAt
-    }
-    steps {
-      id
-      taskId
-      ordinal
-      kind
-      status
-      attempt
-      error
-      createdAt
-      finishedAt
-    }
-  }
-}
-
-query CpAudit($environmentId: String, $limit: Int) {
-  cpAudit(environmentId: $environmentId, limit: $limit) {
-    id
-    actorUserId
-    actorKind
-    action
-    entityKind
-    entityId
-    environmentId
-    payloadJson
-    createdAt
-  }
-}
-
-query CpSecrets($environmentId: String) {
-  cpSecrets(environmentId: $environmentId) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-}
-
-query CpEnvSecrets($environmentId: String) {
-  cpEnvSecrets(environmentId: $environmentId) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-}
-
-query CpOvhCatalogSummary($region: String) {
-  cpOvhCatalogSummary(region: $region) {
-    region
-    flavorName
-    vcpus
-    ramMb
-    diskGb
-    ovhHourlyPriceCents
-    customerHourlyPriceCents
-    customerPricingMode
-    quotaAvailable
-  }
-}
-
-query CpUsageSummary($environmentSlug: String!, $since: DateTime!) {
-  cpUsageSummary(environmentSlug: $environmentSlug, since: $since) {
-    environmentSlug
-    orgId
-    replication {
-      minute
-      recvBytes
-      sendBytes
-      recvMsgs
-      sendMsgs
-    }
-    graphql {
-      minute
-      recvBytes
-      sendBytes
-    }
-    replicationRates {
-      peakSendMsgsPerSec
-      peakSendMbitPerSec
-      avgSendMsgsPerSec
-      avgSendMbitPerSec
-      sampleMinutes
-    }
-    buddyLive {
-      serverId
-      clientSendMsgsPerSec
-      clientRecvMsgsPerSec
-      clients
-      updatedAt
-    }
-  }
-}
-
-query CpUnreleasedGameApiTags {
-  cpUnreleasedGameApiTags {
-    tags {
-      tag
-      taggedAt
-      proposedEnvironmentVersion
-      schemaChanged
-    }
-    currentDeployTargetGameApiTag
-    gitSourceAvailable
-  }
-}
-
-query CpEnvironmentVersions {
-  cpEnvironmentVersions {
-    rows {
-      version
-      releasedAt
-      status
-      notes
-      sourceCommit
-      gameApiGitTag
-      buddyVersion
-      ingestedAt
-      updatedAt
-      inGit
-      inDb
-      isLatestAvailable
-    }
-    latestAvailableVersion
-    gitSourceAvailable
-  }
-}
-
-query OperatorUsers {
-  operatorUsers {
-    userId
-    email
-    gamertag
-    isOperator
-    isSuperAdmin
-    createdAt
-  }
-}
-
-mutation SetEnvironmentDeletionProtection(
-  $environmentId: String!
-  $enabled: Boolean!
-) {
-  setEnvironmentDeletionProtection(
-    environmentId: $environmentId
-    enabled: $enabled
-  )
-}
-
-mutation PutCpSecret(
-  $environmentId: String!
-  $name: String!
-  $plaintext: String!
-  $kind: String
-) {
-  putCpSecret(
-    environmentId: $environmentId
-    name: $name
-    plaintext: $plaintext
-    kind: $kind
-  ) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-}
-
-mutation DeleteCpSecret($environmentId: String!, $name: String!) {
-  deleteCpSecret(environmentId: $environmentId, name: $name)
-}
-
-mutation PutCpEnvSecret(
-  $environmentId: String!
-  $name: String!
-  $plaintext: String!
-  $kind: String
-) {
-  putCpEnvSecret(
-    environmentId: $environmentId
-    name: $name
-    plaintext: $plaintext
-    kind: $kind
-  ) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-}
-
-mutation IngestEnvironmentVersion($input: IngestEnvironmentVersionInput!) {
-  ingestEnvironmentVersion(input: $input) {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-    inGit
-    inDb
-    isLatestAvailable
-  }
-}
-
-mutation PublishEnvironmentReleaseFromGameApiTag(
-  $input: PublishEnvironmentReleaseFromGameApiTagInput!
-) {
-  publishEnvironmentReleaseFromGameApiTag(input: $input) {
-    version {
-      version
-      status
-      gameApiGitTag
-    }
-    schemaChanged
-    committedToGit
-    gitCommitError
-  }
-}
-
-mutation YankEnvironmentVersion($version: String!) {
-  yankEnvironmentVersion(version: $version)
-}
-
-query CpComputePlatformCeilings {
+inline constexpr std::string_view kControlPlaneDocument = R"gql(query CpComputePlatformCeilings {
   cpComputePlatformCeilings {
     maxModules
     maxTickHz
@@ -3915,321 +3520,6 @@ mutation CpSetComputePlatformCeilings($input: CpSetComputePlatformCeilingsInput!
     updatedByUserId
   }
 })gql";
-inline constexpr std::string_view kCpEnvironmentsIsolatedDocument = R"gql(query CpEnvironments($page: Int, $pageSize: Int) {
-  cpEnvironments(page: $page, pageSize: $pageSize) {
-    rows {
-      id
-      orgId
-      slug
-      displayName
-      primaryCloud
-      primaryRegion
-      status
-      deletionProtectionEnabled
-      subdomainHandle
-      createdAt
-      updatedAt
-    }
-    total
-    page
-    pageSize
-  }
-})gql";
-inline constexpr std::string_view kCpEnvironmentsOperationName = "CpEnvironments";
-inline constexpr GraphQLEndpoint kCpEnvironmentsEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpEnvironmentIsolatedDocument = R"gql(query CpEnvironment($slug: String!) {
-  cpEnvironment(slug: $slug) {
-    id
-    orgId
-    slug
-    displayName
-    primaryCloud
-    primaryRegion
-    status
-    deletionProtectionEnabled
-    deletionProtectionSetAt
-    deletionProtectionSetByEmail
-    subdomainHandle
-    createdAt
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kCpEnvironmentOperationName = "CpEnvironment";
-inline constexpr GraphQLEndpoint kCpEnvironmentEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpChangeOrdersIsolatedDocument = R"gql(query CpChangeOrders($environmentId: String, $page: Int, $pageSize: Int) {
-  cpChangeOrders(environmentId: $environmentId, page: $page, pageSize: $pageSize) {
-    rows {
-      id
-      environmentId
-      kind
-      status
-      claimedBy
-      claimedAt
-      finishedAt
-      error
-      createdAt
-      updatedAt
-    }
-    total
-    page
-    pageSize
-  }
-})gql";
-inline constexpr std::string_view kCpChangeOrdersOperationName = "CpChangeOrders";
-inline constexpr GraphQLEndpoint kCpChangeOrdersEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpChangeOrderIsolatedDocument = R"gql(query CpChangeOrder($id: String!) {
-  cpChangeOrder(id: $id) {
-    order {
-      id
-      environmentId
-      kind
-      status
-      error
-      createdAt
-      updatedAt
-      finishedAt
-    }
-    tasks {
-      id
-      changeOrderId
-      kind
-      ordinal
-      status
-      error
-      createdAt
-      finishedAt
-    }
-    steps {
-      id
-      taskId
-      ordinal
-      kind
-      status
-      attempt
-      error
-      createdAt
-      finishedAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kCpChangeOrderOperationName = "CpChangeOrder";
-inline constexpr GraphQLEndpoint kCpChangeOrderEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpAuditIsolatedDocument = R"gql(query CpAudit($environmentId: String, $limit: Int) {
-  cpAudit(environmentId: $environmentId, limit: $limit) {
-    id
-    actorUserId
-    actorKind
-    action
-    entityKind
-    entityId
-    environmentId
-    payloadJson
-    createdAt
-  }
-})gql";
-inline constexpr std::string_view kCpAuditOperationName = "CpAudit";
-inline constexpr GraphQLEndpoint kCpAuditEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpSecretsIsolatedDocument = R"gql(query CpSecrets($environmentId: String) {
-  cpSecrets(environmentId: $environmentId) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-})gql";
-inline constexpr std::string_view kCpSecretsOperationName = "CpSecrets";
-inline constexpr GraphQLEndpoint kCpSecretsEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpEnvSecretsIsolatedDocument = R"gql(query CpEnvSecrets($environmentId: String) {
-  cpEnvSecrets(environmentId: $environmentId) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-})gql";
-inline constexpr std::string_view kCpEnvSecretsOperationName = "CpEnvSecrets";
-inline constexpr GraphQLEndpoint kCpEnvSecretsEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpOvhCatalogSummaryIsolatedDocument = R"gql(query CpOvhCatalogSummary($region: String) {
-  cpOvhCatalogSummary(region: $region) {
-    region
-    flavorName
-    vcpus
-    ramMb
-    diskGb
-    ovhHourlyPriceCents
-    customerHourlyPriceCents
-    customerPricingMode
-    quotaAvailable
-  }
-})gql";
-inline constexpr std::string_view kCpOvhCatalogSummaryOperationName = "CpOvhCatalogSummary";
-inline constexpr GraphQLEndpoint kCpOvhCatalogSummaryEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpUsageSummaryIsolatedDocument = R"gql(query CpUsageSummary($environmentSlug: String!, $since: DateTime!) {
-  cpUsageSummary(environmentSlug: $environmentSlug, since: $since) {
-    environmentSlug
-    orgId
-    replication {
-      minute
-      recvBytes
-      sendBytes
-      recvMsgs
-      sendMsgs
-    }
-    graphql {
-      minute
-      recvBytes
-      sendBytes
-    }
-    replicationRates {
-      peakSendMsgsPerSec
-      peakSendMbitPerSec
-      avgSendMsgsPerSec
-      avgSendMbitPerSec
-      sampleMinutes
-    }
-    buddyLive {
-      serverId
-      clientSendMsgsPerSec
-      clientRecvMsgsPerSec
-      clients
-      updatedAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kCpUsageSummaryOperationName = "CpUsageSummary";
-inline constexpr GraphQLEndpoint kCpUsageSummaryEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpUnreleasedGameApiTagsIsolatedDocument = R"gql(query CpUnreleasedGameApiTags {
-  cpUnreleasedGameApiTags {
-    tags {
-      tag
-      taggedAt
-      proposedEnvironmentVersion
-      schemaChanged
-    }
-    currentDeployTargetGameApiTag
-    gitSourceAvailable
-  }
-})gql";
-inline constexpr std::string_view kCpUnreleasedGameApiTagsOperationName = "CpUnreleasedGameApiTags";
-inline constexpr GraphQLEndpoint kCpUnreleasedGameApiTagsEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kCpEnvironmentVersionsIsolatedDocument = R"gql(query CpEnvironmentVersions {
-  cpEnvironmentVersions {
-    rows {
-      version
-      releasedAt
-      status
-      notes
-      sourceCommit
-      gameApiGitTag
-      buddyVersion
-      ingestedAt
-      updatedAt
-      inGit
-      inDb
-      isLatestAvailable
-    }
-    latestAvailableVersion
-    gitSourceAvailable
-  }
-})gql";
-inline constexpr std::string_view kCpEnvironmentVersionsOperationName = "CpEnvironmentVersions";
-inline constexpr GraphQLEndpoint kCpEnvironmentVersionsEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kOperatorUsersIsolatedDocument = R"gql(query OperatorUsers {
-  operatorUsers {
-    userId
-    email
-    gamertag
-    isOperator
-    isSuperAdmin
-    createdAt
-  }
-})gql";
-inline constexpr std::string_view kOperatorUsersOperationName = "OperatorUsers";
-inline constexpr GraphQLEndpoint kOperatorUsersEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kSetEnvironmentDeletionProtectionIsolatedDocument = R"gql(mutation SetEnvironmentDeletionProtection($environmentId: String!, $enabled: Boolean!) {
-  setEnvironmentDeletionProtection(
-    environmentId: $environmentId
-    enabled: $enabled
-  )
-})gql";
-inline constexpr std::string_view kSetEnvironmentDeletionProtectionOperationName = "SetEnvironmentDeletionProtection";
-inline constexpr GraphQLEndpoint kSetEnvironmentDeletionProtectionEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kPutCpSecretIsolatedDocument = R"gql(mutation PutCpSecret($environmentId: String!, $name: String!, $plaintext: String!, $kind: String) {
-  putCpSecret(
-    environmentId: $environmentId
-    name: $name
-    plaintext: $plaintext
-    kind: $kind
-  ) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-})gql";
-inline constexpr std::string_view kPutCpSecretOperationName = "PutCpSecret";
-inline constexpr GraphQLEndpoint kPutCpSecretEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kDeleteCpSecretIsolatedDocument = R"gql(mutation DeleteCpSecret($environmentId: String!, $name: String!) {
-  deleteCpSecret(environmentId: $environmentId, name: $name)
-})gql";
-inline constexpr std::string_view kDeleteCpSecretOperationName = "DeleteCpSecret";
-inline constexpr GraphQLEndpoint kDeleteCpSecretEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kPutCpEnvSecretIsolatedDocument = R"gql(mutation PutCpEnvSecret($environmentId: String!, $name: String!, $plaintext: String!, $kind: String) {
-  putCpEnvSecret(
-    environmentId: $environmentId
-    name: $name
-    plaintext: $plaintext
-    kind: $kind
-  ) {
-    id
-    environmentId
-    name
-    kind
-    createdAt
-    rotatedAt
-  }
-})gql";
-inline constexpr std::string_view kPutCpEnvSecretOperationName = "PutCpEnvSecret";
-inline constexpr GraphQLEndpoint kPutCpEnvSecretEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kIngestEnvironmentVersionIsolatedDocument = R"gql(mutation IngestEnvironmentVersion($input: IngestEnvironmentVersionInput!) {
-  ingestEnvironmentVersion(input: $input) {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-    inGit
-    inDb
-    isLatestAvailable
-  }
-})gql";
-inline constexpr std::string_view kIngestEnvironmentVersionOperationName = "IngestEnvironmentVersion";
-inline constexpr GraphQLEndpoint kIngestEnvironmentVersionEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kPublishEnvironmentReleaseFromGameApiTagIsolatedDocument = R"gql(mutation PublishEnvironmentReleaseFromGameApiTag($input: PublishEnvironmentReleaseFromGameApiTagInput!) {
-  publishEnvironmentReleaseFromGameApiTag(input: $input) {
-    version {
-      version
-      status
-      gameApiGitTag
-    }
-    schemaChanged
-    committedToGit
-    gitCommitError
-  }
-})gql";
-inline constexpr std::string_view kPublishEnvironmentReleaseFromGameApiTagOperationName = "PublishEnvironmentReleaseFromGameApiTag";
-inline constexpr GraphQLEndpoint kPublishEnvironmentReleaseFromGameApiTagEndpoint = GraphQLEndpoint::Management;
-inline constexpr std::string_view kYankEnvironmentVersionIsolatedDocument = R"gql(mutation YankEnvironmentVersion($version: String!) {
-  yankEnvironmentVersion(version: $version)
-})gql";
-inline constexpr std::string_view kYankEnvironmentVersionOperationName = "YankEnvironmentVersion";
-inline constexpr GraphQLEndpoint kYankEnvironmentVersionEndpoint = GraphQLEndpoint::Management;
 inline constexpr std::string_view kCpComputePlatformCeilingsIsolatedDocument = R"gql(query CpComputePlatformCeilings {
   cpComputePlatformCeilings {
     maxModules
@@ -4246,7 +3536,7 @@ inline constexpr std::string_view kCpComputePlatformCeilingsIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kCpComputePlatformCeilingsOperationName = "CpComputePlatformCeilings";
-inline constexpr GraphQLEndpoint kCpComputePlatformCeilingsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCpComputePlatformCeilingsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCpSetComputePlatformCeilingsIsolatedDocument = R"gql(mutation CpSetComputePlatformCeilings($input: CpSetComputePlatformCeilingsInput!) {
   cpSetComputePlatformCeilings(input: $input) {
     maxModules
@@ -4263,53 +3553,15 @@ inline constexpr std::string_view kCpSetComputePlatformCeilingsIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kCpSetComputePlatformCeilingsOperationName = "CpSetComputePlatformCeilings";
-inline constexpr GraphQLEndpoint kCpSetComputePlatformCeilingsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCpSetComputePlatformCeilingsEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
-  if (operationName == "CpEnvironments") return kCpEnvironmentsIsolatedDocument;
-  if (operationName == "CpEnvironment") return kCpEnvironmentIsolatedDocument;
-  if (operationName == "CpChangeOrders") return kCpChangeOrdersIsolatedDocument;
-  if (operationName == "CpChangeOrder") return kCpChangeOrderIsolatedDocument;
-  if (operationName == "CpAudit") return kCpAuditIsolatedDocument;
-  if (operationName == "CpSecrets") return kCpSecretsIsolatedDocument;
-  if (operationName == "CpEnvSecrets") return kCpEnvSecretsIsolatedDocument;
-  if (operationName == "CpOvhCatalogSummary") return kCpOvhCatalogSummaryIsolatedDocument;
-  if (operationName == "CpUsageSummary") return kCpUsageSummaryIsolatedDocument;
-  if (operationName == "CpUnreleasedGameApiTags") return kCpUnreleasedGameApiTagsIsolatedDocument;
-  if (operationName == "CpEnvironmentVersions") return kCpEnvironmentVersionsIsolatedDocument;
-  if (operationName == "OperatorUsers") return kOperatorUsersIsolatedDocument;
-  if (operationName == "SetEnvironmentDeletionProtection") return kSetEnvironmentDeletionProtectionIsolatedDocument;
-  if (operationName == "PutCpSecret") return kPutCpSecretIsolatedDocument;
-  if (operationName == "DeleteCpSecret") return kDeleteCpSecretIsolatedDocument;
-  if (operationName == "PutCpEnvSecret") return kPutCpEnvSecretIsolatedDocument;
-  if (operationName == "IngestEnvironmentVersion") return kIngestEnvironmentVersionIsolatedDocument;
-  if (operationName == "PublishEnvironmentReleaseFromGameApiTag") return kPublishEnvironmentReleaseFromGameApiTagIsolatedDocument;
-  if (operationName == "YankEnvironmentVersion") return kYankEnvironmentVersionIsolatedDocument;
   if (operationName == "CpComputePlatformCeilings") return kCpComputePlatformCeilingsIsolatedDocument;
   if (operationName == "CpSetComputePlatformCeilings") return kCpSetComputePlatformCeilingsIsolatedDocument;
   return {};
 }
 
 inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
-  if (operationName == "CpEnvironments") return kCpEnvironmentsEndpoint;
-  if (operationName == "CpEnvironment") return kCpEnvironmentEndpoint;
-  if (operationName == "CpChangeOrders") return kCpChangeOrdersEndpoint;
-  if (operationName == "CpChangeOrder") return kCpChangeOrderEndpoint;
-  if (operationName == "CpAudit") return kCpAuditEndpoint;
-  if (operationName == "CpSecrets") return kCpSecretsEndpoint;
-  if (operationName == "CpEnvSecrets") return kCpEnvSecretsEndpoint;
-  if (operationName == "CpOvhCatalogSummary") return kCpOvhCatalogSummaryEndpoint;
-  if (operationName == "CpUsageSummary") return kCpUsageSummaryEndpoint;
-  if (operationName == "CpUnreleasedGameApiTags") return kCpUnreleasedGameApiTagsEndpoint;
-  if (operationName == "CpEnvironmentVersions") return kCpEnvironmentVersionsEndpoint;
-  if (operationName == "OperatorUsers") return kOperatorUsersEndpoint;
-  if (operationName == "SetEnvironmentDeletionProtection") return kSetEnvironmentDeletionProtectionEndpoint;
-  if (operationName == "PutCpSecret") return kPutCpSecretEndpoint;
-  if (operationName == "DeleteCpSecret") return kDeleteCpSecretEndpoint;
-  if (operationName == "PutCpEnvSecret") return kPutCpEnvSecretEndpoint;
-  if (operationName == "IngestEnvironmentVersion") return kIngestEnvironmentVersionEndpoint;
-  if (operationName == "PublishEnvironmentReleaseFromGameApiTag") return kPublishEnvironmentReleaseFromGameApiTagEndpoint;
-  if (operationName == "YankEnvironmentVersion") return kYankEnvironmentVersionEndpoint;
   if (operationName == "CpComputePlatformCeilings") return kCpComputePlatformCeilingsEndpoint;
   if (operationName == "CpSetComputePlatformCeilings") return kCpSetComputePlatformCeilingsEndpoint;
   return GraphQLEndpoint::Unknown;
@@ -4543,7 +3795,7 @@ inline constexpr std::string_view kCrowdyStudioProjectsIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectsOperationName = "CrowdyStudioProjects";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectIsolatedDocument = R"gql(query CrowdyStudioProject($appId: BigInt!, $projectId: String!) {
   crowdyStudioProject(appId: $appId, projectId: $projectId) {
     ...CrowdyStudioProjectFields
@@ -4583,7 +3835,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectOperationName = "CrowdyStudioProject";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectCreateIsolatedDocument = R"gql(mutation CrowdyStudioProjectCreate($input: CreateCrowdyStudioProjectInput!) {
   crowdyStudioProjectCreate(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4623,7 +3875,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectCreateOperationName = "CrowdyStudioProjectCreate";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectCreateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectCreateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectSaveMetadataIsolatedDocument = R"gql(mutation CrowdyStudioProjectSaveMetadata($input: SaveCrowdyStudioProjectMetadataInput!) {
   crowdyStudioProjectSaveMetadata(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4663,7 +3915,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectSaveMetadataOperationName = "CrowdyStudioProjectSaveMetadata";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveMetadataEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveMetadataEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectSaveIsolatedDocument = R"gql(mutation CrowdyStudioProjectSave($input: SaveCrowdyStudioProjectInput!) {
   crowdyStudioProjectSave(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4703,7 +3955,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectSaveOperationName = "CrowdyStudioProjectSave";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectSaveFilesIsolatedDocument = R"gql(mutation CrowdyStudioProjectSaveFiles($input: SaveCrowdyStudioProjectFilesInput!) {
   crowdyStudioProjectSaveFiles(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4743,7 +3995,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectSaveFilesOperationName = "CrowdyStudioProjectSaveFiles";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveFilesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectSaveFilesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectSetArchivedIsolatedDocument = R"gql(mutation CrowdyStudioProjectSetArchived($input: SetCrowdyStudioProjectArchivedInput!) {
   crowdyStudioProjectSetArchived(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4783,7 +4035,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectSetArchivedOperationName = "CrowdyStudioProjectSetArchived";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectSetArchivedEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectSetArchivedEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioLibraryFilesIsolatedDocument = R"gql(query CrowdyStudioLibraryFiles($appId: BigInt!, $includeArchived: Boolean, $limit: Int, $offset: Int) {
   crowdyStudioLibraryFiles(
     appId: $appId
@@ -4811,7 +4063,7 @@ fragment CrowdyStudioLibraryFileFields on CrowdyStudioLibraryFile {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioLibraryFilesOperationName = "CrowdyStudioLibraryFiles";
-inline constexpr GraphQLEndpoint kCrowdyStudioLibraryFilesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioLibraryFilesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioLibrarySaveIsolatedDocument = R"gql(mutation CrowdyStudioLibrarySave($input: SaveCrowdyStudioLibraryFileInput!) {
   crowdyStudioLibrarySave(input: $input) {
     ...CrowdyStudioLibraryFileFields
@@ -4834,7 +4086,7 @@ fragment CrowdyStudioLibraryFileFields on CrowdyStudioLibraryFile {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioLibrarySaveOperationName = "CrowdyStudioLibrarySave";
-inline constexpr GraphQLEndpoint kCrowdyStudioLibrarySaveEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioLibrarySaveEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioLibrarySetArchivedIsolatedDocument = R"gql(mutation CrowdyStudioLibrarySetArchived($input: SetCrowdyStudioLibraryFileArchivedInput!) {
   crowdyStudioLibrarySetArchived(input: $input) {
     ...CrowdyStudioLibraryFileFields
@@ -4857,7 +4109,7 @@ fragment CrowdyStudioLibraryFileFields on CrowdyStudioLibraryFile {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioLibrarySetArchivedOperationName = "CrowdyStudioLibrarySetArchived";
-inline constexpr GraphQLEndpoint kCrowdyStudioLibrarySetArchivedEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioLibrarySetArchivedEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioCommonFilesIsolatedDocument = R"gql(query CrowdyStudioCommonFiles($appId: BigInt!, $target: CrowdyStudioTarget, $limit: Int, $offset: Int) {
   crowdyStudioCommonFiles(
     appId: $appId
@@ -4889,7 +4141,7 @@ fragment CrowdyStudioCommonFileFields on CrowdyStudioCommonFile {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioCommonFilesOperationName = "CrowdyStudioCommonFiles";
-inline constexpr GraphQLEndpoint kCrowdyStudioCommonFilesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioCommonFilesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectImportFileIsolatedDocument = R"gql(mutation CrowdyStudioProjectImportFile($input: ImportCrowdyStudioProjectFileInput!) {
   crowdyStudioProjectImportFile(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4929,7 +4181,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectImportFileOperationName = "CrowdyStudioProjectImportFile";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectImportFileEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectImportFileEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioCommonPublishIsolatedDocument = R"gql(mutation CrowdyStudioCommonPublish($input: PublishCrowdyStudioCommonFileInput!) {
   crowdyStudioCommonPublish(input: $input) {
     ...CrowdyStudioCommonFileFields
@@ -4956,7 +4208,7 @@ fragment CrowdyStudioCommonFileFields on CrowdyStudioCommonFile {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioCommonPublishOperationName = "CrowdyStudioCommonPublish";
-inline constexpr GraphQLEndpoint kCrowdyStudioCommonPublishEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioCommonPublishEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioProjectCreateFromModulesIsolatedDocument = R"gql(mutation CrowdyStudioProjectCreateFromModules($input: CreateCrowdyStudioProjectFromModulesInput!) {
   crowdyStudioProjectCreateFromModules(input: $input) {
     ...CrowdyStudioProjectFields
@@ -4996,7 +4248,7 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectCreateFromModulesOperationName = "CrowdyStudioProjectCreateFromModules";
-inline constexpr GraphQLEndpoint kCrowdyStudioProjectCreateFromModulesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioProjectCreateFromModulesEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyStudioProjects") return kCrowdyStudioProjectsIsolatedDocument;
@@ -5562,7 +4814,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSessionOperationName = "CrowdyStudioAgentSession";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentSessionsIsolatedDocument = R"gql(query CrowdyStudioAgentSessions($appId: BigInt!, $after: String, $first: Int) {
   crowdyStudioAgentSessions(appId: $appId, after: $after, first: $first) {
     edges {
@@ -5658,7 +4910,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSessionsOperationName = "CrowdyStudioAgentSessions";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentSessionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentSessionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentHistoryIsolatedDocument = R"gql(query CrowdyStudioAgentHistory($sessionId: String!, $afterSeq: BigInt, $first: Int) {
   crowdyStudioAgentHistory(
     sessionId: $sessionId
@@ -5834,7 +5086,7 @@ fragment CrowdyAgentBudgetFields on AgentBudget {
   payer
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentHistoryOperationName = "CrowdyStudioAgentHistory";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentHistoryEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentHistoryEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentToolDescriptorsIsolatedDocument = R"gql(query CrowdyStudioAgentToolDescriptors($sessionId: String!) {
   crowdyStudioAgentToolDescriptors(sessionId: $sessionId) {
     registryDigest
@@ -5873,7 +5125,7 @@ fragment CrowdyAgentToolDescriptorFields on AgentToolDescriptor {
   descriptorDigest
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentToolDescriptorsOperationName = "CrowdyStudioAgentToolDescriptors";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentToolDescriptorsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentToolDescriptorsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentBudgetIsolatedDocument = R"gql(query CrowdyStudioAgentBudget($sessionId: String!) {
   crowdyStudioAgentBudget(sessionId: $sessionId) {
     ...CrowdyAgentBudgetFields
@@ -5895,7 +5147,7 @@ fragment CrowdyAgentBudgetFields on AgentBudget {
   payer
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentBudgetOperationName = "CrowdyStudioAgentBudget";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentBudgetEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentBudgetEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentCreateSessionIsolatedDocument = R"gql(mutation CrowdyStudioAgentCreateSession($input: CreateAgentSessionInput!) {
   crowdyStudioAgentCreateSession(input: $input) {
     ...CrowdyAgentSessionFields
@@ -5977,7 +5229,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentCreateSessionOperationName = "CrowdyStudioAgentCreateSession";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentCreateSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentCreateSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentAttachClientIsolatedDocument = R"gql(mutation CrowdyStudioAgentAttachClient($input: AttachAgentClientInput!) {
   crowdyStudioAgentAttachClient(input: $input) {
     session {
@@ -6063,7 +5315,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentAttachClientOperationName = "CrowdyStudioAgentAttachClient";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentAttachClientEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentAttachClientEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentSetModeIsolatedDocument = R"gql(mutation CrowdyStudioAgentSetMode($input: SetAgentModeInput!) {
   crowdyStudioAgentSetMode(input: $input) {
     ...CrowdyAgentSessionFields
@@ -6145,14 +5397,14 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSetModeOperationName = "CrowdyStudioAgentSetMode";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentSetModeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentSetModeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentAcknowledgeEventsIsolatedDocument = R"gql(mutation CrowdyStudioAgentAcknowledgeEvents($input: AcknowledgeAgentEventsInput!) {
   crowdyStudioAgentAcknowledgeEvents(input: $input) {
     throughSeq
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentAcknowledgeEventsOperationName = "CrowdyStudioAgentAcknowledgeEvents";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentAcknowledgeEventsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentAcknowledgeEventsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentHeartbeatIsolatedDocument = R"gql(mutation CrowdyStudioAgentHeartbeat($input: AgentHeartbeatInput!) {
   crowdyStudioAgentHeartbeat(input: $input) {
     serverTime
@@ -6161,7 +5413,7 @@ inline constexpr std::string_view kCrowdyStudioAgentHeartbeatIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentHeartbeatOperationName = "CrowdyStudioAgentHeartbeat";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentHeartbeatEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentHeartbeatEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentSendMessageIsolatedDocument = R"gql(mutation CrowdyStudioAgentSendMessage($input: SendAgentMessageInput!) {
   crowdyStudioAgentSendMessage(input: $input) {
     ...CrowdyAgentRunFields
@@ -6182,7 +5434,7 @@ fragment CrowdyAgentRunFields on AgentRun {
   cancelled
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSendMessageOperationName = "CrowdyStudioAgentSendMessage";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentSendMessageEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentSendMessageEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentApproveToolIsolatedDocument = R"gql(mutation CrowdyStudioAgentApproveTool($input: DecideAgentToolInput!) {
   crowdyStudioAgentApproveTool(input: $input) {
     ...CrowdyAgentApprovalFields
@@ -6201,7 +5453,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentApproveToolOperationName = "CrowdyStudioAgentApproveTool";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentApproveToolEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentApproveToolEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentRejectToolIsolatedDocument = R"gql(mutation CrowdyStudioAgentRejectTool($input: DecideAgentToolInput!) {
   crowdyStudioAgentRejectTool(input: $input) {
     ...CrowdyAgentApprovalFields
@@ -6220,7 +5472,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentRejectToolOperationName = "CrowdyStudioAgentRejectTool";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentRejectToolEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentRejectToolEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentToolResultIsolatedDocument = R"gql(mutation CrowdyStudioAgentToolResult($input: AgentToolResultInput!) {
   crowdyStudioAgentToolResult(input: $input) {
     toolCallId
@@ -6243,7 +5495,7 @@ fragment CrowdyAgentErrorFields on AgentError {
   requiredScope
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentToolResultOperationName = "CrowdyStudioAgentToolResult";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentToolResultEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentToolResultEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentGrantLeaseIsolatedDocument = R"gql(mutation CrowdyStudioAgentGrantLease($input: GrantAgentLeaseInput!) {
   crowdyStudioAgentGrantLease(input: $input) {
     ...CrowdyAgentLeaseFields
@@ -6266,7 +5518,7 @@ fragment CrowdyAgentLeaseFields on AgentLease {
   revokedReason
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentGrantLeaseOperationName = "CrowdyStudioAgentGrantLease";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentGrantLeaseEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentGrantLeaseEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentRevokeLeaseIsolatedDocument = R"gql(mutation CrowdyStudioAgentRevokeLease($input: RevokeAgentLeaseInput!) {
   crowdyStudioAgentRevokeLease(input: $input) {
     ...CrowdyAgentLeaseFields
@@ -6289,7 +5541,7 @@ fragment CrowdyAgentLeaseFields on AgentLease {
   revokedReason
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentRevokeLeaseOperationName = "CrowdyStudioAgentRevokeLease";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentRevokeLeaseEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentRevokeLeaseEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentPauseIsolatedDocument = R"gql(mutation CrowdyStudioAgentPause($input: AgentSessionControlInput!) {
   crowdyStudioAgentPause(input: $input) {
     ...CrowdyAgentSessionFields
@@ -6371,7 +5623,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentPauseOperationName = "CrowdyStudioAgentPause";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentPauseEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentPauseEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentResumeIsolatedDocument = R"gql(mutation CrowdyStudioAgentResume($input: AgentSessionControlInput!) {
   crowdyStudioAgentResume(input: $input) {
     ...CrowdyAgentSessionFields
@@ -6453,7 +5705,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentResumeOperationName = "CrowdyStudioAgentResume";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentResumeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentResumeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentCancelRunIsolatedDocument = R"gql(mutation CrowdyStudioAgentCancelRun($input: CancelAgentRunInput!) {
   crowdyStudioAgentCancelRun(input: $input) {
     ...CrowdyAgentRunFields
@@ -6474,7 +5726,7 @@ fragment CrowdyAgentRunFields on AgentRun {
   cancelled
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentCancelRunOperationName = "CrowdyStudioAgentCancelRun";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentCancelRunEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentCancelRunEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentCloseSessionIsolatedDocument = R"gql(mutation CrowdyStudioAgentCloseSession($input: AgentSessionControlInput!) {
   crowdyStudioAgentCloseSession(input: $input) {
     ...CrowdyAgentSessionFields
@@ -6556,7 +5808,7 @@ fragment CrowdyAgentApprovalFields on AgentApproval {
   rejected
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentCloseSessionOperationName = "CrowdyStudioAgentCloseSession";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentCloseSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentCloseSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentEventsIsolatedDocument = R"gql(subscription CrowdyStudioAgentEvents($sessionId: String!, $afterSeq: BigInt!, $clientEpoch: BigInt!) {
   crowdyStudioAgentEvents(
     sessionId: $sessionId
@@ -6719,7 +5971,7 @@ fragment CrowdyAgentBudgetFields on AgentBudget {
   payer
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentEventsOperationName = "CrowdyStudioAgentEvents";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentEventsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentEventsEndpoint = GraphQLEndpoint::Both;
 
 /// crowdyStudioAgent/CrowdyStudioAgentManagement.graphql
 inline constexpr std::string_view kCrowdyStudioAgentManagementDocument = R"gql(fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
@@ -6987,7 +6239,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentPolicyOperationName = "CrowdyStudioAgentPolicy";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentEffectivePolicyIsolatedDocument = R"gql(query CrowdyStudioAgentEffectivePolicy($appId: BigInt!) {
   crowdyStudioAgentEffectivePolicy(appId: $appId) {
     ...CrowdyStudioAgentPolicyFields
@@ -7069,7 +6321,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentEffectivePolicyOperationName = "CrowdyStudioAgentEffectivePolicy";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentEffectivePolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentEffectivePolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentUsageIsolatedDocument = R"gql(query CrowdyStudioAgentUsage($appId: BigInt!, $since: DateTime, $until: DateTime, $limit: Int) {
   crowdyStudioAgentUsage(
     appId: $appId
@@ -7133,7 +6385,7 @@ fragment CrowdyStudioAgentUsageFields on CrowdyStudioAgentUsagePage {
   until
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentUsageOperationName = "CrowdyStudioAgentUsage";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentUsageEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentUsageEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCrowdyStudioAgentSetPolicyIsolatedDocument = R"gql(mutation CrowdyStudioAgentSetPolicy($input: SetCrowdyStudioAgentAppPolicyInput!) {
   setCrowdyStudioAgentPolicy(input: $input) {
     ...CrowdyStudioAgentPolicyFields
@@ -7215,7 +6467,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSetPolicyOperationName = "CrowdyStudioAgentSetPolicy";
-inline constexpr GraphQLEndpoint kCrowdyStudioAgentSetPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCrowdyStudioAgentSetPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCpCrowdyStudioAgentPlatformPolicyIsolatedDocument = R"gql(query CpCrowdyStudioAgentPlatformPolicy {
   cpCrowdyStudioAgentPlatformPolicy {
     ...CrowdyStudioAgentPolicyFields
@@ -7297,7 +6549,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCpCrowdyStudioAgentPlatformPolicyOperationName = "CpCrowdyStudioAgentPlatformPolicy";
-inline constexpr GraphQLEndpoint kCpCrowdyStudioAgentPlatformPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCpCrowdyStudioAgentPlatformPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCpSetCrowdyStudioAgentPlatformPolicyIsolatedDocument = R"gql(mutation CpSetCrowdyStudioAgentPlatformPolicy($input: SetCrowdyStudioAgentPlatformPolicyInput!) {
   cpSetCrowdyStudioAgentPlatformPolicy(input: $input) {
     ...CrowdyStudioAgentPolicyFields
@@ -7379,7 +6631,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCpSetCrowdyStudioAgentPlatformPolicyOperationName = "CpSetCrowdyStudioAgentPlatformPolicy";
-inline constexpr GraphQLEndpoint kCpSetCrowdyStudioAgentPlatformPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCpSetCrowdyStudioAgentPlatformPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCpSetCrowdyStudioAgentAppKillIsolatedDocument = R"gql(mutation CpSetCrowdyStudioAgentAppKill($input: SetCrowdyStudioAgentOperatorAppKillInput!) {
   cpSetCrowdyStudioAgentAppKill(input: $input) {
     ...CrowdyStudioAgentPolicyFields
@@ -7461,7 +6713,7 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCpSetCrowdyStudioAgentAppKillOperationName = "CpSetCrowdyStudioAgentAppKill";
-inline constexpr GraphQLEndpoint kCpSetCrowdyStudioAgentAppKillEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCpSetCrowdyStudioAgentAppKillEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyStudioAgentSession") return kCrowdyStudioAgentSessionIsolatedDocument;
@@ -7528,698 +6780,6 @@ inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
 }
 
 }  // namespace crowdyStudioAgent
-
-namespace environments {
-
-/// environments/CreateEnvironment.graphql
-inline constexpr std::string_view kCreateEnvironmentDocument = R"gql(mutation CreateEnvironment($input: CreateEnvironmentInput!) {
-  createEnvironment(input: $input) {
-    environment {
-      id
-      orgId
-      slug
-      displayName
-      status
-      billingStatus
-      environmentClass
-      primaryRegion
-      desiredEnvironmentVersion
-      observedEnvironmentVersion
-      createdAt
-      updatedAt
-    }
-    changeOrders {
-      id
-      kind
-      status
-      error
-      createdAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kCreateEnvironmentIsolatedDocument = R"gql(mutation CreateEnvironment($input: CreateEnvironmentInput!) {
-  createEnvironment(input: $input) {
-    environment {
-      id
-      orgId
-      slug
-      displayName
-      status
-      billingStatus
-      environmentClass
-      primaryRegion
-      desiredEnvironmentVersion
-      observedEnvironmentVersion
-      createdAt
-      updatedAt
-    }
-    changeOrders {
-      id
-      kind
-      status
-      error
-      createdAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kCreateEnvironmentOperationName = "CreateEnvironment";
-inline constexpr GraphQLEndpoint kCreateEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/DestroyEnvironment.graphql
-inline constexpr std::string_view kDestroyEnvironmentDocument = R"gql(mutation DestroyEnvironment($input: DestroyEnvironmentInput!) {
-  destroyEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kDestroyEnvironmentIsolatedDocument = R"gql(mutation DestroyEnvironment($input: DestroyEnvironmentInput!) {
-  destroyEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kDestroyEnvironmentOperationName = "DestroyEnvironment";
-inline constexpr GraphQLEndpoint kDestroyEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentDatacenters.graphql
-inline constexpr std::string_view kEnvironmentDatacentersDocument = R"gql(query EnvironmentDatacenters {
-  environmentDatacenters {
-    region
-    name
-    city
-    continent
-    status
-    isAvailable
-    selectableInstanceCount
-    syncedAt
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentDatacentersIsolatedDocument = R"gql(query EnvironmentDatacenters {
-  environmentDatacenters {
-    region
-    name
-    city
-    continent
-    status
-    isAvailable
-    selectableInstanceCount
-    syncedAt
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentDatacentersOperationName = "EnvironmentDatacenters";
-inline constexpr GraphQLEndpoint kEnvironmentDatacentersEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentFlavors.graphql
-inline constexpr std::string_view kEnvironmentFlavorsDocument = R"gql(query EnvironmentFlavors($datacenter: String!) {
-  environmentFlavors(datacenter: $datacenter) {
-    flavorName
-    flavorType
-    vcpus
-    ramMb
-    diskGb
-    quotaAvailable
-    customerHourlyPriceCents
-    customerMonthlyPriceCents
-    currency
-    availabilityStatus
-    pricingMode
-    syncedAt
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentFlavorsIsolatedDocument = R"gql(query EnvironmentFlavors($datacenter: String!) {
-  environmentFlavors(datacenter: $datacenter) {
-    flavorName
-    flavorType
-    vcpus
-    ramMb
-    diskGb
-    quotaAvailable
-    customerHourlyPriceCents
-    customerMonthlyPriceCents
-    currency
-    availabilityStatus
-    pricingMode
-    syncedAt
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentFlavorsOperationName = "EnvironmentFlavors";
-inline constexpr GraphQLEndpoint kEnvironmentFlavorsEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentForwardVersions.graphql
-inline constexpr std::string_view kEnvironmentForwardVersionsDocument = R"gql(query EnvironmentForwardVersions($orgId: BigInt!, $slug: String!) {
-  environmentForwardVersions(orgId: $orgId, slug: $slug) {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentForwardVersionsIsolatedDocument = R"gql(query EnvironmentForwardVersions($orgId: BigInt!, $slug: String!) {
-  environmentForwardVersions(orgId: $orgId, slug: $slug) {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentForwardVersionsOperationName = "EnvironmentForwardVersions";
-inline constexpr GraphQLEndpoint kEnvironmentForwardVersionsEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentQuote.graphql
-inline constexpr std::string_view kEnvironmentQuoteDocument = R"gql(query EnvironmentQuote($input: EnvironmentQuoteInput!) {
-  environmentQuote(input: $input) {
-    datacenter
-    databaseFlavor
-    gameApiFlavor
-    udpBuddyFlavor
-    caddyFlavor
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    environmentClass
-    singleBoxFlavor
-    hourlyCostCents
-    firstDayReserveCents
-    walletBalanceCents
-    availableBalanceCents
-    currency
-    canCreate
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentQuoteIsolatedDocument = R"gql(query EnvironmentQuote($input: EnvironmentQuoteInput!) {
-  environmentQuote(input: $input) {
-    datacenter
-    databaseFlavor
-    gameApiFlavor
-    udpBuddyFlavor
-    caddyFlavor
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    environmentClass
-    singleBoxFlavor
-    hourlyCostCents
-    firstDayReserveCents
-    walletBalanceCents
-    availableBalanceCents
-    currency
-    canCreate
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentQuoteOperationName = "EnvironmentQuote";
-inline constexpr GraphQLEndpoint kEnvironmentQuoteEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentRedeployPlan.graphql
-inline constexpr std::string_view kEnvironmentRedeployPlanDocument = R"gql(query EnvironmentRedeployPlan($input: RedeployEnvironmentInput!) {
-  environmentRedeployPlan(input: $input) {
-    environmentSlug
-    currentVersion
-    targetVersion
-    deployMode
-    changeOrderKind
-    schemaWillApply
-    schemaGitRef
-    componentChanges {
-      component
-      fromVersion
-      toVersion
-      changed
-    }
-    tasks {
-      kind
-      dependsOn
-      steps
-    }
-    blockers
-    notes
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentRedeployPlanIsolatedDocument = R"gql(query EnvironmentRedeployPlan($input: RedeployEnvironmentInput!) {
-  environmentRedeployPlan(input: $input) {
-    environmentSlug
-    currentVersion
-    targetVersion
-    deployMode
-    changeOrderKind
-    schemaWillApply
-    schemaGitRef
-    componentChanges {
-      component
-      fromVersion
-      toVersion
-      changed
-    }
-    tasks {
-      kind
-      dependsOn
-      steps
-    }
-    blockers
-    notes
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentRedeployPlanOperationName = "EnvironmentRedeployPlan";
-inline constexpr GraphQLEndpoint kEnvironmentRedeployPlanEndpoint = GraphQLEndpoint::Management;
-
-/// environments/EnvironmentVersions.graphql
-inline constexpr std::string_view kEnvironmentVersionsDocument = R"gql(query EnvironmentVersions {
-  environmentVersions {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentVersionsIsolatedDocument = R"gql(query EnvironmentVersions {
-  environmentVersions {
-    version
-    releasedAt
-    status
-    notes
-    gameApiGitTag
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentVersionsOperationName = "EnvironmentVersions";
-inline constexpr GraphQLEndpoint kEnvironmentVersionsEndpoint = GraphQLEndpoint::Management;
-
-/// environments/LinkAppToEnvironment.graphql
-inline constexpr std::string_view kLinkAppToEnvironmentDocument = R"gql(mutation LinkAppToEnvironment($input: LinkAppToEnvironmentInput!) {
-  linkAppToEnvironment(input: $input) {
-    appId
-    orgId
-    slug
-    name
-    splitMode
-    deploymentTarget
-    gameApiUrl
-    status
-  }
-})gql";
-inline constexpr std::string_view kLinkAppToEnvironmentIsolatedDocument = R"gql(mutation LinkAppToEnvironment($input: LinkAppToEnvironmentInput!) {
-  linkAppToEnvironment(input: $input) {
-    appId
-    orgId
-    slug
-    name
-    splitMode
-    deploymentTarget
-    gameApiUrl
-    status
-  }
-})gql";
-inline constexpr std::string_view kLinkAppToEnvironmentOperationName = "LinkAppToEnvironment";
-inline constexpr GraphQLEndpoint kLinkAppToEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/OrgEnvironment.graphql
-inline constexpr std::string_view kOrgEnvironmentDocument = R"gql(query OrgEnvironment($orgId: BigInt!, $slug: String!) {
-  orgEnvironment(orgId: $orgId, slug: $slug) {
-    environment {
-      id
-      orgId
-      slug
-      displayName
-      status
-      billingStatus
-      environmentClass
-      singleBoxFlavor
-      primaryRegion
-      desiredEnvironmentVersion
-      observedEnvironmentVersion
-      gameApiMinServers
-      gameApiMaxServers
-      udpBuddyMinServers
-      udpBuddyMaxServers
-      loadBalancerCount
-      createdAt
-      updatedAt
-    }
-    components {
-      id
-      kind
-      status
-      desiredVersion
-      observedVersion
-    }
-    changeOrders {
-      id
-      kind
-      status
-      error
-      createdAt
-      finishedAt
-    }
-    outputs {
-      name
-      label
-      value
-      valueKind
-    }
-  }
-})gql";
-inline constexpr std::string_view kOrgEnvironmentIsolatedDocument = R"gql(query OrgEnvironment($orgId: BigInt!, $slug: String!) {
-  orgEnvironment(orgId: $orgId, slug: $slug) {
-    environment {
-      id
-      orgId
-      slug
-      displayName
-      status
-      billingStatus
-      environmentClass
-      singleBoxFlavor
-      primaryRegion
-      desiredEnvironmentVersion
-      observedEnvironmentVersion
-      gameApiMinServers
-      gameApiMaxServers
-      udpBuddyMinServers
-      udpBuddyMaxServers
-      loadBalancerCount
-      createdAt
-      updatedAt
-    }
-    components {
-      id
-      kind
-      status
-      desiredVersion
-      observedVersion
-    }
-    changeOrders {
-      id
-      kind
-      status
-      error
-      createdAt
-      finishedAt
-    }
-    outputs {
-      name
-      label
-      value
-      valueKind
-    }
-  }
-})gql";
-inline constexpr std::string_view kOrgEnvironmentOperationName = "OrgEnvironment";
-inline constexpr GraphQLEndpoint kOrgEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/OrgEnvironments.graphql
-inline constexpr std::string_view kOrgEnvironmentsDocument = R"gql(query OrgEnvironments($orgId: BigInt!) {
-  orgEnvironments(orgId: $orgId) {
-    id
-    orgId
-    slug
-    displayName
-    status
-    billingStatus
-    environmentClass
-    singleBoxFlavor
-    primaryCloud
-    primaryRegion
-    desiredEnvironmentVersion
-    observedEnvironmentVersion
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    createdAt
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kOrgEnvironmentsIsolatedDocument = R"gql(query OrgEnvironments($orgId: BigInt!) {
-  orgEnvironments(orgId: $orgId) {
-    id
-    orgId
-    slug
-    displayName
-    status
-    billingStatus
-    environmentClass
-    singleBoxFlavor
-    primaryCloud
-    primaryRegion
-    desiredEnvironmentVersion
-    observedEnvironmentVersion
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    createdAt
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kOrgEnvironmentsOperationName = "OrgEnvironments";
-inline constexpr GraphQLEndpoint kOrgEnvironmentsEndpoint = GraphQLEndpoint::Management;
-
-/// environments/PurgeEnvironment.graphql
-inline constexpr std::string_view kPurgeEnvironmentDocument = R"gql(mutation PurgeEnvironment($input: PurgeEnvironmentInput!) {
-  purgeEnvironment(input: $input)
-})gql";
-inline constexpr std::string_view kPurgeEnvironmentIsolatedDocument = R"gql(mutation PurgeEnvironment($input: PurgeEnvironmentInput!) {
-  purgeEnvironment(input: $input)
-})gql";
-inline constexpr std::string_view kPurgeEnvironmentOperationName = "PurgeEnvironment";
-inline constexpr GraphQLEndpoint kPurgeEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/RedeployEnvironment.graphql
-inline constexpr std::string_view kRedeployEnvironmentDocument = R"gql(mutation RedeployEnvironment($input: RedeployEnvironmentInput!) {
-  redeployEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kRedeployEnvironmentIsolatedDocument = R"gql(mutation RedeployEnvironment($input: RedeployEnvironmentInput!) {
-  redeployEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kRedeployEnvironmentOperationName = "RedeployEnvironment";
-inline constexpr GraphQLEndpoint kRedeployEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/RestartEnvironmentServices.graphql
-inline constexpr std::string_view kRestartEnvironmentServicesDocument = R"gql(mutation RestartEnvironmentServices($input: RestartEnvironmentServicesInput!) {
-  restartEnvironmentServices(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kRestartEnvironmentServicesIsolatedDocument = R"gql(mutation RestartEnvironmentServices($input: RestartEnvironmentServicesInput!) {
-  restartEnvironmentServices(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kRestartEnvironmentServicesOperationName = "RestartEnvironmentServices";
-inline constexpr GraphQLEndpoint kRestartEnvironmentServicesEndpoint = GraphQLEndpoint::Management;
-
-/// environments/ResumeEnvironment.graphql
-inline constexpr std::string_view kResumeEnvironmentDocument = R"gql(mutation ResumeEnvironment($input: ResumeEnvironmentInput!) {
-  resumeEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kResumeEnvironmentIsolatedDocument = R"gql(mutation ResumeEnvironment($input: ResumeEnvironmentInput!) {
-  resumeEnvironment(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kResumeEnvironmentOperationName = "ResumeEnvironment";
-inline constexpr GraphQLEndpoint kResumeEnvironmentEndpoint = GraphQLEndpoint::Management;
-
-/// environments/UpdateEnvironmentBillingTiers.graphql
-inline constexpr std::string_view kUpdateEnvironmentBillingTiersDocument = R"gql(mutation UpdateEnvironmentBillingTiers(
-  $input: UpdateEnvironmentBillingTiersInput!
-) {
-  updateEnvironmentBillingTiers(input: $input) {
-    id
-    orgId
-    slug
-    displayName
-    status
-    billingStatus
-    environmentClass
-    singleBoxFlavor
-    primaryCloud
-    primaryRegion
-    desiredEnvironmentVersion
-    observedEnvironmentVersion
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    createdAt
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kUpdateEnvironmentBillingTiersIsolatedDocument = R"gql(mutation UpdateEnvironmentBillingTiers($input: UpdateEnvironmentBillingTiersInput!) {
-  updateEnvironmentBillingTiers(input: $input) {
-    id
-    orgId
-    slug
-    displayName
-    status
-    billingStatus
-    environmentClass
-    singleBoxFlavor
-    primaryCloud
-    primaryRegion
-    desiredEnvironmentVersion
-    observedEnvironmentVersion
-    gameApiMinServers
-    gameApiMaxServers
-    udpBuddyMinServers
-    udpBuddyMaxServers
-    loadBalancerCount
-    createdAt
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kUpdateEnvironmentBillingTiersOperationName = "UpdateEnvironmentBillingTiers";
-inline constexpr GraphQLEndpoint kUpdateEnvironmentBillingTiersEndpoint = GraphQLEndpoint::Management;
-
-/// environments/UpdateEnvironmentScaling.graphql
-inline constexpr std::string_view kUpdateEnvironmentScalingDocument = R"gql(mutation UpdateEnvironmentScaling($input: UpdateEnvironmentScalingInput!) {
-  updateEnvironmentScaling(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kUpdateEnvironmentScalingIsolatedDocument = R"gql(mutation UpdateEnvironmentScaling($input: UpdateEnvironmentScalingInput!) {
-  updateEnvironmentScaling(input: $input) {
-    id
-    environmentId
-    kind
-    status
-    requestedBy
-    error
-    createdAt
-    updatedAt
-    finishedAt
-  }
-})gql";
-inline constexpr std::string_view kUpdateEnvironmentScalingOperationName = "UpdateEnvironmentScaling";
-inline constexpr GraphQLEndpoint kUpdateEnvironmentScalingEndpoint = GraphQLEndpoint::Management;
-
-inline constexpr std::string_view documentFor(std::string_view operationName) {
-  if (operationName == "CreateEnvironment") return kCreateEnvironmentIsolatedDocument;
-  if (operationName == "DestroyEnvironment") return kDestroyEnvironmentIsolatedDocument;
-  if (operationName == "EnvironmentDatacenters") return kEnvironmentDatacentersIsolatedDocument;
-  if (operationName == "EnvironmentFlavors") return kEnvironmentFlavorsIsolatedDocument;
-  if (operationName == "EnvironmentForwardVersions") return kEnvironmentForwardVersionsIsolatedDocument;
-  if (operationName == "EnvironmentQuote") return kEnvironmentQuoteIsolatedDocument;
-  if (operationName == "EnvironmentRedeployPlan") return kEnvironmentRedeployPlanIsolatedDocument;
-  if (operationName == "EnvironmentVersions") return kEnvironmentVersionsIsolatedDocument;
-  if (operationName == "LinkAppToEnvironment") return kLinkAppToEnvironmentIsolatedDocument;
-  if (operationName == "OrgEnvironment") return kOrgEnvironmentIsolatedDocument;
-  if (operationName == "OrgEnvironments") return kOrgEnvironmentsIsolatedDocument;
-  if (operationName == "PurgeEnvironment") return kPurgeEnvironmentIsolatedDocument;
-  if (operationName == "RedeployEnvironment") return kRedeployEnvironmentIsolatedDocument;
-  if (operationName == "RestartEnvironmentServices") return kRestartEnvironmentServicesIsolatedDocument;
-  if (operationName == "ResumeEnvironment") return kResumeEnvironmentIsolatedDocument;
-  if (operationName == "UpdateEnvironmentBillingTiers") return kUpdateEnvironmentBillingTiersIsolatedDocument;
-  if (operationName == "UpdateEnvironmentScaling") return kUpdateEnvironmentScalingIsolatedDocument;
-  return {};
-}
-
-inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
-  if (operationName == "CreateEnvironment") return kCreateEnvironmentEndpoint;
-  if (operationName == "DestroyEnvironment") return kDestroyEnvironmentEndpoint;
-  if (operationName == "EnvironmentDatacenters") return kEnvironmentDatacentersEndpoint;
-  if (operationName == "EnvironmentFlavors") return kEnvironmentFlavorsEndpoint;
-  if (operationName == "EnvironmentForwardVersions") return kEnvironmentForwardVersionsEndpoint;
-  if (operationName == "EnvironmentQuote") return kEnvironmentQuoteEndpoint;
-  if (operationName == "EnvironmentRedeployPlan") return kEnvironmentRedeployPlanEndpoint;
-  if (operationName == "EnvironmentVersions") return kEnvironmentVersionsEndpoint;
-  if (operationName == "LinkAppToEnvironment") return kLinkAppToEnvironmentEndpoint;
-  if (operationName == "OrgEnvironment") return kOrgEnvironmentEndpoint;
-  if (operationName == "OrgEnvironments") return kOrgEnvironmentsEndpoint;
-  if (operationName == "PurgeEnvironment") return kPurgeEnvironmentEndpoint;
-  if (operationName == "RedeployEnvironment") return kRedeployEnvironmentEndpoint;
-  if (operationName == "RestartEnvironmentServices") return kRestartEnvironmentServicesEndpoint;
-  if (operationName == "ResumeEnvironment") return kResumeEnvironmentEndpoint;
-  if (operationName == "UpdateEnvironmentBillingTiers") return kUpdateEnvironmentBillingTiersEndpoint;
-  if (operationName == "UpdateEnvironmentScaling") return kUpdateEnvironmentScalingEndpoint;
-  return GraphQLEndpoint::Unknown;
-}
-
-}  // namespace environments
 
 namespace gameApps {
 
@@ -8393,7 +6953,7 @@ fragment GridOwnershipFields on GridOwnership {
   expiresAt
 })gql";
 inline constexpr std::string_view kGridOwnershipOperationName = "GridOwnership";
-inline constexpr GraphQLEndpoint kGridOwnershipEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGridOwnershipEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAssignGridOwnershipIsolatedDocument = R"gql(mutation AssignGridOwnership($input: AssignGridOwnershipInput!) {
   assignGridOwnership(input: $input) {
     ...GridOwnershipFields
@@ -8412,7 +6972,7 @@ fragment GridOwnershipFields on GridOwnership {
   expiresAt
 })gql";
 inline constexpr std::string_view kAssignGridOwnershipOperationName = "AssignGridOwnership";
-inline constexpr GraphQLEndpoint kAssignGridOwnershipEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAssignGridOwnershipEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kTransferGridOwnershipIsolatedDocument = R"gql(mutation TransferGridOwnership($input: TransferGridOwnershipInput!) {
   transferGridOwnership(input: $input) {
     ...GridOwnershipFields
@@ -8431,7 +6991,7 @@ fragment GridOwnershipFields on GridOwnership {
   expiresAt
 })gql";
 inline constexpr std::string_view kTransferGridOwnershipOperationName = "TransferGridOwnership";
-inline constexpr GraphQLEndpoint kTransferGridOwnershipEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTransferGridOwnershipEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGridUserPermissionsIsolatedDocument = R"gql(query GridUserPermissions($appId: BigInt!, $gridId: BigInt!, $userId: BigInt!) {
   gridUserPermissions(appId: $appId, gridId: $gridId, userId: $userId) {
     appId
@@ -8441,7 +7001,7 @@ inline constexpr std::string_view kGridUserPermissionsIsolatedDocument = R"gql(q
   }
 })gql";
 inline constexpr std::string_view kGridUserPermissionsOperationName = "GridUserPermissions";
-inline constexpr GraphQLEndpoint kGridUserPermissionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGridUserPermissionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kNearbyGridPermissionsIsolatedDocument = R"gql(query NearbyGridPermissions($input: NearbyGridPermissionsInput!) {
   nearbyGridPermissions(input: $input) {
     appId
@@ -8461,7 +7021,7 @@ inline constexpr std::string_view kNearbyGridPermissionsIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kNearbyGridPermissionsOperationName = "NearbyGridPermissions";
-inline constexpr GraphQLEndpoint kNearbyGridPermissionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kNearbyGridPermissionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGridPermissionLimitsIsolatedDocument = R"gql(query GridPermissionLimits($appId: BigInt!, $gridId: BigInt!) {
   gridPermissionLimits(appId: $appId, gridId: $gridId) {
     appId
@@ -8470,7 +7030,7 @@ inline constexpr std::string_view kGridPermissionLimitsIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kGridPermissionLimitsOperationName = "GridPermissionLimits";
-inline constexpr GraphQLEndpoint kGridPermissionLimitsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGridPermissionLimitsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGridGroupGrantsIsolatedDocument = R"gql(query GridGroupGrants($appId: BigInt!, $gridId: BigInt!, $groupId: BigInt!) {
   gridGroupGrants(appId: $appId, gridId: $gridId, groupId: $groupId) {
     appId
@@ -8482,7 +7042,7 @@ inline constexpr std::string_view kGridGroupGrantsIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kGridGroupGrantsOperationName = "GridGroupGrants";
-inline constexpr GraphQLEndpoint kGridGroupGrantsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGridGroupGrantsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCreateGridIsolatedDocument = R"gql(mutation CreateGrid($input: CreateGridInput!) {
   createGrid(input: $input) {
     grid {
@@ -8503,7 +7063,7 @@ inline constexpr std::string_view kCreateGridIsolatedDocument = R"gql(mutation C
   }
 })gql";
 inline constexpr std::string_view kCreateGridOperationName = "CreateGrid";
-inline constexpr GraphQLEndpoint kCreateGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateGridEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kDeleteGridIsolatedDocument = R"gql(mutation DeleteGrid($input: DeleteGridInput!) {
   deleteGrid(input: $input) {
     gridId
@@ -8511,7 +7071,7 @@ inline constexpr std::string_view kDeleteGridIsolatedDocument = R"gql(mutation D
   }
 })gql";
 inline constexpr std::string_view kDeleteGridOperationName = "DeleteGrid";
-inline constexpr GraphQLEndpoint kDeleteGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteGridEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGrantGridPermissionsIsolatedDocument = R"gql(mutation GrantGridPermissions($input: GrantGridPermissionsInput!) {
   grantGridPermissions(input: $input) {
     appId
@@ -8521,7 +7081,7 @@ inline constexpr std::string_view kGrantGridPermissionsIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kGrantGridPermissionsOperationName = "GrantGridPermissions";
-inline constexpr GraphQLEndpoint kGrantGridPermissionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGrantGridPermissionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kRevokeGridPermissionsIsolatedDocument = R"gql(mutation RevokeGridPermissions($input: RevokeGridPermissionsInput!) {
   revokeGridPermissions(input: $input) {
     appId
@@ -8531,7 +7091,7 @@ inline constexpr std::string_view kRevokeGridPermissionsIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kRevokeGridPermissionsOperationName = "RevokeGridPermissions";
-inline constexpr GraphQLEndpoint kRevokeGridPermissionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRevokeGridPermissionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetGridPermissionLimitsIsolatedDocument = R"gql(mutation SetGridPermissionLimits($input: SetGridPermissionLimitsInput!) {
   setGridPermissionLimits(input: $input) {
     appId
@@ -8540,7 +7100,7 @@ inline constexpr std::string_view kSetGridPermissionLimitsIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kSetGridPermissionLimitsOperationName = "SetGridPermissionLimits";
-inline constexpr GraphQLEndpoint kSetGridPermissionLimitsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kSetGridPermissionLimitsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAssignGroupToGridIsolatedDocument = R"gql(mutation AssignGroupToGrid($input: AssignGroupToGridInput!) {
   assignGroupToGrid(input: $input) {
     appId
@@ -8552,7 +7112,7 @@ inline constexpr std::string_view kAssignGroupToGridIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kAssignGroupToGridOperationName = "AssignGroupToGrid";
-inline constexpr GraphQLEndpoint kAssignGroupToGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAssignGroupToGridEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kRevokeGroupFromGridIsolatedDocument = R"gql(mutation RevokeGroupFromGrid($input: RevokeGroupFromGridInput!) {
   revokeGroupFromGrid(input: $input) {
     appId
@@ -8564,7 +7124,7 @@ inline constexpr std::string_view kRevokeGroupFromGridIsolatedDocument = R"gql(m
   }
 })gql";
 inline constexpr std::string_view kRevokeGroupFromGridOperationName = "RevokeGroupFromGrid";
-inline constexpr GraphQLEndpoint kRevokeGroupFromGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRevokeGroupFromGridEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GridOwnership") return kGridOwnershipIsolatedDocument;
@@ -8852,12 +7412,12 @@ fragment GmAutomationFields on GmAutomation {
   nextRunAt
 })gql";
 inline constexpr std::string_view kGameModelUpsertAutomationOperationName = "GameModelUpsertAutomation";
-inline constexpr GraphQLEndpoint kGameModelUpsertAutomationEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelUpsertAutomationEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteAutomationIsolatedDocument = R"gql(mutation GameModelDeleteAutomation($appId: BigInt!, $name: String!) {
   gameModelDeleteAutomation(appId: $appId, name: $name)
 })gql";
 inline constexpr std::string_view kGameModelDeleteAutomationOperationName = "GameModelDeleteAutomation";
-inline constexpr GraphQLEndpoint kGameModelDeleteAutomationEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteAutomationEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSetAutomationEnabledIsolatedDocument = R"gql(mutation GameModelSetAutomationEnabled($appId: BigInt!, $name: String!, $enabled: Boolean!) {
   gameModelSetAutomationEnabled(appId: $appId, name: $name, enabled: $enabled) {
     ...GmAutomationFields
@@ -8900,7 +7460,7 @@ fragment GmAutomationFields on GmAutomation {
   nextRunAt
 })gql";
 inline constexpr std::string_view kGameModelSetAutomationEnabledOperationName = "GameModelSetAutomationEnabled";
-inline constexpr GraphQLEndpoint kGameModelSetAutomationEnabledEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSetAutomationEnabledEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelUpsertAutomationTriggerIsolatedDocument = R"gql(mutation GameModelUpsertAutomationTrigger($input: UpsertAutomationTriggerInput!) {
   gameModelUpsertAutomationTrigger(input: $input) {
     ...GmAutomationTriggerFields
@@ -8918,12 +7478,12 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   debounceMs
 })gql";
 inline constexpr std::string_view kGameModelUpsertAutomationTriggerOperationName = "GameModelUpsertAutomationTrigger";
-inline constexpr GraphQLEndpoint kGameModelUpsertAutomationTriggerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelUpsertAutomationTriggerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteAutomationTriggerIsolatedDocument = R"gql(mutation GameModelDeleteAutomationTrigger($appId: BigInt!, $triggerId: String!) {
   gameModelDeleteAutomationTrigger(appId: $appId, triggerId: $triggerId)
 })gql";
 inline constexpr std::string_view kGameModelDeleteAutomationTriggerOperationName = "GameModelDeleteAutomationTrigger";
-inline constexpr GraphQLEndpoint kGameModelDeleteAutomationTriggerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteAutomationTriggerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSetAutomationPolicyIsolatedDocument = R"gql(mutation GameModelSetAutomationPolicy($input: SetAutomationPolicyInput!) {
   gameModelSetAutomationPolicy(input: $input) {
     ...GmAutomationPolicyFields
@@ -8940,7 +7500,7 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   globalRunsPerMinute
 })gql";
 inline constexpr std::string_view kGameModelSetAutomationPolicyOperationName = "GameModelSetAutomationPolicy";
-inline constexpr GraphQLEndpoint kGameModelSetAutomationPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSetAutomationPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelRunAutomationIsolatedDocument = R"gql(mutation GameModelRunAutomation($appId: BigInt!, $name: String!) {
   gameModelRunAutomation(appId: $appId, name: $name) {
     ...GmAutomationRunFields
@@ -8970,7 +7530,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   computeUnits
 })gql";
 inline constexpr std::string_view kGameModelRunAutomationOperationName = "GameModelRunAutomation";
-inline constexpr GraphQLEndpoint kGameModelRunAutomationEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelRunAutomationEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationsIsolatedDocument = R"gql(query GameModelAutomations($appId: BigInt!) {
   gameModelAutomations(appId: $appId) {
     ...GmAutomationFields
@@ -9013,7 +7573,7 @@ fragment GmAutomationFields on GmAutomation {
   nextRunAt
 })gql";
 inline constexpr std::string_view kGameModelAutomationsOperationName = "GameModelAutomations";
-inline constexpr GraphQLEndpoint kGameModelAutomationsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationIsolatedDocument = R"gql(query GameModelAutomation($appId: BigInt!, $name: String!) {
   gameModelAutomation(appId: $appId, name: $name) {
     ...GmAutomationFields
@@ -9056,7 +7616,7 @@ fragment GmAutomationFields on GmAutomation {
   nextRunAt
 })gql";
 inline constexpr std::string_view kGameModelAutomationOperationName = "GameModelAutomation";
-inline constexpr GraphQLEndpoint kGameModelAutomationEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationTriggersIsolatedDocument = R"gql(query GameModelAutomationTriggers($appId: BigInt!, $automationName: String) {
   gameModelAutomationTriggers(appId: $appId, automationName: $automationName) {
     ...GmAutomationTriggerFields
@@ -9074,7 +7634,7 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   debounceMs
 })gql";
 inline constexpr std::string_view kGameModelAutomationTriggersOperationName = "GameModelAutomationTriggers";
-inline constexpr GraphQLEndpoint kGameModelAutomationTriggersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationTriggersEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationPolicyIsolatedDocument = R"gql(query GameModelAutomationPolicy($appId: BigInt!) {
   gameModelAutomationPolicy(appId: $appId) {
     ...GmAutomationPolicyFields
@@ -9091,7 +7651,7 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   globalRunsPerMinute
 })gql";
 inline constexpr std::string_view kGameModelAutomationPolicyOperationName = "GameModelAutomationPolicy";
-inline constexpr GraphQLEndpoint kGameModelAutomationPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationRunsIsolatedDocument = R"gql(query GameModelAutomationRuns($appId: BigInt!, $automationName: String, $success: Boolean, $limit: Int, $offset: Int) {
   gameModelAutomationRuns(
     appId: $appId
@@ -9127,7 +7687,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   computeUnits
 })gql";
 inline constexpr std::string_view kGameModelAutomationRunsOperationName = "GameModelAutomationRuns";
-inline constexpr GraphQLEndpoint kGameModelAutomationRunsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationRunsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAutomationStatsIsolatedDocument = R"gql(query GameModelAutomationStats($appId: BigInt!, $windowMinutes: Int) {
   gameModelAutomationStats(appId: $appId, windowMinutes: $windowMinutes) {
     windowMinutes
@@ -9151,7 +7711,7 @@ inline constexpr std::string_view kGameModelAutomationStatsIsolatedDocument = R"
   }
 })gql";
 inline constexpr std::string_view kGameModelAutomationStatsOperationName = "GameModelAutomationStats";
-inline constexpr GraphQLEndpoint kGameModelAutomationStatsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAutomationStatsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAppDiagnosticsIsolatedDocument = R"gql(query GameModelAppDiagnostics($appId: BigInt!) {
   gameModelAppDiagnostics(appId: $appId) {
     appId
@@ -9173,7 +7733,7 @@ inline constexpr std::string_view kGameModelAppDiagnosticsIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kGameModelAppDiagnosticsOperationName = "GameModelAppDiagnostics";
-inline constexpr GraphQLEndpoint kGameModelAppDiagnosticsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAppDiagnosticsEndpoint = GraphQLEndpoint::Both;
 
 /// gameModel/GameModelRuntime.graphql
 inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmSessionFields on GmSession {
@@ -9564,7 +8124,7 @@ fragment GmSessionFields on GmSession {
   metadataJson
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
-inline constexpr GraphQLEndpoint kGameModelCreateSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelCreateSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelJoinSessionIsolatedDocument = R"gql(mutation GameModelJoinSession($input: JoinSessionInput!) {
   gameModelJoinSession(input: $input) {
     sessionId
@@ -9573,7 +8133,7 @@ inline constexpr std::string_view kGameModelJoinSessionIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kGameModelJoinSessionOperationName = "GameModelJoinSession";
-inline constexpr GraphQLEndpoint kGameModelJoinSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelJoinSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSetSessionTurnIsolatedDocument = R"gql(mutation GameModelSetSessionTurn($input: SetSessionTurnInput!) {
   gameModelSetSessionTurn(input: $input) {
     ...GmSessionFields
@@ -9590,7 +8150,7 @@ fragment GmSessionFields on GmSession {
   metadataJson
 })gql";
 inline constexpr std::string_view kGameModelSetSessionTurnOperationName = "GameModelSetSessionTurn";
-inline constexpr GraphQLEndpoint kGameModelSetSessionTurnEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSetSessionTurnEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelCreateContainerIsolatedDocument = R"gql(mutation GameModelCreateContainer($input: CreateContainerInput!) {
   gameModelCreateContainer(input: $input) {
     ...GmContainerFields
@@ -9609,7 +8169,7 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelCreateContainerOperationName = "GameModelCreateContainer";
-inline constexpr GraphQLEndpoint kGameModelCreateContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelCreateContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelEnsureContainerIsolatedDocument = R"gql(mutation GameModelEnsureContainer($input: EnsureContainerInput!) {
   gameModelEnsureContainer(input: $input) {
     container {
@@ -9631,12 +8191,12 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelEnsureContainerOperationName = "GameModelEnsureContainer";
-inline constexpr GraphQLEndpoint kGameModelEnsureContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelEnsureContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteContainerIsolatedDocument = R"gql(mutation GameModelDeleteContainer($appId: BigInt!, $containerId: String!) {
   gameModelDeleteContainer(appId: $appId, containerId: $containerId)
 })gql";
 inline constexpr std::string_view kGameModelDeleteContainerOperationName = "GameModelDeleteContainer";
-inline constexpr GraphQLEndpoint kGameModelDeleteContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSetPropertyIsolatedDocument = R"gql(mutation GameModelSetProperty($input: SetContainerPropertyInput!) {
   gameModelSetProperty(input: $input) {
     ...GmContainerFields
@@ -9655,7 +8215,7 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelSetPropertyOperationName = "GameModelSetProperty";
-inline constexpr GraphQLEndpoint kGameModelSetPropertyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSetPropertyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelAddEdgeIsolatedDocument = R"gql(mutation GameModelAddEdge($input: AddEdgeInput!) {
   gameModelAddEdge(input: $input) {
     edgeId
@@ -9666,12 +8226,12 @@ inline constexpr std::string_view kGameModelAddEdgeIsolatedDocument = R"gql(muta
   }
 })gql";
 inline constexpr std::string_view kGameModelAddEdgeOperationName = "GameModelAddEdge";
-inline constexpr GraphQLEndpoint kGameModelAddEdgeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelAddEdgeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteEdgeIsolatedDocument = R"gql(mutation GameModelDeleteEdge($appId: BigInt!, $edgeId: String!) {
   gameModelDeleteEdge(appId: $appId, edgeId: $edgeId)
 })gql";
 inline constexpr std::string_view kGameModelDeleteEdgeOperationName = "GameModelDeleteEdge";
-inline constexpr GraphQLEndpoint kGameModelDeleteEdgeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteEdgeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelInvokeIsolatedDocument = R"gql(mutation GameModelInvoke($input: InvokeFunctionInput!) {
   gameModelInvoke(input: $input) {
     ...GmInvokeResultFields
@@ -9693,7 +8253,7 @@ fragment GmInvokeResultFields on GmInvokeResult {
   }
 })gql";
 inline constexpr std::string_view kGameModelInvokeOperationName = "GameModelInvoke";
-inline constexpr GraphQLEndpoint kGameModelInvokeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelInvokeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelContainerIsolatedDocument = R"gql(query GameModelContainer($appId: BigInt!, $containerId: String!) {
   gameModelContainer(appId: $appId, containerId: $containerId) {
     ...GmContainerFields
@@ -9712,7 +8272,7 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelContainerOperationName = "GameModelContainer";
-inline constexpr GraphQLEndpoint kGameModelContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelContainersIsolatedDocument = R"gql(query GameModelContainers($appId: BigInt!, $typeName: String, $sessionId: String, $bindingKey: String, $where: [GmPropertyPredicateInput!], $limit: Int, $offset: Int) {
   gameModelContainers(
     appId: $appId
@@ -9739,7 +8299,7 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelContainersOperationName = "GameModelContainers";
-inline constexpr GraphQLEndpoint kGameModelContainersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelContainersEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelContainerStateIsolatedDocument = R"gql(query GameModelContainerState($appId: BigInt!, $containerId: String!) {
   gameModelContainerState(appId: $appId, containerId: $containerId) {
     containerId
@@ -9752,7 +8312,7 @@ inline constexpr std::string_view kGameModelContainerStateIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kGameModelContainerStateOperationName = "GameModelContainerState";
-inline constexpr GraphQLEndpoint kGameModelContainerStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelContainerStateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelTraverseIsolatedDocument = R"gql(query GameModelTraverse($appId: BigInt!, $rootId: String!, $relationshipType: String!, $depth: Int) {
   gameModelTraverse(
     appId: $appId
@@ -9786,7 +8346,7 @@ fragment GmContainerFields on GmContainer {
   bindingKey
 })gql";
 inline constexpr std::string_view kGameModelTraverseOperationName = "GameModelTraverse";
-inline constexpr GraphQLEndpoint kGameModelTraverseEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelTraverseEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSessionIsolatedDocument = R"gql(query GameModelSession($appId: BigInt!, $sessionId: String!) {
   gameModelSession(appId: $appId, sessionId: $sessionId) {
     ...GmSessionFields
@@ -9803,7 +8363,7 @@ fragment GmSessionFields on GmSession {
   metadataJson
 })gql";
 inline constexpr std::string_view kGameModelSessionOperationName = "GameModelSession";
-inline constexpr GraphQLEndpoint kGameModelSessionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String) {
   gameModelSessions(appId: $appId, status: $status) {
     ...GmSessionFields
@@ -9820,7 +8380,7 @@ fragment GmSessionFields on GmSession {
   metadataJson
 })gql";
 inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSessions";
-inline constexpr GraphQLEndpoint kGameModelSessionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSessionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelEventsIsolatedDocument = R"gql(query GameModelEvents($appId: BigInt!, $sessionId: String, $selfContainerId: String, $functionName: String, $success: Boolean, $limit: Int, $offset: Int) {
   gameModelEvents(
     appId: $appId
@@ -9849,7 +8409,7 @@ inline constexpr std::string_view kGameModelEventsIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kGameModelEventsOperationName = "GameModelEvents";
-inline constexpr GraphQLEndpoint kGameModelEventsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelEventsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelEventsConnectionIsolatedDocument = R"gql(query GameModelEventsConnection($appId: BigInt!, $first: Int, $after: String, $sessionId: String, $selfContainerId: String, $functionName: String, $success: Boolean) {
   gameModelEventsConnection(
     appId: $appId
@@ -9890,7 +8450,7 @@ inline constexpr std::string_view kGameModelEventsConnectionIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kGameModelEventsConnectionOperationName = "GameModelEventsConnection";
-inline constexpr GraphQLEndpoint kGameModelEventsConnectionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelEventsConnectionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelActivePlayerCountIsolatedDocument = R"gql(query GameModelActivePlayerCount($appId: BigInt!) {
   gameModelActivePlayerCount(appId: $appId) {
     appId
@@ -9901,7 +8461,7 @@ inline constexpr std::string_view kGameModelActivePlayerCountIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kGameModelActivePlayerCountOperationName = "GameModelActivePlayerCount";
-inline constexpr GraphQLEndpoint kGameModelActivePlayerCountEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelActivePlayerCountEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelFlowIsolatedDocument = R"gql(query GameModelFlow($appId: BigInt!, $flowId: String!) {
   gameModelFlow(appId: $appId, flowId: $flowId) {
     flowId
@@ -9966,7 +8526,7 @@ inline constexpr std::string_view kGameModelFlowIsolatedDocument = R"gql(query G
   }
 })gql";
 inline constexpr std::string_view kGameModelFlowOperationName = "GameModelFlow";
-inline constexpr GraphQLEndpoint kGameModelFlowEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelFlowEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelActivePlayerCountChangedIsolatedDocument = R"gql(subscription GameModelActivePlayerCountChanged($appId: BigInt!) {
   gameModelActivePlayerCountChanged(appId: $appId) {
     appId
@@ -10213,7 +8773,7 @@ inline constexpr std::string_view kGameModelSeedIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kGameModelSeedOperationName = "GameModelSeed";
-inline constexpr GraphQLEndpoint kGameModelSeedEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSeedEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelUpsertContainerTypeIsolatedDocument = R"gql(mutation GameModelUpsertContainerType($input: UpsertContainerTypeInput!) {
   gameModelUpsertContainerType(input: $input) {
     appId
@@ -10226,7 +8786,7 @@ inline constexpr std::string_view kGameModelUpsertContainerTypeIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kGameModelUpsertContainerTypeOperationName = "GameModelUpsertContainerType";
-inline constexpr GraphQLEndpoint kGameModelUpsertContainerTypeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelUpsertContainerTypeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelUpsertPropertyDefIsolatedDocument = R"gql(mutation GameModelUpsertPropertyDef($input: UpsertPropertyDefInput!) {
   gameModelUpsertPropertyDef(input: $input) {
     ...GmPropertyDefFields
@@ -10244,7 +8804,7 @@ fragment GmPropertyDefFields on GmPropertyDef {
   description
 })gql";
 inline constexpr std::string_view kGameModelUpsertPropertyDefOperationName = "GameModelUpsertPropertyDef";
-inline constexpr GraphQLEndpoint kGameModelUpsertPropertyDefEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelUpsertPropertyDefEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeletePropertyDefIsolatedDocument = R"gql(mutation GameModelDeletePropertyDef($appId: BigInt!, $containerTypeName: String!, $key: String!) {
   gameModelDeletePropertyDef(
     appId: $appId
@@ -10253,12 +8813,12 @@ inline constexpr std::string_view kGameModelDeletePropertyDefIsolatedDocument = 
   )
 })gql";
 inline constexpr std::string_view kGameModelDeletePropertyDefOperationName = "GameModelDeletePropertyDef";
-inline constexpr GraphQLEndpoint kGameModelDeletePropertyDefEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeletePropertyDefEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteContainerTypeIsolatedDocument = R"gql(mutation GameModelDeleteContainerType($appId: BigInt!, $typeName: String!) {
   gameModelDeleteContainerType(appId: $appId, typeName: $typeName)
 })gql";
 inline constexpr std::string_view kGameModelDeleteContainerTypeOperationName = "GameModelDeleteContainerType";
-inline constexpr GraphQLEndpoint kGameModelDeleteContainerTypeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteContainerTypeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelUpsertFunctionIsolatedDocument = R"gql(mutation GameModelUpsertFunction($input: UpsertFunctionInput!) {
   gameModelUpsertFunction(input: $input) {
     ...GmFunctionFields
@@ -10307,12 +8867,12 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelUpsertFunctionOperationName = "GameModelUpsertFunction";
-inline constexpr GraphQLEndpoint kGameModelUpsertFunctionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelUpsertFunctionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDeleteFunctionIsolatedDocument = R"gql(mutation GameModelDeleteFunction($appId: BigInt!, $name: String!) {
   gameModelDeleteFunction(appId: $appId, name: $name)
 })gql";
 inline constexpr std::string_view kGameModelDeleteFunctionOperationName = "GameModelDeleteFunction";
-inline constexpr GraphQLEndpoint kGameModelDeleteFunctionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDeleteFunctionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelDefineFeatureIsolatedDocument = R"gql(mutation GameModelDefineFeature($input: DefineAppFeatureInput!) {
   gameModelDefineFeature(input: $input) {
     appId
@@ -10321,7 +8881,7 @@ inline constexpr std::string_view kGameModelDefineFeatureIsolatedDocument = R"gq
   }
 })gql";
 inline constexpr std::string_view kGameModelDefineFeatureOperationName = "GameModelDefineFeature";
-inline constexpr GraphQLEndpoint kGameModelDefineFeatureEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelDefineFeatureEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelGrantTierFeatureIsolatedDocument = R"gql(mutation GameModelGrantTierFeature($input: GrantTierFeatureInput!) {
   gameModelGrantTierFeature(input: $input) {
     appId
@@ -10330,7 +8890,7 @@ inline constexpr std::string_view kGameModelGrantTierFeatureIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kGameModelGrantTierFeatureOperationName = "GameModelGrantTierFeature";
-inline constexpr GraphQLEndpoint kGameModelGrantTierFeatureEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelGrantTierFeatureEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelSetPolicyIsolatedDocument = R"gql(mutation GameModelSetPolicy($input: SetGameModelPolicyInput!) {
   gameModelSetPolicy(input: $input) {
     appId
@@ -10339,7 +8899,7 @@ inline constexpr std::string_view kGameModelSetPolicyIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kGameModelSetPolicyOperationName = "GameModelSetPolicy";
-inline constexpr GraphQLEndpoint kGameModelSetPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelSetPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelTypeSchemaIsolatedDocument = R"gql(query GameModelTypeSchema($appId: BigInt!, $typeName: String!) {
   gameModelTypeSchema(appId: $appId, typeName: $typeName) {
     typeName
@@ -10405,7 +8965,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelTypeSchemaOperationName = "GameModelTypeSchema";
-inline constexpr GraphQLEndpoint kGameModelTypeSchemaEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelTypeSchemaEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelContainerTypesIsolatedDocument = R"gql(query GameModelContainerTypes($appId: BigInt!) {
   gameModelContainerTypes(appId: $appId) {
     appId
@@ -10418,7 +8978,7 @@ inline constexpr std::string_view kGameModelContainerTypesIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kGameModelContainerTypesOperationName = "GameModelContainerTypes";
-inline constexpr GraphQLEndpoint kGameModelContainerTypesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelContainerTypesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelPropertyDefsIsolatedDocument = R"gql(query GameModelPropertyDefs($appId: BigInt!, $typeName: String!) {
   gameModelPropertyDefs(appId: $appId, typeName: $typeName) {
     ...GmPropertyDefFields
@@ -10436,7 +8996,7 @@ fragment GmPropertyDefFields on GmPropertyDef {
   description
 })gql";
 inline constexpr std::string_view kGameModelPropertyDefsOperationName = "GameModelPropertyDefs";
-inline constexpr GraphQLEndpoint kGameModelPropertyDefsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelPropertyDefsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelFunctionIsolatedDocument = R"gql(query GameModelFunction($appId: BigInt!, $name: String!) {
   gameModelFunction(appId: $appId, name: $name) {
     ...GmFunctionFields
@@ -10485,7 +9045,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionOperationName = "GameModelFunction";
-inline constexpr GraphQLEndpoint kGameModelFunctionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelFunctionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelFunctionsIsolatedDocument = R"gql(query GameModelFunctions($appId: BigInt!, $containerTypeName: String) {
   gameModelFunctions(appId: $appId, containerTypeName: $containerTypeName) {
     ...GmFunctionFields
@@ -10534,7 +9094,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionsOperationName = "GameModelFunctions";
-inline constexpr GraphQLEndpoint kGameModelFunctionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelFunctionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelFeaturesIsolatedDocument = R"gql(query GameModelFeatures($appId: BigInt!) {
   gameModelFeatures(appId: $appId) {
     appId
@@ -10543,7 +9103,7 @@ inline constexpr std::string_view kGameModelFeaturesIsolatedDocument = R"gql(que
   }
 })gql";
 inline constexpr std::string_view kGameModelFeaturesOperationName = "GameModelFeatures";
-inline constexpr GraphQLEndpoint kGameModelFeaturesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelFeaturesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelTierFeaturesIsolatedDocument = R"gql(query GameModelTierFeatures($appId: BigInt!, $tierId: BigInt) {
   gameModelTierFeatures(appId: $appId, tierId: $tierId) {
     appId
@@ -10552,7 +9112,7 @@ inline constexpr std::string_view kGameModelTierFeaturesIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kGameModelTierFeaturesOperationName = "GameModelTierFeatures";
-inline constexpr GraphQLEndpoint kGameModelTierFeaturesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelTierFeaturesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelPolicyIsolatedDocument = R"gql(query GameModelPolicy($appId: BigInt!) {
   gameModelPolicy(appId: $appId) {
     appId
@@ -10561,12 +9121,12 @@ inline constexpr std::string_view kGameModelPolicyIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kGameModelPolicyOperationName = "GameModelPolicy";
-inline constexpr GraphQLEndpoint kGameModelPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kGameModelRevokeTierFeatureIsolatedDocument = R"gql(mutation GameModelRevokeTierFeature($input: GrantTierFeatureInput!) {
   gameModelRevokeTierFeature(input: $input)
 })gql";
 inline constexpr std::string_view kGameModelRevokeTierFeatureOperationName = "GameModelRevokeTierFeature";
-inline constexpr GraphQLEndpoint kGameModelRevokeTierFeatureEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameModelRevokeTierFeatureEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameModelUpsertAutomation") return kGameModelUpsertAutomationIsolatedDocument;
@@ -10718,12 +9278,12 @@ inline constexpr std::string_view kGameHostIsolatedDocument = R"gql(query GameHo
   }
 })gql";
 inline constexpr std::string_view kGameHostOperationName = "GameHost";
-inline constexpr GraphQLEndpoint kGameHostEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameHostEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAmIGameHostIsolatedDocument = R"gql(query AmIGameHost($appId: BigInt!) {
   amIGameHost(appId: $appId)
 })gql";
 inline constexpr std::string_view kAmIGameHostOperationName = "AmIGameHost";
-inline constexpr GraphQLEndpoint kAmIGameHostEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAmIGameHostEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kActorHeartbeatIsolatedDocument = R"gql(mutation ActorHeartbeat($appId: BigInt!) {
   actorHeartbeat(appId: $appId) {
     hostUserId
@@ -10732,7 +9292,7 @@ inline constexpr std::string_view kActorHeartbeatIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kActorHeartbeatOperationName = "ActorHeartbeat";
-inline constexpr GraphQLEndpoint kActorHeartbeatEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kActorHeartbeatEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameHost") return kGameHostIsolatedDocument;
@@ -11129,7 +9689,7 @@ fragment PlayerCodeListingFields on PlayerCodeListing {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceListingsOperationName = "MarketplaceListings";
-inline constexpr GraphQLEndpoint kMarketplaceListingsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceListingsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceListingVersionsIsolatedDocument = R"gql(query MarketplaceListingVersions($appId: BigInt!, $listingId: String!) {
   playerCodeListingVersions(appId: $appId, listingId: $listingId) {
     ...PlayerCodeListingVersionFields
@@ -11153,7 +9713,7 @@ fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceListingVersionsOperationName = "MarketplaceListingVersions";
-inline constexpr GraphQLEndpoint kMarketplaceListingVersionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceListingVersionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceMyAcquisitionsIsolatedDocument = R"gql(query MarketplaceMyAcquisitions($appId: BigInt!) {
   myPlayerCodeAcquisitions(appId: $appId) {
     ...PlayerCodeAcquisitionFields
@@ -11172,7 +9732,7 @@ fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   acquiredAt
 })gql";
 inline constexpr std::string_view kMarketplaceMyAcquisitionsOperationName = "MarketplaceMyAcquisitions";
-inline constexpr GraphQLEndpoint kMarketplaceMyAcquisitionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceMyAcquisitionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceMyInstallsIsolatedDocument = R"gql(query MarketplaceMyInstalls($appId: BigInt!) {
   myPlayerCodeInstalls(appId: $appId) {
     ...PlayerCodeInstallFields
@@ -11191,7 +9751,7 @@ fragment PlayerCodeInstallFields on PlayerCodeInstall {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceMyInstallsOperationName = "MarketplaceMyInstalls";
-inline constexpr GraphQLEndpoint kMarketplaceMyInstallsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceMyInstallsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceGridClientModsIsolatedDocument = R"gql(query MarketplaceGridClientMods($appId: BigInt!, $gridId: BigInt!) {
   gridClientMods(appId: $appId, gridId: $gridId) {
     attachmentId
@@ -11214,7 +9774,7 @@ inline constexpr std::string_view kMarketplaceGridClientModsIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kMarketplaceGridClientModsOperationName = "MarketplaceGridClientMods";
-inline constexpr GraphQLEndpoint kMarketplaceGridClientModsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceGridClientModsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceClientArtifactIsolatedDocument = R"gql(query MarketplaceClientArtifact($appId: BigInt!, $listingId: String, $attachmentId: String, $versionId: String) {
   playerCodeClientArtifact(
     appId: $appId
@@ -11232,7 +9792,7 @@ inline constexpr std::string_view kMarketplaceClientArtifactIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kMarketplaceClientArtifactOperationName = "MarketplaceClientArtifact";
-inline constexpr GraphQLEndpoint kMarketplaceClientArtifactEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceClientArtifactEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceTrustGridAuthorIsolatedDocument = R"gql(mutation MarketplaceTrustGridAuthor($appId: BigInt!, $gridId: BigInt!, $authorKind: PlayerCodeOwnerKind!, $authorRef: BigInt!, $consentCapabilityHash: String!) {
   trustGridAuthor(
     appId: $appId
@@ -11243,7 +9803,7 @@ inline constexpr std::string_view kMarketplaceTrustGridAuthorIsolatedDocument = 
   )
 })gql";
 inline constexpr std::string_view kMarketplaceTrustGridAuthorOperationName = "MarketplaceTrustGridAuthor";
-inline constexpr GraphQLEndpoint kMarketplaceTrustGridAuthorEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceTrustGridAuthorEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplacePublishListingIsolatedDocument = R"gql(mutation MarketplacePublishListing($input: PublishPlayerCodeInput!) {
   publishPlayerCode(input: $input) {
     ...PlayerCodeListingFields
@@ -11270,7 +9830,7 @@ fragment PlayerCodeListingFields on PlayerCodeListing {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplacePublishListingOperationName = "MarketplacePublishListing";
-inline constexpr GraphQLEndpoint kMarketplacePublishListingEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplacePublishListingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplacePublishVersionIsolatedDocument = R"gql(mutation MarketplacePublishVersion($input: PublishPlayerCodeVersionInput!) {
   publishPlayerCodeVersion(input: $input) {
     ...PlayerCodeListingVersionFields
@@ -11294,7 +9854,7 @@ fragment PlayerCodeListingVersionFields on PlayerCodeListingVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplacePublishVersionOperationName = "MarketplacePublishVersion";
-inline constexpr GraphQLEndpoint kMarketplacePublishVersionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplacePublishVersionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceAcquireIsolatedDocument = R"gql(mutation MarketplaceAcquire($appId: BigInt!, $listingId: String!) {
   acquirePlayerCode(appId: $appId, listingId: $listingId) {
     ...PlayerCodeAcquisitionFields
@@ -11313,7 +9873,7 @@ fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   acquiredAt
 })gql";
 inline constexpr std::string_view kMarketplaceAcquireOperationName = "MarketplaceAcquire";
-inline constexpr GraphQLEndpoint kMarketplaceAcquireEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceAcquireEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceInstallIsolatedDocument = R"gql(mutation MarketplaceInstall($appId: BigInt!, $acquisitionId: String!, $consentCapabilityHash: String!, $gridId: BigInt, $versionId: String) {
   installPlayerCode(
     appId: $appId
@@ -11338,12 +9898,12 @@ fragment PlayerCodeInstallFields on PlayerCodeInstall {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceInstallOperationName = "MarketplaceInstall";
-inline constexpr GraphQLEndpoint kMarketplaceInstallEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceInstallEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceUninstallIsolatedDocument = R"gql(mutation MarketplaceUninstall($appId: BigInt!, $installId: String!) {
   uninstallPlayerCode(appId: $appId, installId: $installId)
 })gql";
 inline constexpr std::string_view kMarketplaceUninstallOperationName = "MarketplaceUninstall";
-inline constexpr GraphQLEndpoint kMarketplaceUninstallEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceUninstallEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceConsentGridClientModIsolatedDocument = R"gql(mutation MarketplaceConsentGridClientMod($appId: BigInt!, $attachmentId: String!, $consentCapabilityHash: String!) {
   consentGridClientMod(
     appId: $appId
@@ -11352,12 +9912,12 @@ inline constexpr std::string_view kMarketplaceConsentGridClientModIsolatedDocume
   )
 })gql";
 inline constexpr std::string_view kMarketplaceConsentGridClientModOperationName = "MarketplaceConsentGridClientMod";
-inline constexpr GraphQLEndpoint kMarketplaceConsentGridClientModEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceConsentGridClientModEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceGridClaimPolicyIsolatedDocument = R"gql(query MarketplaceGridClaimPolicy($appId: BigInt!) {
   gridClaimPolicy(appId: $appId)
 })gql";
 inline constexpr std::string_view kMarketplaceGridClaimPolicyOperationName = "MarketplaceGridClaimPolicy";
-inline constexpr GraphQLEndpoint kMarketplaceGridClaimPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceGridClaimPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceGridClaimRequestsIsolatedDocument = R"gql(query MarketplaceGridClaimRequests($appId: BigInt!) {
   gridClaimRequests(appId: $appId) {
     ...GridClaimRequestFields
@@ -11373,7 +9933,7 @@ fragment GridClaimRequestFields on GridClaimRequest {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceGridClaimRequestsOperationName = "MarketplaceGridClaimRequests";
-inline constexpr GraphQLEndpoint kMarketplaceGridClaimRequestsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceGridClaimRequestsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceClaimGridOwnershipIsolatedDocument = R"gql(mutation MarketplaceClaimGridOwnership($appId: BigInt!, $gridId: BigInt!) {
   claimGridOwnership(appId: $appId, gridId: $gridId) {
     policy
@@ -11382,7 +9942,7 @@ inline constexpr std::string_view kMarketplaceClaimGridOwnershipIsolatedDocument
   }
 })gql";
 inline constexpr std::string_view kMarketplaceClaimGridOwnershipOperationName = "MarketplaceClaimGridOwnership";
-inline constexpr GraphQLEndpoint kMarketplaceClaimGridOwnershipEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceClaimGridOwnershipEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceClaimGridChunkIsolatedDocument = R"gql(mutation MarketplaceClaimGridChunk($appId: BigInt!, $chunk: ChunkCoordinatesInput!) {
   claimGridChunk(appId: $appId, chunk: $chunk) {
     gridId
@@ -11411,7 +9971,7 @@ inline constexpr std::string_view kMarketplaceClaimGridChunkIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kMarketplaceClaimGridChunkOperationName = "MarketplaceClaimGridChunk";
-inline constexpr GraphQLEndpoint kMarketplaceClaimGridChunkEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceClaimGridChunkEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceReleaseClaimedGridIsolatedDocument = R"gql(mutation MarketplaceReleaseClaimedGrid($appId: BigInt!, $gridId: BigInt!) {
   releaseClaimedGrid(appId: $appId, gridId: $gridId) {
     gridId
@@ -11430,7 +9990,7 @@ inline constexpr std::string_view kMarketplaceReleaseClaimedGridIsolatedDocument
   }
 })gql";
 inline constexpr std::string_view kMarketplaceReleaseClaimedGridOperationName = "MarketplaceReleaseClaimedGrid";
-inline constexpr GraphQLEndpoint kMarketplaceReleaseClaimedGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceReleaseClaimedGridEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceDecideGridClaimIsolatedDocument = R"gql(mutation MarketplaceDecideGridClaim($appId: BigInt!, $requestId: String!, $approve: Boolean!) {
   decideGridClaim(appId: $appId, requestId: $requestId, approve: $approve) {
     ...GridClaimRequestFields
@@ -11446,7 +10006,7 @@ fragment GridClaimRequestFields on GridClaimRequest {
   createdAt
 })gql";
 inline constexpr std::string_view kMarketplaceDecideGridClaimOperationName = "MarketplaceDecideGridClaim";
-inline constexpr GraphQLEndpoint kMarketplaceDecideGridClaimEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceDecideGridClaimEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceIssueGridClaimInviteIsolatedDocument = R"gql(mutation MarketplaceIssueGridClaimInvite($appId: BigInt!, $gridId: BigInt!, $inviteeUserId: BigInt!) {
   issueGridClaimInvite(
     appId: $appId
@@ -11455,7 +10015,7 @@ inline constexpr std::string_view kMarketplaceIssueGridClaimInviteIsolatedDocume
   )
 })gql";
 inline constexpr std::string_view kMarketplaceIssueGridClaimInviteOperationName = "MarketplaceIssueGridClaimInvite";
-inline constexpr GraphQLEndpoint kMarketplaceIssueGridClaimInviteEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceIssueGridClaimInviteEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceRenewAcquisitionIsolatedDocument = R"gql(mutation MarketplaceRenewAcquisition($appId: BigInt!, $acquisitionId: String!) {
   renewPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
     ...PlayerCodeAcquisitionFields
@@ -11474,7 +10034,7 @@ fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   acquiredAt
 })gql";
 inline constexpr std::string_view kMarketplaceRenewAcquisitionOperationName = "MarketplaceRenewAcquisition";
-inline constexpr GraphQLEndpoint kMarketplaceRenewAcquisitionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceRenewAcquisitionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceTopUpAcquisitionIsolatedDocument = R"gql(mutation MarketplaceTopUpAcquisition($appId: BigInt!, $acquisitionId: String!) {
   topUpPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
     ...PlayerCodeAcquisitionFields
@@ -11493,12 +10053,12 @@ fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
   acquiredAt
 })gql";
 inline constexpr std::string_view kMarketplaceTopUpAcquisitionOperationName = "MarketplaceTopUpAcquisition";
-inline constexpr GraphQLEndpoint kMarketplaceTopUpAcquisitionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceTopUpAcquisitionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceRefundAcquisitionIsolatedDocument = R"gql(mutation MarketplaceRefundAcquisition($appId: BigInt!, $acquisitionId: String!) {
   refundPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId)
 })gql";
 inline constexpr std::string_view kMarketplaceRefundAcquisitionOperationName = "MarketplaceRefundAcquisition";
-inline constexpr GraphQLEndpoint kMarketplaceRefundAcquisitionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplaceRefundAcquisitionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceGridListingsIsolatedDocument = R"gql(query MarketplaceGridListings($appId: BigInt!) {
   gridListings(appId: $appId) {
     gridListingId
@@ -11526,7 +10086,7 @@ inline constexpr std::string_view kMarketplacePurchaseGridIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kMarketplacePurchaseGridOperationName = "MarketplacePurchaseGrid";
-inline constexpr GraphQLEndpoint kMarketplacePurchaseGridEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMarketplacePurchaseGridEndpoint = GraphQLEndpoint::Both;
 
 /// marketplace/MarketplaceAdmin.graphql
 inline constexpr std::string_view kMarketplaceAdminDocument = R"gql(fragment PlayerCodeListingAdminFields on PlayerCodeListing {
@@ -11752,7 +10312,7 @@ fragment PlayerCodeListingAdminFields on PlayerCodeListing {
   updatedAt
 })gql";
 inline constexpr std::string_view kMarketplaceAdmissionQueueOperationName = "MarketplaceAdmissionQueue";
-inline constexpr GraphQLEndpoint kMarketplaceAdmissionQueueEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceAdmissionQueueEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceAppListingsIsolatedDocument = R"gql(query MarketplaceAppListings($appId: BigInt!, $includeDelisted: Boolean) {
   appPlayerCodeListings(appId: $appId, includeDelisted: $includeDelisted) {
     ...PlayerCodeListingAdminFields
@@ -11774,7 +10334,7 @@ fragment PlayerCodeListingAdminFields on PlayerCodeListing {
   updatedAt
 })gql";
 inline constexpr std::string_view kMarketplaceAppListingsOperationName = "MarketplaceAppListings";
-inline constexpr GraphQLEndpoint kMarketplaceAppListingsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceAppListingsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceAppListingVersionsIsolatedDocument = R"gql(query MarketplaceAppListingVersions($appId: BigInt!, $listingId: String!) {
   appPlayerCodeListingVersions(appId: $appId, listingId: $listingId) {
     versionId
@@ -11794,7 +10354,7 @@ inline constexpr std::string_view kMarketplaceAppListingVersionsIsolatedDocument
   }
 })gql";
 inline constexpr std::string_view kMarketplaceAppListingVersionsOperationName = "MarketplaceAppListingVersions";
-inline constexpr GraphQLEndpoint kMarketplaceAppListingVersionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceAppListingVersionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceAppAcquisitionsIsolatedDocument = R"gql(query MarketplaceAppAcquisitions($appId: BigInt!) {
   appPlayerCodeAcquisitions(appId: $appId) {
     ...PlayerCodeAcquisitionAdminFields
@@ -11812,7 +10372,7 @@ fragment PlayerCodeAcquisitionAdminFields on PlayerCodeAcquisition {
   revokedAt
 })gql";
 inline constexpr std::string_view kMarketplaceAppAcquisitionsOperationName = "MarketplaceAppAcquisitions";
-inline constexpr GraphQLEndpoint kMarketplaceAppAcquisitionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceAppAcquisitionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceTransferListingIsolatedDocument = R"gql(mutation MarketplaceTransferListing($input: TransferPlayerCodeListingInput!) {
   transferPlayerCodeListing(input: $input) {
     ...PlayerCodeListingAdminFields
@@ -11834,7 +10394,7 @@ fragment PlayerCodeListingAdminFields on PlayerCodeListing {
   updatedAt
 })gql";
 inline constexpr std::string_view kMarketplaceTransferListingOperationName = "MarketplaceTransferListing";
-inline constexpr GraphQLEndpoint kMarketplaceTransferListingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceTransferListingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceSetListingStatusIsolatedDocument = R"gql(mutation MarketplaceSetListingStatus($appId: BigInt!, $listingId: String!, $status: PlayerCodeListingStatus!) {
   setPlayerCodeListingStatus(
     appId: $appId
@@ -11860,7 +10420,7 @@ fragment PlayerCodeListingAdminFields on PlayerCodeListing {
   updatedAt
 })gql";
 inline constexpr std::string_view kMarketplaceSetListingStatusOperationName = "MarketplaceSetListingStatus";
-inline constexpr GraphQLEndpoint kMarketplaceSetListingStatusEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceSetListingStatusEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceSetGridClaimPolicyIsolatedDocument = R"gql(mutation MarketplaceSetGridClaimPolicy($appId: BigInt!, $policy: GridClaimPolicy!, $approverUserIds: [BigInt!]) {
   setAppGridClaimPolicy(
     appId: $appId
@@ -11869,17 +10429,17 @@ inline constexpr std::string_view kMarketplaceSetGridClaimPolicyIsolatedDocument
   )
 })gql";
 inline constexpr std::string_view kMarketplaceSetGridClaimPolicyOperationName = "MarketplaceSetGridClaimPolicy";
-inline constexpr GraphQLEndpoint kMarketplaceSetGridClaimPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceSetGridClaimPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceSetListingPricingIsolatedDocument = R"gql(mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
   setListingPricing(input: $input)
 })gql";
 inline constexpr std::string_view kMarketplaceSetListingPricingOperationName = "MarketplaceSetListingPricing";
-inline constexpr GraphQLEndpoint kMarketplaceSetListingPricingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceSetListingPricingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceSetOrgShareIsolatedDocument = R"gql(mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
   setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
 })gql";
 inline constexpr std::string_view kMarketplaceSetOrgShareOperationName = "MarketplaceSetOrgShare";
-inline constexpr GraphQLEndpoint kMarketplaceSetOrgShareEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceSetOrgShareEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceBeginSellerOnboardingIsolatedDocument = R"gql(mutation MarketplaceBeginSellerOnboarding($country: String!) {
   beginSellerOnboarding(country: $country) {
     status
@@ -11888,7 +10448,7 @@ inline constexpr std::string_view kMarketplaceBeginSellerOnboardingIsolatedDocum
   }
 })gql";
 inline constexpr std::string_view kMarketplaceBeginSellerOnboardingOperationName = "MarketplaceBeginSellerOnboarding";
-inline constexpr GraphQLEndpoint kMarketplaceBeginSellerOnboardingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceBeginSellerOnboardingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceCreateAccountSessionIsolatedDocument = R"gql(mutation MarketplaceCreateAccountSession($country: String!) {
   createSellerAccountSession(country: $country) {
     clientSecret
@@ -11899,7 +10459,7 @@ inline constexpr std::string_view kMarketplaceCreateAccountSessionIsolatedDocume
   }
 })gql";
 inline constexpr std::string_view kMarketplaceCreateAccountSessionOperationName = "MarketplaceCreateAccountSession";
-inline constexpr GraphQLEndpoint kMarketplaceCreateAccountSessionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceCreateAccountSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionIsolatedDocument = R"gql(mutation MarketplaceCreateOrgAccountSession($orgId: BigInt!, $country: String!) {
   createOrgSellerAccountSession(orgId: $orgId, country: $country) {
     clientSecret
@@ -11910,7 +10470,7 @@ inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionIsolatedDoc
   }
 })gql";
 inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionOperationName = "MarketplaceCreateOrgAccountSession";
-inline constexpr GraphQLEndpoint kMarketplaceCreateOrgAccountSessionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceCreateOrgAccountSessionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingIsolatedDocument = R"gql(mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
   beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
     status
@@ -11919,7 +10479,7 @@ inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingIsolatedDo
   }
 })gql";
 inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingOperationName = "MarketplaceBeginOrgSellerOnboarding";
-inline constexpr GraphQLEndpoint kMarketplaceBeginOrgSellerOnboardingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceBeginOrgSellerOnboardingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceMySellerBalanceIsolatedDocument = R"gql(query MarketplaceMySellerBalance {
   mySellerPayoutBalance {
     partyKind
@@ -11932,17 +10492,17 @@ inline constexpr std::string_view kMarketplaceMySellerBalanceIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kMarketplaceMySellerBalanceOperationName = "MarketplaceMySellerBalance";
-inline constexpr GraphQLEndpoint kMarketplaceMySellerBalanceEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceMySellerBalanceEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceRequestPayoutIsolatedDocument = R"gql(mutation MarketplaceRequestPayout {
   requestSellerPayout
 })gql";
 inline constexpr std::string_view kMarketplaceRequestPayoutOperationName = "MarketplaceRequestPayout";
-inline constexpr GraphQLEndpoint kMarketplaceRequestPayoutEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceRequestPayoutEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceSpendPayoutToWalletIsolatedDocument = R"gql(mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
   spendPayoutBalanceToWallet(amountCents: $amountCents)
 })gql";
 inline constexpr std::string_view kMarketplaceSpendPayoutToWalletOperationName = "MarketplaceSpendPayoutToWallet";
-inline constexpr GraphQLEndpoint kMarketplaceSpendPayoutToWalletEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceSpendPayoutToWalletEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceCommerceRiskQueueIsolatedDocument = R"gql(query MarketplaceCommerceRiskQueue($appId: BigInt!) {
   commerceRiskQueue(appId: $appId) {
     flagId
@@ -11957,12 +10517,12 @@ inline constexpr std::string_view kMarketplaceCommerceRiskQueueIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kMarketplaceCommerceRiskQueueOperationName = "MarketplaceCommerceRiskQueue";
-inline constexpr GraphQLEndpoint kMarketplaceCommerceRiskQueueEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceCommerceRiskQueueEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceDecideRiskFlagIsolatedDocument = R"gql(mutation MarketplaceDecideRiskFlag($appId: BigInt!, $flagId: String!, $release: Boolean!) {
   decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
 })gql";
 inline constexpr std::string_view kMarketplaceDecideRiskFlagOperationName = "MarketplaceDecideRiskFlag";
-inline constexpr GraphQLEndpoint kMarketplaceDecideRiskFlagEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceDecideRiskFlagEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMarketplaceCreateGridListingIsolatedDocument = R"gql(mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
   createGridListing(input: $input) {
     gridListingId
@@ -11975,7 +10535,7 @@ inline constexpr std::string_view kMarketplaceCreateGridListingIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kMarketplaceCreateGridListingOperationName = "MarketplaceCreateGridListing";
-inline constexpr GraphQLEndpoint kMarketplaceCreateGridListingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMarketplaceCreateGridListingEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceListings") return kMarketplaceListingsIsolatedDocument;
@@ -12099,7 +10659,7 @@ inline constexpr std::string_view kCreateOrgRoleIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kCreateOrgRoleOperationName = "CreateOrgRole";
-inline constexpr GraphQLEndpoint kCreateOrgRoleEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateOrgRoleEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/CreateOrgToken.graphql
 inline constexpr std::string_view kCreateOrgTokenDocument = R"gql(mutation CreateOrgToken($input: CreateOrgTokenInput!) {
@@ -12125,7 +10685,7 @@ inline constexpr std::string_view kCreateOrgTokenIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kCreateOrgTokenOperationName = "CreateOrgToken";
-inline constexpr GraphQLEndpoint kCreateOrgTokenEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateOrgTokenEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/CreateOrganization.graphql
 inline constexpr std::string_view kCreateOrganizationDocument = R"gql(mutation CreateOrganization($input: CreateOrganizationInput!) {
@@ -12151,7 +10711,7 @@ inline constexpr std::string_view kCreateOrganizationIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kCreateOrganizationOperationName = "CreateOrganization";
-inline constexpr GraphQLEndpoint kCreateOrganizationEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateOrganizationEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/DeleteOrgRole.graphql
 inline constexpr std::string_view kDeleteOrgRoleDocument = R"gql(mutation DeleteOrgRole($orgRoleId: BigInt!) {
@@ -12161,7 +10721,7 @@ inline constexpr std::string_view kDeleteOrgRoleIsolatedDocument = R"gql(mutatio
   deleteOrgRole(orgRoleId: $orgRoleId)
 })gql";
 inline constexpr std::string_view kDeleteOrgRoleOperationName = "DeleteOrgRole";
-inline constexpr GraphQLEndpoint kDeleteOrgRoleEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kDeleteOrgRoleEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/InviteOrgMember.graphql
 inline constexpr std::string_view kInviteOrgMemberDocument = R"gql(mutation InviteOrgMember($input: InviteOrgMemberInput!) {
@@ -12185,7 +10745,7 @@ inline constexpr std::string_view kInviteOrgMemberIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kInviteOrgMemberOperationName = "InviteOrgMember";
-inline constexpr GraphQLEndpoint kInviteOrgMemberEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kInviteOrgMemberEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/MemberRoles.graphql
 inline constexpr std::string_view kMemberRolesDocument = R"gql(query MemberRoles($orgMemberId: BigInt!) {
@@ -12209,7 +10769,7 @@ inline constexpr std::string_view kMemberRolesIsolatedDocument = R"gql(query Mem
   }
 })gql";
 inline constexpr std::string_view kMemberRolesOperationName = "MemberRoles";
-inline constexpr GraphQLEndpoint kMemberRolesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMemberRolesEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/MyOrganizations.graphql
 inline constexpr std::string_view kMyOrganizationsDocument = R"gql(query MyOrganizations {
@@ -12257,7 +10817,7 @@ inline constexpr std::string_view kMyOrganizationsIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kMyOrganizationsOperationName = "MyOrganizations";
-inline constexpr GraphQLEndpoint kMyOrganizationsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMyOrganizationsEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/OrgMembers.graphql
 inline constexpr std::string_view kOrgMembersDocument = R"gql(query OrgMembers($orgId: BigInt!) {
@@ -12281,7 +10841,7 @@ inline constexpr std::string_view kOrgMembersIsolatedDocument = R"gql(query OrgM
   }
 })gql";
 inline constexpr std::string_view kOrgMembersOperationName = "OrgMembers";
-inline constexpr GraphQLEndpoint kOrgMembersEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgMembersEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/OrgPermissions.graphql
 inline constexpr std::string_view kOrgPermissionsDocument = R"gql(query OrgPermissions {
@@ -12299,7 +10859,7 @@ inline constexpr std::string_view kOrgPermissionsIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kOrgPermissionsOperationName = "OrgPermissions";
-inline constexpr GraphQLEndpoint kOrgPermissionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgPermissionsEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/OrgRoles.graphql
 inline constexpr std::string_view kOrgRolesDocument = R"gql(query OrgRoles($orgId: BigInt!) {
@@ -12323,7 +10883,7 @@ inline constexpr std::string_view kOrgRolesIsolatedDocument = R"gql(query OrgRol
   }
 })gql";
 inline constexpr std::string_view kOrgRolesOperationName = "OrgRoles";
-inline constexpr GraphQLEndpoint kOrgRolesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgRolesEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/OrgTokens.graphql
 inline constexpr std::string_view kOrgTokensDocument = R"gql(query OrgTokens($orgId: BigInt!) {
@@ -12353,7 +10913,7 @@ inline constexpr std::string_view kOrgTokensIsolatedDocument = R"gql(query OrgTo
   }
 })gql";
 inline constexpr std::string_view kOrgTokensOperationName = "OrgTokens";
-inline constexpr GraphQLEndpoint kOrgTokensEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgTokensEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/Organization.graphql
 inline constexpr std::string_view kOrganizationDocument = R"gql(query Organization($id: BigInt!) {
@@ -12379,7 +10939,7 @@ inline constexpr std::string_view kOrganizationIsolatedDocument = R"gql(query Or
   }
 })gql";
 inline constexpr std::string_view kOrganizationOperationName = "Organization";
-inline constexpr GraphQLEndpoint kOrganizationEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrganizationEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/OrganizationBySlug.graphql
 inline constexpr std::string_view kOrganizationBySlugDocument = R"gql(query OrganizationBySlug($slug: String!) {
@@ -12405,7 +10965,7 @@ inline constexpr std::string_view kOrganizationBySlugIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kOrganizationBySlugOperationName = "OrganizationBySlug";
-inline constexpr GraphQLEndpoint kOrganizationBySlugEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrganizationBySlugEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/RemoveOrgMember.graphql
 inline constexpr std::string_view kRemoveOrgMemberDocument = R"gql(mutation RemoveOrgMember($orgId: BigInt!, $userId: BigInt!) {
@@ -12415,7 +10975,7 @@ inline constexpr std::string_view kRemoveOrgMemberIsolatedDocument = R"gql(mutat
   removeOrgMember(orgId: $orgId, userId: $userId)
 })gql";
 inline constexpr std::string_view kRemoveOrgMemberOperationName = "RemoveOrgMember";
-inline constexpr GraphQLEndpoint kRemoveOrgMemberEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRemoveOrgMemberEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/RevokeOrgToken.graphql
 inline constexpr std::string_view kRevokeOrgTokenDocument = R"gql(mutation RevokeOrgToken($orgTokenId: BigInt!) {
@@ -12425,7 +10985,7 @@ inline constexpr std::string_view kRevokeOrgTokenIsolatedDocument = R"gql(mutati
   revokeOrgToken(orgTokenId: $orgTokenId)
 })gql";
 inline constexpr std::string_view kRevokeOrgTokenOperationName = "RevokeOrgToken";
-inline constexpr GraphQLEndpoint kRevokeOrgTokenEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRevokeOrgTokenEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/SetOrgStatus.graphql
 inline constexpr std::string_view kSetOrgStatusDocument = R"gql(mutation SetOrgStatus($orgId: BigInt!, $status: String!) {
@@ -12443,7 +11003,7 @@ inline constexpr std::string_view kSetOrgStatusIsolatedDocument = R"gql(mutation
   }
 })gql";
 inline constexpr std::string_view kSetOrgStatusOperationName = "SetOrgStatus";
-inline constexpr GraphQLEndpoint kSetOrgStatusEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetOrgStatusEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/UpdateOrgMemberRoles.graphql
 inline constexpr std::string_view kUpdateOrgMemberRolesDocument = R"gql(mutation UpdateOrgMemberRoles(
@@ -12467,7 +11027,7 @@ inline constexpr std::string_view kUpdateOrgMemberRolesIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kUpdateOrgMemberRolesOperationName = "UpdateOrgMemberRoles";
-inline constexpr GraphQLEndpoint kUpdateOrgMemberRolesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUpdateOrgMemberRolesEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/UpdateOrgRole.graphql
 inline constexpr std::string_view kUpdateOrgRoleDocument = R"gql(mutation UpdateOrgRole($orgRoleId: BigInt!, $input: UpdateOrgRoleInput!) {
@@ -12491,7 +11051,7 @@ inline constexpr std::string_view kUpdateOrgRoleIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kUpdateOrgRoleOperationName = "UpdateOrgRole";
-inline constexpr GraphQLEndpoint kUpdateOrgRoleEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUpdateOrgRoleEndpoint = GraphQLEndpoint::Both;
 
 /// organizations/UpdateOrgToken.graphql
 inline constexpr std::string_view kUpdateOrgTokenDocument = R"gql(mutation UpdateOrgToken($orgTokenId: BigInt!, $input: UpdateOrgTokenInput!) {
@@ -12515,7 +11075,7 @@ inline constexpr std::string_view kUpdateOrgTokenIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kUpdateOrgTokenOperationName = "UpdateOrgToken";
-inline constexpr GraphQLEndpoint kUpdateOrgTokenEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUpdateOrgTokenEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CreateOrgRole") return kCreateOrgRoleIsolatedDocument;
@@ -12609,7 +11169,7 @@ inline constexpr std::string_view kCapturePaypalCheckoutIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kCapturePaypalCheckoutOperationName = "CapturePaypalCheckout";
-inline constexpr GraphQLEndpoint kCapturePaypalCheckoutEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCapturePaypalCheckoutEndpoint = GraphQLEndpoint::Both;
 
 /// payments/Checkouts.graphql
 inline constexpr std::string_view kCheckoutsDocument = R"gql(query Checkouts($filter: CheckoutFilterInput, $limit: Int, $offset: Int) {
@@ -12702,7 +11262,7 @@ inline constexpr std::string_view kCheckoutsIsolatedDocument = R"gql(query Check
   }
 })gql";
 inline constexpr std::string_view kCheckoutsOperationName = "Checkouts";
-inline constexpr GraphQLEndpoint kCheckoutsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCheckoutsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCheckoutsConnectionIsolatedDocument = R"gql(query CheckoutsConnection($first: Int, $after: String, $filter: CheckoutFilterInput) {
   checkoutsConnection(first: $first, after: $after, filter: $filter) {
     edges {
@@ -12736,7 +11296,7 @@ inline constexpr std::string_view kCheckoutsConnectionIsolatedDocument = R"gql(q
   }
 })gql";
 inline constexpr std::string_view kCheckoutsConnectionOperationName = "CheckoutsConnection";
-inline constexpr GraphQLEndpoint kCheckoutsConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCheckoutsConnectionEndpoint = GraphQLEndpoint::Both;
 
 /// payments/CreateCheckout.graphql
 inline constexpr std::string_view kCreateCheckoutDocument = R"gql(mutation CreateCheckout($input: CreateCheckoutInput!) {
@@ -12780,7 +11340,7 @@ inline constexpr std::string_view kCreateCheckoutIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kCreateCheckoutOperationName = "CreateCheckout";
-inline constexpr GraphQLEndpoint kCreateCheckoutEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCreateCheckoutEndpoint = GraphQLEndpoint::Both;
 
 /// payments/MyCheckouts.graphql
 inline constexpr std::string_view kMyCheckoutsDocument = R"gql(query MyCheckouts($limit: Int, $offset: Int) {
@@ -12871,7 +11431,7 @@ inline constexpr std::string_view kMyCheckoutsIsolatedDocument = R"gql(query MyC
   }
 })gql";
 inline constexpr std::string_view kMyCheckoutsOperationName = "MyCheckouts";
-inline constexpr GraphQLEndpoint kMyCheckoutsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMyCheckoutsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kMyCheckoutsConnectionIsolatedDocument = R"gql(query MyCheckoutsConnection($first: Int, $after: String) {
   myCheckoutsConnection(first: $first, after: $after) {
     edges {
@@ -12905,7 +11465,7 @@ inline constexpr std::string_view kMyCheckoutsConnectionIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kMyCheckoutsConnectionOperationName = "MyCheckoutsConnection";
-inline constexpr GraphQLEndpoint kMyCheckoutsConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kMyCheckoutsConnectionEndpoint = GraphQLEndpoint::Both;
 
 /// payments/PaymentEvents.graphql
 inline constexpr std::string_view kPaymentEventsDocument = R"gql(query PaymentEvents($limit: Int, $offset: Int) {
@@ -12972,7 +11532,7 @@ inline constexpr std::string_view kPaymentEventsIsolatedDocument = R"gql(query P
   }
 })gql";
 inline constexpr std::string_view kPaymentEventsOperationName = "PaymentEvents";
-inline constexpr GraphQLEndpoint kPaymentEventsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPaymentEventsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPaymentEventsConnectionIsolatedDocument = R"gql(query PaymentEventsConnection($first: Int, $after: String) {
   paymentEventsConnection(first: $first, after: $after) {
     edges {
@@ -12998,7 +11558,7 @@ inline constexpr std::string_view kPaymentEventsConnectionIsolatedDocument = R"g
   }
 })gql";
 inline constexpr std::string_view kPaymentEventsConnectionOperationName = "PaymentEventsConnection";
-inline constexpr GraphQLEndpoint kPaymentEventsConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPaymentEventsConnectionEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CapturePaypalCheckout") return kCapturePaypalCheckoutIsolatedDocument;
@@ -13044,7 +11604,7 @@ inline constexpr std::string_view kPlatformConfigIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kPlatformConfigOperationName = "PlatformConfig";
-inline constexpr GraphQLEndpoint kPlatformConfigEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlatformConfigEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "PlatformConfig") return kPlatformConfigIsolatedDocument;
@@ -13306,7 +11866,7 @@ fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
-inline constexpr GraphQLEndpoint kPlayerComputeDeployEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeDeployEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeSetEnabledIsolatedDocument = R"gql(mutation PlayerComputeSetEnabled($appId: BigInt!, $gridId: BigInt!, $name: String!, $enabled: Boolean!) {
   playerComputeSetEnabled(
     appId: $appId
@@ -13336,7 +11896,7 @@ fragment PlayerWasmModuleFields on PlayerWasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kPlayerComputeSetEnabledOperationName = "PlayerComputeSetEnabled";
-inline constexpr GraphQLEndpoint kPlayerComputeSetEnabledEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeSetEnabledEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeSetRequiresIsolatedDocument = R"gql(mutation PlayerComputeSetRequires($appId: BigInt!, $gridId: BigInt!, $serverName: String!, $requiredClientName: String) {
   playerComputeSetRequires(
     appId: $appId
@@ -13346,7 +11906,7 @@ inline constexpr std::string_view kPlayerComputeSetRequiresIsolatedDocument = R"
   )
 })gql";
 inline constexpr std::string_view kPlayerComputeSetRequiresOperationName = "PlayerComputeSetRequires";
-inline constexpr GraphQLEndpoint kPlayerComputeSetRequiresEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeSetRequiresEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeMyModulesIsolatedDocument = R"gql(query PlayerComputeMyModules($appId: BigInt!) {
   playerComputeMyModules(appId: $appId) {
     ...PlayerWasmModuleFields
@@ -13371,7 +11931,7 @@ fragment PlayerWasmModuleFields on PlayerWasmModule {
   updatedAt
 })gql";
 inline constexpr std::string_view kPlayerComputeMyModulesOperationName = "PlayerComputeMyModules";
-inline constexpr GraphQLEndpoint kPlayerComputeMyModulesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeMyModulesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeVersionsIsolatedDocument = R"gql(query PlayerComputeVersions($appId: BigInt!, $gridId: BigInt!, $name: String!) {
   playerComputeVersions(appId: $appId, gridId: $gridId, name: $name) {
     ...PlayerWasmModuleVersionFields
@@ -13391,12 +11951,12 @@ fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";
-inline constexpr GraphQLEndpoint kPlayerComputeVersionsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeVersionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeDeleteIsolatedDocument = R"gql(mutation PlayerComputeDelete($appId: BigInt!, $gridId: BigInt!, $name: String!) {
   playerComputeDelete(appId: $appId, gridId: $gridId, name: $name)
 })gql";
 inline constexpr std::string_view kPlayerComputeDeleteOperationName = "PlayerComputeDelete";
-inline constexpr GraphQLEndpoint kPlayerComputeDeleteEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeDeleteEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeInvokeIsolatedDocument = R"gql(mutation PlayerComputeInvoke($appId: BigInt!, $gridId: BigInt!, $moduleName: String!, $exportName: String!, $paramsJson: String) {
   playerComputeInvoke(
     appId: $appId
@@ -13412,7 +11972,7 @@ inline constexpr std::string_view kPlayerComputeInvokeIsolatedDocument = R"gql(m
   }
 })gql";
 inline constexpr std::string_view kPlayerComputeInvokeOperationName = "PlayerComputeInvoke";
-inline constexpr GraphQLEndpoint kPlayerComputeInvokeEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeInvokeEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeUsageIsolatedDocument = R"gql(query PlayerComputeUsage($appId: BigInt!) {
   playerComputeUsage(appId: $appId) {
     appId
@@ -13427,7 +11987,7 @@ inline constexpr std::string_view kPlayerComputeUsageIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kPlayerComputeUsageOperationName = "PlayerComputeUsage";
-inline constexpr GraphQLEndpoint kPlayerComputeUsageEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeUsageEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeRunsIsolatedDocument = R"gql(query PlayerComputeRuns($appId: BigInt!, $gridId: BigInt!, $moduleName: String, $success: Boolean, $limit: Int, $offset: Int) {
   playerComputeRuns(
     appId: $appId
@@ -13457,7 +12017,7 @@ fragment PlayerWasmModuleRunFields on PlayerWasmModuleRun {
   errorMessage
 })gql";
 inline constexpr std::string_view kPlayerComputeRunsOperationName = "PlayerComputeRuns";
-inline constexpr GraphQLEndpoint kPlayerComputeRunsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeRunsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeLogsIsolatedDocument = R"gql(query PlayerComputeLogs($appId: BigInt!, $gridId: BigInt!, $moduleName: String, $limit: Int) {
   playerComputeLogs(
     appId: $appId
@@ -13485,7 +12045,7 @@ fragment PlayerWasmModuleRunFields on PlayerWasmModuleRun {
   errorMessage
 })gql";
 inline constexpr std::string_view kPlayerComputeLogsOperationName = "PlayerComputeLogs";
-inline constexpr GraphQLEndpoint kPlayerComputeLogsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeLogsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeSetSwitchIsolatedDocument = R"gql(mutation PlayerComputeSetSwitch($appId: BigInt!, $scope: String!, $disabled: Boolean!, $scopeRef: BigInt, $reason: String) {
   playerComputeSetSwitch(
     appId: $appId
@@ -13496,7 +12056,7 @@ inline constexpr std::string_view kPlayerComputeSetSwitchIsolatedDocument = R"gq
   )
 })gql";
 inline constexpr std::string_view kPlayerComputeSetSwitchOperationName = "PlayerComputeSetSwitch";
-inline constexpr GraphQLEndpoint kPlayerComputeSetSwitchEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeSetSwitchEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeSwitchesIsolatedDocument = R"gql(query PlayerComputeSwitches($appId: BigInt!) {
   playerComputeSwitches(appId: $appId) {
     switchId
@@ -13508,7 +12068,7 @@ inline constexpr std::string_view kPlayerComputeSwitchesIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kPlayerComputeSwitchesOperationName = "PlayerComputeSwitches";
-inline constexpr GraphQLEndpoint kPlayerComputeSwitchesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeSwitchesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerComputeArtifactIsolatedDocument = R"gql(query PlayerComputeArtifact($appId: BigInt!, $gridId: BigInt!, $name: String!, $versionId: String) {
   playerComputeArtifact(
     appId: $appId
@@ -13526,7 +12086,7 @@ inline constexpr std::string_view kPlayerComputeArtifactIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kPlayerComputeArtifactOperationName = "PlayerComputeArtifact";
-inline constexpr GraphQLEndpoint kPlayerComputeArtifactEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerComputeArtifactEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "PlayerComputeDeploy") return kPlayerComputeDeployIsolatedDocument;
@@ -13644,7 +12204,7 @@ inline constexpr std::string_view kPlayerModelContainersIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kPlayerModelContainersOperationName = "PlayerModelContainers";
-inline constexpr GraphQLEndpoint kPlayerModelContainersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerModelContainersEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerModelContainerIsolatedDocument = R"gql(query PlayerModelContainer($input: PlayerModelContainerRefInput!) {
   playerModelContainer(input: $input) {
     containerId
@@ -13660,7 +12220,7 @@ inline constexpr std::string_view kPlayerModelContainerIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kPlayerModelContainerOperationName = "PlayerModelContainer";
-inline constexpr GraphQLEndpoint kPlayerModelContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerModelContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerModelCreateContainerIsolatedDocument = R"gql(mutation PlayerModelCreateContainer($input: CreatePlayerModelContainerInput!) {
   playerModelCreateContainer(input: $input) {
     containerId
@@ -13676,7 +12236,7 @@ inline constexpr std::string_view kPlayerModelCreateContainerIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kPlayerModelCreateContainerOperationName = "PlayerModelCreateContainer";
-inline constexpr GraphQLEndpoint kPlayerModelCreateContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerModelCreateContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerModelSetPropertyIsolatedDocument = R"gql(mutation PlayerModelSetProperty($input: SetPlayerModelPropertyInput!) {
   playerModelSetProperty(input: $input) {
     containerId
@@ -13692,12 +12252,12 @@ inline constexpr std::string_view kPlayerModelSetPropertyIsolatedDocument = R"gq
   }
 })gql";
 inline constexpr std::string_view kPlayerModelSetPropertyOperationName = "PlayerModelSetProperty";
-inline constexpr GraphQLEndpoint kPlayerModelSetPropertyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerModelSetPropertyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerModelDeleteContainerIsolatedDocument = R"gql(mutation PlayerModelDeleteContainer($input: PlayerModelContainerRefInput!) {
   playerModelDeleteContainer(input: $input)
 })gql";
 inline constexpr std::string_view kPlayerModelDeleteContainerOperationName = "PlayerModelDeleteContainer";
-inline constexpr GraphQLEndpoint kPlayerModelDeleteContainerEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerModelDeleteContainerEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerAutomationsIsolatedDocument = R"gql(query PlayerAutomations($appId: BigInt!, $gridId: BigInt!) {
   playerAutomations(appId: $appId, gridId: $gridId) {
     automationId
@@ -13723,7 +12283,7 @@ inline constexpr std::string_view kPlayerAutomationsIsolatedDocument = R"gql(que
   }
 })gql";
 inline constexpr std::string_view kPlayerAutomationsOperationName = "PlayerAutomations";
-inline constexpr GraphQLEndpoint kPlayerAutomationsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerAutomationsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerAutomationCreateIsolatedDocument = R"gql(mutation PlayerAutomationCreate($input: CreatePlayerAutomationInput!) {
   playerAutomationCreate(input: $input) {
     automationId
@@ -13749,7 +12309,7 @@ inline constexpr std::string_view kPlayerAutomationCreateIsolatedDocument = R"gq
   }
 })gql";
 inline constexpr std::string_view kPlayerAutomationCreateOperationName = "PlayerAutomationCreate";
-inline constexpr GraphQLEndpoint kPlayerAutomationCreateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerAutomationCreateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerAutomationSetEnabledIsolatedDocument = R"gql(mutation PlayerAutomationSetEnabled($input: SetPlayerAutomationEnabledInput!) {
   playerAutomationSetEnabled(input: $input) {
     automationId
@@ -13775,12 +12335,12 @@ inline constexpr std::string_view kPlayerAutomationSetEnabledIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kPlayerAutomationSetEnabledOperationName = "PlayerAutomationSetEnabled";
-inline constexpr GraphQLEndpoint kPlayerAutomationSetEnabledEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerAutomationSetEnabledEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerAutomationDeleteIsolatedDocument = R"gql(mutation PlayerAutomationDelete($input: PlayerAutomationRefInput!) {
   playerAutomationDelete(input: $input)
 })gql";
 inline constexpr std::string_view kPlayerAutomationDeleteOperationName = "PlayerAutomationDelete";
-inline constexpr GraphQLEndpoint kPlayerAutomationDeleteEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kPlayerAutomationDeleteEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "PlayerModelContainers") return kPlayerModelContainersIsolatedDocument;
@@ -14027,7 +12587,7 @@ fragment PlayerWalletFields on PlayerWallet {
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerWalletBalanceOperationName = "PlayerWalletBalance";
-inline constexpr GraphQLEndpoint kPlayerWalletBalanceEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerWalletBalanceEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerWalletTransactionsIsolatedDocument = R"gql(query PlayerWalletTransactions($limit: Int, $offset: Int) {
   playerWalletTransactions(limit: $limit, offset: $offset) {
     ...PlayerWalletTransactionFields
@@ -14047,7 +12607,7 @@ fragment PlayerWalletTransactionFields on PlayerWalletTransaction {
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerWalletTransactionsOperationName = "PlayerWalletTransactions";
-inline constexpr GraphQLEndpoint kPlayerWalletTransactionsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerWalletTransactionsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerUsageChargesIsolatedDocument = R"gql(query PlayerUsageCharges($appId: BigInt, $limit: Int) {
   playerUsageCharges(appId: $appId, limit: $limit) {
     ...PlayerUsageChargeFields
@@ -14068,7 +12628,7 @@ fragment PlayerUsageChargeFields on PlayerUsageCharge {
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerUsageChargesOperationName = "PlayerUsageCharges";
-inline constexpr GraphQLEndpoint kPlayerUsageChargesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerUsageChargesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerSpendCapsIsolatedDocument = R"gql(query PlayerSpendCaps {
   playerSpendCaps {
     ...PlayerSpendCapFields
@@ -14085,7 +12645,7 @@ fragment PlayerSpendCapFields on PlayerSpendCap {
   currentMonthUsageCents
 })gql";
 inline constexpr std::string_view kPlayerSpendCapsOperationName = "PlayerSpendCaps";
-inline constexpr GraphQLEndpoint kPlayerSpendCapsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerSpendCapsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetPlayerSpendCapIsolatedDocument = R"gql(mutation SetPlayerSpendCap($scope: String!, $appId: BigInt, $dailyLimitCents: BigInt, $monthlyLimitCents: BigInt) {
   setPlayerSpendCap(
     scope: $scope
@@ -14107,7 +12667,7 @@ fragment PlayerSpendCapFields on PlayerSpendCap {
   currentMonthUsageCents
 })gql";
 inline constexpr std::string_view kSetPlayerSpendCapOperationName = "SetPlayerSpendCap";
-inline constexpr GraphQLEndpoint kSetPlayerSpendCapEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetPlayerSpendCapEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerAutoBillingIsolatedDocument = R"gql(query PlayerAutoBilling {
   playerAutoBilling {
     ...PlayerAutoBillingFields
@@ -14125,7 +12685,7 @@ fragment PlayerAutoBillingFields on PlayerAutoBilling {
   lastError
 })gql";
 inline constexpr std::string_view kPlayerAutoBillingOperationName = "PlayerAutoBilling";
-inline constexpr GraphQLEndpoint kPlayerAutoBillingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerAutoBillingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kBeginPlayerCardSetupIsolatedDocument = R"gql(mutation BeginPlayerCardSetup {
   beginPlayerCardSetup {
     clientSecret
@@ -14134,7 +12694,7 @@ inline constexpr std::string_view kBeginPlayerCardSetupIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kBeginPlayerCardSetupOperationName = "BeginPlayerCardSetup";
-inline constexpr GraphQLEndpoint kBeginPlayerCardSetupEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kBeginPlayerCardSetupEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetPlayerAutoBillingIsolatedDocument = R"gql(mutation SetPlayerAutoBilling($enabled: Boolean!, $limitCents: BigInt, $rechargeAmountCents: BigInt, $lowWaterThresholdCents: BigInt) {
   setPlayerAutoBilling(
     enabled: $enabled
@@ -14157,7 +12717,7 @@ fragment PlayerAutoBillingFields on PlayerAutoBilling {
   lastError
 })gql";
 inline constexpr std::string_view kSetPlayerAutoBillingOperationName = "SetPlayerAutoBilling";
-inline constexpr GraphQLEndpoint kSetPlayerAutoBillingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetPlayerAutoBillingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerRuntimeStatesIsolatedDocument = R"gql(query PlayerRuntimeStates {
   playerRuntimeStates {
     userId
@@ -14168,7 +12728,7 @@ inline constexpr std::string_view kPlayerRuntimeStatesIsolatedDocument = R"gql(q
   }
 })gql";
 inline constexpr std::string_view kPlayerRuntimeStatesOperationName = "PlayerRuntimeStates";
-inline constexpr GraphQLEndpoint kPlayerRuntimeStatesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerRuntimeStatesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerWasmPoliciesIsolatedDocument = R"gql(query PlayerWasmPolicies($appId: BigInt!) {
   playerWasmPolicies(appId: $appId) {
     ...PlayerWasmPolicyFields
@@ -14198,7 +12758,7 @@ fragment PlayerWasmPolicyFields on PlayerWasmPolicy {
   clientFuelPerDispatch
 })gql";
 inline constexpr std::string_view kPlayerWasmPoliciesOperationName = "PlayerWasmPolicies";
-inline constexpr GraphQLEndpoint kPlayerWasmPoliciesEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerWasmPoliciesEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetPlayerWasmPolicyIsolatedDocument = R"gql(mutation SetPlayerWasmPolicy($input: SetPlayerWasmPolicyInput!) {
   setPlayerWasmPolicy(input: $input) {
     ...PlayerWasmPolicyFields
@@ -14228,22 +12788,22 @@ fragment PlayerWasmPolicyFields on PlayerWasmPolicy {
   clientFuelPerDispatch
 })gql";
 inline constexpr std::string_view kSetPlayerWasmPolicyOperationName = "SetPlayerWasmPolicy";
-inline constexpr GraphQLEndpoint kSetPlayerWasmPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetPlayerWasmPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kDeletePlayerWasmPolicyIsolatedDocument = R"gql(mutation DeletePlayerWasmPolicy($appId: BigInt!, $scope: String!, $scopeRef: BigInt) {
   deletePlayerWasmPolicy(appId: $appId, scope: $scope, scopeRef: $scopeRef)
 })gql";
 inline constexpr std::string_view kDeletePlayerWasmPolicyOperationName = "DeletePlayerWasmPolicy";
-inline constexpr GraphQLEndpoint kDeletePlayerWasmPolicyEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kDeletePlayerWasmPolicyEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPlayerRateMarkupIsolatedDocument = R"gql(query PlayerRateMarkup($appId: BigInt!) {
   playerRateMarkup(appId: $appId)
 })gql";
 inline constexpr std::string_view kPlayerRateMarkupOperationName = "PlayerRateMarkup";
-inline constexpr GraphQLEndpoint kPlayerRateMarkupEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerRateMarkupEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetPlayerRateMarkupIsolatedDocument = R"gql(mutation SetPlayerRateMarkup($appId: BigInt!, $markupBps: Int!) {
   setPlayerRateMarkup(appId: $appId, markupBps: $markupBps)
 })gql";
 inline constexpr std::string_view kSetPlayerRateMarkupOperationName = "SetPlayerRateMarkup";
-inline constexpr GraphQLEndpoint kSetPlayerRateMarkupEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetPlayerRateMarkupEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppPlayerUsageIsolatedDocument = R"gql(query AppPlayerUsage($appId: BigInt!, $hours: Int) {
   appPlayerUsage(appId: $appId, hours: $hours) {
     userId
@@ -14254,12 +12814,12 @@ inline constexpr std::string_view kAppPlayerUsageIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kAppPlayerUsageOperationName = "AppPlayerUsage";
-inline constexpr GraphQLEndpoint kAppPlayerUsageEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppPlayerUsageEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppPlayerMarkupAccruedIsolatedDocument = R"gql(query AppPlayerMarkupAccrued($appId: BigInt!) {
   appPlayerMarkupAccrued(appId: $appId)
 })gql";
 inline constexpr std::string_view kAppPlayerMarkupAccruedOperationName = "AppPlayerMarkupAccrued";
-inline constexpr GraphQLEndpoint kAppPlayerMarkupAccruedEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppPlayerMarkupAccruedEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "PlayerWalletBalance") return kPlayerWalletBalanceIsolatedDocument;
@@ -14313,7 +12873,7 @@ inline constexpr std::string_view kDeleteQuotaIsolatedDocument = R"gql(mutation 
   deleteQuota(quotaId: $quotaId)
 })gql";
 inline constexpr std::string_view kDeleteQuotaOperationName = "DeleteQuota";
-inline constexpr GraphQLEndpoint kDeleteQuotaEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kDeleteQuotaEndpoint = GraphQLEndpoint::Both;
 
 /// quotas/EffectiveQuota.graphql
 inline constexpr std::string_view kEffectiveQuotaDocument = R"gql(query EffectiveQuota(
@@ -14351,7 +12911,7 @@ inline constexpr std::string_view kEffectiveQuotaIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kEffectiveQuotaOperationName = "EffectiveQuota";
-inline constexpr GraphQLEndpoint kEffectiveQuotaEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kEffectiveQuotaEndpoint = GraphQLEndpoint::Both;
 
 /// quotas/QuotasForApp.graphql
 inline constexpr std::string_view kQuotasForAppDocument = R"gql(query QuotasForApp($appId: BigInt!) {
@@ -14383,7 +12943,7 @@ inline constexpr std::string_view kQuotasForAppIsolatedDocument = R"gql(query Qu
   }
 })gql";
 inline constexpr std::string_view kQuotasForAppOperationName = "QuotasForApp";
-inline constexpr GraphQLEndpoint kQuotasForAppEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kQuotasForAppEndpoint = GraphQLEndpoint::Both;
 
 /// quotas/QuotasForOrg.graphql
 inline constexpr std::string_view kQuotasForOrgDocument = R"gql(query QuotasForOrg($orgId: BigInt!) {
@@ -14415,7 +12975,7 @@ inline constexpr std::string_view kQuotasForOrgIsolatedDocument = R"gql(query Qu
   }
 })gql";
 inline constexpr std::string_view kQuotasForOrgOperationName = "QuotasForOrg";
-inline constexpr GraphQLEndpoint kQuotasForOrgEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kQuotasForOrgEndpoint = GraphQLEndpoint::Both;
 
 /// quotas/SetQuota.graphql
 inline constexpr std::string_view kSetQuotaDocument = R"gql(mutation SetQuota($input: SetQuotaInput!) {
@@ -14447,7 +13007,7 @@ inline constexpr std::string_view kSetQuotaIsolatedDocument = R"gql(mutation Set
   }
 })gql";
 inline constexpr std::string_view kSetQuotaOperationName = "SetQuota";
-inline constexpr GraphQLEndpoint kSetQuotaEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetQuotaEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "DeleteQuota") return kDeleteQuotaIsolatedDocument;
@@ -14587,7 +13147,7 @@ inline constexpr std::string_view kGameClientBootstrapIsolatedDocument = R"gql(q
   }
 })gql";
 inline constexpr std::string_view kGameClientBootstrapOperationName = "GameClientBootstrap";
-inline constexpr GraphQLEndpoint kGameClientBootstrapEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kGameClientBootstrapEndpoint = GraphQLEndpoint::Both;
 
 /// serverStatus/GraphqlServers.graphql
 inline constexpr std::string_view kGraphqlServersDocument = R"gql(query GraphqlServers {
@@ -14643,7 +13203,7 @@ inline constexpr std::string_view kServerWithLeastClientsIsolatedDocument = R"gq
   }
 })gql";
 inline constexpr std::string_view kServerWithLeastClientsOperationName = "ServerWithLeastClients";
-inline constexpr GraphQLEndpoint kServerWithLeastClientsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kServerWithLeastClientsEndpoint = GraphQLEndpoint::Both;
 
 /// serverStatus/VersionInfo.graphql
 inline constexpr std::string_view kVersionInfoDocument = R"gql(query VersionInfo {
@@ -14892,7 +13452,7 @@ inline constexpr std::string_view kSharedEnvPlansIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kSharedEnvPlansOperationName = "SharedEnvPlans";
-inline constexpr GraphQLEndpoint kSharedEnvPlansEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSharedEnvPlansEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kOrgFreeAppQuotaIsolatedDocument = R"gql(query OrgFreeAppQuota($orgId: BigInt!) {
   orgFreeAppQuota(orgId: $orgId) {
     orgId
@@ -14903,7 +13463,7 @@ inline constexpr std::string_view kOrgFreeAppQuotaIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kOrgFreeAppQuotaOperationName = "OrgFreeAppQuota";
-inline constexpr GraphQLEndpoint kOrgFreeAppQuotaEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgFreeAppQuotaEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppSharedSubscriptionIsolatedDocument = R"gql(query AppSharedSubscription($appId: BigInt!) {
   appSharedSubscription(appId: $appId) {
     appId
@@ -14915,7 +13475,7 @@ inline constexpr std::string_view kAppSharedSubscriptionIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kAppSharedSubscriptionOperationName = "AppSharedSubscription";
-inline constexpr GraphQLEndpoint kAppSharedSubscriptionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppSharedSubscriptionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kAppRuntimeStateIsolatedDocument = R"gql(query AppRuntimeState($appId: BigInt!) {
   appRuntimeState(appId: $appId) {
     appId
@@ -14930,7 +13490,7 @@ inline constexpr std::string_view kAppRuntimeStateIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kAppRuntimeStateOperationName = "AppRuntimeState";
-inline constexpr GraphQLEndpoint kAppRuntimeStateEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppRuntimeStateEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kOrgAutoBillingIsolatedDocument = R"gql(query OrgAutoBilling($orgId: BigInt!) {
   orgAutoBilling(orgId: $orgId) {
     orgId
@@ -14945,7 +13505,7 @@ inline constexpr std::string_view kOrgAutoBillingIsolatedDocument = R"gql(query 
   }
 })gql";
 inline constexpr std::string_view kOrgAutoBillingOperationName = "OrgAutoBilling";
-inline constexpr GraphQLEndpoint kOrgAutoBillingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgAutoBillingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kOrgPaymentMethodsIsolatedDocument = R"gql(query OrgPaymentMethods($orgId: BigInt!) {
   orgPaymentMethods(orgId: $orgId) {
     paymentMethodId
@@ -14957,7 +13517,7 @@ inline constexpr std::string_view kOrgPaymentMethodsIsolatedDocument = R"gql(que
   }
 })gql";
 inline constexpr std::string_view kOrgPaymentMethodsOperationName = "OrgPaymentMethods";
-inline constexpr GraphQLEndpoint kOrgPaymentMethodsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kOrgPaymentMethodsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kPublishAppToSharedIsolatedDocument = R"gql(mutation PublishAppToShared($appId: BigInt!, $planId: BigInt, $provider: PaymentProvider, $successUrl: String, $cancelUrl: String, $idempotencyKey: String) {
   publishAppToShared(
     appId: $appId
@@ -14980,7 +13540,7 @@ inline constexpr std::string_view kPublishAppToSharedIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kPublishAppToSharedOperationName = "PublishAppToShared";
-inline constexpr GraphQLEndpoint kPublishAppToSharedEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPublishAppToSharedEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kCancelSharedSubscriptionIsolatedDocument = R"gql(mutation CancelSharedSubscription($appId: BigInt!, $idempotencyKey: String) {
   cancelSharedSubscription(appId: $appId, idempotencyKey: $idempotencyKey) {
     appId
@@ -14992,7 +13552,7 @@ inline constexpr std::string_view kCancelSharedSubscriptionIsolatedDocument = R"
   }
 })gql";
 inline constexpr std::string_view kCancelSharedSubscriptionOperationName = "CancelSharedSubscription";
-inline constexpr GraphQLEndpoint kCancelSharedSubscriptionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kCancelSharedSubscriptionEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetAppSpendCapsIsolatedDocument = R"gql(mutation SetAppSpendCaps($appId: BigInt!, $hourlyLimitCents: BigInt, $dailyLimitCents: BigInt) {
   setAppSpendCaps(
     appId: $appId
@@ -15007,7 +13567,7 @@ inline constexpr std::string_view kSetAppSpendCapsIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kSetAppSpendCapsOperationName = "SetAppSpendCaps";
-inline constexpr GraphQLEndpoint kSetAppSpendCapsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetAppSpendCapsEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetAutoBillingIsolatedDocument = R"gql(mutation SetAutoBilling($orgId: BigInt!, $enabled: Boolean!, $limitCents: BigInt, $rechargeAmountCents: BigInt, $lowWaterThresholdCents: BigInt, $idempotencyKey: String) {
   setAutoBilling(
     orgId: $orgId
@@ -15026,7 +13586,7 @@ inline constexpr std::string_view kSetAutoBillingIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kSetAutoBillingOperationName = "SetAutoBilling";
-inline constexpr GraphQLEndpoint kSetAutoBillingEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetAutoBillingEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kSetupSharedPaymentMethodIsolatedDocument = R"gql(mutation SetupSharedPaymentMethod($orgId: BigInt!, $idempotencyKey: String) {
   setupSharedPaymentMethod(orgId: $orgId, idempotencyKey: $idempotencyKey) {
     externalCustomerId
@@ -15035,7 +13595,7 @@ inline constexpr std::string_view kSetupSharedPaymentMethodIsolatedDocument = R"
   }
 })gql";
 inline constexpr std::string_view kSetupSharedPaymentMethodOperationName = "SetupSharedPaymentMethod";
-inline constexpr GraphQLEndpoint kSetupSharedPaymentMethodEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetupSharedPaymentMethodEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kRemoveSharedPaymentMethodIsolatedDocument = R"gql(mutation RemoveSharedPaymentMethod($orgId: BigInt!, $paymentMethodId: BigInt!, $idempotencyKey: String) {
   removeSharedPaymentMethod(
     orgId: $orgId
@@ -15044,7 +13604,7 @@ inline constexpr std::string_view kRemoveSharedPaymentMethodIsolatedDocument = R
   )
 })gql";
 inline constexpr std::string_view kRemoveSharedPaymentMethodOperationName = "RemoveSharedPaymentMethod";
-inline constexpr GraphQLEndpoint kRemoveSharedPaymentMethodEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kRemoveSharedPaymentMethodEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "SharedEnvPlans") return kSharedEnvPlansIsolatedDocument;
@@ -15102,7 +13662,7 @@ inline constexpr std::string_view kDeleteUserAppStateIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kDeleteUserAppStateOperationName = "DeleteUserAppState";
-inline constexpr GraphQLEndpoint kDeleteUserAppStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteUserAppStateEndpoint = GraphQLEndpoint::Both;
 
 /// state/UpdateUserAppState.graphql
 inline constexpr std::string_view kUpdateUserAppStateDocument = R"gql(mutation UpdateUserAppState($input: CreateUserAppStateInput!) {
@@ -15124,7 +13684,7 @@ inline constexpr std::string_view kUpdateUserAppStateIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kUpdateUserAppStateOperationName = "UpdateUserAppState";
-inline constexpr GraphQLEndpoint kUpdateUserAppStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateUserAppStateEndpoint = GraphQLEndpoint::Both;
 
 /// state/UserAppState.graphql
 inline constexpr std::string_view kUserAppStateDocument = R"gql(query UserAppState($appId: BigInt!) {
@@ -15146,7 +13706,7 @@ inline constexpr std::string_view kUserAppStateIsolatedDocument = R"gql(query Us
   }
 })gql";
 inline constexpr std::string_view kUserAppStateOperationName = "UserAppState";
-inline constexpr GraphQLEndpoint kUserAppStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUserAppStateEndpoint = GraphQLEndpoint::Both;
 
 /// state/UserAppStates.graphql
 inline constexpr std::string_view kUserAppStatesDocument = R"gql(query UserAppStates {
@@ -15168,7 +13728,7 @@ inline constexpr std::string_view kUserAppStatesIsolatedDocument = R"gql(query U
   }
 })gql";
 inline constexpr std::string_view kUserAppStatesOperationName = "UserAppStates";
-inline constexpr GraphQLEndpoint kUserAppStatesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUserAppStatesEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "DeleteUserAppState") return kDeleteUserAppStateIsolatedDocument;
@@ -15224,7 +13784,7 @@ inline constexpr std::string_view kAddTeamMemberIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kAddTeamMemberOperationName = "AddTeamMember";
-inline constexpr GraphQLEndpoint kAddTeamMemberEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kAddTeamMemberEndpoint = GraphQLEndpoint::Both;
 
 /// teams/CreateTeam.graphql
 inline constexpr std::string_view kCreateTeamDocument = R"gql(mutation CreateTeam($input: CreateTeamInput!) {
@@ -15256,7 +13816,7 @@ inline constexpr std::string_view kCreateTeamIsolatedDocument = R"gql(mutation C
   }
 })gql";
 inline constexpr std::string_view kCreateTeamOperationName = "CreateTeam";
-inline constexpr GraphQLEndpoint kCreateTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/CreateTeamRole.graphql
 inline constexpr std::string_view kCreateTeamRoleDocument = R"gql(mutation CreateTeamRole($input: CreateGroupRoleInput!) {
@@ -15282,7 +13842,7 @@ inline constexpr std::string_view kCreateTeamRoleIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kCreateTeamRoleOperationName = "CreateTeamRole";
-inline constexpr GraphQLEndpoint kCreateTeamRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kCreateTeamRoleEndpoint = GraphQLEndpoint::Both;
 
 /// teams/DeleteTeam.graphql
 inline constexpr std::string_view kDeleteTeamDocument = R"gql(mutation DeleteTeam($groupId: BigInt!, $idempotencyKey: String) {
@@ -15292,7 +13852,7 @@ inline constexpr std::string_view kDeleteTeamIsolatedDocument = R"gql(mutation D
   deleteTeam(groupId: $groupId, idempotencyKey: $idempotencyKey)
 })gql";
 inline constexpr std::string_view kDeleteTeamOperationName = "DeleteTeam";
-inline constexpr GraphQLEndpoint kDeleteTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/DeleteTeamRole.graphql
 inline constexpr std::string_view kDeleteTeamRoleDocument = R"gql(mutation DeleteTeamRole($groupRoleId: BigInt!) {
@@ -15302,7 +13862,7 @@ inline constexpr std::string_view kDeleteTeamRoleIsolatedDocument = R"gql(mutati
   deleteTeamRole(groupRoleId: $groupRoleId)
 })gql";
 inline constexpr std::string_view kDeleteTeamRoleOperationName = "DeleteTeamRole";
-inline constexpr GraphQLEndpoint kDeleteTeamRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kDeleteTeamRoleEndpoint = GraphQLEndpoint::Both;
 
 /// teams/JoinTeam.graphql
 inline constexpr std::string_view kJoinTeamDocument = R"gql(mutation JoinTeam($groupId: BigInt!) {
@@ -15338,7 +13898,7 @@ inline constexpr std::string_view kJoinTeamIsolatedDocument = R"gql(mutation Joi
   }
 })gql";
 inline constexpr std::string_view kJoinTeamOperationName = "JoinTeam";
-inline constexpr GraphQLEndpoint kJoinTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kJoinTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/LeaveTeam.graphql
 inline constexpr std::string_view kLeaveTeamDocument = R"gql(mutation LeaveTeam($groupId: BigInt!, $idempotencyKey: String) {
@@ -15348,7 +13908,7 @@ inline constexpr std::string_view kLeaveTeamIsolatedDocument = R"gql(mutation Le
   leaveTeam(groupId: $groupId, idempotencyKey: $idempotencyKey)
 })gql";
 inline constexpr std::string_view kLeaveTeamOperationName = "LeaveTeam";
-inline constexpr GraphQLEndpoint kLeaveTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kLeaveTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/MyTeams.graphql
 inline constexpr std::string_view kMyTeamsDocument = R"gql(query MyTeams($appId: BigInt!) {
@@ -15402,7 +13962,7 @@ inline constexpr std::string_view kMyTeamsIsolatedDocument = R"gql(query MyTeams
   }
 })gql";
 inline constexpr std::string_view kMyTeamsOperationName = "MyTeams";
-inline constexpr GraphQLEndpoint kMyTeamsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kMyTeamsEndpoint = GraphQLEndpoint::Both;
 
 /// teams/RemoveTeamMember.graphql
 inline constexpr std::string_view kRemoveTeamMemberDocument = R"gql(mutation RemoveTeamMember($groupId: BigInt!, $userId: BigInt!) {
@@ -15412,7 +13972,7 @@ inline constexpr std::string_view kRemoveTeamMemberIsolatedDocument = R"gql(muta
   removeTeamMember(groupId: $groupId, userId: $userId)
 })gql";
 inline constexpr std::string_view kRemoveTeamMemberOperationName = "RemoveTeamMember";
-inline constexpr GraphQLEndpoint kRemoveTeamMemberEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRemoveTeamMemberEndpoint = GraphQLEndpoint::Both;
 
 /// teams/RequestToJoinTeam.graphql
 inline constexpr std::string_view kRequestToJoinTeamDocument = R"gql(mutation RequestToJoinTeam($groupId: BigInt!) {
@@ -15448,7 +14008,7 @@ inline constexpr std::string_view kRequestToJoinTeamIsolatedDocument = R"gql(mut
   }
 })gql";
 inline constexpr std::string_view kRequestToJoinTeamOperationName = "RequestToJoinTeam";
-inline constexpr GraphQLEndpoint kRequestToJoinTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRequestToJoinTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/SetTeamMemberRoles.graphql
 inline constexpr std::string_view kSetTeamMemberRolesDocument = R"gql(mutation SetTeamMemberRoles($input: SetMemberRolesInput!) {
@@ -15484,7 +14044,7 @@ inline constexpr std::string_view kSetTeamMemberRolesIsolatedDocument = R"gql(mu
   }
 })gql";
 inline constexpr std::string_view kSetTeamMemberRolesOperationName = "SetTeamMemberRoles";
-inline constexpr GraphQLEndpoint kSetTeamMemberRolesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kSetTeamMemberRolesEndpoint = GraphQLEndpoint::Both;
 
 /// teams/SetTeamPolicy.graphql
 inline constexpr std::string_view kSetTeamPolicyDocument = R"gql(mutation SetTeamPolicy($input: SetTeamPolicyInput!) {
@@ -15508,7 +14068,7 @@ inline constexpr std::string_view kSetTeamPolicyIsolatedDocument = R"gql(mutatio
   }
 })gql";
 inline constexpr std::string_view kSetTeamPolicyOperationName = "SetTeamPolicy";
-inline constexpr GraphQLEndpoint kSetTeamPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kSetTeamPolicyEndpoint = GraphQLEndpoint::Both;
 
 /// teams/Team.graphql
 inline constexpr std::string_view kTeamDocument = R"gql(query Team($groupId: BigInt!) {
@@ -15540,7 +14100,7 @@ inline constexpr std::string_view kTeamIsolatedDocument = R"gql(query Team($grou
   }
 })gql";
 inline constexpr std::string_view kTeamOperationName = "Team";
-inline constexpr GraphQLEndpoint kTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/TeamMembers.graphql
 inline constexpr std::string_view kTeamMembersDocument = R"gql(query TeamMembers($groupId: BigInt!) {
@@ -15576,7 +14136,7 @@ inline constexpr std::string_view kTeamMembersIsolatedDocument = R"gql(query Tea
   }
 })gql";
 inline constexpr std::string_view kTeamMembersOperationName = "TeamMembers";
-inline constexpr GraphQLEndpoint kTeamMembersEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeamMembersEndpoint = GraphQLEndpoint::Both;
 
 /// teams/TeamPolicy.graphql
 inline constexpr std::string_view kTeamPolicyDocument = R"gql(query TeamPolicy($appId: BigInt!) {
@@ -15600,7 +14160,7 @@ inline constexpr std::string_view kTeamPolicyIsolatedDocument = R"gql(query Team
   }
 })gql";
 inline constexpr std::string_view kTeamPolicyOperationName = "TeamPolicy";
-inline constexpr GraphQLEndpoint kTeamPolicyEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeamPolicyEndpoint = GraphQLEndpoint::Both;
 
 /// teams/TeamRoles.graphql
 inline constexpr std::string_view kTeamRolesDocument = R"gql(query TeamRoles($groupId: BigInt!) {
@@ -15626,7 +14186,7 @@ inline constexpr std::string_view kTeamRolesIsolatedDocument = R"gql(query TeamR
   }
 })gql";
 inline constexpr std::string_view kTeamRolesOperationName = "TeamRoles";
-inline constexpr GraphQLEndpoint kTeamRolesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeamRolesEndpoint = GraphQLEndpoint::Both;
 
 /// teams/Teams.graphql
 inline constexpr std::string_view kTeamsDocument = R"gql(query Teams($appId: BigInt!) {
@@ -15658,7 +14218,7 @@ inline constexpr std::string_view kTeamsIsolatedDocument = R"gql(query Teams($ap
   }
 })gql";
 inline constexpr std::string_view kTeamsOperationName = "Teams";
-inline constexpr GraphQLEndpoint kTeamsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeamsEndpoint = GraphQLEndpoint::Both;
 
 /// teams/UpdateTeam.graphql
 inline constexpr std::string_view kUpdateTeamDocument = R"gql(mutation UpdateTeam($input: UpdateTeamInput!) {
@@ -15690,7 +14250,7 @@ inline constexpr std::string_view kUpdateTeamIsolatedDocument = R"gql(mutation U
   }
 })gql";
 inline constexpr std::string_view kUpdateTeamOperationName = "UpdateTeam";
-inline constexpr GraphQLEndpoint kUpdateTeamEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateTeamEndpoint = GraphQLEndpoint::Both;
 
 /// teams/UpdateTeamRole.graphql
 inline constexpr std::string_view kUpdateTeamRoleDocument = R"gql(mutation UpdateTeamRole($input: UpdateGroupRoleInput!) {
@@ -15716,7 +14276,7 @@ inline constexpr std::string_view kUpdateTeamRoleIsolatedDocument = R"gql(mutati
   }
 })gql";
 inline constexpr std::string_view kUpdateTeamRoleOperationName = "UpdateTeamRole";
-inline constexpr GraphQLEndpoint kUpdateTeamRoleEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateTeamRoleEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "AddTeamMember") return kAddTeamMemberIsolatedDocument;
@@ -15782,7 +14342,7 @@ inline constexpr std::string_view kTeleportRequestIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kTeleportRequestOperationName = "TeleportRequest";
-inline constexpr GraphQLEndpoint kTeleportRequestEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kTeleportRequestEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "TeleportRequest") return kTeleportRequestIsolatedDocument;
@@ -15826,7 +14386,7 @@ inline constexpr std::string_view kAppGraphqlOperationsIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kAppGraphqlOperationsOperationName = "AppGraphqlOperations";
-inline constexpr GraphQLEndpoint kAppGraphqlOperationsEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppGraphqlOperationsEndpoint = GraphQLEndpoint::Both;
 
 /// usage/AppUsageSummary.graphql
 inline constexpr std::string_view kAppUsageSummaryDocument = R"gql(query AppUsageSummary(
@@ -15881,157 +14441,7 @@ inline constexpr std::string_view kAppUsageSummaryIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kAppUsageSummaryOperationName = "AppUsageSummary";
-inline constexpr GraphQLEndpoint kAppUsageSummaryEndpoint = GraphQLEndpoint::Management;
-
-/// usage/EnvironmentUsageByApp.graphql
-inline constexpr std::string_view kEnvironmentUsageByAppDocument = R"gql(query EnvironmentUsageByApp(
-  $orgId: BigInt!
-  $environmentSlug: String!
-  $since: DateTime!
-) {
-  environmentUsageByApp(
-    orgId: $orgId
-    environmentSlug: $environmentSlug
-    since: $since
-  ) {
-    appId
-    appSlug
-    appName
-    replicationSendBytes
-    replicationRecvBytes
-    graphqlSendBytes
-    graphqlRecvBytes
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentUsageByAppIsolatedDocument = R"gql(query EnvironmentUsageByApp($orgId: BigInt!, $environmentSlug: String!, $since: DateTime!) {
-  environmentUsageByApp(
-    orgId: $orgId
-    environmentSlug: $environmentSlug
-    since: $since
-  ) {
-    appId
-    appSlug
-    appName
-    replicationSendBytes
-    replicationRecvBytes
-    graphqlSendBytes
-    graphqlRecvBytes
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentUsageByAppOperationName = "EnvironmentUsageByApp";
-inline constexpr GraphQLEndpoint kEnvironmentUsageByAppEndpoint = GraphQLEndpoint::Management;
-
-/// usage/EnvironmentUsageSummary.graphql
-inline constexpr std::string_view kEnvironmentUsageSummaryDocument = R"gql(query EnvironmentUsageSummary(
-  $orgId: BigInt!
-  $environmentSlug: String!
-  $since: DateTime!
-) {
-  environmentUsageSummary(
-    orgId: $orgId
-    environmentSlug: $environmentSlug
-    since: $since
-  ) {
-    environmentSlug
-    environmentId
-    orgId
-    replication {
-      minute
-      recvBytes
-      sendBytes
-      recvMsgs
-      sendMsgs
-    }
-    graphql {
-      minute
-      recvBytes
-      sendBytes
-    }
-    replicationRates {
-      peakSendMsgsPerSec
-      peakSendMbitPerSec
-      avgSendMsgsPerSec
-      avgSendMbitPerSec
-      sampleMinutes
-    }
-    buddyLive {
-      serverId
-      clientSendMsgsPerSec
-      clientSendMbitPerSec
-      clientRecvMsgsPerSec
-      clientRecvMbitPerSec
-      clients
-      updatedAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentUsageSummaryIsolatedDocument = R"gql(query EnvironmentUsageSummary($orgId: BigInt!, $environmentSlug: String!, $since: DateTime!) {
-  environmentUsageSummary(
-    orgId: $orgId
-    environmentSlug: $environmentSlug
-    since: $since
-  ) {
-    environmentSlug
-    environmentId
-    orgId
-    replication {
-      minute
-      recvBytes
-      sendBytes
-      recvMsgs
-      sendMsgs
-    }
-    graphql {
-      minute
-      recvBytes
-      sendBytes
-    }
-    replicationRates {
-      peakSendMsgsPerSec
-      peakSendMbitPerSec
-      avgSendMsgsPerSec
-      avgSendMbitPerSec
-      sampleMinutes
-    }
-    buddyLive {
-      serverId
-      clientSendMsgsPerSec
-      clientSendMbitPerSec
-      clientRecvMsgsPerSec
-      clientRecvMbitPerSec
-      clients
-      updatedAt
-    }
-  }
-})gql";
-inline constexpr std::string_view kEnvironmentUsageSummaryOperationName = "EnvironmentUsageSummary";
-inline constexpr GraphQLEndpoint kEnvironmentUsageSummaryEndpoint = GraphQLEndpoint::Management;
-
-/// usage/OrgUsageByEnvironment.graphql
-inline constexpr std::string_view kOrgUsageByEnvironmentDocument = R"gql(query OrgUsageByEnvironment($orgId: BigInt!, $since: DateTime!) {
-  orgUsageByEnvironment(orgId: $orgId, since: $since) {
-    environmentId
-    environmentSlug
-    displayName
-    replicationSendBytes
-    replicationRecvBytes
-    graphqlSendBytes
-    graphqlRecvBytes
-  }
-})gql";
-inline constexpr std::string_view kOrgUsageByEnvironmentIsolatedDocument = R"gql(query OrgUsageByEnvironment($orgId: BigInt!, $since: DateTime!) {
-  orgUsageByEnvironment(orgId: $orgId, since: $since) {
-    environmentId
-    environmentSlug
-    displayName
-    replicationSendBytes
-    replicationRecvBytes
-    graphqlSendBytes
-    graphqlRecvBytes
-  }
-})gql";
-inline constexpr std::string_view kOrgUsageByEnvironmentOperationName = "OrgUsageByEnvironment";
-inline constexpr GraphQLEndpoint kOrgUsageByEnvironmentEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kAppUsageSummaryEndpoint = GraphQLEndpoint::Both;
 
 /// usage/PlayerPulse.graphql
 inline constexpr std::string_view kPlayerPulseDocument = R"gql(query PlayerPulse($orgId: BigInt!) {
@@ -16055,14 +14465,11 @@ inline constexpr std::string_view kPlayerPulseIsolatedDocument = R"gql(query Pla
   }
 })gql";
 inline constexpr std::string_view kPlayerPulseOperationName = "PlayerPulse";
-inline constexpr GraphQLEndpoint kPlayerPulseEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kPlayerPulseEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "AppGraphqlOperations") return kAppGraphqlOperationsIsolatedDocument;
   if (operationName == "AppUsageSummary") return kAppUsageSummaryIsolatedDocument;
-  if (operationName == "EnvironmentUsageByApp") return kEnvironmentUsageByAppIsolatedDocument;
-  if (operationName == "EnvironmentUsageSummary") return kEnvironmentUsageSummaryIsolatedDocument;
-  if (operationName == "OrgUsageByEnvironment") return kOrgUsageByEnvironmentIsolatedDocument;
   if (operationName == "PlayerPulse") return kPlayerPulseIsolatedDocument;
   return {};
 }
@@ -16070,9 +14477,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
   if (operationName == "AppGraphqlOperations") return kAppGraphqlOperationsEndpoint;
   if (operationName == "AppUsageSummary") return kAppUsageSummaryEndpoint;
-  if (operationName == "EnvironmentUsageByApp") return kEnvironmentUsageByAppEndpoint;
-  if (operationName == "EnvironmentUsageSummary") return kEnvironmentUsageSummaryEndpoint;
-  if (operationName == "OrgUsageByEnvironment") return kOrgUsageByEnvironmentEndpoint;
   if (operationName == "PlayerPulse") return kPlayerPulseEndpoint;
   return GraphQLEndpoint::Unknown;
 }
@@ -16189,7 +14593,7 @@ inline constexpr std::string_view kSetOperatorIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kSetOperatorOperationName = "SetOperator";
-inline constexpr GraphQLEndpoint kSetOperatorEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kSetOperatorEndpoint = GraphQLEndpoint::Both;
 
 /// users/SetSuperAdmin.graphql
 inline constexpr std::string_view kSetSuperAdminDocument = R"gql(mutation SetSuperAdmin($userId: BigInt!, $value: Boolean!) {
@@ -16243,7 +14647,7 @@ inline constexpr std::string_view kUpdateUserStateIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kUpdateUserStateOperationName = "UpdateUserState";
-inline constexpr GraphQLEndpoint kUpdateUserStateEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateUserStateEndpoint = GraphQLEndpoint::Both;
 
 /// users/UpdateUserType.graphql
 inline constexpr std::string_view kUpdateUserTypeDocument = R"gql(mutation UpdateUserType($userId: BigInt!, $value: String!) {
@@ -16406,7 +14810,7 @@ inline constexpr std::string_view kUsersConnectionIsolatedDocument = R"gql(query
   }
 })gql";
 inline constexpr std::string_view kUsersConnectionOperationName = "UsersConnection";
-inline constexpr GraphQLEndpoint kUsersConnectionEndpoint = GraphQLEndpoint::Management;
+inline constexpr GraphQLEndpoint kUsersConnectionEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "DeleteMyAccount") return kDeleteMyAccountIsolatedDocument;
@@ -16510,7 +14914,7 @@ inline constexpr std::string_view kListVoxelUpdatesByDistanceIsolatedDocument = 
   }
 })gql";
 inline constexpr std::string_view kListVoxelUpdatesByDistanceOperationName = "ListVoxelUpdatesByDistance";
-inline constexpr GraphQLEndpoint kListVoxelUpdatesByDistanceEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kListVoxelUpdatesByDistanceEndpoint = GraphQLEndpoint::Both;
 
 /// voxels/ListVoxels.graphql
 inline constexpr std::string_view kListVoxelsDocument = R"gql(query ListVoxels($input: ListVoxelsInput!) {
@@ -16554,7 +14958,7 @@ inline constexpr std::string_view kListVoxelsIsolatedDocument = R"gql(query List
   }
 })gql";
 inline constexpr std::string_view kListVoxelsOperationName = "ListVoxels";
-inline constexpr GraphQLEndpoint kListVoxelsEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kListVoxelsEndpoint = GraphQLEndpoint::Both;
 
 /// voxels/RollbackVoxelUpdates.graphql
 inline constexpr std::string_view kRollbackVoxelUpdatesDocument = R"gql(mutation RollbackVoxelUpdates($input: RollbackVoxelUpdatesInput!) {
@@ -16598,7 +15002,7 @@ inline constexpr std::string_view kRollbackVoxelUpdatesIsolatedDocument = R"gql(
   }
 })gql";
 inline constexpr std::string_view kRollbackVoxelUpdatesOperationName = "RollbackVoxelUpdates";
-inline constexpr GraphQLEndpoint kRollbackVoxelUpdatesEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kRollbackVoxelUpdatesEndpoint = GraphQLEndpoint::Both;
 
 /// voxels/UpdateVoxel.graphql
 inline constexpr std::string_view kUpdateVoxelDocument = R"gql(mutation UpdateVoxel($input: UpdateVoxelInput!) {
@@ -16642,7 +15046,7 @@ inline constexpr std::string_view kUpdateVoxelIsolatedDocument = R"gql(mutation 
   }
 })gql";
 inline constexpr std::string_view kUpdateVoxelOperationName = "UpdateVoxel";
-inline constexpr GraphQLEndpoint kUpdateVoxelEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kUpdateVoxelEndpoint = GraphQLEndpoint::Both;
 
 /// voxels/VoxelUpdateHistory.graphql
 inline constexpr std::string_view kVoxelUpdateHistoryDocument = R"gql(query VoxelUpdateHistory(
@@ -16754,7 +15158,7 @@ inline constexpr std::string_view kVoxelUpdateHistoryIsolatedDocument = R"gql(qu
   }
 })gql";
 inline constexpr std::string_view kVoxelUpdateHistoryOperationName = "VoxelUpdateHistory";
-inline constexpr GraphQLEndpoint kVoxelUpdateHistoryEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kVoxelUpdateHistoryEndpoint = GraphQLEndpoint::Both;
 inline constexpr std::string_view kVoxelUpdateHistoryConnectionIsolatedDocument = R"gql(query VoxelUpdateHistoryConnection($appId: BigInt!, $userId: BigInt, $from: DateTime, $to: DateTime, $first: Int, $after: String) {
   voxelUpdateHistoryConnection(
     appId: $appId
@@ -16795,7 +15199,7 @@ inline constexpr std::string_view kVoxelUpdateHistoryConnectionIsolatedDocument 
   }
 })gql";
 inline constexpr std::string_view kVoxelUpdateHistoryConnectionOperationName = "VoxelUpdateHistoryConnection";
-inline constexpr GraphQLEndpoint kVoxelUpdateHistoryConnectionEndpoint = GraphQLEndpoint::Game;
+inline constexpr GraphQLEndpoint kVoxelUpdateHistoryConnectionEndpoint = GraphQLEndpoint::Both;
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ListVoxelUpdatesByDistance") return kListVoxelUpdatesByDistanceIsolatedDocument;

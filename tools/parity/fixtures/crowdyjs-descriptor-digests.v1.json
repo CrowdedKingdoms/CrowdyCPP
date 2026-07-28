@@ -33,7 +33,7 @@
     "workspace.file.read@1.0.0": "sha256:34e394ca9165390a08a44ff4fbcc6afa91bdae1c98f47b87110c4032228898db"
   },
   "crowdyJs": {
-    "version": "12.2.0",
-    "commit": "0c7081477183b2b4fdbe09dc091086a231ba2979"
+    "version": "13.0.0",
+    "commit": "578832c7407cabf1feffe8adaeb231f8f928e477"
   }
 }

@@ -251,7 +251,7 @@ class CrowdyClient {
   replication::ReplicationClient& replication();
 
   // ----- Privileged surfaces ---------------------------------------------------
-  /// Studio-admin surface (orgs, apps, billing, environments, ...). Drive
+  /// Studio-admin surface (orgs, apps, billing, usage, ...). Drive
   /// with an org/admin token from a trusted context.
   domains::AdminAPI& admin() { return *admin_; }
   /// Operator control-plane surface (requires is_operator).

@@ -76,17 +76,9 @@ int runAll() {
   graphql::Json budgetOne = own.admin().billing().appBudget(orgId, suiteAppId);
   E2E_CHECK(bigIntStr(budgetOne["monthlyLimitCents"]) == "250000");
 
-  E2E_SUBTEST("billing tier catalogs (buddy/graphql/postgres)");
-  graphql::Json buddyTiers = own.admin().billing().buddyBillingTiers();
-  E2E_CHECK(buddyTiers.isArray());
-  buddyTiers.forEach([&](graphql::Json t) {
-    E2E_CHECK(t["tierLevel"].asInt64() >= 0);
-    E2E_CHECK(!t["currency"].asString().empty());
-  });
-  graphql::Json gqlTiers = own.admin().billing().graphqlBillingTiers();
-  E2E_CHECK(gqlTiers.isArray());
-  graphql::Json pgTiers = own.admin().billing().postgresBillingTiers();
-  E2E_CHECK(pgTiers.isArray());
+  // NOTE (unified galaxy API, v13): the per-environment capacity billing-tier
+  // catalogs (buddy/graphql/postgres) were retired with dedicated customer
+  // environments.
 
   E2E_SUBTEST("quotas: set -> effective -> forOrg/forApp -> delete");
   graphql::JVal quotaInput;

@@ -1,5 +1,34 @@
 # CrowdyCPP migration notes
 
+## 0.17.0 unified galaxy API (breaking)
+
+Tracks CrowdyJS 13.0.0: the platform merged the Management and Game APIs into
+ONE server on the shared galaxy database. The committed schema snapshots are
+resynced from the unified SDL (`schema.management.gql` and `schema.game.gql`
+are now the same schema), and the surfaces the platform retired are removed:
+
+- **`client.admin().environments()` removed.** Dedicated customer
+  environments no longer exist; every app runs on the shared platform, and
+  infrastructure provisioning moved to the separate infra-control-plane
+  service. The `EnvironmentsAPI` class, its accessor, and the
+  `operations/environments/` documents are gone.
+- **`client.operator_()` reduced to the platform compute ceilings**
+  (`computePlatformCeilings` / `setComputePlatformCeilings`). Environments,
+  change orders, secrets, releases, audit, and operator-user listing moved to
+  the infra-control-plane service.
+- **`client.admin().usage()`**: the per-environment rollups
+  (`environmentSummary` / `environmentByApp` / `orgByEnvironment`) are gone;
+  `appSummary`, `appGraphqlOperations`, `playerPulse`, and the org/app
+  projections stay.
+- **`client.admin().billing()`**: the per-environment capacity tier catalogs
+  (`buddyBillingTiers` / `graphqlBillingTiers` / `postgresBillingTiers`) are
+  gone; wallets, budgets, and transactions stay.
+- **Endpoints**: `managementUrl` and `httpUrl` may now be the same origin;
+  configuring both remains supported and the two-token model is unchanged.
+
+Everything game-client, replication, kit, session, Crowdy Studio, agent, and
+player-host is unchanged — the merged schema is a superset for those surfaces.
+
 ## 0.16.0 native Crowdy Studio integration
 
 0.16.0 changes the public source and installed-library ABI. CrowdyCPP remains

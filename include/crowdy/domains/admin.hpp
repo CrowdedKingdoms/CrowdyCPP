@@ -545,28 +545,9 @@ class BillingAPI : public detail::AdminDomain {
     vars["monthlyLimitCents"] = monthlyLimitCents;
     execUnwrapAsync(gen::billing::kSetAppBudgetDocument, vars, {}, std::move(cb));
   }
-  graphql::Json buddyBillingTiers() const {
-    return execUnwrap(gen::billing::documentFor("BuddyBillingTiers"), graphql::JVal(), "BuddyBillingTiers");
-  }
-  void buddyBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::documentFor("BuddyBillingTiers"), graphql::JVal(), "BuddyBillingTiers",
-                    std::move(cb));
-  }
-  graphql::Json graphqlBillingTiers() const {
-    return execUnwrap(gen::billing::documentFor("GraphqlBillingTiers"), graphql::JVal(), "GraphqlBillingTiers");
-  }
-  void graphqlBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::documentFor("GraphqlBillingTiers"), graphql::JVal(), "GraphqlBillingTiers",
-                    std::move(cb));
-  }
-  graphql::Json postgresBillingTiers() const {
-    return execUnwrap(gen::billing::documentFor("PostgresBillingTiers"), graphql::JVal(),
-                      "PostgresBillingTiers");
-  }
-  void postgresBillingTiersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::billing::documentFor("PostgresBillingTiers"), graphql::JVal(), "PostgresBillingTiers",
-                    std::move(cb));
-  }
+  // NOTE (unified galaxy API, v13): the per-environment capacity billing-tier
+  // catalogs (buddy/graphql/postgres) were retired with dedicated customer
+  // environments.
 };
 
 /// client.admin().payments() — checkouts (wallet top-ups, plan purchases).
@@ -700,144 +681,10 @@ class QuotasAPI : public detail::AdminDomain {
   }
 };
 
-/// client.admin().environments() — dedicated environments.
-class EnvironmentsAPI : public detail::AdminDomain {
- public:
-  using AdminDomain::AdminDomain;
-  graphql::Json datacenters() const {
-    return execUnwrap(gen::environments::kEnvironmentDatacentersDocument);
-  }
-  void datacentersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentDatacentersDocument, graphql::JVal(), {},
-                    std::move(cb));
-  }
-  graphql::Json flavors(std::string_view datacenter) const {
-    return execUnwrap(gen::environments::kEnvironmentFlavorsDocument,
-                      one("datacenter", graphql::JVal(datacenter)));
-  }
-  void flavorsAsync(std::string_view datacenter, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentFlavorsDocument,
-                    one("datacenter", graphql::JVal(datacenter)), {}, std::move(cb));
-  }
-  graphql::Json versions() const {
-    return execUnwrap(gen::environments::kEnvironmentVersionsDocument);
-  }
-  void versionsAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentVersionsDocument, graphql::JVal(), {},
-                    std::move(cb));
-  }
-  graphql::Json forwardVersions(std::string_view orgId, std::string_view slug) const {
-    return execUnwrap(gen::environments::kEnvironmentForwardVersionsDocument,
-                      two("orgId", graphql::JVal(orgId), "slug", graphql::JVal(slug)));
-  }
-  void forwardVersionsAsync(std::string_view orgId, std::string_view slug,
-                            graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentForwardVersionsDocument,
-                    two("orgId", graphql::JVal(orgId), "slug", graphql::JVal(slug)), {},
-                    std::move(cb));
-  }
-  graphql::Json quote(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kEnvironmentQuoteDocument, one("input", input));
-  }
-  void quoteAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentQuoteDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json forOrg(std::string_view orgId) const {
-    return execUnwrap(gen::environments::kOrgEnvironmentsDocument,
-                      one("orgId", graphql::JVal(orgId)));
-  }
-  void forOrgAsync(std::string_view orgId, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kOrgEnvironmentsDocument, one("orgId", graphql::JVal(orgId)),
-                    {}, std::move(cb));
-  }
-  graphql::Json get(std::string_view orgId, std::string_view slug) const {
-    return execUnwrap(gen::environments::kOrgEnvironmentDocument,
-                      two("orgId", graphql::JVal(orgId), "slug", graphql::JVal(slug)));
-  }
-  void getAsync(std::string_view orgId, std::string_view slug,
-                graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kOrgEnvironmentDocument,
-                    two("orgId", graphql::JVal(orgId), "slug", graphql::JVal(slug)), {},
-                    std::move(cb));
-  }
-  graphql::Json create(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kCreateEnvironmentDocument, one("input", input));
-  }
-  void createAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kCreateEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  /// DRY RUN of redeploy(): component version diffs, schema apply/skip and
-  /// the pipeline tasks a redeploy would run — read-only, no change order.
-  /// Would-fail conditions come back in `blockers`. Needs view_environments.
-  graphql::Json redeployPlan(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kEnvironmentRedeployPlanDocument, one("input", input));
-  }
-  void redeployPlanAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kEnvironmentRedeployPlanDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json redeploy(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kRedeployEnvironmentDocument, one("input", input));
-  }
-  void redeployAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kRedeployEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json restartServices(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kRestartEnvironmentServicesDocument, one("input", input));
-  }
-  void restartServicesAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kRestartEnvironmentServicesDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json resume(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kResumeEnvironmentDocument, one("input", input));
-  }
-  void resumeAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kResumeEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json updateScaling(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kUpdateEnvironmentScalingDocument, one("input", input));
-  }
-  void updateScalingAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kUpdateEnvironmentScalingDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  graphql::Json updateBillingTiers(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kUpdateEnvironmentBillingTiersDocument,
-                      one("input", input));
-  }
-  void updateBillingTiersAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kUpdateEnvironmentBillingTiersDocument, one("input", input),
-                    {}, std::move(cb));
-  }
-  graphql::Json linkApp(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kLinkAppToEnvironmentDocument, one("input", input));
-  }
-  void linkAppAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kLinkAppToEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  /// Destructive.
-  graphql::Json destroy(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kDestroyEnvironmentDocument, one("input", input));
-  }
-  void destroyAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kDestroyEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-  /// Destructive and unrecoverable.
-  graphql::Json purge(const graphql::JVal& input) const {
-    return execUnwrap(gen::environments::kPurgeEnvironmentDocument, one("input", input));
-  }
-  void purgeAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::environments::kPurgeEnvironmentDocument, one("input", input), {},
-                    std::move(cb));
-  }
-};
+// NOTE (unified galaxy API, v13): client.admin().environments() (dedicated
+// customer environments) was removed — every app runs on the shared platform,
+// and infrastructure provisioning moved to the separate infra-control-plane
+// service.
 
 /// client.admin().usage() — replication + GraphQL usage reporting.
 class UsageAPI : public detail::AdminDomain {
@@ -855,28 +702,9 @@ class UsageAPI : public detail::AdminDomain {
   void appGraphqlOperationsAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
     execUnwrapAsync(gen::usage::kAppGraphqlOperationsDocument, vars, {}, std::move(cb));
   }
-  graphql::Json environmentSummary(const graphql::JVal& vars) const {
-    return execUnwrap(gen::usage::kEnvironmentUsageSummaryDocument, vars);
-  }
-  void environmentSummaryAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::usage::kEnvironmentUsageSummaryDocument, vars, {}, std::move(cb));
-  }
-  graphql::Json environmentByApp(const graphql::JVal& vars) const {
-    return execUnwrap(gen::usage::kEnvironmentUsageByAppDocument, vars);
-  }
-  void environmentByAppAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::usage::kEnvironmentUsageByAppDocument, vars, {}, std::move(cb));
-  }
-  graphql::Json orgByEnvironment(std::string_view orgId, std::string_view sinceIso) const {
-    return execUnwrap(gen::usage::kOrgUsageByEnvironmentDocument,
-                      two("orgId", graphql::JVal(orgId), "since", graphql::JVal(sinceIso)));
-  }
-  void orgByEnvironmentAsync(std::string_view orgId, std::string_view sinceIso,
-                             graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::usage::kOrgUsageByEnvironmentDocument,
-                    two("orgId", graphql::JVal(orgId), "since", graphql::JVal(sinceIso)), {},
-                    std::move(cb));
-  }
+  // NOTE (unified galaxy API, v13): the per-environment usage rollups
+  // (environmentSummary / environmentByApp / orgByEnvironment) were retired
+  // with dedicated customer environments; usage is org/app-scoped.
   graphql::Json playerPulse(std::string_view orgId) const {
     return execUnwrap(gen::usage::kPlayerPulseDocument, one("orgId", graphql::JVal(orgId)));
   }
@@ -1098,7 +926,6 @@ class AdminAPI {
         billing_(management),
         payments_(management),
         quotas_(management),
-        environments_(management),
         usage_(management),
         sharedEnvironment_(management),
         grids_(gameApps) {}
@@ -1109,7 +936,6 @@ class AdminAPI {
   BillingAPI& billing() { return billing_; }
   PaymentsAPI& payments() { return payments_; }
   QuotasAPI& quotas() { return quotas_; }
-  EnvironmentsAPI& environments() { return environments_; }
   UsageAPI& usage() { return usage_; }
   SharedEnvironmentAPI& sharedEnvironment() { return sharedEnvironment_; }
   /// App grids + grid runtime-permission administration (same instance as
@@ -1123,7 +949,6 @@ class AdminAPI {
   BillingAPI billing_;
   PaymentsAPI payments_;
   QuotasAPI quotas_;
-  EnvironmentsAPI environments_;
   UsageAPI usage_;
   SharedEnvironmentAPI sharedEnvironment_;
   GameAppsAPI* grids_;

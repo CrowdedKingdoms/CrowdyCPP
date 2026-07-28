@@ -1306,9 +1306,9 @@ void testSharedStudioHostFixture() {
   CHECK(fixture["fixtureVersion"].asInt64() == 1);
   CHECK(fixture["contractVersion"].asStringView() ==
         "crowdy.studio-host-tools/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "12.2.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "13.0.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "0c7081477183b2b4fdbe09dc091086a231ba2979");
+        "3fab7764864dccd3fbe6277e5764243893b0488a");
   CHECK_EQ(fixture["toolNames"].size(), std::size_t{11});
 
   std::size_t successCount = 0;

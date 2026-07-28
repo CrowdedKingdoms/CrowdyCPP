@@ -2,10 +2,10 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
-// schema.gql sha256: d576813b2a81be3b36f3c34acc021924a56637fee65f2384c4e35a40ce3742ca
-// schema.management.gql sha256: 9fbdc1beab8482ae3bb032a6f9646535c57c7d48cf9a86186f2848ab2bb6b158
-// schema.game.gql sha256: a288c419233c4eacfd0dd2b5f771edd9cdae87e490afd5299a4881190b93994e
-// operations sha256: 8864354edaabd2e00e3ccab2cc0b1e2a047c9a6681351ef6bf856a37a6f55620
+// schema.gql sha256: 23ec7adc7a1fafe3948bb043cf8dfc4ed90ee77b2bff849daa199d4cd6dcac9a
+// schema.management.gql sha256: df0c1ead8f6f7c34da6bcb9d886de635a76f6ebd482b472fc44083a0d0f8c56a
+// schema.game.gql sha256: df0c1ead8f6f7c34da6bcb9d886de635a76f6ebd482b472fc44083a0d0f8c56a
+// operations sha256: e30650451f552cf9bf95b0d588d318810cf79254b0a1979f25c3358423f16268
 
 #pragma once
 
@@ -1059,25 +1059,6 @@ inline constexpr std::string_view toString(PlayerComputeTarget v) {
 inline std::optional<PlayerComputeTarget> playerComputeTargetFromString(std::string_view s) {
   if (s == "SERVER") return PlayerComputeTarget::SERVER;
   if (s == "CLIENT") return PlayerComputeTarget::CLIENT;
-  return std::nullopt;
-}
-
-enum class RedeployDeployMode {
-  FULL,
-  SERVICES,
-};
-
-inline constexpr std::string_view toString(RedeployDeployMode v) {
-  switch (v) {
-    case RedeployDeployMode::FULL: return "FULL";
-    case RedeployDeployMode::SERVICES: return "SERVICES";
-  }
-  return "";
-}
-
-inline std::optional<RedeployDeployMode> redeployDeployModeFromString(std::string_view s) {
-  if (s == "FULL") return RedeployDeployMode::FULL;
-  if (s == "SERVICES") return RedeployDeployMode::SERVICES;
   return std::nullopt;
 }
 

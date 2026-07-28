@@ -31,9 +31,9 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.16.0 native Studio target:** the release gate reports zero portable gaps,
-unclassified differences, and stale classifications against CrowdyJS 12.2.0 at
-`0c7081477183b2b4fdbe09dc091086a231ba2979`. This is not a claim that the
+**v0.17.0 unified galaxy target:** the release gate reports zero portable gaps,
+unclassified differences, and stale classifications against CrowdyJS 13.0.0 at
+`3fab7764864dccd3fbe6277e5764243893b0488a`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native
 equivalents and browser-only exclusions. Production Agentic Studio uses typed
 GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
@@ -52,7 +52,7 @@ unchanged from 0.15.0.
 **v0.15.0 app-scoped player counts:** `gameModel().activePlayerCount(appId)`
 and `activePlayerCountChanged(appId, callbacks)` expose the typed snapshot and
 best-effort transition stream introduced by the matching Game API generation.
-The strict portable-parity target advances to CrowdyJS 12.2.0 with zero schema
+The strict portable-parity target advances to CrowdyJS 13.0.0 with zero schema
 differences, portable gaps, unclassified differences, or stale classifications.
 
 **v0.14.1:** strict portable parity, production Agentic Studio controller
@@ -105,7 +105,7 @@ engine renderer.
 `crowdy::agent::CrowdyStudioAgentController` provides durable attach/replay,
 epoch fencing, approvals, leases, budgets, heartbeat renewal, and a typed host
 tool seam. The immutable 28-tool registry is verified against the pinned
-CrowdyJS 12.2.0 canonical SHA-256 fixtures. There is no provider client, DOM
+CrowdyJS 13.0.0 canonical SHA-256 fixtures. There is no provider client, DOM
 driver, raw GraphQL/UDP executor, or generic tool authority in this surface.
 See [Native Agentic Studio](docs/native-agent-api.md).
 
@@ -788,8 +788,8 @@ files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS 12.2.0 at
-`0c7081477183b2b4fdbe09dc091086a231ba2979`. The source of truth is
+CrowdyCPP tracks CrowdyJS 13.0.0 at
+`3fab7764864dccd3fbe6277e5764243893b0488a`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:

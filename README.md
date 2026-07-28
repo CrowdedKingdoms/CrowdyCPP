@@ -33,7 +33,7 @@ natively.
 
 **v0.17.0 unified galaxy target:** the release gate reports zero portable gaps,
 unclassified differences, and stale classifications against CrowdyJS 13.0.0 at
-`578832c7407cabf1feffe8adaeb231f8f928e477`. This is not a claim that the
+`3fab7764864dccd3fbe6277e5764243893b0488a`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native
 equivalents and browser-only exclusions. Production Agentic Studio uses typed
 GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
@@ -789,7 +789,7 @@ files.
 ### Parity maintenance gates
 
 CrowdyCPP tracks CrowdyJS 13.0.0 at
-`578832c7407cabf1feffe8adaeb231f8f928e477`. The source of truth is
+`3fab7764864dccd3fbe6277e5764243893b0488a`. The source of truth is
 `crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:

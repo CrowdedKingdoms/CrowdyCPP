@@ -103,7 +103,7 @@ void testSharedDiagnosticFixture() {
         "crowdy.studio-diagnostics/1");
   CHECK(fixture["crowdyJs"]["version"].asStringView() == "13.0.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "578832c7407cabf1feffe8adaeb231f8f928e477");
+        "3fab7764864dccd3fbe6277e5764243893b0488a");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -626,7 +626,7 @@ void testSharedRuntimeProjectionFixture() {
         "crowdy.studio-runtime-sync-projection/1");
   CHECK(fixture["crowdyJs"]["version"].asStringView() == "13.0.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "578832c7407cabf1feffe8adaeb231f8f928e477");
+        "3fab7764864dccd3fbe6277e5764243893b0488a");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     CrowdyStudioState state;
     CrowdyStudioProject project;

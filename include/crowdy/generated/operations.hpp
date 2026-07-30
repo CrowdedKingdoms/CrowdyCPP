@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
 // schema.gql sha256: 0779eebbee1a3ef28ad2ad927644ab12dc8688b4cc7cf8019cff77e188ed8771
-// schema.management.gql sha256: 16eca3800a9e2df8ba1d05a664627abafa964ccdd48e9814b7dbb2a5f3312290
+// schema.management.gql sha256: 2b61934872ad258c188bb8b247447b107c404e1df605f26fa0136162e6b5c88d
 // schema.game.gql sha256: 16eca3800a9e2df8ba1d05a664627abafa964ccdd48e9814b7dbb2a5f3312290
 // operations sha256: 6d5f019cfb8f55fd64d7825a3402d9ad7c7206bfa25824af5fc85cef0447a69b
 
@@ -7520,7 +7520,7 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   warnings
 })gql";
 inline constexpr std::string_view kGameModelUpsertAutomationTriggerOperationName = "GameModelUpsertAutomationTrigger";
-inline constexpr GraphQLEndpoint kGameModelUpsertAutomationTriggerEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelUpsertAutomationTriggerEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelDeleteAutomationTriggerIsolatedDocument = R"gql(mutation GameModelDeleteAutomationTrigger($appId: BigInt!, $triggerId: String!) {
   gameModelDeleteAutomationTrigger(appId: $appId, triggerId: $triggerId)
 })gql";
@@ -7544,7 +7544,7 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   maxPendingTimers
 })gql";
 inline constexpr std::string_view kGameModelSetAutomationPolicyOperationName = "GameModelSetAutomationPolicy";
-inline constexpr GraphQLEndpoint kGameModelSetAutomationPolicyEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelSetAutomationPolicyEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelRunAutomationIsolatedDocument = R"gql(mutation GameModelRunAutomation($appId: BigInt!, $name: String!) {
   gameModelRunAutomation(appId: $appId, name: $name) {
     ...GmAutomationRunFields
@@ -7575,7 +7575,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   computeUnits
 })gql";
 inline constexpr std::string_view kGameModelRunAutomationOperationName = "GameModelRunAutomation";
-inline constexpr GraphQLEndpoint kGameModelRunAutomationEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelRunAutomationEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelAutomationsIsolatedDocument = R"gql(query GameModelAutomations($appId: BigInt!) {
   gameModelAutomations(appId: $appId) {
     ...GmAutomationFields
@@ -7683,7 +7683,7 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   warnings
 })gql";
 inline constexpr std::string_view kGameModelAutomationTriggersOperationName = "GameModelAutomationTriggers";
-inline constexpr GraphQLEndpoint kGameModelAutomationTriggersEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelAutomationTriggersEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelAutomationPolicyIsolatedDocument = R"gql(query GameModelAutomationPolicy($appId: BigInt!) {
   gameModelAutomationPolicy(appId: $appId) {
     ...GmAutomationPolicyFields
@@ -7702,7 +7702,7 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   maxPendingTimers
 })gql";
 inline constexpr std::string_view kGameModelAutomationPolicyOperationName = "GameModelAutomationPolicy";
-inline constexpr GraphQLEndpoint kGameModelAutomationPolicyEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelAutomationPolicyEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelAutomationRunsIsolatedDocument = R"gql(query GameModelAutomationRuns($appId: BigInt!, $automationName: String, $success: Boolean, $limit: Int, $offset: Int) {
   gameModelAutomationRuns(
     appId: $appId
@@ -7739,7 +7739,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   computeUnits
 })gql";
 inline constexpr std::string_view kGameModelAutomationRunsOperationName = "GameModelAutomationRuns";
-inline constexpr GraphQLEndpoint kGameModelAutomationRunsEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelAutomationRunsEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelAutomationStatsIsolatedDocument = R"gql(query GameModelAutomationStats($appId: BigInt!, $windowMinutes: Int) {
   gameModelAutomationStats(appId: $appId, windowMinutes: $windowMinutes) {
     windowMinutes
@@ -7807,12 +7807,12 @@ fragment GmTimerFields on GmTimer {
   createdAt
 })gql";
 inline constexpr std::string_view kGameModelScheduleInvokeOperationName = "GameModelScheduleInvoke";
-inline constexpr GraphQLEndpoint kGameModelScheduleInvokeEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelScheduleInvokeEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelCancelTimerIsolatedDocument = R"gql(mutation GameModelCancelTimer($appId: BigInt!, $timerId: String, $dedupeKey: String) {
   gameModelCancelTimer(appId: $appId, timerId: $timerId, dedupeKey: $dedupeKey)
 })gql";
 inline constexpr std::string_view kGameModelCancelTimerOperationName = "GameModelCancelTimer";
-inline constexpr GraphQLEndpoint kGameModelCancelTimerEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelCancelTimerEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelTimersIsolatedDocument = R"gql(query GameModelTimers($appId: BigInt!, $sessionId: String, $limit: Int) {
   gameModelTimers(appId: $appId, sessionId: $sessionId, limit: $limit) {
     ...GmTimerFields
@@ -7834,7 +7834,7 @@ fragment GmTimerFields on GmTimer {
   createdAt
 })gql";
 inline constexpr std::string_view kGameModelTimersOperationName = "GameModelTimers";
-inline constexpr GraphQLEndpoint kGameModelTimersEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelTimersEndpoint = GraphQLEndpoint::Game;
 
 /// gameModel/GameModelRuntime.graphql
 inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmSessionFields on GmSession {
@@ -8988,7 +8988,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelUpsertFunctionOperationName = "GameModelUpsertFunction";
-inline constexpr GraphQLEndpoint kGameModelUpsertFunctionEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelUpsertFunctionEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelDeleteFunctionIsolatedDocument = R"gql(mutation GameModelDeleteFunction($appId: BigInt!, $name: String!) {
   gameModelDeleteFunction(appId: $appId, name: $name)
 })gql";
@@ -9096,7 +9096,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelTypeSchemaOperationName = "GameModelTypeSchema";
-inline constexpr GraphQLEndpoint kGameModelTypeSchemaEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelTypeSchemaEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelContainerTypesIsolatedDocument = R"gql(query GameModelContainerTypes($appId: BigInt!) {
   gameModelContainerTypes(appId: $appId) {
     appId
@@ -9186,7 +9186,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionOperationName = "GameModelFunction";
-inline constexpr GraphQLEndpoint kGameModelFunctionEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelFunctionEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelFunctionsIsolatedDocument = R"gql(query GameModelFunctions($appId: BigInt!, $containerTypeName: String) {
   gameModelFunctions(appId: $appId, containerTypeName: $containerTypeName) {
     ...GmFunctionFields
@@ -9245,7 +9245,7 @@ fragment GmFunctionFields on GmFunction {
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionsOperationName = "GameModelFunctions";
-inline constexpr GraphQLEndpoint kGameModelFunctionsEndpoint = GraphQLEndpoint::Both;
+inline constexpr GraphQLEndpoint kGameModelFunctionsEndpoint = GraphQLEndpoint::Game;
 inline constexpr std::string_view kGameModelFeaturesIsolatedDocument = R"gql(query GameModelFeatures($appId: BigInt!) {
   gameModelFeatures(appId: $appId) {
     appId

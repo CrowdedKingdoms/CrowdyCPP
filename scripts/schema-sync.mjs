@@ -49,7 +49,18 @@ async function load(src) {
 
 const args = parseArgs(process.argv);
 const [management, game] = await Promise.all([load(args.management), load(args.game)]);
-const merged = print(mergeTypeDefs([management, game])) + '\n';
+
+// The API is unified: one origin serves both surfaces, and the Game SDL is a
+// strict superset of the Management SDL's root fields. Take it verbatim rather
+// than merging the two.
+//
+// Merging is actively wrong now. The published Management SDL is the archived
+// service's and still carries its own copies of the gm_* types; mergeTypeDefs
+// resolves a field conflict by preferring NON_NULL regardless of argument order,
+// so a stale `GmAutomationRun.automationId: String!` silently won over the live
+// nullable definition and generated a C++ contract the server does not honour.
+// The per-endpoint snapshots below stay exact mirrors of what each URL publishes.
+const merged = print(mergeTypeDefs([game])) + '\n';
 const snapshots = [
   {
     destination: resolve(root, 'schema.management.gql'),
@@ -66,7 +77,7 @@ const snapshots = [
   {
     destination: resolve(root, 'schema.gql'),
     label: 'schema.gql',
-    source: `${args.management} + ${args.game}`,
+    source: args.game,
     text: merged,
   },
 ];

@@ -30,14 +30,13 @@ function isolatedDocument(name) {
   return matches[0][1];
 }
 
-test('the timer operations are generated and routed like their siblings', () => {
-  // The API is unified, so both endpoint SDLs accept the game-model surface and
-  // codegen resolves these to `Both` — the same binding every other
-  // gameModel operation gets.
-  const siblingBinding =
-    /kGameModelInvokeEndpoint = GraphQLEndpoint::(\w+);/u.exec(generated)?.[1];
-  assert.ok(siblingBinding, 'expected a gameModelInvoke endpoint binding');
-
+test('the timer operations are generated and routed to the Game endpoint', () => {
+  // `Game`, not `Both`: codegen derives routing from which endpoint SDLs accept
+  // the document, and the published Management SDL is the archived service's.
+  // Older gameModel operations still appear in it (so they resolve to `Both`);
+  // anything added since only validates against the Game SDL. Either value
+  // reaches the same unified origin — what matters is that it is not Unknown or
+  // Management.
   for (const name of [
     'GameModelScheduleInvoke',
     'GameModelCancelTimer',
@@ -46,8 +45,8 @@ test('the timer operations are generated and routed like their siblings', () => 
     assert.ok(isolatedDocument(name).length > 0, `${name} document is empty`);
     assert.match(
       generated,
-      new RegExp(`k${name}Endpoint = GraphQLEndpoint::${siblingBinding};`, 'u'),
-      `${name} should route like the other gameModel operations`,
+      new RegExp(`k${name}Endpoint = GraphQLEndpoint::(Game|Both);`, 'u'),
+      `${name} should route to the game surface`,
     );
   }
 });

@@ -29,9 +29,36 @@ When a Management/Game GraphQL surface changes:
    Both exact fixtures must be replayed by their focused C++ tests.
 9. Run the blueprint structural gate documented in `README.md`.
 
+## Moving the CrowdyJS pin
+
 The CrowdyJS commit in `package.json` is deliberately pinned and consumed by
-CI. Update that target, the generated matrix, and any
-descriptor/preemption fixtures in one reviewed change.
+CI, which checks out that exact commit. Update the target, the generated
+matrix, and every fixture in one reviewed change:
+
+```bash
+npm run parity:repin -- --crowdyjs /path/to/CrowdyJS   # built, and clean
+rg -l '<old-commit-prefix>' tests docs                 # literal assertions
+npm run check:release
+```
+
+`parity:repin` rewrites the pin and reruns all five fixture generators plus the
+matrix; it prints the steps it cannot do for you. Four things reliably bite
+when this is done by hand:
+
+- **The two repos have a merge order.** A CrowdyCPP change that mirrors new
+  CrowdyJS behavior cannot go green until that CrowdyJS commit is on `main`,
+  because CI fetches the pinned SHA from the remote. Land CrowdyJS first, then
+  re-pin here. A pin pointing at an unpushed commit fails at checkout.
+- **`parity.mjs` embeds its own gate mode**, so a matrix written without
+  `--strict` never satisfies the `--strict` check CI runs. Write and check with
+  the same flags. `parity:repin` always writes the strict form.
+- **Reconfigure existing CMake build dirs after touching a fixture.** The agent
+  and Studio-layout fixtures are embedded into headers by `configure_file`, and
+  the JSONs are registered in `CMAKE_CONFIGURE_DEPENDS` so a rebuild picks them
+  up — but a build tree configured before that was added will keep serving a
+  stale header and fail the replay tests against a file you just fixed.
+- **Some fixtures assert the pin literally** in C++ tests and
+  `docs/parity-matrix.md`. The `rg` above is how you find them.
 
 Parity classifications are strict:
 
@@ -45,3 +72,28 @@ Do not label planned native WebSockets, Crowdy Studio, agent control, leases, or
 player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
 strict portable parity complete.
+
+## Game Kit blueprints
+
+Kit blueprint builders must emit byte-identical JSON to CrowdyJS's, which the
+structural gate in `README.md` enforces by diffing dumps of a variant matrix.
+Both matrices (`tools/parity/dump-blueprints.mjs` and
+`tools/parity/dump_blueprints.cpp`) must list the same variants, so adding a
+builder option means adding a variant to both or the gate never covers it.
+
+Two things about blueprint content, both learned from live deploys rather than
+from the gate, which only compares the two SDKs to each other:
+
+- **Declare a function before anything references it.** `gameModelSeed`
+  processes functions in array order, so a `timers` effect naming a function
+  defined later in the array warns about an unresolved target.
+- **Expressions have no conditional and no `now()`.** Guards have to be
+  arithmetic — `matchesBlueprint`'s turn deadline keeps a monotonic sequence
+  and compares it rather than branching, which is what makes a timer that
+  fires after its turn ended harmless.
+
+## Writing tests against `graphql::Json`
+
+Index arrays with `at(i)`. `json[0]` is now a compile error: `operator[]` takes
+a `string_view`, and the literal `0` used to bind to it as a null pointer and
+segfault in `strlen` at runtime.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrowdyCPP VERSION 0.18.1 LANGUAGES C CXX)
+project(CrowdyCPP VERSION 0.19.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -142,6 +142,17 @@ endif()
 
 # Embed the committed canonical 28-tool fixture in the native registry. This
 # configure step is offline and does not require CrowdyJS or Node.
+#
+# configure_file only tracks its .in template, so the fixtures these read are
+# registered as configure dependencies too. Without that, refreshing a fixture
+# (a parity pin bump, say) leaves the embedded copy stale and the replay tests
+# fail against the file you just corrected until someone reconfigures by hand.
+set(CROWDY_EMBEDDED_FIXTURES
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-studio-layout.v1.json")
+set_property(DIRECTORY APPEND
+  PROPERTY CMAKE_CONFIGURE_DEPENDS ${CROWDY_EMBEDDED_FIXTURES})
+
 file(READ
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
   CROWDY_AGENT_FIXTURE_JSON)

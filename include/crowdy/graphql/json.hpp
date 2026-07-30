@@ -61,6 +61,10 @@ class JVal {
 
   /// Object field access; creates the object variant if currently null.
   JVal& operator[](std::string_view key);
+  /// Rejects `value[0]`, which would otherwise bind the literal to
+  /// string_view as a null pointer and read through it. Build arrays with
+  /// JVal::array(...).
+  JVal& operator[](std::nullptr_t) = delete;
 
   /// Serialize to a compact JSON string (RFC 8259 escaping).
   std::string dump() const;
@@ -93,6 +97,9 @@ class Json {
 
   /// Object member (null Json when absent or not an object).
   Json operator[](std::string_view key) const;
+  /// Rejects `json[0]`, which would otherwise bind the literal to string_view
+  /// as a null pointer and segfault measuring its length. Index with at().
+  Json operator[](std::nullptr_t) const = delete;
   /// Array element (null Json when out of range).
   Json at(std::size_t index) const;
   std::size_t size() const;  // array length or object member count

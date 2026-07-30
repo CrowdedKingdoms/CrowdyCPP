@@ -4,6 +4,18 @@ Run every required gate from a clean CrowdyCPP checkout. CrowdyJS must be the
 exact target declared by `crowdyjsParityTarget` in `package.json`, built with
 `npm ci && npm run build`, and exposed through `CROWDYJS_PATH`.
 
+If the release moves the pin, do that first with
+`npm run parity:repin -- --crowdyjs "$CROWDYJS_PATH"` (see
+[`AGENTS.md`](../AGENTS.md)) — the CrowdyJS commit must already be on its
+`main`, since CI fetches the pinned SHA from the remote.
+
+Bumping the minor also means updating `project(CrowdyCPP VERSION ...)` in
+`CMakeLists.txt`, the `find_package(CrowdyCPP <minor> ...)` request in
+`tests/consumer/CMakeLists.txt`, `version` in `package.json`, and the target
+line in `README.md`. The consumer test is what proves the package config
+rejects a different `0.x` minor, so a stale request there passes for the wrong
+reason.
+
 ## Content, codegen, and parity
 
 ```bash

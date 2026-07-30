@@ -1,8 +1,8 @@
 {
   "contractVersion": "crowdy.studio-runtime-sync-projection/1",
   "crowdyJs": {
-    "version": "13.2.0",
-    "commit": "34115d43e7681980226fcb482d7578cadacab956"
+    "version": "13.3.0",
+    "commit": "22961ceaba5a11963fdcb492d8cd5bd391531f44"
   },
   "cases": [
     {

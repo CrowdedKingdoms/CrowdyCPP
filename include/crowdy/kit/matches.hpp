@@ -30,10 +30,26 @@
 /// Mirrors CrowdyJS's matchesBlueprint / kit.matches.
 namespace crowdy::kit {
 
+/// Gives each turn a real wall-clock deadline. begin_turn bumps turn_seq and
+/// arms a one-shot timer — deduped per match, so arming the next turn replaces
+/// the previous deadline — that invokes expire_turn after delayMs. expire_turn
+/// records turn_expired_seq and pings the match channel, so the current turn is
+/// out of time exactly when turn_expired_seq >= turn_seq.
+///
+/// That comparison is also the stale-fire guard: a timer already claimed when
+/// the player beat the clock fires against an older turn_seq, writes a lower
+/// turn_expired_seq, and can never satisfy it.
+struct MatchTurnTimer {
+  int delayMs = 0;
+};
+
 /// Adds a turn_tick interval automation that increments each active match's
-/// tick_count — the wall-clock-free timer primitive: store the tick at turn
-/// start and treat tick_count - turn_started_tick >= N as a timeout (there is
-/// no now() in expressions; counters replace clocks).
+/// tick_count, so turn logic can compare tick_count - turn_started_tick >= N.
+///
+/// Deprecated: counters were a workaround for expressions having no now();
+/// one-shot timers made that unnecessary. Prefer MatchTurnTimer, which gives
+/// an exact deadline and arms work per match instead of scanning all of them
+/// every interval. Still honoured, and slated for removal in the next major.
 struct MatchTurnTick {
   int intervalMs = 0;
 };
@@ -45,7 +61,10 @@ struct MatchesBlueprintOptions {
   /// host referees); use server or automation for server-refereed modes.
   /// Never plain players.
   TrustedAuthority scoreAuthority = TrustedAuthority::host();
-  /// When set, adds the turn_tick automation (see MatchTurnTick).
+  /// When set, gives each turn a wall-clock deadline (see MatchTurnTimer).
+  /// Prefer this to turnTick.
+  std::optional<MatchTurnTimer> turnTimer;
+  /// When set, adds the turn_tick automation (see MatchTurnTick). Deprecated.
   std::optional<MatchTurnTick> turnTick;
   /// Owner-mirror typing (see the kit convention). Defaults to Int.
   OwnerIdKind ownerIdKind = OwnerIdKind::Int;
@@ -59,6 +78,8 @@ struct MatchesNames {
   std::string advanceRoundFn;
   std::string scoreFn;
   std::string endFn;
+  std::string beginTurnFn;
+  std::string expireTurnFn;
   std::string turnTickFn;
   std::string turnTickAutomation;
 };
@@ -79,6 +100,8 @@ inline MatchesNames matchesNames(std::string_view typePrefix = {}) {
   n.advanceRoundFn = fnPrefix + "advance_round";
   n.scoreFn = fnPrefix + "score_points";
   n.endFn = fnPrefix + "end_match";
+  n.beginTurnFn = fnPrefix + "begin_turn";
+  n.expireTurnFn = fnPrefix + "expire_turn";
   n.turnTickFn = fnPrefix + "turn_tick";
   n.turnTickAutomation = autoPrefix + "match-turn-tick";
   return n;
@@ -97,6 +120,22 @@ inline JVal matchChangedNotification() {
   n["kind"] = "channel";
   n["args"] = JVal::array({std::move(a1), std::move(a2)});
   return n;
+}
+
+/// The one-shot deadline a turn arms for itself. Deduped per match container,
+/// so opening the next turn replaces the pending deadline rather than stacking
+/// another one; the seq travels as a parameter so the fire can tell whether the
+/// turn it was armed for is still open.
+inline JVal turnDeadlineTimer(const MatchesNames& names, int delayMs) {
+  JVal param;
+  param["name"] = "turn_seq";
+  param["expression"] = "self.turn_seq";
+  JVal t;
+  t["functionName"] = names.expireTurnFn;
+  t["delayMsExpression"] = std::to_string(delayMs);
+  t["dedupeKeyExpression"] = "concat(\"match_turn:\", $self_container_id)";
+  t["params"] = JVal::array({std::move(param)});
+  return t;
 }
 
 /// Build the matches blueprint. Runtime counterpart: MatchesKit.
@@ -167,6 +206,16 @@ inline KitBlueprint matchesBlueprint(const MatchesBlueprintOptions& options = {}
   bp.propertyDefinitions.push_back(propertyDef(
       names.metaType, "channel_id", "int", "0",
       "The per-match channel lifecycle notifications ping (notify-to-pull)."));
+  if (options.turnTimer) {
+    bp.propertyDefinitions.push_back(propertyDef(
+        names.metaType, "turn_seq", "int", "0",
+        "Monotonic turn counter bumped by begin_turn; each turn arms a deadline tagged with "
+        "this value."));
+    bp.propertyDefinitions.push_back(propertyDef(
+        names.metaType, "turn_expired_seq", "int", "0",
+        "Highest turn_seq whose deadline elapsed. The turn is out of time iff "
+        "turn_expired_seq >= turn_seq."));
+  }
   if (options.turnTick) {
     bp.propertyDefinitions.push_back(propertyDef(
         names.metaType, "tick_count", "int", "0",
@@ -176,19 +225,58 @@ inline KitBlueprint matchesBlueprint(const MatchesBlueprintOptions& options = {}
   bp.propertyDefinitions.push_back(propertyDef(names.scoreType, "points", "int", "0",
                                                "One player's score in the match."));
 
+  // expire_turn is declared before anything arms it, so the seed resolves the
+  // timer target in one pass instead of warning about a forward reference.
+  if (options.turnTimer) {
+    JVal param;
+    param["name"] = "turn_seq";
+    param["valueType"] = "int";
+    param["required"] = true;
+    param["description"] = "The turn this deadline was armed for.";
+    JVal fn;
+    fn["name"] = names.expireTurnFn;
+    fn["containerTypeName"] = names.metaType;
+    fn["returnType"] = "int";
+    fn["parameters"] = JVal::array({std::move(param)});
+    fn["mutations"] = JVal::array(
+        {mutation("self", "turn_expired_seq", "max(self.turn_expired_seq, $turn_seq)")});
+    fn["returnExpression"] = "self.turn_expired_seq";
+    fn["invokePolicyJson"] = kitPolicyJson(isAutomationPolicy());
+    fn["autonomousInvocable"] = true;
+    fn["notifications"] = JVal::array({matchChangedNotification()});
+    fn["description"] =
+        "Fired by the turn deadline: record that turn $turn_seq ran out and ping the match "
+        "channel. max() keeps turn_expired_seq monotonic, so a deadline that was already "
+        "claimed when the player beat the clock lands below turn_seq and is ignored.";
+    bp.functions.push_back(std::move(fn));
+  }
+
   {
     JVal fn;
     fn["name"] = names.startFn;
     fn["containerTypeName"] = names.metaType;
     fn["returnType"] = "string";
-    fn["mutations"] = JVal::array({mutation("self", "state", "\"active\""),
-                                   mutation("self", "round", "1")});
+    if (options.turnTimer) {
+      fn["mutations"] = JVal::array({mutation("self", "state", "\"active\""),
+                                     mutation("self", "round", "1"),
+                                     mutation("self", "turn_seq", "1")});
+    } else {
+      fn["mutations"] = JVal::array({mutation("self", "state", "\"active\""),
+                                     mutation("self", "round", "1")});
+    }
     fn["returnExpression"] = "self.state";
+    if (options.turnTimer) {
+      fn["timers"] =
+          JVal::array({turnDeadlineTimer(names, options.turnTimer->delayMs)});
+    }
     fn["invokePolicyJson"] = creatorOrHost("self.state == \"lobby\"");
     fn["notifications"] = JVal::array({matchChangedNotification()});
     fn["description"] =
-        "Start the match (creator or host): lobby → active, round 1; pings the match channel "
-        "post-commit.";
+        options.turnTimer
+            ? "Start the match (creator or host): lobby → active, round 1, and arm the first "
+              "turn’s deadline; pings the match channel post-commit."
+            : "Start the match (creator or host): lobby → active, round 1; pings the match "
+              "channel post-commit.";
     bp.functions.push_back(std::move(fn));
   }
   {
@@ -215,9 +303,19 @@ inline KitBlueprint matchesBlueprint(const MatchesBlueprintOptions& options = {}
     fn["containerTypeName"] = names.metaType;
     fn["returnType"] = "string";
     fn["parameters"] = JVal::array({std::move(param)});
-    fn["mutations"] =
-        JVal::array({mutation("self", "state", "\"finished\""),
-                     mutation("self", "winner_user_id", "$winner_user_id")});
+    // Advancing the seq strands any deadline still pending: it was armed for
+    // the previous turn, so its write can no longer reach turn_seq and a
+    // finished match never reads as out of time.
+    if (options.turnTimer) {
+      fn["mutations"] =
+          JVal::array({mutation("self", "state", "\"finished\""),
+                       mutation("self", "winner_user_id", "$winner_user_id"),
+                       mutation("self", "turn_seq", "self.turn_seq + 1")});
+    } else {
+      fn["mutations"] =
+          JVal::array({mutation("self", "state", "\"finished\""),
+                       mutation("self", "winner_user_id", "$winner_user_id")});
+    }
     fn["returnExpression"] = "self.state";
     fn["invokePolicyJson"] = creatorOrHost("self.state == \"active\"");
     fn["notifications"] = JVal::array({matchChangedNotification()});
@@ -242,6 +340,26 @@ inline KitBlueprint matchesBlueprint(const MatchesBlueprintOptions& options = {}
     applyTrustedAuthority(fn, options.scoreAuthority);
     fn["description"] =
         "Add points to a player's Score row — trusted (host-refereed by default).";
+    bp.functions.push_back(std::move(fn));
+  }
+
+  if (options.turnTimer) {
+    JVal fn;
+    fn["name"] = names.beginTurnFn;
+    fn["containerTypeName"] = names.metaType;
+    fn["returnType"] = "int";
+    fn["mutations"] = JVal::array({mutation("self", "turn_seq", "self.turn_seq + 1")});
+    fn["returnExpression"] = "self.turn_seq";
+    fn["timers"] = JVal::array({turnDeadlineTimer(names, options.turnTimer->delayMs)});
+    fn["invokePolicyJson"] = kitPolicyJson(andPolicy(
+        {orPolicy({isHostPolicy(),
+                   conditionPolicy("self.creator_user_id == $caller_user_id"),
+                   conditionPolicy("$current_turn_user_id == $caller_user_id")}),
+         conditionPolicy("self.state == \"active\"")}));
+    fn["description"] =
+        "Open a turn: bump turn_seq and arm this turn's deadline (host, creator, or the "
+        "outgoing turn holder). Call it before handing the turn over so the incoming player "
+        "is never left without a clock.";
     bp.functions.push_back(std::move(fn));
   }
 
@@ -300,7 +418,22 @@ struct KitMatch {
   std::string channelId;
   /// Present when the blueprint was deployed with turnTick.
   std::optional<std::int64_t> tickCount;
+  /// The current turn's sequence number. Present only when the blueprint was
+  /// deployed with turnTimer, which is how the helpers detect that turns carry
+  /// a deadline.
+  std::optional<std::int64_t> turnSeq;
+  /// The highest turn sequence whose deadline elapsed. See turnExpired().
+  std::optional<std::int64_t> turnExpiredSeq;
 };
+
+/// Whether the match's current turn has run out of time — true once the
+/// deadline for the open turn has fired. Always false for a match deployed
+/// without turnTimer, and false for a deadline stranded by an earlier turn,
+/// since those record a lower sequence than the one now open.
+inline bool turnExpired(const KitMatch& match) {
+  if (!match.turnSeq || !match.turnExpiredSeq) return false;
+  return *match.turnSeq > 0 && *match.turnExpiredSeq >= *match.turnSeq;
+}
 
 /// One row of the match standings.
 struct KitMatchScore {
@@ -480,7 +613,13 @@ class MatchesKit {
   /// Pass the turn to the next player via the platform's session-turn
   /// authority (current holder, host, or admin — enforced by the service),
   /// then ping the match channel so everyone re-pulls.
+  ///
+  /// For a match deployed with turnTimer, this opens the incoming turn first so
+  /// it arrives with a deadline already running. Opening it before the handover
+  /// also means the outgoing holder is still the session's turn user, which is
+  /// what authorizes them to do it.
   Json endTurn(const KitMatch& match, std::string_view nextUserId) {
+    if (match.turnSeq) beginTurn(match);
     JVal input;
     input["appId"] = appId_;
     input["sessionId"] = match.sessionId;
@@ -488,6 +627,27 @@ class MatchesKit {
     Json session = gameModel_.setSessionTurn(input);
     notifyChanged(match);
     return session;
+  }
+
+  /// Open a turn and arm its deadline (turnTimer deployments only) — the
+  /// deadline replaces any still pending for this match. endTurn() calls this
+  /// for you; call it directly to give the current player a fresh clock, e.g.
+  /// after granting extra time.
+  KitInvokeResult beginTurn(const KitMatch& match) {
+    return kitInvoke(gameModel_, appId_, names_.beginTurnFn, match.metaId, JVal(),
+                     match.sessionId);
+  }
+
+  /// Cancel the pending turn deadline for this match, if any. Returns how many
+  /// timers were dropped. Ending a match already strands its deadline, so this
+  /// is only needed when you want turns to stop being timed while play
+  /// continues.
+  std::int64_t cancelTurnDeadline(const KitMatch& match) {
+    JVal input;
+    input["appId"] = appId_;
+    input["dedupeKey"] = "match_turn:" + match.metaId;
+    Json cancelled = gameModel_.cancelTimer(input);
+    return cancelled.ok() && !cancelled.isNull() ? cancelled.asBigInt() : 0;
   }
 
   /// Find-or-create a player's session-scoped Score row.
@@ -535,12 +695,16 @@ class MatchesKit {
     return rows;
   }
 
-  /// Finish the match and record the winner (creator or host).
+  /// Finish the match and record the winner (creator or host). Also drops the
+  /// pending turn deadline on a turnTimer match — end_match already strands it,
+  /// so this just saves the pointless fire and channel ping.
   KitInvokeResult finish(const KitMatch& match, std::int64_t winnerUserId) {
     JVal params;
     params["winner_user_id"] = winnerUserId;
-    return kitInvoke(gameModel_, appId_, names_.endFn, match.metaId, params,
-                     match.sessionId);
+    KitInvokeResult result = kitInvoke(gameModel_, appId_, names_.endFn, match.metaId,
+                                       params, match.sessionId);
+    if (result.success && match.turnSeq) cancelTurnDeadline(match);
+    return result;
   }
 
   /// Manually ping the match channel with "match_changed" (the lifecycle
@@ -597,6 +761,10 @@ class MatchesKit {
     m.channelId = std::to_string(props["channel_id"].asInt64());
     Json tick = props["tick_count"];
     if (tick.ok() && !tick.isNull()) m.tickCount = tick.asInt64();
+    Json turnSeq = props["turn_seq"];
+    if (turnSeq.ok() && !turnSeq.isNull()) m.turnSeq = turnSeq.asInt64();
+    Json expiredSeq = props["turn_expired_seq"];
+    if (expiredSeq.ok() && !expiredSeq.isNull()) m.turnExpiredSeq = expiredSeq.asInt64();
     return m;
   }
 

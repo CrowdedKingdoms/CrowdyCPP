@@ -51,6 +51,11 @@ struct LootDropSpec {
   std::string functionName;       ///< Optional (empty = unset).
   std::string containerTypeName;  ///< Optional (empty = unset).
   std::string propertyKey;        ///< Optional (empty = unset).
+  /// property_changed only: which writes roll the drop — "direct", "function",
+  /// or "any" (empty = unset, leaving the API default). Properties mutated by
+  /// kit functions (a mob's hp reaching 0, say) need "function" or "any"; the
+  /// default "direct" sees only client setProperty calls.
+  std::string writeSource;
   std::optional<std::int64_t> debounceMs;
   /// Rolls per event.
   int maxTargets = 1;
@@ -331,6 +336,7 @@ inline KitBlueprint lootBlueprint(const LootBlueprintOptions& options) {
     if (!drop.functionName.empty()) trigger["functionName"] = drop.functionName;
     if (!drop.containerTypeName.empty()) trigger["containerTypeName"] = drop.containerTypeName;
     if (!drop.propertyKey.empty()) trigger["propertyKey"] = drop.propertyKey;
+    if (!drop.writeSource.empty()) trigger["writeSource"] = drop.writeSource;
     if (drop.debounceMs) trigger["debounceMs"] = *drop.debounceMs;
     bp.automationTriggers.push_back(std::move(trigger));
   }

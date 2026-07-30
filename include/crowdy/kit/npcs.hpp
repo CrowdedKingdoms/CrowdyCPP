@@ -28,6 +28,11 @@ struct NpcBehaviorTrigger {
   std::string functionName;
   std::string containerTypeName;
   std::string propertyKey;
+  /// property_changed only: which writes wake the behavior — "direct",
+  /// "function", or "any" (empty = unset, leaving the API default). NPC state
+  /// is written by behavior functions rather than by clients, so reacting to
+  /// one needs "function" or "any".
+  std::string writeSource;
   std::optional<std::int64_t> debounceMs;
 
   static NpcBehaviorTrigger interval(std::int64_t ms) {
@@ -199,6 +204,8 @@ inline KitBlueprint npcBlueprint(const NpcBlueprintOptions& options) {
           trigger["containerTypeName"] = behavior.trigger.containerTypeName;
         if (!behavior.trigger.propertyKey.empty())
           trigger["propertyKey"] = behavior.trigger.propertyKey;
+        if (!behavior.trigger.writeSource.empty())
+          trigger["writeSource"] = behavior.trigger.writeSource;
         if (behavior.trigger.debounceMs) trigger["debounceMs"] = *behavior.trigger.debounceMs;
         bp.automationTriggers.push_back(std::move(trigger));
         break;

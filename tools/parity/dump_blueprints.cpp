@@ -111,6 +111,16 @@ int main() {
   variants["quests_default"] = [] { return questsBlueprint({}); };
   variants["combat_default"] = [] { return combatBlueprint({}); };
   variants["matches_default"] = [] { return matchesBlueprint({}); };
+  variants["matches_turn_timer"] = [] {
+    MatchesBlueprintOptions o;
+    o.turnTimer = MatchTurnTimer{30000};
+    return matchesBlueprint(o);
+  };
+  variants["matches_turn_tick"] = [] {
+    MatchesBlueprintOptions o;
+    o.turnTick = MatchTurnTick{15000};
+    return matchesBlueprint(o);
+  };
   variants["decks_default"] = [] { return decksBlueprint({}); };
   variants["worldsim_default"] = [] { return worldsimBlueprint({}); };
   variants["guild_default"] = [] {

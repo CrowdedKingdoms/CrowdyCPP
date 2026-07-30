@@ -41,6 +41,12 @@ struct QuestAdvanceSpec {
   std::string functionName;       ///< empty = unset
   std::string containerTypeName;  ///< empty = unset
   std::string propertyKey;        ///< empty = unset
+  /// property_changed only: which writes advance the quest — "direct",
+  /// "function", or "any" (empty = unset, leaving the API default). Kit
+  /// progress properties are written by functions (advance_quest, the daily
+  /// reset) rather than by client setProperty calls, so watching one needs
+  /// "function" or "any".
+  std::string writeSource;
   std::optional<int> debounceMs;
   int amount = 1;      ///< progress added per event
   int maxTargets = 8;  ///< progress rows advanced per event
@@ -290,6 +296,7 @@ inline KitBlueprint questsBlueprint(const QuestsBlueprintOptions& options = {}) 
     if (!spec.functionName.empty()) t["functionName"] = spec.functionName;
     if (!spec.containerTypeName.empty()) t["containerTypeName"] = spec.containerTypeName;
     if (!spec.propertyKey.empty()) t["propertyKey"] = spec.propertyKey;
+    if (!spec.writeSource.empty()) t["writeSource"] = spec.writeSource;
     if (spec.debounceMs) t["debounceMs"] = *spec.debounceMs;
     bp.automationTriggers.push_back(std::move(t));
   }

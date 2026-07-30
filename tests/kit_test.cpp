@@ -6,6 +6,7 @@
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/kit/actions.hpp"
 #include "crowdy/kit/inventory.hpp"
+#include "crowdy/kit/matches.hpp"
 #include "test_util.hpp"
 
 using namespace crowdy;
@@ -290,6 +291,72 @@ void testKitVerdictErrors() {
 #endif
 }
 
+// turnExpired() reads the open turn only: a deadline stranded by an earlier
+// turn records a lower sequence and must not register.
+void testTurnExpired() {
+  KitMatch none;
+  CHECK(!turnExpired(none));  // deployed without turnTimer
+
+  KitMatch fresh;
+  fresh.turnSeq = 0;
+  fresh.turnExpiredSeq = 0;
+  CHECK(!turnExpired(fresh));
+
+  KitMatch timedOut;
+  timedOut.turnSeq = 3;
+  timedOut.turnExpiredSeq = 3;
+  CHECK(turnExpired(timedOut));
+
+  // The player beat the clock and turn 4 opened, but turn 3's deadline had
+  // already been claimed and fired late.
+  KitMatch stranded;
+  stranded.turnSeq = 4;
+  stranded.turnExpiredSeq = 3;
+  CHECK(!turnExpired(stranded));
+}
+
+// The turn deadline is deduped per match container and carries the sequence it
+// was armed for, which is what makes a late fire detectable.
+void testTurnTimerBlueprint() {
+  MatchesBlueprintOptions options;
+  options.turnTimer = MatchTurnTimer{30000};
+  KitBlueprint bp = matchesBlueprint(options);
+
+  bool sawBeginTurn = false;
+  bool sawExpireTurn = false;
+  for (const JVal& fn : bp.functions) {
+    graphql::Json parsed = graphql::Json::parse(fn.dump());
+    const std::string name = parsed["name"].asString();
+    if (name == "begin_turn") {
+      sawBeginTurn = true;
+      graphql::Json timer = parsed["timers"].at(0);
+      CHECK_EQ(timer["functionName"].asString(), "expire_turn");
+      CHECK_EQ(timer["delayMsExpression"].asString(), "30000");
+      CHECK_EQ(timer["dedupeKeyExpression"].asString(),
+               "concat(\"match_turn:\", $self_container_id)");
+      CHECK_EQ(timer["params"].at(0)["expression"].asString(), "self.turn_seq");
+    } else if (name == "expire_turn") {
+      sawExpireTurn = true;
+      CHECK(parsed["autonomousInvocable"].asBool());
+      CHECK_EQ(parsed["mutations"].at(0)["expression"].asString(),
+               "max(self.turn_expired_seq, $turn_seq)");
+    }
+  }
+  CHECK(sawBeginTurn);
+  CHECK(sawExpireTurn);
+
+  // The deadline replaces the polling automation outright.
+  CHECK(bp.automations.empty());
+
+  MatchesBlueprintOptions plain;
+  KitBlueprint bare = matchesBlueprint(plain);
+  for (const JVal& fn : bare.functions) {
+    graphql::Json parsed = graphql::Json::parse(fn.dump());
+    CHECK(parsed["name"].asString() != "begin_turn");
+    CHECK(parsed["name"].asString() != "expire_turn");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -303,6 +370,8 @@ int main() {
   testOwnerHelpers();
   testOptimisticAction();
   testKitVerdictErrors();
+  testTurnExpired();
+  testTurnTimerBlueprint();
   std::puts("kit_test OK");
   return 0;
 }

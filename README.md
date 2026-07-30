@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.18.0 unified galaxy target:** the release gate reports zero portable gaps,
+**v0.18.1 unified galaxy target:** the release gate reports zero portable gaps,
 unclassified differences, and stale classifications against CrowdyJS 13.2.0 at
 `8fba64c9e5fb16f157a4ab33c5d6fcc29723cddc`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native

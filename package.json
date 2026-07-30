@@ -1,6 +1,6 @@
 {
   "name": "crowdycpp-maintainer-tools",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",
@@ -19,7 +19,8 @@
     "check:operations": "node --test tests/parity/codegen-operation-isolation.test.mjs",
     "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
     "check:release": "npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm run check:control-gate-fixtures && npm run check:studio-host-fixtures && npm run check:layout-fixtures && npm run check:studio-state-fixtures && npm test",
-    "test": "node --test tests/parity/*.test.mjs"
+    "test": "node --test tests/parity/*.test.mjs",
+    "parity:repin": "node tools/parity/repin.mjs"
   },
   "license": "MIT",
   "devDependencies": {

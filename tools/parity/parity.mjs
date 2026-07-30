@@ -883,9 +883,13 @@ if (options.check) {
   const path = repoPath(options.check);
   if (!existsSync(path) || readFileSync(path, 'utf8') !== report) {
     state.unclassified.push(`generated-report:${relativeName(path)}`);
+    // The report records its own gate mode, so a matrix written without
+    // --strict can never satisfy a --strict check. Echo the flag back rather
+    // than let that read as a real parity difference.
     console.error(
-      `${relativeName(path)} is stale; regenerate with ` +
-        `node tools/parity/parity.mjs --crowdyjs <path> --write ${relativeName(path)}`,
+      `${relativeName(path)} is stale; regenerate with the same gate mode:\n` +
+        `  node tools/parity/parity.mjs --crowdyjs <path>` +
+        `${options.strict ? ' --strict' : ''} --write ${relativeName(path)}`,
     );
   } else {
     console.log(`${relativeName(path)} is current`);

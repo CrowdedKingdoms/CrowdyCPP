@@ -2,10 +2,10 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDLs at https://docs.crowdedkingdoms.com/schema/).
-// schema.gql sha256: 23ec7adc7a1fafe3948bb043cf8dfc4ed90ee77b2bff849daa199d4cd6dcac9a
-// schema.management.gql sha256: df0c1ead8f6f7c34da6bcb9d886de635a76f6ebd482b472fc44083a0d0f8c56a
-// schema.game.gql sha256: df0c1ead8f6f7c34da6bcb9d886de635a76f6ebd482b472fc44083a0d0f8c56a
-// operations sha256: e30650451f552cf9bf95b0d588d318810cf79254b0a1979f25c3358423f16268
+// schema.gql sha256: 14197a5f034a91e65080bcd2325838b84342e51264f3e49d1987634ea2359ef7
+// schema.management.gql sha256: a773df1e0bf91f8eb9bed989db395370c575b7418912ae3facd36e4a8027cfb9
+// schema.game.gql sha256: a773df1e0bf91f8eb9bed989db395370c575b7418912ae3facd36e4a8027cfb9
+// operations sha256: 6d5f019cfb8f55fd64d7825a3402d9ad7c7206bfa25824af5fc85cef0447a69b
 
 #pragma once
 
@@ -7211,7 +7211,11 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   functionName
   containerTypeName
   propertyKey
+  writeSource
   debounceMs
+  lastMatchedAt
+  matchCount24h
+  warnings
 }
 
 fragment GmAutomationPolicyFields on GmAutomationPolicy {
@@ -7222,6 +7226,8 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   maxFanout
   maxCascadeDepth
   globalRunsPerMinute
+  minTimerDelayMs
+  maxPendingTimers
 }
 
 fragment GmAutomationRunFields on GmAutomationRun {
@@ -7231,6 +7237,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   automationId
   automationName
   triggerSource
+  triggerId
   parentRunId
   cascadeDepth
   startedAt
@@ -7369,6 +7376,37 @@ query GameModelAppDiagnostics($appId: BigInt!) {
       failures
     }
   }
+}
+
+fragment GmTimerFields on GmTimer {
+  timerId
+  appId
+  sessionId
+  selfContainerId
+  functionName
+  paramsJson
+  fireAt
+  dedupeKey
+  cascadeDepth
+  flowId
+  armedBy
+  createdAt
+}
+
+mutation GameModelScheduleInvoke($input: ScheduleInvokeInput!) {
+  gameModelScheduleInvoke(input: $input) {
+    ...GmTimerFields
+  }
+}
+
+mutation GameModelCancelTimer($appId: BigInt!, $timerId: String, $dedupeKey: String) {
+  gameModelCancelTimer(appId: $appId, timerId: $timerId, dedupeKey: $dedupeKey)
+}
+
+query GameModelTimers($appId: BigInt!, $sessionId: String, $limit: Int) {
+  gameModelTimers(appId: $appId, sessionId: $sessionId, limit: $limit) {
+    ...GmTimerFields
+  }
 })gql";
 inline constexpr std::string_view kGameModelUpsertAutomationIsolatedDocument = R"gql(mutation GameModelUpsertAutomation($input: UpsertAutomationInput!) {
   gameModelUpsertAutomation(input: $input) {
@@ -7475,7 +7513,11 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   functionName
   containerTypeName
   propertyKey
+  writeSource
   debounceMs
+  lastMatchedAt
+  matchCount24h
+  warnings
 })gql";
 inline constexpr std::string_view kGameModelUpsertAutomationTriggerOperationName = "GameModelUpsertAutomationTrigger";
 inline constexpr GraphQLEndpoint kGameModelUpsertAutomationTriggerEndpoint = GraphQLEndpoint::Both;
@@ -7498,6 +7540,8 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   maxFanout
   maxCascadeDepth
   globalRunsPerMinute
+  minTimerDelayMs
+  maxPendingTimers
 })gql";
 inline constexpr std::string_view kGameModelSetAutomationPolicyOperationName = "GameModelSetAutomationPolicy";
 inline constexpr GraphQLEndpoint kGameModelSetAutomationPolicyEndpoint = GraphQLEndpoint::Both;
@@ -7514,6 +7558,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   automationId
   automationName
   triggerSource
+  triggerId
   parentRunId
   cascadeDepth
   startedAt
@@ -7631,7 +7676,11 @@ fragment GmAutomationTriggerFields on GmAutomationTrigger {
   functionName
   containerTypeName
   propertyKey
+  writeSource
   debounceMs
+  lastMatchedAt
+  matchCount24h
+  warnings
 })gql";
 inline constexpr std::string_view kGameModelAutomationTriggersOperationName = "GameModelAutomationTriggers";
 inline constexpr GraphQLEndpoint kGameModelAutomationTriggersEndpoint = GraphQLEndpoint::Both;
@@ -7649,6 +7698,8 @@ fragment GmAutomationPolicyFields on GmAutomationPolicy {
   maxFanout
   maxCascadeDepth
   globalRunsPerMinute
+  minTimerDelayMs
+  maxPendingTimers
 })gql";
 inline constexpr std::string_view kGameModelAutomationPolicyOperationName = "GameModelAutomationPolicy";
 inline constexpr GraphQLEndpoint kGameModelAutomationPolicyEndpoint = GraphQLEndpoint::Both;
@@ -7671,6 +7722,7 @@ fragment GmAutomationRunFields on GmAutomationRun {
   automationId
   automationName
   triggerSource
+  triggerId
   parentRunId
   cascadeDepth
   startedAt
@@ -7734,6 +7786,55 @@ inline constexpr std::string_view kGameModelAppDiagnosticsIsolatedDocument = R"g
 })gql";
 inline constexpr std::string_view kGameModelAppDiagnosticsOperationName = "GameModelAppDiagnostics";
 inline constexpr GraphQLEndpoint kGameModelAppDiagnosticsEndpoint = GraphQLEndpoint::Both;
+inline constexpr std::string_view kGameModelScheduleInvokeIsolatedDocument = R"gql(mutation GameModelScheduleInvoke($input: ScheduleInvokeInput!) {
+  gameModelScheduleInvoke(input: $input) {
+    ...GmTimerFields
+  }
+}
+
+fragment GmTimerFields on GmTimer {
+  timerId
+  appId
+  sessionId
+  selfContainerId
+  functionName
+  paramsJson
+  fireAt
+  dedupeKey
+  cascadeDepth
+  flowId
+  armedBy
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelScheduleInvokeOperationName = "GameModelScheduleInvoke";
+inline constexpr GraphQLEndpoint kGameModelScheduleInvokeEndpoint = GraphQLEndpoint::Both;
+inline constexpr std::string_view kGameModelCancelTimerIsolatedDocument = R"gql(mutation GameModelCancelTimer($appId: BigInt!, $timerId: String, $dedupeKey: String) {
+  gameModelCancelTimer(appId: $appId, timerId: $timerId, dedupeKey: $dedupeKey)
+})gql";
+inline constexpr std::string_view kGameModelCancelTimerOperationName = "GameModelCancelTimer";
+inline constexpr GraphQLEndpoint kGameModelCancelTimerEndpoint = GraphQLEndpoint::Both;
+inline constexpr std::string_view kGameModelTimersIsolatedDocument = R"gql(query GameModelTimers($appId: BigInt!, $sessionId: String, $limit: Int) {
+  gameModelTimers(appId: $appId, sessionId: $sessionId, limit: $limit) {
+    ...GmTimerFields
+  }
+}
+
+fragment GmTimerFields on GmTimer {
+  timerId
+  appId
+  sessionId
+  selfContainerId
+  functionName
+  paramsJson
+  fireAt
+  dedupeKey
+  cascadeDepth
+  flowId
+  armedBy
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelTimersOperationName = "GameModelTimers";
+inline constexpr GraphQLEndpoint kGameModelTimersEndpoint = GraphQLEndpoint::Both;
 
 /// gameModel/GameModelRuntime.graphql
 inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmSessionFields on GmSession {
@@ -8599,6 +8700,16 @@ inline constexpr std::string_view kGameModelStudioDocument = R"gql(fragment GmFu
     gridIdExpression
     ttlSecondsExpression
   }
+  timers {
+    functionName
+    target
+    delayMsExpression
+    dedupeKeyExpression
+    params {
+      name
+      expression
+    }
+  }
 }
 
 fragment GmPropertyDefFields on GmPropertyDef {
@@ -8865,6 +8976,16 @@ fragment GmFunctionFields on GmFunction {
     gridIdExpression
     ttlSecondsExpression
   }
+  timers {
+    functionName
+    target
+    delayMsExpression
+    dedupeKeyExpression
+    params {
+      name
+      expression
+    }
+  }
 })gql";
 inline constexpr std::string_view kGameModelUpsertFunctionOperationName = "GameModelUpsertFunction";
 inline constexpr GraphQLEndpoint kGameModelUpsertFunctionEndpoint = GraphQLEndpoint::Both;
@@ -8963,6 +9084,16 @@ fragment GmFunctionFields on GmFunction {
     gridIdExpression
     ttlSecondsExpression
   }
+  timers {
+    functionName
+    target
+    delayMsExpression
+    dedupeKeyExpression
+    params {
+      name
+      expression
+    }
+  }
 })gql";
 inline constexpr std::string_view kGameModelTypeSchemaOperationName = "GameModelTypeSchema";
 inline constexpr GraphQLEndpoint kGameModelTypeSchemaEndpoint = GraphQLEndpoint::Both;
@@ -9043,6 +9174,16 @@ fragment GmFunctionFields on GmFunction {
     gridIdExpression
     ttlSecondsExpression
   }
+  timers {
+    functionName
+    target
+    delayMsExpression
+    dedupeKeyExpression
+    params {
+      name
+      expression
+    }
+  }
 })gql";
 inline constexpr std::string_view kGameModelFunctionOperationName = "GameModelFunction";
 inline constexpr GraphQLEndpoint kGameModelFunctionEndpoint = GraphQLEndpoint::Both;
@@ -9091,6 +9232,16 @@ fragment GmFunctionFields on GmFunction {
     userExpression
     gridIdExpression
     ttlSecondsExpression
+  }
+  timers {
+    functionName
+    target
+    delayMsExpression
+    dedupeKeyExpression
+    params {
+      name
+      expression
+    }
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionsOperationName = "GameModelFunctions";
@@ -9143,6 +9294,9 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameModelAutomationRuns") return kGameModelAutomationRunsIsolatedDocument;
   if (operationName == "GameModelAutomationStats") return kGameModelAutomationStatsIsolatedDocument;
   if (operationName == "GameModelAppDiagnostics") return kGameModelAppDiagnosticsIsolatedDocument;
+  if (operationName == "GameModelScheduleInvoke") return kGameModelScheduleInvokeIsolatedDocument;
+  if (operationName == "GameModelCancelTimer") return kGameModelCancelTimerIsolatedDocument;
+  if (operationName == "GameModelTimers") return kGameModelTimersIsolatedDocument;
   if (operationName == "GameModelCreateSession") return kGameModelCreateSessionIsolatedDocument;
   if (operationName == "GameModelJoinSession") return kGameModelJoinSessionIsolatedDocument;
   if (operationName == "GameModelSetSessionTurn") return kGameModelSetSessionTurnIsolatedDocument;
@@ -9202,6 +9356,9 @@ inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {
   if (operationName == "GameModelAutomationRuns") return kGameModelAutomationRunsEndpoint;
   if (operationName == "GameModelAutomationStats") return kGameModelAutomationStatsEndpoint;
   if (operationName == "GameModelAppDiagnostics") return kGameModelAppDiagnosticsEndpoint;
+  if (operationName == "GameModelScheduleInvoke") return kGameModelScheduleInvokeEndpoint;
+  if (operationName == "GameModelCancelTimer") return kGameModelCancelTimerEndpoint;
+  if (operationName == "GameModelTimers") return kGameModelTimersEndpoint;
   if (operationName == "GameModelCreateSession") return kGameModelCreateSessionEndpoint;
   if (operationName == "GameModelJoinSession") return kGameModelJoinSessionEndpoint;
   if (operationName == "GameModelSetSessionTurn") return kGameModelSetSessionTurnEndpoint;

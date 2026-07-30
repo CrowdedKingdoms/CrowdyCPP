@@ -1,8 +1,8 @@
 {
   "contractVersion": "crowdy.agent-tools/1",
   "crowdyJs": {
-    "version": "13.0.0",
-    "commit": "3fab7764864dccd3fbe6277e5764243893b0488a"
+    "version": "13.2.0",
+    "commit": "8fba64c9e5fb16f157a4ab33c5d6fcc29723cddc"
   },
   "registryDigest": "sha256:20ecf25d55beccc1cb7033095cab3774dc301cb5f3edab818e45921416b48c71",
   "tools": [

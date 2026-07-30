@@ -1,14 +1,14 @@
 {
   "contractVersion": "crowdy.studio-diagnostics/1",
   "crowdyJs": {
-    "version": "13.0.0",
-    "commit": "3fab7764864dccd3fbe6277e5764243893b0488a"
+    "version": "13.2.0",
+    "commit": "8fba64c9e5fb16f157a4ab33c5d6fcc29723cddc"
   },
   "cases": [
     {
       "name": "human-lines-crlf-utf8-and-deduplication",
       "defaultTarget": "CLIENT",
-      "output": "error[E0425]: cannot find value `missing` in this scope\r\n  --> /build/server/src/lib.rs:12:9\rwarning: unused variable: `dt`\n  --> src/tick.rs:4:17\nsrc/direct.rs:8:3: error[E0308]: mismatched types\nsrc/direct.rs:8:3: error[E0308]: mismatched types\nnote: café 値\n  --> C:\\build\\client\\src\\café.rs:2:7-11",
+      "output": "error[E0425]: cannot find value `missing` in this scope\r\n  --> /build/server/src/lib.rs:12:9\rwarning: unused variable: `dt`\n  --> src/tick.rs:4:17\nsrc/direct.rs:8:3: error[E0308]: mismatched types\nsrc/direct.rs:8:3: error[E0308]: mismatched types\nnote: caf\u00e9 \u5024\n  --> C:\\build\\client\\src\\caf\u00e9.rs:2:7-11",
       "expected": [
         {
           "target": "SERVER",
@@ -41,12 +41,12 @@
         },
         {
           "target": "CLIENT",
-          "path": "src/café.rs",
+          "path": "src/caf\u00e9.rs",
           "line": 2,
           "column": 7,
           "endColumn": 11,
           "severity": "info",
-          "message": "café 値",
+          "message": "caf\u00e9 \u5024",
           "source": "rustc"
         }
       ]

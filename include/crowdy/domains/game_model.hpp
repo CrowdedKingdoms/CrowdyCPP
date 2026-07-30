@@ -930,6 +930,40 @@ class GameModelAPI : public DomainBase {
                     std::move(cb));
   }
 
+  // ----- Timers (requires manage_apps) ---------------------------------------
+
+  /// Arm a one-shot delayed invocation. Durable and claimed by exactly one API
+  /// replica, so it fires once; the target function must be autonomousInvocable
+  /// because the fire is headless. For player-driven delays declare a `timers`
+  /// effect on the function instead, so the delay is armed atomically with that
+  /// invocation's mutations. `dedupeKey` re-arms in place ("reset the
+  /// countdown") rather than queueing another fire.
+  graphql::Json scheduleInvoke(const graphql::JVal& input) const {
+    return automations("GameModelScheduleInvoke", input);
+  }
+  void scheduleInvokeAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    automationsAsync("GameModelScheduleInvoke", input, std::move(cb));
+  }
+  /// Cancel pending timers by id or dedupe key; `vars` carries appId plus at
+  /// least one selector. Returns how many were removed.
+  graphql::Json cancelTimer(const graphql::JVal& vars) const {
+    return execUnwrap(gen::gameModel::documentFor("GameModelCancelTimer"), vars,
+                      "GameModelCancelTimer");
+  }
+  void cancelTimerAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelCancelTimer"), vars, "GameModelCancelTimer",
+                    std::move(cb));
+  }
+  /// Pending timers, soonest first. A timer leaves this list the instant it is
+  /// claimed, so an empty list means nothing is scheduled, not that nothing ran.
+  graphql::Json timers(const graphql::JVal& vars) const {
+    return execUnwrap(gen::gameModel::documentFor("GameModelTimers"), vars, "GameModelTimers");
+  }
+  void timersAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::gameModel::documentFor("GameModelTimers"), vars, "GameModelTimers",
+                    std::move(cb));
+  }
+
  private:
   static std::optional<std::int32_t> parseGraphQLInt(
       const graphql::Json& value) {

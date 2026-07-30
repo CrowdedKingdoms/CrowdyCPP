@@ -31,9 +31,9 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.17.0 unified galaxy target:** the release gate reports zero portable gaps,
-unclassified differences, and stale classifications against CrowdyJS 13.0.0 at
-`3fab7764864dccd3fbe6277e5764243893b0488a`. This is not a claim that the
+**v0.18.0 unified galaxy target:** the release gate reports zero portable gaps,
+unclassified differences, and stale classifications against CrowdyJS 13.2.0 at
+`8fba64c9e5fb16f157a4ab33c5d6fcc29723cddc`. This is not a claim that the
 implementations are identical: the generated matrix retains reviewed native
 equivalents and browser-only exclusions. Production Agentic Studio uses typed
 GraphQL-WS durable events, reconnect gap-fill, and lifetime-safe controller
@@ -336,7 +336,7 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
-| `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations. |
+| `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations, one-shot timers. |
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
 | `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |

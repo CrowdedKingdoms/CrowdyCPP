@@ -12,6 +12,10 @@ add_executable(json_test json_test.cpp)
 target_link_libraries(json_test PRIVATE crowdy_graphql)
 add_test(NAME json_test COMMAND json_test)
 
+add_executable(estate_test estate_test.cpp)
+target_link_libraries(estate_test PRIVATE crowdy_graphql)
+add_test(NAME estate_test COMMAND estate_test)
+
 add_executable(graphql_client_test graphql_client_test.cpp)
 target_link_libraries(graphql_client_test PRIVATE crowdy_graphql)
 if(CROWDY_WITH_CURL)

@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/errors.hpp"
@@ -81,6 +82,24 @@ class FakeAsyncTransport final : public IAsyncHttpTransport {
   }
 
   void fire() { saved(outcome); }
+};
+
+class UrlRecordingTransport final : public IHttpTransport {
+ public:
+  std::vector<std::string> urls;
+  HttpResponse response{200, R"({"data":{"v":"ok"}})"};
+
+  HttpResponse send(const HttpRequest& request) override {
+    urls.push_back(request.url);
+    return response;
+  }
+
+#ifdef CROWDY_NO_EXCEPTIONS
+  HttpOutcome sendOutcome(const HttpRequest& request) noexcept override {
+    urls.push_back(request.url);
+    return {Errc::Ok, response, {}};
+  }
+#endif
 };
 
 std::shared_ptr<GraphQLClient> makeClient(std::shared_ptr<IHttpTransport> sync) {
@@ -271,6 +290,27 @@ void testAsyncStartThrowDeliversOnce() {
 
 // The blocking request() still works and still throws, derived from the same
 // logic as the async path.
+// setEndpoint's RETURN VALUE is load-bearing, not a convenience: the
+// datacenter-redirect retry only retries when the endpoint actually moved.
+// If a no-op move reported success, a server that redirects to the URL the
+// client is already on would produce an endless retry against itself.
+void testSetEndpointReportsWhetherItMoved() {
+  auto transport = std::make_shared<UrlRecordingTransport>();
+  auto client = makeClient(transport);
+  CHECK_EQ(client->endpoint(), "http://test/graphql");
+
+  CHECK(!client->setEndpoint(""));
+  CHECK(!client->setEndpoint("http://test/graphql"));
+  CHECK_EQ(client->endpoint(), "http://test/graphql");
+
+  CHECK(client->setEndpoint("http://moved/graphql"));
+  CHECK_EQ(client->endpoint(), "http://moved/graphql");
+
+  (void)client->request("query");
+  CHECK_EQ(transport->urls.size(), std::size_t{1});
+  CHECK_EQ(transport->urls[0], "http://moved/graphql");
+}
+
 void testSyncRequestReturnsData() {
   auto sync = std::make_shared<FakeSyncTransport>();
   sync->response = HttpResponse{200, R"({"data":{"v":"hello"}})"};
@@ -359,6 +399,7 @@ int main() {
   testInlineFallbackTransportThrow();
   testAsyncStartThrowDeliversOnce();
 #endif
+  testSetEndpointReportsWhetherItMoved();
   testSyncRequestReturnsData();
 #ifndef CROWDY_NO_EXCEPTIONS
   testSyncRequestThrowsGraphql();

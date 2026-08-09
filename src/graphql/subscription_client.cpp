@@ -523,7 +523,47 @@ class GraphQLSubscriptionClient::Impl final
   }
 
   std::size_t poll() { return dispatcher_->drain(); }
-  const std::string& endpoint() const { return endpoint_; }
+
+  std::string endpoint() const {
+    std::lock_guard lock(mutex_);
+    return endpoint_;
+  }
+
+  /// Move the socket to a different origin and reconnect onto it immediately,
+  /// replaying every live subscription. Same shape as credentialsChanged():
+  /// bump the generation so in-flight frames from the old socket are ignored,
+  /// then let the timer thread reconnect with no backoff, because a move is a
+  /// deliberate action rather than a failure to wait out.
+  bool setEndpoint(std::string_view next) {
+    Result<std::string> normalized =
+        normalizeGraphQLWebSocketUrl(next, config_.endpointKind);
+    if (!normalized.ok() || normalized.value().empty()) return false;
+
+    std::shared_ptr<IWebSocketConnection> connection;
+    bool reconnect = false;
+    {
+      std::lock_guard lock(mutex_);
+      if (shutdown_ || normalized.value() == endpoint_) return false;
+      endpoint_ = normalized.value();
+      // With nothing subscribed there is no socket to move: the new endpoint is
+      // simply where the next subscribe() will connect.
+      if (!operations_.empty()) {
+        connection = std::move(connection_);
+        ++generation_;
+        currentReconnectAttempt_ = 1;
+        state_ = ConnectionState::Backoff;
+        reconnectDeadline_ = Clock::now();
+        reconnect = true;
+      }
+    }
+    if (reconnect) {
+      ensureTimerThread();
+      timerCv_.notify_all();
+    }
+    if (connection) connection->close(1000, "endpoint moved");
+    return true;
+  }
+
   std::shared_ptr<Dispatcher> dispatcher() const { return dispatcher_; }
   AuthState& auth() { return *auth_; }
 
@@ -1322,9 +1362,12 @@ std::size_t GraphQLSubscriptionClient::poll() {
   return impl_ ? impl_->poll() : 0;
 }
 
-const std::string& GraphQLSubscriptionClient::endpoint() const {
-  static const std::string empty;
-  return impl_ ? impl_->endpoint() : empty;
+std::string GraphQLSubscriptionClient::endpoint() const {
+  return impl_ ? impl_->endpoint() : std::string();
+}
+
+bool GraphQLSubscriptionClient::setEndpoint(std::string_view endpoint) {
+  return impl_ ? impl_->setEndpoint(endpoint) : false;
 }
 
 std::shared_ptr<Dispatcher> GraphQLSubscriptionClient::dispatcher() const {

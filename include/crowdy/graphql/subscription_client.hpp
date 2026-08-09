@@ -167,7 +167,15 @@ class GraphQLSubscriptionClient {
   /// which drains the same shared Dispatcher for HTTP and subscriptions.
   std::size_t poll();
 
-  const std::string& endpoint() const;
+  /// By value: the endpoint moves (datacenter redirect, re-discovery), so a
+  /// reference into it would dangle the moment it did.
+  std::string endpoint() const;
+
+  /// Move the socket to a different origin, reconnecting immediately and
+  /// replaying every live subscription. False when the URL will not normalize
+  /// or is already current.
+  bool setEndpoint(std::string_view endpoint);
+
   std::shared_ptr<Dispatcher> dispatcher() const;
   AuthState& auth();
 

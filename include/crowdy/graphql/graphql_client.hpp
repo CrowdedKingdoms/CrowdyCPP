@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,7 +50,10 @@ class GraphQLClient {
  public:
   GraphQLClient(GraphQLClientConfig config, std::shared_ptr<IHttpTransport> transport,
                 std::shared_ptr<AuthState> auth)
-      : config_(std::move(config)), transport_(std::move(transport)), auth_(std::move(auth)) {}
+      : config_(std::move(config)),
+        endpoint_(config_.endpoint),
+        transport_(std::move(transport)),
+        auth_(std::move(auth)) {}
   ~GraphQLClient() { close(); }
 
   GraphQLClient(const GraphQLClient&) = delete;
@@ -89,7 +93,28 @@ class GraphQLClient {
   /// completion cannot invoke code owned by this client.
   void close() { asyncScope_->close(); }
 
-  const std::string& endpoint() const { return config_.endpoint; }
+  /// By value, not by reference: the endpoint MOVES now (datacenter redirect,
+  /// re-discovery), and a reference into it would dangle the moment it did.
+  std::string endpoint() const {
+    std::lock_guard lock(endpointMutex_);
+    return endpoint_;
+  }
+
+  /// Point this client at a different origin. Requests already in flight keep
+  /// the URL they were built with; everything after this call uses the new one.
+  ///
+  /// Returns false when `endpoint` is empty or already current, so a caller can
+  /// tell "moved" from "no move happened" — the datacenter-redirect retry needs
+  /// that distinction, because retrying against the same URL is how a redirect
+  /// loop starts.
+  bool setEndpoint(std::string endpoint) {
+    if (endpoint.empty()) return false;
+    std::lock_guard lock(endpointMutex_);
+    if (endpoint == endpoint_) return false;
+    endpoint_ = std::move(endpoint);
+    return true;
+  }
+
   AuthState& auth() { return *auth_; }
   std::shared_ptr<AuthState> sharedAuthState() const { return auth_; }
   std::shared_ptr<Dispatcher> dispatcher() const { return dispatcher_; }
@@ -100,6 +125,8 @@ class GraphQLClient {
   HttpOutcome sendInline(const HttpRequest& request);
 
   GraphQLClientConfig config_;
+  mutable std::mutex endpointMutex_;
+  std::string endpoint_;
   std::shared_ptr<IHttpTransport> transport_;
   std::shared_ptr<AuthState> auth_;
   std::shared_ptr<IAsyncHttpTransport> asyncTransport_;

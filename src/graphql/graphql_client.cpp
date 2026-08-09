@@ -108,7 +108,7 @@ HttpRequest GraphQLClient::buildHttpRequest(std::string_view document, const JVa
   if (!operationName.empty()) body["operationName"] = JVal(operationName);
 
   HttpRequest req;
-  req.url = config_.endpoint;
+  req.url = endpoint();
   req.body = body.dump();
   req.timeoutMs = config_.timeoutMs;
   req.headers.emplace_back("Content-Type", "application/json");

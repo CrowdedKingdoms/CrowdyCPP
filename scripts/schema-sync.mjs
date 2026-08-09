@@ -1,18 +1,25 @@
 #!/usr/bin/env node
 /**
- * Refresh the committed per-endpoint schema snapshots and merged schema.gql
- * from the published production SDLs:
- *   https://docs.crowdedkingdoms.com/schema/management-api.graphql
+ * Refresh the committed schema.gql from the published production SDL:
  *   https://docs.crowdedkingdoms.com/schema/game-api.graphql
  *
  * Maintainers only; external builds use the committed snapshot. Override the
- * sources with --management <path|url> and --game <path|url>.
+ * source with --game <path|url>.
+ *
+ * There is ONE schema because there is one API at one origin. This script used
+ * to keep a second snapshot, schema.management.gql, so codegen could label each
+ * operation Management/Game/Both. That plane distinction is gone as of 0.20.0,
+ * and keeping the snapshot would have been worse than useless: the published
+ * management SDL is now DERIVED from the unified schema by filtering it to a
+ * root-field allowlist, so it is a strict subset. Validating against a subset
+ * answers "is this operation in the management docs tab", not "will the server
+ * accept it" — and every operation outside the allowlist would have been
+ * labelled Game by a check that had stopped describing a real endpoint.
  *
  * Requires the maintainer-only Node dependencies (`npm ci`). Normal CMake
  * builds never invoke this script.
  *
- * Usage: node scripts/schema-sync.mjs [--management <src>] [--game <src>]
- *                                     [--check]
+ * Usage: node scripts/schema-sync.mjs [--game <src>] [--check]
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -23,15 +30,13 @@ import { print } from 'graphql';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const DEFAULTS = {
-  management: 'https://docs.crowdedkingdoms.com/schema/management-api.graphql',
   game: 'https://docs.crowdedkingdoms.com/schema/game-api.graphql',
 };
 
 function parseArgs(argv) {
   const args = { ...DEFAULTS, check: false };
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--management') args.management = argv[++i];
-    else if (argv[i] === '--game') args.game = argv[++i];
+    if (argv[i] === '--game') args.game = argv[++i];
     else if (argv[i] === '--check') args.check = true;
     else throw new Error(`unknown argument: ${argv[i]}`);
   }
@@ -48,37 +53,17 @@ async function load(src) {
 }
 
 const args = parseArgs(process.argv);
-const [management, game] = await Promise.all([load(args.management), load(args.game)]);
+const game = await load(args.game);
 
-// The API is unified: one origin serves both surfaces, and the Game SDL is a
-// strict superset of the Management SDL's root fields. Take it verbatim rather
-// than merging the two.
-//
-// Merging is actively wrong now. The published Management SDL is the archived
-// service's and still carries its own copies of the gm_* types; mergeTypeDefs
-// resolves a field conflict by preferring NON_NULL regardless of argument order,
-// so a stale `GmAutomationRun.automationId: String!` silently won over the live
-// nullable definition and generated a C++ contract the server does not honour.
-// The per-endpoint snapshots below stay exact mirrors of what each URL publishes.
-const merged = print(mergeTypeDefs([game])) + '\n';
+// Normalised rather than verbatim, so codegen's input is stable against the
+// SDL's field ordering and description churn.
+const normalised = print(mergeTypeDefs([game])) + '\n';
 const snapshots = [
-  {
-    destination: resolve(root, 'schema.management.gql'),
-    label: 'schema.management.gql',
-    source: args.management,
-    text: management,
-  },
-  {
-    destination: resolve(root, 'schema.game.gql'),
-    label: 'schema.game.gql',
-    source: args.game,
-    text: game,
-  },
   {
     destination: resolve(root, 'schema.gql'),
     label: 'schema.gql',
     source: args.game,
-    text: merged,
+    text: normalised,
   },
 ];
 if (args.check) {
@@ -96,17 +81,11 @@ if (args.check) {
     );
     process.exitCode = 1;
   } else {
-    console.log(
-      'Per-endpoint snapshots and schema.gql match the supplied ' +
-        'Management and Game SDLs',
-    );
+    console.log('schema.gql matches the supplied SDL');
   }
 } else {
   for (const { destination, text } of snapshots) {
     writeFileSync(destination, text);
   }
-  console.log(
-    `schema.management.gql, schema.game.gql, and schema.gql written from:\n` +
-      `  ${args.management}\n  ${args.game}`,
-  );
+  console.log(`schema.gql written from:\n  ${args.game}`);
 }

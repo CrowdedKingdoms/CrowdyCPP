@@ -29,10 +29,10 @@ DENYLIST=(
 # not in these deterministic validation inputs.
 fail=0
 for term in "${DENYLIST[@]}"; do
-  # Search tracked files only; exclude this script and published SDL snapshots.
+  # Search tracked files only; exclude this script and the published SDL snapshot.
   if hits=$(git grep -nIE --untracked "$term" -- \
       ':!scripts/check-content-policy.sh' \
-      ':!schema.gql' ':!schema.game.gql' ':!schema.management.gql' \
+      ':!schema.gql' \
       2>/dev/null); then
     echo "DENYLISTED TERM '$term' found:" >&2
     echo "$hits" >&2

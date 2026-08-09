@@ -22,11 +22,16 @@ this does not claim identical transports or browser behavior.
 | Agentic Studio HTTP + event stream | Typed controller, GraphQL-WS replay/gap-fill | Typed controller and transport | `crowdy.studio-agent/1` |
 | Local Play/Studio tools | Native player-host + closed typed dispatcher | Browser dispatcher + player host | Agent descriptor contract v1 |
 
-`schema.management.gql` and `schema.game.gql` are exact committed snapshots of
-the published endpoint SDLs. Codegen isolates every operation with only its
-transitive fragments and validates it independently against those endpoint
-schemas; the merged `schema.gql` is never accepted as proof that an operation
-can be sent to either plane.
+`schema.gql` is the committed snapshot of the published API SDL. Codegen
+isolates every operation with only its transitive fragments and validates it
+independently, so an unrelated root field in the same file cannot make a
+request valid.
+
+Since 0.20.0 there is one schema because there is one origin. The per-plane
+snapshots are gone: the published management SDL is now derived from the unified
+schema by filtering it to a root-field allowlist, so validating against it would
+have answered "is this in the management docs tab" rather than "will the server
+accept it".
 
 Older servers reject only operations they do not know. A client can continue
 using older surfaces by not calling the newer methods. There is no provider

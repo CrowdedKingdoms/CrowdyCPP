@@ -602,7 +602,7 @@ const state = {
   crossCuttingBehaviorsChecked: crossCuttingSurfaces.behaviors.length,
 };
 for (const contract of endpointOperationContracts) {
-  if (contract.validEndpoints.length === 0) {
+  if (!contract.valid) {
     state.unclassified.push(
       `operation:${contract.domain}/${contract.file}:${contract.name}`,
     );
@@ -658,29 +658,13 @@ for (const difference of schemaDifferences) {
 }
 report += '\n';
 
-const endpointCounts = {
-  management: endpointOperationContracts.filter(
-    ({ validEndpoints }) =>
-      validEndpoints.length === 1 && validEndpoints[0] === 'management',
-  ).length,
-  game: endpointOperationContracts.filter(
-    ({ validEndpoints }) =>
-      validEndpoints.length === 1 && validEndpoints[0] === 'game',
-  ).length,
-  both: endpointOperationContracts.filter(
-    ({ validEndpoints }) => validEndpoints.length === 2,
-  ).length,
-  invalid: endpointOperationContracts.filter(
-    ({ validEndpoints }) => validEndpoints.length === 0,
-  ).length,
-};
-report += '## Exact endpoint operation validation\n\n';
+report += '## Exact operation validation\n\n';
 report +=
   `- Isolated generated operations: ${endpointOperationContracts.length}\n` +
-  `- Management-only: ${endpointCounts.management}\n` +
-  `- Game-only: ${endpointCounts.game}\n` +
-  `- Valid on both endpoints: ${endpointCounts.both}\n` +
-  `- Invalid on both endpoints: ${endpointCounts.invalid}\n\n`;
+  `- Valid against schema.gql: ` +
+  `${endpointOperationContracts.filter(({ valid }) => valid).length}\n` +
+  `- Invalid: ` +
+  `${endpointOperationContracts.filter(({ valid }) => !valid).length}\n\n`;
 
 report += '## GraphQL root-field implementation\n\n';
 for (const rootName of ['Query', 'Mutation', 'Subscription']) {
@@ -1151,12 +1135,7 @@ function checkStaleClassifications(state) {
 }
 
 function operationEndpointContracts() {
-  const endpointSchemas = {
-    management: buildSchema(
-      readFileSync(join(root, 'schema.management.gql'), 'utf8'),
-    ),
-    game: buildSchema(readFileSync(join(root, 'schema.game.gql'), 'utf8')),
-  };
+  const apiSchema = buildSchema(readFileSync(join(root, 'schema.gql'), 'utf8'));
   const contracts = [];
   const operations = join(root, 'operations');
   for (const domain of readdirSync(operations).sort()) {
@@ -1204,14 +1183,11 @@ function operationEndpointContracts() {
           kind: Kind.DOCUMENT,
           definitions: [operation, ...selected],
         };
-        const validEndpoints = Object.entries(endpointSchemas)
-          .filter(([, schema]) => validate(schema, isolated).length === 0)
-          .map(([plane]) => plane);
         contracts.push({
           domain,
           file,
           name: operation.name.value,
-          validEndpoints,
+          valid: validate(apiSchema, isolated).length === 0,
         });
       }
     }
@@ -1231,51 +1207,58 @@ function collectOperationSpreads(node, names) {
   }
 }
 
+// Both SDKs talk to ONE origin as of CrowdyJS 14 / CrowdyCPP 0.20.0. This used
+// to compare, per operation, which of two planes each SDK routed it to — a check
+// that becomes vacuous the moment there is one plane, and whose "no comparable
+// routes found" failure would have been the only thing it could still say.
+//
+// Inverted: assert that NEITHER SDK has a second plane. It reads both sources
+// because the collapse only holds while both agree; a management client
+// reappearing on either side is a real regression, and one that would otherwise
+// show up as a silent routing difference rather than as a parity failure.
 function endpointPlaneParityResults() {
   const failures = [];
-  const cppSource = readFileSync(
-    join(root, 'include', 'crowdy', 'domains', 'marketplace.hpp'),
-    'utf8',
-  );
-  const jsSource = readFileSync(
-    join(crowdyjsPath, 'src', 'domains', 'marketplace.ts'),
-    'utf8',
-  );
-  const cppRoutes = new Map();
-  for (const match of cppSource.matchAll(
-    /\b(game_|management_)\.run(?:Async)?\(\s*"([A-Za-z_]\w*)"/gu,
-  )) {
-    const plane = match[1] === 'game_' ? 'game' : 'management';
-    const previous = cppRoutes.get(match[2]);
-    if (previous && previous !== plane) {
-      failures.push(`endpoint-plane:CrowdyCPP.${match[2]} is routed to both planes`);
-    }
-    cppRoutes.set(match[2], plane);
-  }
-  const jsRoutes = new Map();
-  for (const match of jsSource.matchAll(
-    /\bthis\.(game|management)\.request\(\s*([A-Za-z_]\w*)Document/gu,
-  )) {
-    const previous = jsRoutes.get(match[2]);
-    if (previous && previous !== match[1]) {
-      failures.push(`endpoint-plane:CrowdyJS.${match[2]} is routed to both planes`);
-    }
-    jsRoutes.set(match[2], match[1]);
-  }
-
   let checked = 0;
-  for (const [operation, jsPlane] of jsRoutes) {
-    const cppPlane = cppRoutes.get(operation);
-    if (!cppPlane) continue;
-    checked++;
-    if (cppPlane !== jsPlane) {
-      failures.push(
-        `endpoint-plane:${operation} (CrowdyCPP=${cppPlane}, CrowdyJS=${jsPlane})`,
-      );
+  const sources = [
+    {
+      label: 'CrowdyCPP',
+      path: join(root, 'include', 'crowdy', 'domains', 'marketplace.hpp'),
+      patterns: [/\bmanagement_\b/gu, /\bmanagementGql\b/gu],
+    },
+    {
+      label: 'CrowdyCPP',
+      path: join(
+        root, 'include', 'crowdy', 'domains', 'crowdy_studio_agent.hpp',
+      ),
+      patterns: [/\bmanagement_\b/gu, /\bmanagementGql\b/gu],
+    },
+    {
+      label: 'CrowdyJS',
+      path: join(crowdyjsPath, 'src', 'domains', 'marketplace.ts'),
+      patterns: [/\bthis\.management\b/gu],
+    },
+    {
+      label: 'CrowdyJS',
+      path: join(crowdyjsPath, 'src', 'crowdy-client.ts'),
+      patterns: [/\bthis\.management\s*=/gu],
+    },
+  ];
+  for (const { label, path, patterns } of sources) {
+    if (!existsSync(path)) {
+      failures.push(`endpoint-plane:${path} (source missing)`);
+      continue;
     }
-  }
-  if (checked === 0) {
-    failures.push('endpoint-plane:MarketplaceAPI (no comparable routes found)');
+    const source = readFileSync(path, 'utf8');
+    for (const pattern of patterns) {
+      checked++;
+      const hits = [...source.matchAll(pattern)];
+      if (hits.length > 0) {
+        failures.push(
+          `endpoint-plane:${label}.${basename(path)} reintroduces a second ` +
+            `plane (${hits.length} x ${pattern.source})`,
+        );
+      }
+    }
   }
   return { checked, failures };
 }

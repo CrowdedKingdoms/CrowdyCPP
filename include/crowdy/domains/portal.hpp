@@ -40,7 +40,7 @@ class PortalAPI : public DomainBase {
         crypto_(crypto) {}
 
   static constexpr std::string_view kAppTokenFields =
-      "token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl";
+      "token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl";
 
   /// Native/direct mint: exchange the identity session token for an
   /// app-scoped gameplay token. The token is NOT stored on this client —
@@ -51,7 +51,7 @@ class PortalAPI : public DomainBase {
     vars["input"]["appId"] = appId;
     return AppTokenResponse::fromJson(execUnwrap(
         "mutation MintAppToken($input: MintAppTokenInput!) { mintAppToken(input: $input) {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }",
         vars));
   }
 
@@ -61,7 +61,7 @@ class PortalAPI : public DomainBase {
     vars["input"]["appId"] = appId;
     execUnwrapAsync(
         "mutation MintAppToken($input: MintAppTokenInput!) { mintAppToken(input: $input) {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }",
         vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
           AppTokenResponse value{};
           if (out.ok()) value = AppTokenResponse::fromJson(out.data);
@@ -78,7 +78,7 @@ class PortalAPI : public DomainBase {
   AppTokenResponse refresh(bool install = true) const {
     auto r = AppTokenResponse::fromJson(execUnwrap(
         "mutation RefreshAppToken { refreshAppToken {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }"));
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }"));
     if (install && !r.token.empty()) auth_->setToken(r.token);
     return r;
   }
@@ -88,7 +88,7 @@ class PortalAPI : public DomainBase {
       bool install = true) const {
     execUnwrapAsync(
         "mutation RefreshAppToken { refreshAppToken {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }",
         graphql::JVal(), {},
         [auth = auth_, install, cb = std::move(cb)](
             graphql::GraphQLOutcome out) mutable {
@@ -141,7 +141,7 @@ class PortalAPI : public DomainBase {
     auto r = AppTokenResponse::fromJson(execUnwrap(
         "mutation ExchangePortalCode($input: ExchangePortalCodeInput!) {"
         " exchangePortalCode(input: $input) {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }",
         vars));
     if (!r.token.empty()) auth_->setToken(r.token);
     return r;
@@ -155,7 +155,7 @@ class PortalAPI : public DomainBase {
     execUnwrapAsync(
         "mutation ExchangePortalCode($input: ExchangePortalCodeInput!) {"
         " exchangePortalCode(input: $input) {"
-        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl launchUrl } }",
+        " token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl discoveryUrl launchUrl } }",
         vars, {},
         [auth = auth_, cb = std::move(cb)](
             graphql::GraphQLOutcome out) mutable {

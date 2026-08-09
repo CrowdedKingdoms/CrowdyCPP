@@ -3,9 +3,11 @@
 ## 0.17.0 unified API (breaking)
 
 Tracks CrowdyJS 13.0.0: the platform merged the Management and Game APIs into
-ONE server on the shared database (galaxy then; PostgreSQL + Citus since 2026-08-04). The committed schema snapshots are
-resynced from the unified SDL (`schema.management.gql` and `schema.game.gql`
-are now the same schema), and the surfaces the platform retired are removed:
+ONE server on the shared database (galaxy then; PostgreSQL + Citus since
+2026-08-04). The committed schema snapshots were resynced from the unified SDL,
+and the surfaces the platform retired are removed. (The two snapshots this
+release kept, `schema.management.gql` and `schema.game.gql`, were themselves
+retired in 0.20.0 — see below.)
 
 - **`client.admin().environments()` removed.** Dedicated customer
   environments no longer exist; every app runs on the shared platform, and

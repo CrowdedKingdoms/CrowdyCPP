@@ -151,9 +151,7 @@ include/crowdy/          public headers
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
 operations/              GraphQL operation documents (codegen input)
-schema.management.gql    exact published Management API SDL snapshot
-schema.game.gql          exact published Game API SDL snapshot
-schema.gql               merged snapshot used for cross-SDK schema comparison
+schema.gql               the published API SDL snapshot (codegen input)
 scripts/                 schema sync + codegen (Node, maintainers only)
 tests/                   unit tests (ctest) + env-gated e2e tests
 benchmarks/              micro + end-to-end benchmarks

@@ -87,6 +87,11 @@ struct AppTokenResponse {
   std::string expiresAt;    ///< ISO-8601; empty when non-expiring
   NullableString gameApiUrl;   ///< null when no route has been assigned
   NullableString gameApiWsUrl;
+  /// The SHARED origin (multivalue DNS over every datacenter's balancer), which
+  /// is why it survives the loss of the single instance gameApiUrl names. Feed
+  /// it to ClientConfig::discoveryUrl so a dead endpoint can be re-discovered
+  /// rather than retried. Null only when the server has no public URL.
+  NullableString discoveryUrl;
   NullableString launchUrl;
 
   /// Checked migration helper for the native UDP int64 wire tail.
@@ -102,6 +107,7 @@ struct AppTokenResponse {
     r.expiresAt = j["expiresAt"].asString();
     r.gameApiUrl = NullableString::fromJson(j["gameApiUrl"]);
     r.gameApiWsUrl = NullableString::fromJson(j["gameApiWsUrl"]);
+    r.discoveryUrl = NullableString::fromJson(j["discoveryUrl"]);
     r.launchUrl = NullableString::fromJson(j["launchUrl"]);
     return r;
   }

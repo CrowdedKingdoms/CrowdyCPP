@@ -31,16 +31,7 @@ if (unknownArgs.length > 0) {
 }
 
 const schema = readFileSync(join(root, 'schema.gql'), 'utf8');
-const endpointSchemaTexts = {
-  management: readFileSync(join(root, 'schema.management.gql'), 'utf8'),
-  game: readFileSync(join(root, 'schema.game.gql'), 'utf8'),
-};
-const endpointSchemas = Object.fromEntries(
-  Object.entries(endpointSchemaTexts).map(([plane, text]) => [
-    plane,
-    buildSchema(text),
-  ]),
-);
+const apiSchema = buildSchema(schema);
 const operationInputs = [];
 for (const domain of listDomains()) {
   for (const file of readdirSync(join(opsDir, domain)).filter((entry) =>
@@ -53,8 +44,6 @@ for (const domain of listDomains()) {
 }
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const schemaDigest = digest(schema);
-const managementSchemaDigest = digest(endpointSchemaTexts.management);
-const gameSchemaDigest = digest(endpointSchemaTexts.game);
 const operationsDigest = digest(
   operationInputs.map(({ path, text }) => `${path}\0${text}\0`).join(''),
 );
@@ -62,10 +51,8 @@ const operationsDigest = digest(
 const HEADER = `// GENERATED FILE — do not edit by hand.
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
-// SDLs at https://docs.crowdedkingdoms.com/schema/).
+// SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: ${schemaDigest}
-// schema.management.gql sha256: ${managementSchemaDigest}
-// schema.game.gql sha256: ${gameSchemaDigest}
 // operations sha256: ${operationsDigest}
 `;
 
@@ -119,37 +106,17 @@ function operationsInFile(text, sourcePath) {
         kind: Kind.DOCUMENT,
         definitions: [operation, ...selected],
       };
-      const endpointErrors = Object.fromEntries(
-        Object.entries(endpointSchemas).map(([plane, endpointSchema]) => [
-          plane,
-          validate(endpointSchema, isolatedDocument),
-        ]),
-      );
-      const endpoints = Object.entries(endpointErrors)
-        .filter(([, errors]) => errors.length === 0)
-        .map(([plane]) => plane);
-      if (endpoints.length === 0) {
-        const details = Object.entries(endpointErrors)
-          .map(
-            ([plane, errors]) =>
-              `  ${plane}: ${errors.map((error) => error.message).join(' | ')}`,
-          )
-          .join('\n');
+      const errors = validate(apiSchema, isolatedDocument);
+      if (errors.length > 0) {
         throw new Error(
-          `${sourcePath}:${operation.name.value} is invalid for every ` +
-            `endpoint SDL:\n${details}`,
+          `${sourcePath}:${operation.name.value} is invalid against ` +
+            `schema.gql:\n  ${errors.map((error) => error.message).join('\n  ')}`,
         );
       }
       return {
         kind: operation.operation,
         name: operation.name.value,
         document: print(isolatedDocument),
-        endpoint:
-          endpoints.length === 2
-            ? 'Both'
-            : endpoints[0] === 'management'
-              ? 'Management'
-              : 'Game',
       };
     });
 }
@@ -163,13 +130,6 @@ let opsHpp = `${HEADER}
 /// retained for compatibility; operation constants contain only that operation
 /// and its transitive fragments so unrelated roots cannot invalidate a request.
 namespace crowdy::gen {
-
-enum class GraphQLEndpoint {
-  Unknown,
-  Management,
-  Game,
-  Both,
-};
 
 `;
 
@@ -231,10 +191,8 @@ for (const domain of listDomains()) {
         `k${op.name}OperationName`,
         `${sourcePath}:${op.name}`,
       );
-      reserveSymbol(`k${op.name}Endpoint`, `${sourcePath}:${op.name}`);
       opsHpp += `inline constexpr std::string_view k${op.name}IsolatedDocument = R"gql(${op.document})gql";\n`;
       opsHpp += `inline constexpr std::string_view k${op.name}OperationName = "${op.name}";\n`;
-      opsHpp += `inline constexpr GraphQLEndpoint k${op.name}Endpoint = GraphQLEndpoint::${op.endpoint};\n`;
       manifest.push({ domain, file, ...op });
       domainOps.push(op);
     }
@@ -245,11 +203,6 @@ for (const domain of listDomains()) {
     opsHpp += `  if (operationName == "${op.name}") return k${op.name}IsolatedDocument;\n`;
   }
   opsHpp += `  return {};\n}\n\n`;
-  opsHpp += `inline constexpr GraphQLEndpoint endpointFor(std::string_view operationName) {\n`;
-  for (const op of domainOps) {
-    opsHpp += `  if (operationName == "${op.name}") return k${op.name}Endpoint;\n`;
-  }
-  opsHpp += `  return GraphQLEndpoint::Unknown;\n}\n\n`;
   opsHpp += `}  // namespace ${domain}\n\n`;
 }
 opsHpp += '}  // namespace crowdy::gen\n';

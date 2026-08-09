@@ -16,6 +16,14 @@ line in `README.md`. The consumer test is what proves the package config
 rejects a different `0.x` minor, so a stale request there passes for the wrong
 reason.
 
+`npm test` now refuses when those four disagree
+(`tests/parity/release-version-agreement.test.mjs`). That gate exists because
+this item was on this list and was still missed at 0.15, 0.18 and 0.20 — every
+time in the consumer fixture, and every time found by CI two minutes into a job
+that first builds and installs the whole SDK. A stale request cannot fail
+locally until a package of the new minor exists to reject it, which is why
+reading the checklist was never enough.
+
 ## Content, codegen, and parity
 
 ```bash

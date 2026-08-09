@@ -7,6 +7,7 @@
 
 #include "crowdy/core/result.hpp"
 #include "crowdy/domains/auth.hpp"
+#include "crowdy/domains/discovery.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
@@ -20,6 +21,7 @@
 #include "crowdy/domains/users.hpp"
 #include "crowdy/domains/world_data.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/graphql/rediscover.hpp"
 #include "crowdy/replication/types.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
 
@@ -70,6 +72,19 @@ struct ClientConfig {
   /// and is deliberately NOT httpUrl: under direct connect httpUrl names one
   /// instance, which is exactly the thing that can die.
   std::string discoveryUrl;
+  /// Custom re-discovery. When null and discoveryUrl is set, the client builds
+  /// one that queries gameClientBootstrap against discoveryUrl using the token
+  /// it already holds. Supply your own to re-mint instead (the equivalent of
+  /// CrowdyJS's createMintRediscover), which needs an identity session.
+  ///
+  /// Must not throw: returning an empty result leaves the client where it is,
+  /// on its normal retry.
+  graphql::RediscoverFn rediscover;
+  /// Consecutive failures before re-discovery runs. A single blip is what
+  /// reconnect backoff is for; moving on the first one would relocate clients
+  /// on any transient loss.
+  int rediscoverAfterFailures =
+      graphql::RediscoverCoordinator::kDefaultAfterFailures;
   /// GraphQL path appended to httpUrl, or an explicitly complete custom
   /// endpoint URL. Base URLs already ending in /graphql are not duplicated.
   std::string graphqlEndpoint = "/graphql";
@@ -177,6 +192,11 @@ class CrowdyClient {
   graphql::AuthState& authState() { return *auth_; }
 
   // ----- Game-client surface --------------------------------------------------
+  /// Where apps are placed. Ask BEFORE authenticating: the shared origin is a
+  /// multivalue record over every datacenter, so a cold client's first request
+  /// lands wherever DNS pointed it, and logging in there writes the session in
+  /// the wrong datacenter.
+  domains::DiscoveryAPI& discovery() { return *discovery_; }
   domains::AuthAPI& auth() { return *authApi_; }
   domains::UsersAPI& users() { return *users_; }
   domains::PortalAPI& portal() { return *portal_; }
@@ -283,6 +303,23 @@ class CrowdyClient {
   bool moveToDatacenter(const std::string& httpUrl,
                         const std::string& wsUrl = {});
 
+  /// Ask where to go and move there. Returns whether the client actually moved.
+  ///
+  /// Never throws and never leaves the client worse off: with no answer, an
+  /// unchanged answer, or a failing lookup, the client stays where it is on its
+  /// normal retry. Concurrent calls share one attempt, because several things
+  /// notice a dead endpoint at once and each applying its own answer would move
+  /// a struggling client repeatedly.
+  bool rediscoverEndpoint(const std::string& appId);
+
+  /// True when re-discovery is available (a callback was supplied, or
+  /// discoveryUrl was set so the client could build one).
+  bool canRediscover() const { return rediscover_->hasCallback(); }
+
+  /// The app id of the live replication connection, or empty. Derived rather
+  /// than stored so it cannot disagree with what is actually being played.
+  std::string activeAppId() const;
+
   const ClientConfig& config() const { return config_; }
 
   /// Terminal dispose: cancels queued/in-flight async callback delivery,
@@ -292,6 +329,9 @@ class CrowdyClient {
 
  private:
   void ensureNonblockingAsyncTransport();
+  /// Default re-discovery: gameClientBootstrap against discoveryUrl, using the
+  /// token this client already holds.
+  graphql::RediscoveredEndpoint bootstrapRediscover(const std::string& appId);
 
   ClientConfig config_;
   const core::ICrypto* crypto_ = nullptr;
@@ -299,12 +339,16 @@ class CrowdyClient {
   std::shared_ptr<graphql::AuthState> auth_;
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
   std::shared_ptr<graphql::GraphQLClient> gql_;
+  /// By pointer because it owns a mutex and CrowdyClient is movable.
+  std::shared_ptr<graphql::RediscoverCoordinator> rediscover_ =
+      std::make_shared<graphql::RediscoverCoordinator>();
   std::shared_ptr<graphql::IAsyncHttpTransport>
       fallbackAsyncTransport_;
   std::string websocketEndpoint_;
   std::shared_ptr<graphql::IWebSocketTransport> webSocketTransport_;
   std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions_;
 
+  std::unique_ptr<domains::DiscoveryAPI> discovery_;
   std::unique_ptr<domains::AuthAPI> authApi_;
   std::unique_ptr<domains::UsersAPI> users_;
   std::unique_ptr<domains::PortalAPI> portal_;

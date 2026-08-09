@@ -542,6 +542,14 @@ class GraphQLSubscriptionClient::Impl final
   /// bump the generation so in-flight frames from the old socket are ignored,
   /// then let the timer thread reconnect with no backoff, because a move is a
   /// deliberate action rather than a failure to wait out.
+  /// Ask `handler` for a better endpoint once `afterFailures` consecutive
+  /// reconnects have failed. Zero disables it.
+  void setRepeatedFailureHandler(int afterFailures, std::function<void()> handler) {
+    std::lock_guard lock(mutex_);
+    rediscoverAfterFailures_ = afterFailures;
+    onRepeatedFailure_ = std::move(handler);
+  }
+
   bool setEndpoint(std::string_view next) {
     Result<std::string> normalized =
         normalizeGraphQLWebSocketUrl(next, config_.endpointKind);
@@ -1137,6 +1145,7 @@ class GraphQLSubscriptionClient::Impl final
     std::shared_ptr<IWebSocketConnection> connection;
     GraphQLSubscriptionError finalError;
     bool terminal = false;
+    std::function<void()> rediscover;
     {
       std::lock_guard lock(mutex_);
       if (shutdown_ || generation != generation_) return;
@@ -1162,6 +1171,15 @@ class GraphQLSubscriptionClient::Impl final
         reconnectDeadline_ =
             Clock::now() +
             std::chrono::milliseconds(reconnectDelayLocked(currentReconnectAttempt_));
+        // A single blip is what backoff is for. Repeated failures against the
+        // same URL are the signal that the URL itself is the problem, and no
+        // number of further retries can fix that.
+        if (rediscoverAfterFailures_ > 0 &&
+            currentReconnectAttempt_ >=
+                static_cast<std::size_t>(rediscoverAfterFailures_) &&
+            onRepeatedFailure_) {
+          rediscover = onRepeatedFailure_;
+        }
       }
 
       if (terminal) {
@@ -1177,6 +1195,9 @@ class GraphQLSubscriptionClient::Impl final
     }
     timerCv_.notify_all();
     if (connection) connection->close(1001, "reconnecting");
+    // Outside the lock: re-discovery makes a network call and may move this very
+    // client's endpoint, which would deadlock against mutex_.
+    if (rediscover) rediscover();
     for (const auto& operation : exhausted) postError(operation, finalError);
   }
 
@@ -1310,6 +1331,8 @@ class GraphQLSubscriptionClient::Impl final
   std::uint64_t generation_ = 0;
   std::uint64_t nextOperationId_ = 1;
   std::size_t currentReconnectAttempt_ = 0;
+  int rediscoverAfterFailures_ = 0;
+  std::function<void()> onRepeatedFailure_;
   std::size_t connectingAttempt_ = 0;
   Clock::time_point acknowledgementDeadline_{};
   Clock::time_point reconnectDeadline_{};
@@ -1376,6 +1399,11 @@ std::string GraphQLSubscriptionClient::endpoint() const {
 
 bool GraphQLSubscriptionClient::setEndpoint(std::string_view endpoint) {
   return impl_ ? impl_->setEndpoint(endpoint) : false;
+}
+
+void GraphQLSubscriptionClient::setRepeatedFailureHandler(
+    int afterFailures, std::function<void()> handler) {
+  if (impl_) impl_->setRepeatedFailureHandler(afterFailures, std::move(handler));
 }
 
 std::shared_ptr<Dispatcher> GraphQLSubscriptionClient::dispatcher() const {

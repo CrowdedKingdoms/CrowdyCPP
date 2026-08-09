@@ -105,25 +105,30 @@ std::string httpToWebsocketUrl(std::string_view httpUrl) {
 /// bearer) for rotation.
 class ClientSessionProvider final : public replication::ISessionProvider {
  public:
+  /// `rediscover` is asked for a better endpoint when assignment fails. It
+  /// returns whether the client moved; a true earns one retry.
   ClientSessionProvider(domains::ServerStatusAPI& serverStatus, domains::PortalAPI& portal,
-                        const core::ILogger& logger)
-      : serverStatus_(serverStatus), portal_(portal), logger_(logger) {}
+                        const core::ILogger& logger,
+                        std::function<bool()> rediscover = {})
+      : serverStatus_(serverStatus),
+        portal_(portal),
+        logger_(logger),
+        rediscover_(std::move(rediscover)) {}
 
   Result<replication::Assignment> assignServer() override {
-#ifndef CROWDY_NO_EXCEPTIONS
-    try {
-#endif
-      domains::ServerAssignment a = serverStatus_.serverWithLeastClients();
-      if (a.clientPort <= 0 || (a.ip4.empty() && a.ip6.empty())) {
-        return Errc::Rejected;
-      }
-      return replication::Assignment{a.ip4, a.ip6, a.clientPort};
-#ifndef CROWDY_NO_EXCEPTIONS
-    } catch (const std::exception& e) {
-      logger_.log(core::LogLevel::Error, std::string("assignServer failed: ") + e.what());
-      return Errc::Rejected;
-    }
-#endif
+    Result<replication::Assignment> assigned = assignOnce();
+    if (assigned.ok() || !rediscover_) return assigned;
+
+    // Assignment goes through the API client, so a failure here often means the
+    // instance the client is pinned to has gone away rather than that the Buddy
+    // fleet is full. Retrying the same endpoint could never recover from that,
+    // which is exactly the shape of the bug re-discovery exists to fix.
+    logger_.log(core::LogLevel::Warn,
+                "assignServer failed; attempting endpoint re-discovery");
+    if (!rediscover_()) return assigned;
+    logger_.log(core::LogLevel::Info,
+                "re-discovered an endpoint; retrying assignment");
+    return assignOnce();
   }
 
   Result<replication::TokenInfo> refreshToken() override {
@@ -149,9 +154,27 @@ class ClientSessionProvider final : public replication::ISessionProvider {
   }
 
  private:
+  Result<replication::Assignment> assignOnce() {
+#ifndef CROWDY_NO_EXCEPTIONS
+    try {
+#endif
+      domains::ServerAssignment a = serverStatus_.serverWithLeastClients();
+      if (a.clientPort <= 0 || (a.ip4.empty() && a.ip6.empty())) {
+        return Errc::Rejected;
+      }
+      return replication::Assignment{a.ip4, a.ip6, a.clientPort};
+#ifndef CROWDY_NO_EXCEPTIONS
+    } catch (const std::exception& e) {
+      logger_.log(core::LogLevel::Error, std::string("assignServer failed: ") + e.what());
+      return Errc::Rejected;
+    }
+#endif
+  }
+
   domains::ServerStatusAPI& serverStatus_;
   domains::PortalAPI& portal_;
   const core::ILogger& logger_;
+  std::function<bool()> rediscover_;
 };
 
 struct GameplayRefreshPreparation {
@@ -388,6 +411,7 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
 
   // One origin, so the split below is by the TOKEN a surface needs, not by the
   // endpoint it is sent to.
+  discovery_ = std::make_unique<domains::DiscoveryAPI>(gql_);
   authApi_ = std::make_unique<domains::AuthAPI>(gql_, auth_);
   users_ = std::make_unique<domains::UsersAPI>(gql_);
   portal_ = std::make_unique<domains::PortalAPI>(gql_, auth_, *crypto_);
@@ -428,6 +452,84 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
       [this](const graphql::DatacenterMove& move) {
         return moveToDatacenter(move.gameApiUrl, move.gameApiWsUrl);
       });
+
+  if (config_.rediscover) {
+    rediscover_->setCallback(config_.rediscover);
+  } else if (!config_.discoveryUrl.empty()) {
+    // The common case is a game that was handed an app token and nothing else,
+    // by the Overworld portal. It cannot re-mint (that needs the identity
+    // session), so without this it could not recover at all.
+    rediscover_->setCallback(
+        [this](const std::string& appId) { return bootstrapRediscover(appId); });
+  }
+
+  if (rediscover_->hasCallback() && subscriptions_) {
+    subscriptions_->setRepeatedFailureHandler(
+        config_.rediscoverAfterFailures,
+        [this] { (void)rediscoverEndpoint(activeAppId()); });
+  }
+}
+
+graphql::RediscoveredEndpoint CrowdyClient::bootstrapRediscover(
+    const std::string& appId) {
+  graphql::RediscoveredEndpoint result;
+  if (appId.empty() || config_.discoveryUrl.empty()) return result;
+
+  // A SEPARATE client on the shared origin, not this one. Re-discovery runs
+  // precisely when this client's endpoint has stopped answering, so asking it
+  // would be asking the broken thing where to go.
+  ClientConfig probe;
+  probe.httpUrl = config_.discoveryUrl;
+  probe.graphqlEndpoint = config_.graphqlEndpoint;
+  probe.timeoutMs = config_.timeoutMs;
+  probe.transport = transport_;
+  probe.crypto = crypto_;
+  auto probeGql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{
+          resolveGraphqlEndpoint(probe.httpUrl, probe.graphqlEndpoint),
+          probe.timeoutMs},
+      transport_, auth_);
+
+  graphql::JVal vars;
+  vars["appId"] = appId;
+  bool ok = false;
+  graphql::Json data;
+  probeGql->requestAsync(
+      gen::serverStatus::kGameClientRediscoverIsolatedDocument, vars,
+      gen::serverStatus::kGameClientRediscoverOperationName,
+      [&](graphql::GraphQLOutcome out) {
+        ok = out.ok();
+        if (ok) data = out.data;
+      });
+  if (!ok) return result;
+
+  const graphql::Json bootstrap =
+      data.isObject() && data["gameClientBootstrap"].isObject()
+          ? data["gameClientBootstrap"]
+          : data;
+  result.httpUrl = bootstrap["gameApiUrl"].asString();
+  result.wsUrl = bootstrap["gameApiWsUrl"].asString();
+  return result;
+}
+
+std::string CrowdyClient::activeAppId() const {
+  // Derived from the live connection rather than stored, so it cannot disagree
+  // with the app the client is actually playing.
+  if (!replication_) return {};
+  if (auto connection = replication_->activeConnection()) {
+    const std::int64_t appId = connection->snapshot().config.appId;
+    if (appId != 0) return std::to_string(appId);
+  }
+  return {};
+}
+
+bool CrowdyClient::rediscoverEndpoint(const std::string& appId) {
+  const graphql::RediscoveredEndpoint next = rediscover_->attempt(appId);
+  if (next.empty()) return false;
+  // Same-URL is not a move, and reporting one would let a caller believe it had
+  // recovered while sitting on the endpoint that just failed.
+  return moveToDatacenter(next.httpUrl.empty() ? config_.httpUrl : next.httpUrl,
+                          next.wsUrl);
 }
 
 bool CrowdyClient::moveToDatacenter(const std::string& httpUrl,
@@ -476,6 +578,7 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   auth_ = std::move(other.auth_);
   dispatcher_ = std::move(other.dispatcher_);
   gql_ = std::move(other.gql_);
+  rediscover_ = std::move(other.rediscover_);
   fallbackAsyncTransport_ =
       std::move(other.fallbackAsyncTransport_);
   websocketEndpoint_ = std::move(other.websocketEndpoint_);
@@ -516,8 +619,9 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
 
 replication::ReplicationClient& CrowdyClient::replication() {
   if (!replication_) {
-    auto provider = std::make_shared<ClientSessionProvider>(*serverStatus_, *portal_,
-                                                            core::defaultLogger());
+    auto provider = std::make_shared<ClientSessionProvider>(
+        *serverStatus_, *portal_, core::defaultLogger(),
+        [this] { return rediscoverEndpoint(activeAppId()); });
     replication_ = std::make_unique<replication::ReplicationClient>(
         std::move(provider), *crypto_);
   }

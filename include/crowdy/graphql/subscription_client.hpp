@@ -176,6 +176,11 @@ class GraphQLSubscriptionClient {
   /// or is already current.
   bool setEndpoint(std::string_view endpoint);
 
+  /// Call `handler` once `afterFailures` consecutive reconnects have failed, so
+  /// a caller can go find a different endpoint. Zero disables it. Invoked
+  /// outside the internal lock, so the handler may move this client.
+  void setRepeatedFailureHandler(int afterFailures, std::function<void()> handler);
+
   std::shared_ptr<Dispatcher> dispatcher() const;
   AuthState& auth();
 

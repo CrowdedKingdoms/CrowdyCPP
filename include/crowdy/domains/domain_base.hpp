@@ -9,8 +9,8 @@
 
 namespace crowdy::domains {
 
-/// Base for domain sub-clients: holds the GraphQL client for the endpoint the
-/// domain targets (management or game) and provides the exec helper.
+/// Base for domain sub-clients: holds the client's GraphQL client and provides
+/// the exec helpers.
 class DomainBase {
  public:
   explicit DomainBase(std::shared_ptr<graphql::GraphQLClient> gql)

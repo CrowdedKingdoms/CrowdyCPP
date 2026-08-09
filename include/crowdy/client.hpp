@@ -8,6 +8,7 @@
 #include "crowdy/core/result.hpp"
 #include "crowdy/domains/auth.hpp"
 #include "crowdy/domains/discovery.hpp"
+#include "crowdy/domains/realtime_control.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
@@ -197,6 +198,9 @@ class CrowdyClient {
   /// lands wherever DNS pointed it, and logging in there writes the session in
   /// the wrong datacenter.
   domains::DiscoveryAPI& discovery() { return *discovery_; }
+  /// Instance lifecycle events (SERVER_DRAINING and the terminal codes).
+  /// watchRealtimeControl() is the usual way in; this is the raw surface.
+  domains::RealtimeControlAPI& realtimeControl() { return *realtimeControl_; }
   domains::AuthAPI& auth() { return *authApi_; }
   domains::UsersAPI& users() { return *users_; }
   domains::PortalAPI& portal() { return *portal_; }
@@ -312,6 +316,16 @@ class CrowdyClient {
   /// a struggling client repeatedly.
   bool rediscoverEndpoint(const std::string& appId);
 
+  /// Watch the realtime control stream and act on it: SERVER_DRAINING
+  /// re-discovers immediately and keeps the connection, terminal codes are
+  /// surfaced. `onEvent` still sees every event, so a host can log or display
+  /// them; pass nothing if the automatic handling is all you want.
+  ///
+  /// Requires an app-scoped token. Keep the returned handle alive — destroying
+  /// it cancels the subscription.
+  graphql::SubscriptionHandle watchRealtimeControl(
+      std::function<void(domains::RealtimeConnectionEvent)> onEvent = {});
+
   /// True when re-discovery is available (a callback was supplied, or
   /// discoveryUrl was set so the client could build one).
   bool canRediscover() const { return rediscover_->hasCallback(); }
@@ -329,6 +343,9 @@ class CrowdyClient {
 
  private:
   void ensureNonblockingAsyncTransport();
+  /// (Re)bind every callback that captures `this`. Called from construction and
+  /// after any move; see the definition for why a move needs it.
+  void installSelfHandlers();
   /// Default re-discovery: gameClientBootstrap against discoveryUrl, using the
   /// token this client already holds.
   graphql::RediscoveredEndpoint bootstrapRediscover(const std::string& appId);
@@ -349,6 +366,7 @@ class CrowdyClient {
   std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions_;
 
   std::unique_ptr<domains::DiscoveryAPI> discovery_;
+  std::unique_ptr<domains::RealtimeControlAPI> realtimeControl_;
   std::unique_ptr<domains::AuthAPI> authApi_;
   std::unique_ptr<domains::UsersAPI> users_;
   std::unique_ptr<domains::PortalAPI> portal_;

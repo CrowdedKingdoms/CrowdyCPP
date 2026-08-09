@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: 377d4a5117c425e14670981f38a836430d8e8359f30058d58423b70dd898b022
-// operations sha256: a4586e89534e4776bb9531f9fb964d9aee8c7ad38ca7e13c3d2dfe0a96d70f10
+// operations sha256: c6b74eb751b8a739ebe12c93c02d926c9781f2a383b0a0cea05da8bf62cd6dad
 
 #pragma once
 
@@ -12490,6 +12490,55 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 }
 
 }  // namespace quotas
+
+namespace realtime {
+
+/// realtime/RealtimeControlEvents.graphql
+inline constexpr std::string_view kRealtimeControlEventsDocument = R"gql(# Control frames ONLY.
+#
+# udpNotifications is a union whose other members carry the browser UDP proxy's
+# gameplay fan-out. CrowdyCPP does not use that path — it speaks UDP natively —
+# so this selects nothing but RealtimeConnectionEvent, and every other member
+# contributes only its __typename.
+#
+# Subscribing at all is what a native client was missing. SERVER_DRAINING, the
+# advance warning that this API instance is being taken out of service, is
+# delivered here and nowhere else. Without it, a client pinned to one instance
+# under direct connect first learns the instance is going away when it stops
+# answering, which is precisely the case re-discovery is meant to get ahead of.
+#
+# Must be app-scoped or the server answers APP_ID_REQUIRED: game tokens are
+# app-agnostic and one socket is shared across apps.
+subscription RealtimeControlEvents {
+  udpNotifications {
+    __typename
+    ... on RealtimeConnectionEvent {
+      status
+      code
+      message
+      retryable
+    }
+  }
+})gql";
+inline constexpr std::string_view kRealtimeControlEventsIsolatedDocument = R"gql(subscription RealtimeControlEvents {
+  udpNotifications {
+    __typename
+    ... on RealtimeConnectionEvent {
+      status
+      code
+      message
+      retryable
+    }
+  }
+})gql";
+inline constexpr std::string_view kRealtimeControlEventsOperationName = "RealtimeControlEvents";
+
+inline constexpr std::string_view documentFor(std::string_view operationName) {
+  if (operationName == "RealtimeControlEvents") return kRealtimeControlEventsIsolatedDocument;
+  return {};
+}
+
+}  // namespace realtime
 
 namespace serverStatus {
 

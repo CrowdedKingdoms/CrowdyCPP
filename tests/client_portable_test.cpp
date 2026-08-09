@@ -31,9 +31,24 @@ class PortableTransport final : public graphql::IHttpTransport {
   bool failRefresh = false;
   bool failReconnect = false;
   std::string refreshGameTokenId = "202";
+  /// When set, the next AppDiscovery is answered with WRONG_DATACENTER pointing
+  /// at this origin, so the client's own redirect handler has to run.
+  std::string redirectAppDiscoveryTo;
 
   graphql::HttpResponse send(const graphql::HttpRequest& request) override {
     requests.push_back(request);
+    if (request.body.find("AppDiscovery") != std::string::npos) {
+      if (!redirectAppDiscoveryTo.empty()) {
+        const std::string target = redirectAppDiscoveryTo;
+        redirectAppDiscoveryTo.clear();
+        return {200,
+                std::string(
+                    R"({"errors":[{"message":"wrong dc","extensions":{"code":"WRONG_DATACENTER","appId":"42","appDatacenter":"or","gameApiUrl":")") +
+                    target + R"("}}]})"};
+      }
+      return {200,
+              R"({"data":{"appDiscovery":[{"appId":"42","datacenterCode":"or","gameApiUrl":"https://ck-or.game.invalid","gameApiWsUrl":"wss://ck-or.game.invalid"}]}})"};
+    }
     if (request.body.find("RefreshAppToken") != std::string::npos) {
       ++refreshCalls;
       if (failRefresh) {
@@ -407,9 +422,79 @@ void testDurableStoreObservability() {
   CHECK_EQ(avatar.privateState().at(1), std::uint8_t{6});
 }
 
+// CrowdyClient's move assignment is a hand-written list of 30-plus members, and
+// two newly added domains were missing from it — which does not fail to compile,
+// it produces null accessors on a moved client. Touching every accessor is the
+// only thing that can catch the next omission.
+//
+// It also covers the subtler half: the GraphQL and subscription clients are held
+// by shared_ptr, so they SURVIVE a move while any lambda inside them still
+// points at the object that was moved from. Provoking a redirect after a move is
+// what proves the handlers were rebound rather than left dangling.
+void testAMovedClientIsFullyUsable() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient original(portableConfig(transport));
+  CrowdyClient client = std::move(original);
+
+  // Each accessor is CALLED, not merely named. Naming one dereferences a null
+  // unique_ptr to form a reference and discards it, which does not fault — the
+  // first version of this test passed with the move of discovery_ deleted.
+  {
+    const auto placements = client.discovery().apps({"42"});
+    CHECK_EQ(placements.size(), std::size_t{1});
+    CHECK_EQ(placements.front().gameApiUrl, "https://ck-or.game.invalid");
+    CHECK(placements.front().placed());
+  }
+  (void)client.realtimeControl().watch({});
+  (void)client.auth();
+  (void)client.users();
+  (void)client.portal();
+  (void)client.serverStatus();
+  (void)client.chunks();
+  (void)client.voxels();
+  (void)client.actors();
+  (void)client.avatars();
+  (void)client.state();
+  (void)client.host();
+  (void)client.teleport();
+  (void)client.teams();
+  (void)client.channels();
+  (void)client.gameModel();
+#ifndef CROWDY_NO_EXCEPTIONS
+  (void)client.compute();
+  (void)client.crowdyStudio();
+#endif
+  (void)client.playerCompute();
+  (void)client.playerWallet();
+  (void)client.marketplace();
+  (void)client.playerModel();
+  (void)client.gameApps();
+  (void)client.platform();
+  (void)client.crowdyStudioAgent();
+  (void)client.admin();
+  (void)client.operator_();
+  CHECK_EQ(client.graphqlClient().endpoint(),
+           "https://game.invalid/graphql");
+
+  // A target has to be a SIBLING in the same estate; an unrelated origin is
+  // refused, which is the point of the bound rather than an obstacle.
+  CHECK(!client.moveToDatacenter("https://elsewhere.example.com"));
+
+  // Drive the redirect through a real server response, so the handler the move
+  // had to rebind is the thing under test. Calling moveToDatacenter directly
+  // would prove nothing: it does not go through the handler at all, and the
+  // first version of this test passed with the rebinding deleted.
+  transport->redirectAppDiscoveryTo = "https://ck-va.game.invalid";
+  const auto afterRedirect = client.discovery().apps({"42"});
+  CHECK_EQ(afterRedirect.size(), std::size_t{1});
+  CHECK_EQ(client.graphqlClient().endpoint(),
+           "https://ck-va.game.invalid/graphql");
+}
+
 }  // namespace
 
 int main() {
+  testAMovedClientIsFullyUsable();
   testEndpointNormalization();
   testSynchronousGameplayRefresh();
 #ifndef CROWDY_NO_EXCEPTIONS

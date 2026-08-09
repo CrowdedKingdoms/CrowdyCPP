@@ -412,6 +412,8 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   // One origin, so the split below is by the TOKEN a surface needs, not by the
   // endpoint it is sent to.
   discovery_ = std::make_unique<domains::DiscoveryAPI>(gql_);
+  realtimeControl_ =
+      std::make_unique<domains::RealtimeControlAPI>(subscriptions_);
   authApi_ = std::make_unique<domains::AuthAPI>(gql_, auth_);
   users_ = std::make_unique<domains::UsersAPI>(gql_);
   portal_ = std::make_unique<domains::PortalAPI>(gql_, auth_, *crypto_);
@@ -448,11 +450,6 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   // Every transport moves together or the client ends up querying one
   // datacenter while playing in another — which does not fail, it just makes
   // every gameplay write cross the country.
-  gql_->setWrongDatacenterHandler(
-      [this](const graphql::DatacenterMove& move) {
-        return moveToDatacenter(move.gameApiUrl, move.gameApiWsUrl);
-      });
-
   if (config_.rediscover) {
     rediscover_->setCallback(config_.rediscover);
   } else if (!config_.discoveryUrl.empty()) {
@@ -462,8 +459,28 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
     rediscover_->setCallback(
         [this](const std::string& appId) { return bootstrapRediscover(appId); });
   }
+  installSelfHandlers();
+}
 
-  if (rediscover_->hasCallback() && subscriptions_) {
+/// (Re)bind the callbacks that capture `this`.
+///
+/// The GraphQL client, the subscription client and the coordinator all outlive a
+/// MOVE of their owner — they are held by shared_ptr, so the pointers transfer
+/// while the lambdas inside them keep pointing at the object that was moved
+/// FROM. Calling one then would touch a moved-from CrowdyClient. Rebinding on
+/// every move is the only thing that keeps them honest.
+void CrowdyClient::installSelfHandlers() {
+  if (gql_) {
+    gql_->setWrongDatacenterHandler(
+        [this](const graphql::DatacenterMove& move) {
+          return moveToDatacenter(move.gameApiUrl, move.gameApiWsUrl);
+        });
+  }
+  if (rediscover_ && !config_.rediscover && !config_.discoveryUrl.empty()) {
+    rediscover_->setCallback(
+        [this](const std::string& appId) { return bootstrapRediscover(appId); });
+  }
+  if (rediscover_ && rediscover_->hasCallback() && subscriptions_) {
     subscriptions_->setRepeatedFailureHandler(
         config_.rediscoverAfterFailures,
         [this] { (void)rediscoverEndpoint(activeAppId()); });
@@ -510,6 +527,25 @@ graphql::RediscoveredEndpoint CrowdyClient::bootstrapRediscover(
   result.httpUrl = bootstrap["gameApiUrl"].asString();
   result.wsUrl = bootstrap["gameApiWsUrl"].asString();
   return result;
+}
+
+graphql::SubscriptionHandle CrowdyClient::watchRealtimeControl(
+    std::function<void(domains::RealtimeConnectionEvent)> onEvent) {
+  return realtimeControl_->watch(
+      [this, onEvent = std::move(onEvent)](
+          domains::RealtimeConnectionEvent event) {
+        if (event.draining()) {
+          // Advisory, mid-stream, on a HEALTHY subscription: the instance still
+          // works, so move now rather than waiting for it to stop. Not counted
+          // toward rediscoverAfterFailures, because nothing has failed — the
+          // whole value of this signal is that it arrives first.
+          core::defaultLogger().log(
+              core::LogLevel::Warn,
+              "server is draining; re-discovering an endpoint before it stops");
+          (void)rediscoverEndpoint(activeAppId());
+        }
+        if (onEvent) onEvent(std::move(event));
+      });
 }
 
 std::string CrowdyClient::activeAppId() const {
@@ -567,7 +603,9 @@ bool CrowdyClient::moveToDatacenter(const std::string& httpUrl,
 
 CrowdyClient::~CrowdyClient() { close(); }
 
-CrowdyClient::CrowdyClient(CrowdyClient&&) noexcept = default;
+CrowdyClient::CrowdyClient(CrowdyClient&& other) noexcept {
+  *this = std::move(other);
+}
 CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   if (this == &other) return *this;
   close();
@@ -584,6 +622,8 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   websocketEndpoint_ = std::move(other.websocketEndpoint_);
   webSocketTransport_ = std::move(other.webSocketTransport_);
   subscriptions_ = std::move(other.subscriptions_);
+  discovery_ = std::move(other.discovery_);
+  realtimeControl_ = std::move(other.realtimeControl_);
   authApi_ = std::move(other.authApi_);
   users_ = std::move(other.users_);
   portal_ = std::move(other.portal_);
@@ -614,6 +654,7 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   admin_ = std::move(other.admin_);
   operatorApi_ = std::move(other.operatorApi_);
   replication_ = std::move(other.replication_);
+  installSelfHandlers();
   return *this;
 }
 

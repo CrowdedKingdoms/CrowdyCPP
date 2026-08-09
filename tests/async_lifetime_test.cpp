@@ -56,7 +56,6 @@ ClientConfig configFor(
     const std::shared_ptr<DeferredTransport>& asyncTransport) {
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = std::make_shared<UnusedSyncTransport>();
   config.asyncTransport = asyncTransport;
   return config;
@@ -94,7 +93,7 @@ void testDestroyedClientSuppressesPortalCompletion() {
   bool called = false;
   {
     auto client = std::make_unique<CrowdyClient>(configFor(transport));
-    dispatcher = client->managementClient().dispatcher();
+    dispatcher = client->graphqlClient().dispatcher();
     client->portal().refreshAsync(
         [&](graphql::GraphQLOutcome, domains::AppTokenResponse) {
           called = true;
@@ -114,7 +113,7 @@ void testDestroyedClientSuppressesGameplayRefreshCompletion() {
   {
     auto client = std::make_unique<CrowdyClient>(configFor(transport));
     client->setToken(std::string(64, 'o'));
-    dispatcher = client->managementClient().dispatcher();
+    dispatcher = client->graphqlClient().dispatcher();
     client->refreshGameplayTokenAsync(
         [&](GameplayTokenRefreshResult) { called = true; });
     CHECK_EQ(transport->pending(), std::size_t{1});
@@ -128,7 +127,7 @@ void testDestroyedClientSuppressesGameplayRefreshCompletion() {
 void testCloseSuppressesCompletionBeforeDestruction() {
   auto transport = std::make_shared<DeferredTransport>();
   CrowdyClient client(configFor(transport));
-  auto dispatcher = client.managementClient().dispatcher();
+  auto dispatcher = client.graphqlClient().dispatcher();
   bool called = false;
   client.portal().refreshAsync(
       [&](graphql::GraphQLOutcome, domains::AppTokenResponse) {

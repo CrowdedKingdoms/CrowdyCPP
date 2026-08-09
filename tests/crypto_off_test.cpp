@@ -88,7 +88,6 @@ void testUnavailableProviderIsTyped() {
 void testClientReportsUnavailablePortalCrypto() {
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = std::make_shared<NoopTransport>();
   CrowdyClient client(std::move(config));
 
@@ -104,7 +103,6 @@ void testInjectedCryptoRestoresPortalFlow() {
   InjectedCrypto crypto;
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = std::make_shared<NoopTransport>();
   config.crypto = &crypto;
   CrowdyClient client(std::move(config));

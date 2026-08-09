@@ -12,7 +12,7 @@
 /// control plane (environments, change orders, secrets, release management,
 /// audit) moved to the separate infra-control-plane service with its own auth
 /// and operator console. The surviving operations still require is_operator;
-/// the server enforces the flag on every call. Targets the Management API.
+/// the server enforces the flag on every call.
 namespace crowdy::domains {
 
 class OperatorAPI : public DomainBase {

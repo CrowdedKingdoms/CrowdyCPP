@@ -30,13 +30,12 @@ function isolatedDocument(name) {
   return matches[0][1];
 }
 
-test('the timer operations are generated and routed to the Game endpoint', () => {
-  // `Game`, not `Both`: codegen derives routing from which endpoint SDLs accept
-  // the document, and the published Management SDL is the archived service's.
-  // Older gameModel operations still appear in it (so they resolve to `Both`);
-  // anything added since only validates against the Game SDL. Either value
-  // reaches the same unified origin — what matters is that it is not Unknown or
-  // Management.
+test('the timer operations are generated and dispatchable', () => {
+  // There is no endpoint to assert since 0.20.0 — one origin serves everything,
+  // and codegen no longer emits per-operation plane metadata. What remains worth
+  // asserting is that each operation produced a non-empty isolated document and
+  // that documentFor() can find it, because a name that misses the dispatch
+  // table returns an empty string_view and sends nothing.
   for (const name of [
     'GameModelScheduleInvoke',
     'GameModelCancelTimer',
@@ -45,8 +44,11 @@ test('the timer operations are generated and routed to the Game endpoint', () =>
     assert.ok(isolatedDocument(name).length > 0, `${name} document is empty`);
     assert.match(
       generated,
-      new RegExp(`k${name}Endpoint = GraphQLEndpoint::(Game|Both);`, 'u'),
-      `${name} should route to the game surface`,
+      new RegExp(
+        `operationName == "${name}"\\) return k${name}IsolatedDocument;`,
+        'u',
+      ),
+      `${name} is missing from documentFor dispatch`,
     );
   }
 });

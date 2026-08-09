@@ -461,7 +461,6 @@ void testPlayerWalletAdapter() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
   CrowdyStudioPlayerWalletProvider provider(client.playerWallet());

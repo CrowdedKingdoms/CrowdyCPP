@@ -53,17 +53,24 @@ namespace replication {
 class ReplicationClient;
 }
 
-/// Client configuration. Follows the CrowdyJS two-token model: build one
-/// identity client (managementUrl + session token) and one client per game
-/// (httpUrl from mintAppToken + the app-scoped token).
+/// Client configuration. Follows the CrowdyJS two-TOKEN model, which survives
+/// the collapse to one origin: build one identity client (the shared origin +
+/// session token) and one client per game (the app's own gameApiUrl from
+/// mintAppToken + the app-scoped token). What changed in 0.20.0 is that both are
+/// the same KIND of endpoint — there is no second API to point at.
 struct ClientConfig {
-  /// Game API base URL (world data + replication assignment). Falls back to
-  /// managementUrl when empty (identity-only clients).
+  /// API base URL. One origin serves identity and gameplay alike; for a
+  /// per-game client this is the app's own datacenter endpoint
+  /// (mintAppToken's gameApiUrl), because that is where its shards live.
   std::string httpUrl;
-  /// Management API base URL (sign-in, portal, studio admin). Falls back to
-  /// httpUrl when empty (single-endpoint deployments).
-  std::string managementUrl;
-  /// Game GraphQL path appended to httpUrl, or an explicitly complete custom
+  /// The SHARED origin (multivalue DNS over every datacenter's balancer). Set
+  /// this and a client that loses its endpoint can ask where to go next; leave
+  /// it empty and the only option is to retry an address that has stopped
+  /// answering. Comes back on mintAppToken/gameClientBootstrap as discoveryUrl,
+  /// and is deliberately NOT httpUrl: under direct connect httpUrl names one
+  /// instance, which is exactly the thing that can die.
+  std::string discoveryUrl;
+  /// GraphQL path appended to httpUrl, or an explicitly complete custom
   /// endpoint URL. Base URLs already ending in /graphql are not duplicated.
   std::string graphqlEndpoint = "/graphql";
   long timeoutMs = 60000;
@@ -81,13 +88,10 @@ struct ClientConfig {
   /// *Async calls run on it and their callbacks are delivered from poll();
   /// engines inject their own here (FHttpModule, UnityWebRequest, HTTPRequest).
   std::shared_ptr<graphql::IAsyncHttpTransport> asyncTransport;
-  /// Routed Game API WebSocket base URL. CrowdyCPP does not emulate the
-  /// browser UDP proxy; this normalized endpoint is retained for portable
-  /// GraphQL-WebSocket consumers.
+  /// Routed API WebSocket base URL. CrowdyCPP does not emulate the browser UDP
+  /// proxy for gameplay traffic; this normalized endpoint carries subscriptions
+  /// and the realtime control stream.
   std::string wsUrl;
-  /// Optional Management GraphQL path or explicitly complete endpoint.
-  /// Falls back to graphqlEndpoint for legacy single-path deployments.
-  std::string managementGraphqlEndpoint;
   /// Optional explicitly complete WebSocket endpoint (or a path relative to
   /// wsUrl). When empty, wsUrl is normalized to exactly one /graphql.
   std::string wsEndpoint;
@@ -258,21 +262,14 @@ class CrowdyClient {
   domains::OperatorAPI& operator_() { return *operatorApi_; }
 
   // ----- Low-level escape hatches ------------------------------------------------
-  /// Raw GraphQL against the Game API endpoint.
-  graphql::GraphQLClient& graphqlClient() { return *gameGql_; }
-  /// Raw GraphQL against the Management API endpoint.
-  graphql::GraphQLClient& managementClient() { return *managementGql_; }
-  /// Normalized routed WebSocket endpoint reserved for portable
-  /// GraphQL-WebSocket consumers. Empty when neither wsUrl nor wsEndpoint was
-  /// configured.
+  /// Raw GraphQL against the API endpoint.
+  graphql::GraphQLClient& graphqlClient() { return *gql_; }
+  /// Normalized routed WebSocket endpoint. Empty when neither wsUrl nor
+  /// wsEndpoint was configured.
   const std::string& websocketEndpoint() const { return websocketEndpoint_; }
-  /// Generic graphql-transport-ws subscriptions against the Game API.
+  /// Generic graphql-transport-ws subscriptions against the API.
   graphql::GraphQLSubscriptionClient& subscriptions() {
-    return *gameSubscriptions_;
-  }
-  /// Generic graphql-transport-ws subscriptions against the Management API.
-  graphql::GraphQLSubscriptionClient& managementSubscriptions() {
-    return *managementSubscriptions_;
+    return *subscriptions_;
   }
 
   const ClientConfig& config() const { return config_; }
@@ -290,14 +287,12 @@ class CrowdyClient {
   std::shared_ptr<graphql::IHttpTransport> transport_;
   std::shared_ptr<graphql::AuthState> auth_;
   std::shared_ptr<graphql::Dispatcher> dispatcher_;
-  std::shared_ptr<graphql::GraphQLClient> gameGql_;
-  std::shared_ptr<graphql::GraphQLClient> managementGql_;
+  std::shared_ptr<graphql::GraphQLClient> gql_;
   std::shared_ptr<graphql::IAsyncHttpTransport>
       fallbackAsyncTransport_;
   std::string websocketEndpoint_;
   std::shared_ptr<graphql::IWebSocketTransport> webSocketTransport_;
-  std::shared_ptr<graphql::GraphQLSubscriptionClient> gameSubscriptions_;
-  std::shared_ptr<graphql::GraphQLSubscriptionClient> managementSubscriptions_;
+  std::shared_ptr<graphql::GraphQLSubscriptionClient> subscriptions_;
 
   std::unique_ptr<domains::AuthAPI> authApi_;
   std::unique_ptr<domains::UsersAPI> users_;

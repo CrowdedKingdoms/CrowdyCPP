@@ -14,9 +14,8 @@
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/graphql/json.hpp"
 
-/// GraphQL-over-HTTP client. One instance per endpoint (Management API or
-/// Game API); both share a CrowdyClient's AuthState so HTTP auth never
-/// drifts.
+/// GraphQL-over-HTTP client. One per CrowdyClient, sharing that client's
+/// AuthState so HTTP auth never drifts.
 namespace crowdy::graphql {
 
 struct GraphQLClientConfig {

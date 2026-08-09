@@ -211,17 +211,19 @@ across the SDK boundary.
 int main() {
   const std::string appId = "42";  // GraphQL BigInt stays a decimal string.
 
-  // 1) Identity client (Management API) — passwordless sign-in.
+  // 1) Identity client on the shared entry origin — passwordless sign-in.
   crowdy::CrowdyClient identity(crowdy::ClientConfig{
-      .managementUrl = "https://management.example.com",
+      .httpUrl = "https://ck.example.com",
   });
   auto login = identity.auth().devLogin("player@example.com");  // dev/test only
 
   // 2) Mint an app-scoped token and build the per-game client.
   auto minted = identity.portal().mintAppToken(appId);
+  // httpUrl is the app's OWN datacenter (that is where its shards are);
+  // discoveryUrl is the shared origin to fall back to if it stops answering.
   crowdy::CrowdyClient game(crowdy::ClientConfig{
       .httpUrl = minted.gameApiUrl,
-      .managementUrl = "https://management.example.com",
+      .discoveryUrl = minted.discoveryUrl,
   });
   game.setToken(minted.token);
 

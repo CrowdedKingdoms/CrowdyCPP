@@ -79,7 +79,7 @@ int run() {
     vars["appId"] = cfg.appId;
     vars["visibility"] = "TOTALLY_NOT_A_VISIBILITY";
     const std::string code = expectCodedError([&] {
-      p.identity->managementClient().request(gen::apps::kSetAppVisibilityDocument, vars,
+      p.identity->graphqlClient().request(gen::apps::kSetAppVisibilityDocument, vars,
                                              "SetAppVisibility");
     });
     E2E_CHECK(!code.empty());
@@ -90,8 +90,7 @@ int run() {
   E2E_SUBTEST("unauthenticated client draws UNAUTHENTICATED");
   {
     ClientConfig bare;
-    bare.httpUrl = !cfg.httpUrl.empty() ? cfg.httpUrl : cfg.managementUrl;
-    bare.managementUrl = cfg.managementUrl;
+    bare.httpUrl = !cfg.httpUrl.empty() ? cfg.httpUrl : cfg.apiUrl;
     CrowdyClient anonymous(std::move(bare));
     const std::string code =
         expectCodedError([&] { anonymous.state().getOne(cfg.appId); });

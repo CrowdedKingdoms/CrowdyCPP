@@ -1,5 +1,52 @@
 # CrowdyCPP migration notes
 
+## 0.20.0 one origin, and endpoints that can move (breaking)
+
+Tracks CrowdyJS 14.1.0. 0.17.0 unified the two APIs behind one server but kept
+the two-endpoint shape in the client; this release removes it, and adds the
+machinery a client needs when the one endpoint it holds stops answering.
+
+### Removed
+
+- **`ClientConfig::managementUrl`** and **`ClientConfig::managementGraphqlEndpoint`**.
+  Pass `httpUrl` (and `wsUrl`). For a per-game client that is the app's OWN
+  datacenter endpoint from `mintAppToken`, because that is where its shards live.
+- **`CrowdyClient::managementClient()`** and **`CrowdyClient::managementSubscriptions()`**.
+  Use `graphqlClient()` and `subscriptions()`.
+- **`MarketplaceAPI`** and **`CrowdyStudioAgentAPI`** take one GraphQL client.
+  Studio moderation, policy, usage and operator roots are separated from player
+  operations by the permissions they require, not by endpoint.
+- **`gen::GraphQLEndpoint`** and the per-domain **`endpointFor()`**, along with
+  the `schema.management.gql` / `schema.game.gql` snapshots that produced them.
+
+CrowdyJS throws a `TypeError` when a caller passes a removed option. C++ gets
+the stronger version for free: a removed struct field is a compile error, so
+there is no build in which the old spelling is silently ignored.
+
+### Added
+
+- **`ClientConfig::discoveryUrl`** — the shared origin (multivalue DNS over
+  every datacenter's balancer), returned as `discoveryUrl` by `mintAppToken`,
+  `refreshAppToken`, `exchangePortalCode` and `gameClientBootstrap`. Set it and
+  a client whose endpoint dies can ask where to go next.
+- **`ClientConfig::rediscover`** / **`rediscoverAfterFailures`** (default 3) —
+  the re-discovery hook, coalesced and never fatal.
+- **`discovery()`** — `appDiscovery`, answering where an app is served BEFORE
+  login, so a client can start on the shared origin and move before it
+  authenticates.
+- **Datacenter redirect** — `WRONG_DATACENTER` moves the client (HTTP, WS and
+  UDP together) and retries once; `APP_UNAVAILABLE` raises
+  `CrowdyAppUnavailableError` and carries no endpoint, on purpose.
+- **`SERVER_DRAINING`** — a control-only `udpNotifications` subscription, so a
+  native client gets the same advance warning a browser client already had.
+
+### Environment variables
+
+`CROWDY_E2E_API_URL` replaces `CROWDY_E2E_MANAGEMENT_URL` in the e2e harness.
+The old name is still read: it names the same origin now, and a harness still
+setting only the old name would have made every suite exit 77 — a skip, which
+reads as a pass rather than as a failure.
+
 ## 0.17.0 unified API (breaking)
 
 Tracks CrowdyJS 13.0.0: the platform merged the Management and Game APIs into
@@ -25,8 +72,9 @@ retired in 0.20.0 — see below.)
 - **`client.admin().billing()`**: the per-environment capacity tier catalogs
   (`buddyBillingTiers` / `graphqlBillingTiers` / `postgresBillingTiers`) are
   gone; wallets, budgets, and transactions stay.
-- **Endpoints**: `managementUrl` and `httpUrl` may now be the same origin;
-  configuring both remains supported and the two-token model is unchanged.
+- **Endpoints**: `managementUrl` and `httpUrl` may be the same origin;
+  configuring both remains supported here, and the two-token model is
+  unchanged. (0.20.0 removed `managementUrl` outright.)
 
 Everything game-client, replication, kit, session, Crowdy Studio, agent, and
 player-host is unchanged — the merged schema is a superset for those surfaces.

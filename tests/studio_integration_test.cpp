@@ -2090,7 +2090,6 @@ void testCrowdyClientConstructionHelper() {
   {
     ClientConfig config;
     config.httpUrl = "https://game.invalid";
-    config.managementUrl = "https://management.invalid";
     config.transport = transport;
     config.crypto = crypto.get();
     CrowdyClient client(std::move(config));

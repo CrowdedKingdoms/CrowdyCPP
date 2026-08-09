@@ -13,10 +13,9 @@
 #include "crowdy/domains/types.hpp"
 
 /// Overworld portals & app-scoped tokens — client.portal(). Gameplay requires
-/// a short-lived APP-SCOPED token per app; the identity session token is
-/// management-plane only. See
+/// a short-lived APP-SCOPED token per app; an identity session token is not
+/// accepted for gameplay. See
 /// https://docs.crowdedkingdoms.com/management-api/portals-and-app-tokens.
-/// Targets the Management API.
 namespace crowdy::domains {
 
 /// PKCE material for the cross-origin portal flow. Keep the verifier secret

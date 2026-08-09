@@ -1,7 +1,7 @@
 # CrowdyCPP end-to-end suites
 
 Black-box e2e tests against a live Crowded Kingdoms deployment. Everything is
-unprivileged: provisioning happens through the public Management API the way a
+unprivileged: provisioning happens through the public API the way a
 real integrator does it (owner sign-in -> access tier -> `grantAppAccess`) —
 no database access anywhere. Replication traffic runs over **native UDP**
 directly to the replication servers, so these suites exercise the real
@@ -15,8 +15,8 @@ suite or carries an explicit exclusion reason.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `CROWDY_E2E_MANAGEMENT_URL` | yes | Management API base URL |
-| `CROWDY_E2E_HTTP_URL` | no | Game API base URL (falls back to the minted `gameApiUrl`) |
+| `CROWDY_E2E_API_URL` | yes | API base URL (shared entry origin). `CROWDY_E2E_MANAGEMENT_URL` is still read as a fallback — same origin now |
+| `CROWDY_E2E_HTTP_URL` | no | per-game API base URL (falls back to the minted `gameApiUrl`) |
 | `CROWDY_E2E_EMAIL` | yes | base email; suites derive fresh accounts by plus-addressing |
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
 | `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players, deploys kit blueprints) |

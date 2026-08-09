@@ -11,9 +11,8 @@
 
 /// Authentication and account lifecycle — client.auth(). Passwordless:
 /// magic link, social/OIDC, or (dev only) the dev bypass. Every path returns
-/// an identity SESSION token (management-plane), stored on the shared auth
-/// state automatically. Gameplay tokens are minted separately via
-/// client.portal(). Targets the Management API.
+/// an identity SESSION token, stored on the shared auth state automatically.
+/// Gameplay tokens are minted separately via client.portal().
 namespace crowdy::domains {
 
 class AuthAPI : public DomainBase {

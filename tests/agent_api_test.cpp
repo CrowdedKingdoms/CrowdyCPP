@@ -54,11 +54,10 @@ void checkCall(CaptureTransport& transport, std::string_view base,
             std::string(operation) + "\"") != std::string::npos);
 }
 
-void testEveryNamedOperationUsesItsPlane() {
+void testEveryNamedOperationUsesTheOneOrigin() {
   auto capture = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = capture;
   CrowdyClient client(std::move(config));
   auto& api = client.crowdyStudioAgent();
@@ -119,28 +118,28 @@ void testEveryNamedOperationUsesItsPlane() {
     checkCall(*capture, "https://game.invalid", operation, root, call);
   }
 
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CrowdyStudioAgentPolicy", "crowdyStudioAgentPolicy",
             [&] { (void)api.policy("42"); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CrowdyStudioAgentEffectivePolicy",
             "crowdyStudioAgentEffectivePolicy",
             [&] { (void)api.effectivePolicy("42"); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CrowdyStudioAgentUsage", "crowdyStudioAgentUsage",
             [&] { (void)api.usage("42"); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CrowdyStudioAgentSetPolicy", "setCrowdyStudioAgentPolicy",
             [&] { (void)api.setPolicy(input); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CpCrowdyStudioAgentPlatformPolicy",
             "cpCrowdyStudioAgentPlatformPolicy",
             [&] { (void)api.platformPolicy(); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CpSetCrowdyStudioAgentPlatformPolicy",
             "cpSetCrowdyStudioAgentPlatformPolicy",
             [&] { (void)api.setPlatformPolicy(input); });
-  checkCall(*capture, "https://management.invalid",
+  checkCall(*capture, "https://game.invalid",
             "CpSetCrowdyStudioAgentAppKill",
             "cpSetCrowdyStudioAgentAppKill",
             [&] { (void)api.setOperatorAppKill(input); });
@@ -154,7 +153,6 @@ void testAsyncCompletesOnlyFromPoll() {
       200, R"({"data":{"crowdyStudioAgentBudget":{"dimensions":[],"platformFunded":true,"payer":"PLATFORM"}}})"};
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = capture;
   config.asyncTransport = async;
   CrowdyClient client(std::move(config));
@@ -174,7 +172,7 @@ void testAsyncCompletesOnlyFromPoll() {
 }  // namespace
 
 int main() {
-  testEveryNamedOperationUsesItsPlane();
+  testEveryNamedOperationUsesTheOneOrigin();
   testAsyncCompletesOnlyFromPoll();
   std::printf("agent_api_test passed\n");
   return 0;

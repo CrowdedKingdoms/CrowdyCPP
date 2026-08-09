@@ -103,7 +103,6 @@ ClientConfig portableConfig(
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
   config.wsUrl = "wss://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   return config;
 }
@@ -153,31 +152,23 @@ void testEndpointNormalization() {
     ClientConfig config;
     config.httpUrl = testCase.http;
     config.wsUrl = testCase.ws;
-    config.managementUrl = "https://management.invalid/";
     config.transport = transport;
     CrowdyClient client(std::move(config));
     CHECK_EQ(client.graphqlClient().endpoint(), testCase.expectedHttp);
     CHECK_EQ(client.websocketEndpoint(), testCase.expectedWs);
     CHECK_EQ(client.subscriptions().endpoint(), testCase.expectedWs);
-    CHECK_EQ(client.managementClient().endpoint(),
-             "https://management.invalid/graphql");
   }
 
   auto transport = std::make_shared<PortableTransport>();
   ClientConfig custom;
   custom.httpUrl = "https://game.invalid/base/";
   custom.wsUrl = "wss://game.invalid/base/";
-  custom.managementUrl = "https://management.invalid/base/";
   custom.graphqlEndpoint = "https://custom.invalid/game-query/";
-  custom.managementGraphqlEndpoint =
-      "https://custom.invalid/management-query/";
   custom.wsEndpoint = "wss://custom.invalid/subscriptions/";
   custom.transport = transport;
   CrowdyClient explicitEndpoints(std::move(custom));
   CHECK_EQ(explicitEndpoints.graphqlClient().endpoint(),
            "https://custom.invalid/game-query/");
-  CHECK_EQ(explicitEndpoints.managementClient().endpoint(),
-           "https://custom.invalid/management-query/");
   CHECK_EQ(explicitEndpoints.websocketEndpoint(),
            "wss://custom.invalid/subscriptions/");
   CHECK_EQ(explicitEndpoints.subscriptions().endpoint(),
@@ -186,16 +177,12 @@ void testEndpointNormalization() {
   ClientConfig customPaths;
   customPaths.httpUrl = "https://game.invalid/root/";
   customPaths.wsUrl = "wss://game.invalid/root/";
-  customPaths.managementUrl = "https://management.invalid/root/";
   customPaths.graphqlEndpoint = "/v2/query";
-  customPaths.managementGraphqlEndpoint = "/identity/query";
   customPaths.wsEndpoint = "/stream";
   customPaths.transport = transport;
   CrowdyClient relativeEndpoints(std::move(customPaths));
   CHECK_EQ(relativeEndpoints.graphqlClient().endpoint(),
            "https://game.invalid/root/v2/query");
-  CHECK_EQ(relativeEndpoints.managementClient().endpoint(),
-           "https://management.invalid/root/identity/query");
   CHECK_EQ(relativeEndpoints.websocketEndpoint(),
            "wss://game.invalid/root/stream");
   CHECK_EQ(relativeEndpoints.subscriptions().endpoint(),

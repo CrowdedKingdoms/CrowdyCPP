@@ -115,7 +115,7 @@ struct AppTokenResponse {
 
 /// Result of the passwordless sign-in mutations.
 struct AuthResponse {
-  std::string token;  ///< identity SESSION token (management-plane only)
+  std::string token;  ///< identity SESSION token, not a gameplay token
   std::string gameTokenId;
   std::string userId;
   NullableString email;

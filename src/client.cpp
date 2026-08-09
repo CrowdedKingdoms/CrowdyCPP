@@ -90,9 +90,9 @@ std::string resolveGraphqlEndpoint(std::string_view base,
   return appendEndpointPath(base, endpoint);
 }
 
-/// Bridges the replication client to this CrowdyClient's GraphQL plane:
-/// serverWithLeastClients (Game API) for assignment and refreshAppToken
-/// (Management API, current app token as bearer) for rotation.
+/// Bridges the replication client to this CrowdyClient's GraphQL client:
+/// serverWithLeastClients for assignment, refreshAppToken (current app token as
+/// bearer) for rotation.
 class ClientSessionProvider final : public replication::ISessionProvider {
  public:
   ClientSessionProvider(domains::ServerStatusAPI& serverStatus, domains::PortalAPI& portal,
@@ -351,87 +351,65 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   auth_ = std::make_shared<graphql::AuthState>(config_.tokenStore);
   dispatcher_ = std::make_shared<graphql::Dispatcher>();
 
-  const std::string managementBase =
-      config_.managementUrl.empty() ? config_.httpUrl : config_.managementUrl;
-  const std::string gameBase = config_.httpUrl.empty() ? config_.managementUrl : config_.httpUrl;
-  const std::string managementEndpoint =
-      resolveGraphqlEndpoint(
-          managementBase,
-          config_.managementGraphqlEndpoint.empty()
-              ? config_.graphqlEndpoint
-              : config_.managementGraphqlEndpoint);
-  const std::string gameEndpoint =
-      resolveGraphqlEndpoint(gameBase, config_.graphqlEndpoint);
+  const std::string endpoint =
+      resolveGraphqlEndpoint(config_.httpUrl, config_.graphqlEndpoint);
 
-  managementGql_ = std::make_shared<graphql::GraphQLClient>(
-      graphql::GraphQLClientConfig{managementEndpoint, config_.timeoutMs},
-      transport_, auth_);
-  gameGql_ = std::make_shared<graphql::GraphQLClient>(
-      graphql::GraphQLClientConfig{gameEndpoint, config_.timeoutMs},
+  gql_ = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{endpoint, config_.timeoutMs},
       transport_, auth_);
   websocketEndpoint_ = resolveGraphqlEndpoint(config_.wsUrl, config_.wsEndpoint);
-  const std::string gameSubscriptionEndpoint =
-      websocketEndpoint_.empty() ? gameEndpoint : websocketEndpoint_;
+  const std::string subscriptionEndpoint =
+      websocketEndpoint_.empty() ? endpoint : websocketEndpoint_;
 
-  // Share one completion pump across both endpoints so poll() drains every
-  // async HTTP and WebSocket callback, and wire in engine transports.
-  managementGql_->setDispatcher(dispatcher_);
-  gameGql_->setDispatcher(dispatcher_);
+  // One completion pump, so poll() drains every async HTTP and WebSocket
+  // callback, and wire in engine transports.
+  gql_->setDispatcher(dispatcher_);
   if (config_.asyncTransport) {
-    managementGql_->setAsyncTransport(config_.asyncTransport);
-    gameGql_->setAsyncTransport(config_.asyncTransport);
+    gql_->setAsyncTransport(config_.asyncTransport);
   }
   webSocketTransport_ = config_.webSocketTransport
                             ? config_.webSocketTransport
                             : graphql::makeCurlWebSocketTransport();
-  managementSubscriptions_ =
-      std::make_shared<graphql::GraphQLSubscriptionClient>(
-          graphql::GraphQLSubscriptionClientConfig{
-              managementEndpoint, config_.webSocket,
-              graphql::GraphQLWebSocketEndpointKind::Complete},
-          webSocketTransport_, auth_, dispatcher_);
-  gameSubscriptions_ = std::make_shared<graphql::GraphQLSubscriptionClient>(
+  subscriptions_ = std::make_shared<graphql::GraphQLSubscriptionClient>(
       graphql::GraphQLSubscriptionClientConfig{
-          gameSubscriptionEndpoint, config_.webSocket,
+          subscriptionEndpoint, config_.webSocket,
           graphql::GraphQLWebSocketEndpointKind::Complete},
       webSocketTransport_, auth_, dispatcher_);
 
-  // Management-plane domains.
-  authApi_ = std::make_unique<domains::AuthAPI>(managementGql_, auth_);
-  users_ = std::make_unique<domains::UsersAPI>(managementGql_);
-  portal_ =
-      std::make_unique<domains::PortalAPI>(managementGql_, auth_, *crypto_);
-  platform_ = std::make_unique<domains::PlatformAPI>(managementGql_);
-  operatorApi_ = std::make_unique<domains::OperatorAPI>(managementGql_);
+  // One origin, so the split below is by the TOKEN a surface needs, not by the
+  // endpoint it is sent to.
+  authApi_ = std::make_unique<domains::AuthAPI>(gql_, auth_);
+  users_ = std::make_unique<domains::UsersAPI>(gql_);
+  portal_ = std::make_unique<domains::PortalAPI>(gql_, auth_, *crypto_);
+  platform_ = std::make_unique<domains::PlatformAPI>(gql_);
+  operatorApi_ = std::make_unique<domains::OperatorAPI>(gql_);
 
-  // Game-plane domains (app-scoped token).
-  serverStatus_ = std::make_unique<domains::ServerStatusAPI>(gameGql_);
-  chunks_ = std::make_unique<domains::ChunksAPI>(gameGql_);
-  voxels_ = std::make_unique<domains::VoxelsAPI>(gameGql_);
-  actors_ = std::make_unique<domains::ActorsAPI>(gameGql_);
-  avatars_ = std::make_unique<domains::AvatarsAPI>(gameGql_);
-  state_ = std::make_unique<domains::StateAPI>(gameGql_);
-  host_ = std::make_unique<domains::HostAPI>(gameGql_);
-  teleport_ = std::make_unique<domains::TeleportAPI>(gameGql_);
-  teams_ = std::make_unique<domains::TeamsAPI>(gameGql_);
-  channels_ = std::make_unique<domains::ChannelsAPI>(gameGql_);
-  gameModel_ = std::make_unique<domains::GameModelAPI>(
-      gameGql_, gameSubscriptions_);
+  serverStatus_ = std::make_unique<domains::ServerStatusAPI>(gql_);
+  chunks_ = std::make_unique<domains::ChunksAPI>(gql_);
+  voxels_ = std::make_unique<domains::VoxelsAPI>(gql_);
+  actors_ = std::make_unique<domains::ActorsAPI>(gql_);
+  avatars_ = std::make_unique<domains::AvatarsAPI>(gql_);
+  state_ = std::make_unique<domains::StateAPI>(gql_);
+  host_ = std::make_unique<domains::HostAPI>(gql_);
+  teleport_ = std::make_unique<domains::TeleportAPI>(gql_);
+  teams_ = std::make_unique<domains::TeamsAPI>(gql_);
+  channels_ = std::make_unique<domains::ChannelsAPI>(gql_);
+  gameModel_ = std::make_unique<domains::GameModelAPI>(gql_, subscriptions_);
 #ifndef CROWDY_NO_EXCEPTIONS
-  compute_ = std::make_unique<domains::ComputeAPI>(gameGql_);
+  compute_ = std::make_unique<domains::ComputeAPI>(gql_);
 #endif
-  playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gameGql_);
-  playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(managementGql_);
-  marketplace_ = std::make_unique<domains::MarketplaceAPI>(gameGql_, managementGql_);
-  playerModel_ = std::make_unique<domains::PlayerModelAPI>(gameGql_);
-  gameApps_ = std::make_unique<domains::GameAppsAPI>(gameGql_);
+  playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gql_);
+  playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(gql_);
+  marketplace_ = std::make_unique<domains::MarketplaceAPI>(gql_);
+  playerModel_ = std::make_unique<domains::PlayerModelAPI>(gql_);
+  gameApps_ = std::make_unique<domains::GameAppsAPI>(gql_);
 #ifndef CROWDY_NO_EXCEPTIONS
-  crowdyStudio_ = std::make_unique<domains::CrowdyStudioAPI>(gameGql_);
+  crowdyStudio_ = std::make_unique<domains::CrowdyStudioAPI>(gql_);
 #endif
-  crowdyStudioAgent_ = std::make_unique<domains::CrowdyStudioAgentAPI>(
-      gameGql_, managementGql_, dispatcher_);
+  crowdyStudioAgent_ =
+      std::make_unique<domains::CrowdyStudioAgentAPI>(gql_, dispatcher_);
 
-  admin_ = std::make_unique<domains::AdminAPI>(managementGql_, gameApps_.get());
+  admin_ = std::make_unique<domains::AdminAPI>(gql_, gameApps_.get());
 }
 
 CrowdyClient::~CrowdyClient() { close(); }
@@ -446,14 +424,12 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   transport_ = std::move(other.transport_);
   auth_ = std::move(other.auth_);
   dispatcher_ = std::move(other.dispatcher_);
-  gameGql_ = std::move(other.gameGql_);
-  managementGql_ = std::move(other.managementGql_);
+  gql_ = std::move(other.gql_);
   fallbackAsyncTransport_ =
       std::move(other.fallbackAsyncTransport_);
   websocketEndpoint_ = std::move(other.websocketEndpoint_);
   webSocketTransport_ = std::move(other.webSocketTransport_);
-  gameSubscriptions_ = std::move(other.gameSubscriptions_);
-  managementSubscriptions_ = std::move(other.managementSubscriptions_);
+  subscriptions_ = std::move(other.subscriptions_);
   authApi_ = std::move(other.authApi_);
   users_ = std::move(other.users_);
   portal_ = std::move(other.portal_);
@@ -501,8 +477,7 @@ void CrowdyClient::ensureNonblockingAsyncTransport() {
   if (config_.asyncTransport || fallbackAsyncTransport_) return;
   fallbackAsyncTransport_ =
       graphql::makeThreadedAsyncTransport(transport_);
-  gameGql_->setAsyncTransport(fallbackAsyncTransport_);
-  managementGql_->setAsyncTransport(fallbackAsyncTransport_);
+  gql_->setAsyncTransport(fallbackAsyncTransport_);
 }
 
 #ifndef CROWDY_NO_EXCEPTIONS
@@ -515,7 +490,7 @@ CrowdyClient::createCrowdyStudioAgentController(
         *crowdyStudioAgent_, std::move(options));
   }
   return std::make_unique<agent::CrowdyStudioAgentControllerRuntime>(
-      *crowdyStudioAgent_, *gameSubscriptions_, std::move(options));
+      *crowdyStudioAgent_, *subscriptions_, std::move(options));
 }
 
 std::unique_ptr<studio::CrowdyStudioIntegration>
@@ -532,15 +507,15 @@ CrowdyClient::createCrowdyStudioIntegration(
   }
 
   auto projectApi =
-      std::make_shared<domains::CrowdyStudioAPI>(gameGql_);
+      std::make_shared<domains::CrowdyStudioAPI>(gql_);
   auto playerCompute =
-      std::make_shared<domains::PlayerComputeAPI>(gameGql_);
+      std::make_shared<domains::PlayerComputeAPI>(gql_);
   auto runtime =
       std::make_shared<studio::CrowdyStudioPlayerComputeRuntime>(
           playerCompute, options.clientRuntime);
   if (options.observePlayerWallet && !options.walletProvider) {
     auto playerWallet =
-        std::make_shared<domains::PlayerWalletAPI>(managementGql_);
+        std::make_shared<domains::PlayerWalletAPI>(gql_);
     options.walletProvider =
         std::make_shared<studio::CrowdyStudioPlayerWalletProvider>(
             std::move(playerWallet));
@@ -557,9 +532,9 @@ CrowdyClient::createCrowdyStudioIntegration(
   studio::CrowdyStudioAgentRuntimeFactory agentFactory;
   if (options.agent) {
     ensureNonblockingAsyncTransport();
-    auto agentApi = std::make_shared<domains::CrowdyStudioAgentAPI>(
-        gameGql_, managementGql_, dispatcher_);
-    auto subscriptions = gameSubscriptions_;
+    auto agentApi =
+        std::make_shared<domains::CrowdyStudioAgentAPI>(gql_, dispatcher_);
+    auto subscriptions = subscriptions_;
     const bool realtimeAvailable =
         static_cast<bool>(webSocketTransport_);
     agentFactory =
@@ -667,11 +642,9 @@ void CrowdyClient::poll() {
 
 void CrowdyClient::close() {
   if (dispatcher_) dispatcher_->close();
-  if (gameGql_) gameGql_->close();
-  if (managementGql_) managementGql_->close();
+  if (gql_) gql_->close();
   replication_.reset();
-  if (gameSubscriptions_) gameSubscriptions_->close();
-  if (managementSubscriptions_) managementSubscriptions_->close();
+  if (subscriptions_) subscriptions_->close();
 }
 
 }  // namespace crowdy

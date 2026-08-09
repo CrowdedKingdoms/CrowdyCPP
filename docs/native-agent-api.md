@@ -8,7 +8,7 @@ provider client, unrestricted SDK bridge, or raw network/tool authority.
 - `client.crowdyStudioAgent()` is the exact generated-document GraphQL surface.
   Session, event, descriptor, budget, lease, approval, and run operations use
   the Game API. App policy, sanitized usage, and operator policy/kill
-  operations use the Management API.
+  operations require studio permissions.
 - `crowdy::agent::CrowdyStudioAgentGraphQLTransport` maps those documents onto
   the typed `IAgentTransport` contract. Its `subscribeEvents` method uses the
   committed GraphQL-WS document and emits only typed durable events.

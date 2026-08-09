@@ -137,7 +137,6 @@ int main() {
   auto transport = std::make_shared<NoNetworkTransport>();
   crowdy::ClientConfig config;
   config.httpUrl = "https://offline.invalid";
-  config.managementUrl = "https://offline.invalid";
   config.transport = transport;
   crowdy::CrowdyClient client(std::move(config));
 

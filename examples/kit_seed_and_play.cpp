@@ -2,7 +2,7 @@
 // then a player uses the runtime helpers — with the server enforcing the
 // owner-gated policies (the overdraw attempt fails server-side).
 //
-//   kit_seed_and_play <managementUrl> <adminEmail> <playerEmail> <appId>
+//   kit_seed_and_play <apiUrl> <adminEmail> <playerEmail> <appId>
 //
 // The admin account needs manage_apps on the app; the server must run with
 // DEV_AUTH_BYPASS for the dev sign-ins.
@@ -14,19 +14,18 @@ using namespace crowdy;
 
 namespace {
 
-CrowdyClient makeGameClient(const std::string& managementUrl, const std::string& email,
+CrowdyClient makeGameClient(const std::string& apiUrl, const std::string& email,
                             const std::string& appId, std::string* userId) {
   ClientConfig identityCfg;
-  identityCfg.managementUrl = managementUrl;
+  identityCfg.httpUrl = apiUrl;
   CrowdyClient identity(std::move(identityCfg));
   auto login = identity.auth().devLogin(email);
   if (userId) *userId = login.userId;
   auto minted = identity.portal().mintAppToken(appId);
   ClientConfig gameCfg;
   gameCfg.httpUrl = minted.gameApiUrl.empty()
-                        ? managementUrl
+                        ? apiUrl
                         : minted.gameApiUrl.valueOrEmpty();
-  gameCfg.managementUrl = managementUrl;
   CrowdyClient game(std::move(gameCfg));
   game.setToken(minted.token);
   return game;
@@ -37,16 +36,16 @@ CrowdyClient makeGameClient(const std::string& managementUrl, const std::string&
 int main(int argc, char** argv) {
   if (argc < 5) {
     std::fprintf(stderr,
-                 "usage: kit_seed_and_play <managementUrl> <adminEmail> <playerEmail> <appId>\n");
+                 "usage: kit_seed_and_play <apiUrl> <adminEmail> <playerEmail> <appId>\n");
     return 2;
   }
-  const std::string managementUrl = argv[1];
+  const std::string apiUrl = argv[1];
   const std::string adminEmail = argv[2];
   const std::string playerEmail = argv[3];
   const std::string appId = argv[4];
 
   // Studio phase: deploy the blueprint (idempotent).
-  CrowdyClient admin = makeGameClient(managementUrl, adminEmail, appId, nullptr);
+  CrowdyClient admin = makeGameClient(apiUrl, adminEmail, appId, nullptr);
   auto adminKit = kit::makeKit(admin, appId);
   kit::InventoryBlueprintOptions options;
   options.typePrefix = "Demo";
@@ -55,7 +54,7 @@ int main(int argc, char** argv) {
 
   // Player phase: typed runtime helpers against the deployed conventions.
   std::string playerId;
-  CrowdyClient player = makeGameClient(managementUrl, playerEmail, appId, &playerId);
+  CrowdyClient player = makeGameClient(apiUrl, playerEmail, appId, &playerId);
   kit::GameKitOptions kitOptions;
   kitOptions.inventoryTypePrefix = "Demo";
   auto playerKit = kit::makeKit(player, appId, nullptr, kitOptions);

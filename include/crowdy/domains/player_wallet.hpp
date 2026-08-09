@@ -7,7 +7,7 @@
 #include "crowdy/generated/operations.hpp"
 
 /// client.playerWallet() — the player wallet and player-billing surface
-/// (player compute P2, DN-5). Targets the Management API.
+/// (player compute P2, DN-5).
 ///
 /// Viewer-scoped calls operate on the CALLER's own wallet: balance, ledger,
 /// hourly usage charges (platform vs studio-markup split), self-set spend

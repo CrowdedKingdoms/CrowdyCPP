@@ -25,11 +25,10 @@ class CaptureTransport final : public graphql::IHttpTransport {
   }
 };
 
-void testGridOwnershipAndPlayerComputeUseGamePlane() {
+void testGridOwnershipAndPlayerComputeUseTheOneOrigin() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -90,18 +89,17 @@ void testGridOwnershipAndPlayerComputeUseGamePlane() {
   CHECK(compileWaitAsync);
 }
 
-void testCodeAdmissionsUseManagementPlane() {
+void testCodeAdmissionsUseTheOneOrigin() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
   transport->response = {200, R"({"data":{"appCodeAdmissionMode":"IMPLICIT_ALLOW"}})"};
   auto mode = client.admin().apps().codeAdmissionMode("1");
   CHECK(mode.asString() == "IMPLICIT_ALLOW");
-  CHECK(transport->last.url == "https://management.invalid/graphql");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
   CHECK(transport->last.body.find("AppCodeAdmissionMode") != std::string::npos);
 
   transport->response = {200, R"({"data":{"setAppCodeAdmissionMode":"ALLOW_LIST"}})"};
@@ -110,11 +108,10 @@ void testCodeAdmissionsUseManagementPlane() {
   CHECK(transport->last.body.find(R"("mode":"ALLOW_LIST")") != std::string::npos);
 }
 
-void testPlayerModelAndAutomationsUseGamePlane() {
+void testPlayerModelAndAutomationsUseTheOneOrigin() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -156,11 +153,10 @@ void testPlayerModelAndAutomationsUseGamePlane() {
         std::string::npos);
 }
 
-void testPlayerUsageAndSwitchesUseGamePlane() {
+void testPlayerUsageAndSwitchesUseTheOneOrigin() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -233,7 +229,6 @@ void testAuthPortalAndMarketplaceParityConveniences() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -243,7 +238,7 @@ void testAuthPortalAndMarketplaceParityConveniences() {
   const auto grant = client.portal().authorizeApp(
       "2", std::vector<std::string>{"profile", "play"});
   CHECK_EQ(grant["grantId"].asString(), "grant-1");
-  CHECK_EQ(transport->last.url, "https://management.invalid/graphql");
+  CHECK_EQ(transport->last.url, "https://game.invalid/graphql");
   CHECK(transport->last.body.find(
             R"("scopes":["profile","play"])") != std::string::npos);
 
@@ -274,11 +269,10 @@ void testAuthPortalAndMarketplaceParityConveniences() {
   CHECK(artifactAsync);
 }
 
-void testPlayerWalletUsesManagementPlane() {
+void testPlayerWalletUsesTheOneOrigin() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -287,7 +281,7 @@ void testPlayerWalletUsesManagementPlane() {
       R"({"data":{"playerWalletBalance":{"walletId":"1","balanceCents":"500","currency":"usd"}}})"};
   auto wallet = client.playerWallet().balance();
   CHECK(wallet["balanceCents"].asString() == "500");
-  CHECK(transport->last.url == "https://management.invalid/graphql");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
   CHECK(transport->last.body.find("PlayerWalletBalance") != std::string::npos);
 
   graphql::JVal caps;
@@ -316,11 +310,10 @@ void testPlayerWalletUsesManagementPlane() {
   CHECK(transport->last.body.find(R"("markupBps":2000)") != std::string::npos);
 }
 
-void testMarketplaceChunkClaimsUseAppTokenGamePlane() {
+void testMarketplaceChunkClaimsUseAppToken() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
   const std::string appToken(64, 'a');
@@ -389,7 +382,6 @@ void testCurrentPlatformContainerAndMarketplaceAdditions() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -441,7 +433,7 @@ void testCurrentPlatformContainerAndMarketplaceAdditions() {
   vars["listingId"] = "listing-1";
   const auto versions = client.marketplace().appListingVersions(vars);
   CHECK_EQ(versions.size(), std::size_t{1});
-  CHECK(transport->last.url == "https://management.invalid/graphql");
+  CHECK(transport->last.url == "https://game.invalid/graphql");
   CHECK(transport->last.body.find("MarketplaceAppListingVersions") !=
         std::string::npos);
 
@@ -461,7 +453,6 @@ void testGameModelActivePlayerCountQuery() {
   auto transport = std::make_shared<CaptureTransport>();
   ClientConfig config;
   config.httpUrl = "https://game.invalid";
-  config.managementUrl = "https://management.invalid";
   config.transport = transport;
   CrowdyClient client(std::move(config));
 
@@ -524,13 +515,13 @@ void testGameModelActivePlayerCountQuery() {
 }  // namespace
 
 int main() {
-  testGridOwnershipAndPlayerComputeUseGamePlane();
-  testCodeAdmissionsUseManagementPlane();
-  testPlayerModelAndAutomationsUseGamePlane();
-  testPlayerUsageAndSwitchesUseGamePlane();
+  testGridOwnershipAndPlayerComputeUseTheOneOrigin();
+  testCodeAdmissionsUseTheOneOrigin();
+  testPlayerModelAndAutomationsUseTheOneOrigin();
+  testPlayerUsageAndSwitchesUseTheOneOrigin();
   testAuthPortalAndMarketplaceParityConveniences();
-  testPlayerWalletUsesManagementPlane();
-  testMarketplaceChunkClaimsUseAppTokenGamePlane();
+  testPlayerWalletUsesTheOneOrigin();
+  testMarketplaceChunkClaimsUseAppToken();
   testCurrentPlatformContainerAndMarketplaceAdditions();
   testGameModelActivePlayerCountQuery();
   std::printf("player_runtime_surface_test passed\n");

@@ -10,7 +10,7 @@
 /// Studio-admin surface — client.admin().*. Privileged organization/app
 /// administration: drive from a trusted context (studio backend / tooling)
 /// with an org-scoped or admin token; the server enforces the relevant org or
-/// app permission on every call. Targets the Management API.
+/// app permission on every call.
 namespace crowdy::domains {
 
 namespace detail {

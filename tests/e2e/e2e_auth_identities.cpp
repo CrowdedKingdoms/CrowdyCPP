@@ -12,7 +12,7 @@ namespace {
 /// A management-plane client with no token seeded.
 std::unique_ptr<CrowdyClient> bareClient(const e2e::E2eConfig& cfg) {
   ClientConfig c;
-  c.managementUrl = cfg.managementUrl;
+  c.httpUrl = cfg.apiUrl;
   return std::make_unique<CrowdyClient>(std::move(c));
 }
 

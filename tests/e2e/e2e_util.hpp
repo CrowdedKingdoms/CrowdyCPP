@@ -13,14 +13,18 @@
 #include "crowdy/session/world_session.hpp"
 
 /// Shared harness for the env-gated e2e suites. Everything is BLACK-BOX:
-/// provisioning happens through the public Management API the way a real
-/// integrator does it (owner sign-in -> access tier -> grantAppAccess) — no
-/// database access anywhere.
+/// provisioning happens through the public API the way a real integrator does
+/// it (owner sign-in -> access tier -> grantAppAccess) — no database access
+/// anywhere.
 ///
 /// Required environment:
-///   CROWDY_E2E_MANAGEMENT_URL   Management API base URL
-///   CROWDY_E2E_HTTP_URL         Game API base URL (optional; falls back to
-///                               the gameApiUrl minted with the app token)
+///   CROWDY_E2E_API_URL          API base URL (shared entry origin).
+///                               CROWDY_E2E_MANAGEMENT_URL is still read as a
+///                               fallback: it names the same origin now, and
+///                               ignoring it would make every suite exit 77 —
+///                               a skip, which reads as a pass.
+///   CROWDY_E2E_HTTP_URL         per-game API base URL (optional; falls back
+///                               to the gameApiUrl minted with the app token)
 ///   CROWDY_E2E_EMAIL            base sign-in email; suites derive fresh
 ///                               accounts by plus-addressing it
 ///                               (user+<suite>-<n>@domain)
@@ -140,7 +144,10 @@ inline void printAgentError(const crowdy::agent::AgentError& error,
 }
 
 struct E2eConfig {
-  std::string managementUrl;
+  /// The origin identity and administration run against — the shared entry
+  /// name in a real deployment. One API, so this differs from httpUrl only in
+  /// that httpUrl may name the app's OWN datacenter instance.
+  std::string apiUrl;
   std::string httpUrl;
   std::string email;
   std::string email2;
@@ -153,7 +160,12 @@ struct E2eConfig {
 /// Load the config or skip the test (exit 77).
 inline E2eConfig requireConfig(bool needSecondPlayer = false) {
   E2eConfig cfg;
-  cfg.managementUrl = envOr("CROWDY_E2E_MANAGEMENT_URL");
+  // CROWDY_E2E_MANAGEMENT_URL still works: it names the same origin now, and
+  // dropping it would make every suite exit 77 on a harness that still sets it.
+  // A skipped suite reports as a skip, not as a failure, so that rename would
+  // have quietly stopped testing rather than told anyone.
+  cfg.apiUrl = envOr("CROWDY_E2E_API_URL");
+  if (cfg.apiUrl.empty()) cfg.apiUrl = envOr("CROWDY_E2E_MANAGEMENT_URL");
   cfg.httpUrl = envOr("CROWDY_E2E_HTTP_URL");
   cfg.email = envOr("CROWDY_E2E_EMAIL");
   cfg.email2 = envOr("CROWDY_E2E_EMAIL_2");
@@ -161,7 +173,7 @@ inline E2eConfig requireConfig(bool needSecondPlayer = false) {
   cfg.appId2 = envOr("CROWDY_E2E_APP_ID_2");
   cfg.ownerEmail = envOr("CROWDY_E2E_OWNER_EMAIL");
   cfg.operatorEmail = envOr("CROWDY_E2E_OPERATOR_EMAIL");
-  if (cfg.managementUrl.empty() || cfg.email.empty() || cfg.appId.empty() ||
+  if (cfg.apiUrl.empty() || cfg.email.empty() || cfg.appId.empty() ||
       (needSecondPlayer && cfg.email2.empty() && cfg.ownerEmail.empty())) {
     std::puts("CROWDY_E2E_* not configured; skipping");
     std::exit(77);
@@ -269,12 +281,12 @@ struct Player {
   }
 };
 
-/// Sign in an identity client only (management plane).
+/// Sign in an identity client (session token, shared origin).
 inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg,
                                                             const std::string& email,
                                                             std::string* userId = nullptr) {
   crowdy::ClientConfig c;
-  c.managementUrl = cfg.managementUrl;
+  c.httpUrl = cfg.apiUrl;
   auto client = std::make_unique<crowdy::CrowdyClient>(std::move(c));
   auto auth = client->auth().devLogin(email);
   E2E_CHECK(!auth.token.empty());
@@ -304,8 +316,7 @@ inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
                     ? cfg.httpUrl
                     : (!minted.gameApiUrl.empty()
                            ? minted.gameApiUrl.valueOrEmpty()
-                           : cfg.managementUrl);
-    c.managementUrl = cfg.managementUrl;
+                           : cfg.apiUrl);
     cached = std::make_unique<crowdy::CrowdyClient>(std::move(c));
     cached->setToken(minted.token);
   }
@@ -364,10 +375,14 @@ inline Player provisionPlayerEmail(const E2eConfig& cfg, const std::string& emai
       !cfg.httpUrl.empty() ? cfg.httpUrl
                            : (!p.appToken.gameApiUrl.empty()
                                   ? p.appToken.gameApiUrl.valueOrEmpty()
-                                  : cfg.managementUrl);
+                                  : cfg.apiUrl);
   crowdy::ClientConfig gameCfg;
   gameCfg.httpUrl = gameUrl;
-  gameCfg.managementUrl = cfg.managementUrl;
+  // The shared origin the app token came back with: where re-discovery goes
+  // when the instance in gameApiUrl stops answering.
+  gameCfg.discoveryUrl = !p.appToken.discoveryUrl.empty()
+                             ? p.appToken.discoveryUrl.valueOrEmpty()
+                             : cfg.apiUrl;
   if (!p.appToken.gameApiWsUrl.empty()) {
     gameCfg.wsUrl = p.appToken.gameApiWsUrl.valueOrEmpty();
   }

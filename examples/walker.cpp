@@ -2,10 +2,10 @@
 // connect the native UDP replication client, and walk an actor around while
 // printing whoever else is nearby.
 //
-//   walker <managementUrl> <email> <appId> [seconds]
+//   walker <apiUrl> <email> <appId> [seconds]
 //
-// The management server must run with DEV_AUTH_BYPASS for the dev sign-in;
-// production apps use the magic-link or social flows instead.
+// apiUrl is the shared entry origin. The server must run with DEV_AUTH_BYPASS
+// for the dev sign-in; production apps use the magic-link or social flows.
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -17,17 +17,17 @@ using namespace crowdy;
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::fprintf(stderr, "usage: walker <managementUrl> <email> <appId> [seconds]\n");
+    std::fprintf(stderr, "usage: walker <apiUrl> <email> <appId> [seconds]\n");
     return 2;
   }
-  const std::string managementUrl = argv[1];
+  const std::string apiUrl = argv[1];
   const std::string email = argv[2];
   const std::string appId = argv[3];
   const int seconds = argc > 4 ? std::atoi(argv[4]) : 30;
 
   // 1) Identity client + passwordless (dev) sign-in.
   ClientConfig identityCfg;
-  identityCfg.managementUrl = managementUrl;
+  identityCfg.httpUrl = apiUrl;
   CrowdyClient identity(std::move(identityCfg));
   auto login = identity.auth().devLogin(email);
   std::printf("signed in as user %s\n", login.userId.c_str());
@@ -36,9 +36,11 @@ int main(int argc, char** argv) {
   auto minted = identity.portal().mintAppToken(appId);
   ClientConfig gameCfg;
   gameCfg.httpUrl = minted.gameApiUrl.empty()
-                        ? managementUrl
+                        ? apiUrl
                         : minted.gameApiUrl.valueOrEmpty();
-  gameCfg.managementUrl = managementUrl;
+  // Where to look when that one instance stops answering.
+  gameCfg.discoveryUrl =
+      minted.discoveryUrl.empty() ? apiUrl : minted.discoveryUrl.valueOrEmpty();
   CrowdyClient game(std::move(gameCfg));
   game.setToken(minted.token);
 

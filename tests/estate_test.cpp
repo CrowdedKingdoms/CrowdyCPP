@@ -2,6 +2,7 @@
 // Both SDKs bound endpoint moves the same way or one of them can be walked
 // somewhere the other cannot, and that difference would only ever show up in
 // production, on whichever SDK is more permissive.
+#include "crowdy/graphql/auth_state.hpp"
 #include "crowdy/graphql/estate.hpp"
 #include "test_util.hpp"
 
@@ -76,9 +77,48 @@ void testDevelopmentAndSingleInstanceShapes() {
                      "https://ck-va.prod.cp.cks-env.com"));
 }
 
+// The token-store naming split lives here because it enforces the same kind of
+// bound: which credential may be seen from where.
+void testTokenPathsKeepTheTwoCredentialsApart() {
+  using crowdy::graphql::FileTokenStore;
+
+  // One session per ORIGIN. Two games on the same origin must resolve the same
+  // path, or a player who signed in for one is anonymous to the next.
+  const std::string a =
+      FileTokenStore::sessionPath("/var/lib/crowdy", "https://ck.example.com");
+  const std::string b =
+      FileTokenStore::sessionPath("/var/lib/crowdy/", "ck.example.com");
+  CHECK_EQ(a, b);
+  CHECK_EQ(a, "/var/lib/crowdy/crowdy-session-ck.example.com");
+
+  // Different origins do NOT share a session.
+  CHECK(a != FileTokenStore::sessionPath("/var/lib/crowdy",
+                                         "https://ck.other.com"));
+
+  // App tokens are per app, because each authorises exactly one.
+  CHECK_EQ(FileTokenStore::appPath("/var/lib/crowdy", "77330192913920"),
+           "/var/lib/crowdy/crowdy-app-77330192913920");
+  CHECK(FileTokenStore::appPath("/var/lib/crowdy", "1") !=
+        FileTokenStore::appPath("/var/lib/crowdy", "2"));
+
+  // A session path is never an app path, whatever the inputs.
+  CHECK(FileTokenStore::sessionPath("/d", "42") !=
+        FileTokenStore::appPath("/d", "42"));
+
+  // A hostile origin must not escape the directory. What makes traversal
+  // possible is the SEPARATOR, not the dots: `..` with no `/` after it is just
+  // an odd filename, so separators are what must not survive.
+  const std::string escaped =
+      FileTokenStore::sessionPath("/d", "https://evil/../../etc/passwd");
+  CHECK_EQ(escaped, "/d/crowdy-session-evil_.._.._etc_passwd");
+  CHECK_EQ(escaped.find('/', 3), std::string::npos);
+  CHECK_EQ(escaped.find('\\'), std::string::npos);
+}
+
 }  // namespace
 
 int main() {
+  testTokenPathsKeepTheTwoCredentialsApart();
   testAcceptsSiblingInstanceInSameEstate();
   testAcceptsSharedLoadBalancer();
   testAcceptsIdenticalOrigin();

@@ -668,11 +668,12 @@ via a C shim) follow the same recipe.
 
 ## Two tokens, two clients
 
-CrowdyCPP follows the platform's
+There is one API origin since 0.20.0, but still two tokens. CrowdyCPP follows the
+platform's
 [portal / app-scoped token model](https://docs.crowdedkingdoms.com/management-api/portals-and-app-tokens):
 
-1. Passwordless sign-in yields an **identity session token** — valid only for
-   the Management API (account, studio admin, minting).
+1. Passwordless sign-in yields an **identity session token** — account, studio
+   admin and minting. Not accepted for gameplay.
 2. Gameplay requires a short-lived **app-scoped token** per app
    (`portal().mintAppToken(appId)`), which is also the 64-octet HMAC key for
    native UDP. With an active native connection, rotate it through
@@ -681,7 +682,27 @@ CrowdyCPP follows the platform's
    `portal().refresh()` directly only when no replication lifecycle needs to
    be preserved.
 3. Build one identity client and one client per game. All world/UDP calls run
-   on the game client.
+   on the game client. The identity client points at the shared entry origin;
+   the game client points at the app's own datacenter (`gameApiUrl`) with
+   `discoveryUrl` set so it can recover if that instance stops answering.
+
+Persisting them keeps the same split. `FileTokenStore::sessionPath(dir, origin)`
+names the session file, `FileTokenStore::appPath(dir, appId)` the gameplay one:
+
+```cpp
+crowdy::ClientConfig identityCfg;
+identityCfg.httpUrl = apiOrigin;
+identityCfg.tokenStore = std::make_shared<crowdy::graphql::FileTokenStore>(
+    crowdy::graphql::FileTokenStore::sessionPath(stateDir, apiOrigin));
+```
+
+A session is **one per origin** and an app token is **one per app**, and the
+naming is not a formality. Browser games keyed their credential by the game's own
+path, so two games on one origin could not see each other's login: a player who
+signed in for one was anonymous to the next and got bounced back to the portal.
+What they stored was an app token anyway, which is per-game by definition, so
+there was nothing to share even had the keys matched. Do not key a session by
+anything per-game — that is the bug, not the fix.
 
 ## Versioning and binary compatibility
 

@@ -6,8 +6,8 @@
 #include "crowdy/domains/domain_base.hpp"
 #include "crowdy/generated/operations.hpp"
 
-/// Operator platform-policy surface — client.operator_(). As of the unified
-/// galaxy API (v13) this is reduced to the platform-wide compute ceilings:
+/// Operator surface — client.operator_(): the platform-wide compute ceilings and
+/// org wallet credits. As of the unified API (v13) this is otherwise reduced:
 /// dedicated customer environments were retired, and the infrastructure
 /// control plane (environments, change orders, secrets, release management,
 /// audit) moved to the separate infra-control-plane service with its own auth
@@ -42,7 +42,48 @@ class OperatorAPI : public DomainBase {
     runAsync("CpSetComputePlatformCeilings", vars, std::move(cb));
   }
 
+  /// Credit an org wallet. The ONLY sanctioned way to put funds in one.
+  ///
+  /// A hand-written INSERT is silently wrong rather than an error: nothing
+  /// assigns the wallet_id surrogate and the unique index tolerates repeated
+  /// NULLs, so the row inserts and every later lookup by wallet_id misses. This
+  /// mutation also re-evaluates the runtime out-of-funds decision, which is a
+  /// STORED verdict and not a live read of the balance — funding without
+  /// re-evaluating leaves a funded app still refusing every client.
+  ///
+  /// `reason` becomes the ledger description, so write it for whoever reads the
+  /// ledger later. `referenceId` makes the call idempotent: replaying one returns
+  /// the original transaction rather than crediting twice.
+  graphql::Json creditOrgWallet(std::string_view orgId,
+                                std::string_view amountCents,
+                                std::string_view reason,
+                                std::string_view referenceId = {}) const {
+    return run("CpCreditOrgWallet",
+               creditVars(orgId, amountCents, reason, referenceId));
+  }
+  void creditOrgWalletAsync(std::string_view orgId, std::string_view amountCents,
+                            std::string_view reason,
+                            std::string_view referenceId,
+                            graphql::GraphQLCallback cb) const {
+    runAsync("CpCreditOrgWallet",
+             creditVars(orgId, amountCents, reason, referenceId), std::move(cb));
+  }
+
  private:
+  static graphql::JVal creditVars(std::string_view orgId,
+                                  std::string_view amountCents,
+                                  std::string_view reason,
+                                  std::string_view referenceId) {
+    graphql::JVal vars;
+    vars["orgId"] = orgId;
+    // BigInt stays a decimal STRING; narrowing money to a double is how a
+    // credit becomes almost the right amount.
+    vars["amountCents"] = amountCents;
+    vars["reason"] = reason;
+    if (!referenceId.empty()) vars["referenceId"] = referenceId;
+    return vars;
+  }
+
   graphql::Json run(std::string_view op, const graphql::JVal& vars) const {
     return execUnwrap(gen::controlPlane::documentFor(op), vars, op);
   }

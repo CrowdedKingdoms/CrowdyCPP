@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: 377d4a5117c425e14670981f38a836430d8e8359f30058d58423b70dd898b022
-// operations sha256: c6b74eb751b8a739ebe12c93c02d926c9781f2a383b0a0cea05da8bf62cd6dad
+// operations sha256: 4a8d55cf97cf74c394e0f072f75e97c0c4186e055dc3bb54a7fb1664a58460e8
 
 #pragma once
 
@@ -3329,6 +3329,8 @@ inline constexpr std::string_view kControlPlaneDocument = R"gql(query CpComputeP
     maxDbOpsPerTick
     maxEgressMsgsPerMin
     maxEgressBytesPerMin
+    maxStateWritesPerMin
+    maxStateBytesPerMin
     updatedAt
     updatedByUserId
   }
@@ -3345,8 +3347,46 @@ mutation CpSetComputePlatformCeilings($input: CpSetComputePlatformCeilingsInput!
     maxDbOpsPerTick
     maxEgressMsgsPerMin
     maxEgressBytesPerMin
+    maxStateWritesPerMin
+    maxStateBytesPerMin
     updatedAt
     updatedByUserId
+  }
+}
+
+# The SANCTIONED way to put funds in an org wallet.
+#
+# A hand-written INSERT INTO org_wallets is silently wrong rather than an error:
+# nothing assigns the wallet_id surrogate and the unique index tolerates repeated
+# NULLs, so the row inserts and every later lookup by wallet_id misses. This
+# mutation also re-evaluates the runtime out-of-funds decision, which is a stored
+# verdict rather than a live read of the balance — funding without re-evaluating
+# leaves a funded app still refusing every client.
+#
+# referenceId makes it idempotent: replaying one returns the original transaction
+# instead of crediting twice.
+mutation CpCreditOrgWallet(
+  $orgId: BigInt!
+  $amountCents: BigInt!
+  $reason: String!
+  $referenceId: String
+) {
+  creditOrgWallet(
+    orgId: $orgId
+    amountCents: $amountCents
+    reason: $reason
+    referenceId: $referenceId
+  ) {
+    transactionId
+    walletId
+    orgId
+    amountCents
+    balanceAfter
+    transactionType
+    description
+    referenceId
+    appId
+    createdAt
   }
 })gql";
 inline constexpr std::string_view kCpComputePlatformCeilingsIsolatedDocument = R"gql(query CpComputePlatformCeilings {
@@ -3360,6 +3400,8 @@ inline constexpr std::string_view kCpComputePlatformCeilingsIsolatedDocument = R
     maxDbOpsPerTick
     maxEgressMsgsPerMin
     maxEgressBytesPerMin
+    maxStateWritesPerMin
+    maxStateBytesPerMin
     updatedAt
     updatedByUserId
   }
@@ -3376,15 +3418,38 @@ inline constexpr std::string_view kCpSetComputePlatformCeilingsIsolatedDocument 
     maxDbOpsPerTick
     maxEgressMsgsPerMin
     maxEgressBytesPerMin
+    maxStateWritesPerMin
+    maxStateBytesPerMin
     updatedAt
     updatedByUserId
   }
 })gql";
 inline constexpr std::string_view kCpSetComputePlatformCeilingsOperationName = "CpSetComputePlatformCeilings";
+inline constexpr std::string_view kCpCreditOrgWalletIsolatedDocument = R"gql(mutation CpCreditOrgWallet($orgId: BigInt!, $amountCents: BigInt!, $reason: String!, $referenceId: String) {
+  creditOrgWallet(
+    orgId: $orgId
+    amountCents: $amountCents
+    reason: $reason
+    referenceId: $referenceId
+  ) {
+    transactionId
+    walletId
+    orgId
+    amountCents
+    balanceAfter
+    transactionType
+    description
+    referenceId
+    appId
+    createdAt
+  }
+})gql";
+inline constexpr std::string_view kCpCreditOrgWalletOperationName = "CpCreditOrgWallet";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CpComputePlatformCeilings") return kCpComputePlatformCeilingsIsolatedDocument;
   if (operationName == "CpSetComputePlatformCeilings") return kCpSetComputePlatformCeilingsIsolatedDocument;
+  if (operationName == "CpCreditOrgWallet") return kCpCreditOrgWalletIsolatedDocument;
   return {};
 }
 

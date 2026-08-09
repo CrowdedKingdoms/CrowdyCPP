@@ -106,6 +106,34 @@ class ComputeAPI : public DomainBase {
                     std::move(cb));
   }
 
+  /// Restart a module stopped for exceeding a resource limit, without deploying
+  /// a new version.
+  ///
+  /// setModuleEnabled does NOT do this: a module stopped this way reports
+  /// breakerLatchedAt and a breakerReason naming what it exceeded, and enabling
+  /// it again leaves that latch in place. Deploying a fix clears it and is the
+  /// normal path; use this when the limit itself was wrong or the load is being
+  /// accepted deliberately. The reason is recorded with the module's history.
+  graphql::Json resetBreaker(std::string_view appId, std::string_view name,
+                             std::string_view reason) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["name"] = name;
+    vars["reason"] = reason;
+    return execUnwrap(gen::compute::documentFor("ComputeResetBreaker"), vars,
+                      "ComputeResetBreaker");
+  }
+  void resetBreakerAsync(std::string_view appId, std::string_view name,
+                         std::string_view reason,
+                         graphql::GraphQLCallback cb) const {
+    graphql::JVal vars;
+    vars["appId"] = appId;
+    vars["name"] = name;
+    vars["reason"] = reason;
+    execUnwrapAsync(gen::compute::documentFor("ComputeResetBreaker"), vars,
+                    "ComputeResetBreaker", std::move(cb));
+  }
+
   /// Delete a module (cascades versions/triggers/lease; run history is
   /// retained). Returns true when a module was deleted. DESTRUCTIVE.
   graphql::Json deleteModule(std::string_view appId, std::string_view name) const {

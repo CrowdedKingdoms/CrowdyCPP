@@ -51,7 +51,28 @@ const CATEGORY = Object.freeze({
 // Current CrowdyJS and CrowdyCPP snapshots expose the same GraphQL schema.
 // Add reviewed extension classifications here only when one SDK intentionally
 // advances ahead of the other.
-const SCHEMA_BASELINE = {};
+// CrowdyCPP syncs schema.gql from the PUBLISHED SDL, which carries the
+// capacity-routing fields; CrowdyJS's committed snapshot predates them. So this
+// is CrowdyJS trailing the server, not CrowdyCPP inventing fields — and it
+// disappears the next time CrowdyJS regenerates, at which point these two
+// entries go stale and the gate says so rather than letting them linger.
+//
+// The kind and side are part of the key on purpose: a waiver written for "exists
+// only in CrowdyCPP" must not silently cover the opposite direction.
+const SCHEMA_BASELINE = {
+  'type:ServerStatus.cpuCount': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  'type:ServerStatus.routerThreads': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
+    'member-only',
+    'CrowdyCPP',
+  ),
+};
 
 const ROOT_CLASSIFICATIONS = {
   ...classifyNames(
@@ -74,11 +95,14 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native replication Connection exposes transport state directly',
   ),
-  'Subscription.udpNotifications': classification(
-    CATEGORY.NATIVE,
-    'native replication Connection receives and dispatches UDP notifications',
-  ),
+  // Subscription.udpNotifications is deliberately NOT classified. It used to be
+  // a native waiver — the native Connection receives the gameplay notifications
+  // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
+  // only RealtimeConnectionEvent, because SERVER_DRAINING is delivered there and
+  // nowhere else. A waiver on an implemented root field is a stale
+  // classification, and the gate says so.
 };
+
 
 const METHOD_CLASSIFICATIONS = {
   'WorldClient.subscribe': classification(
@@ -256,6 +280,7 @@ const ASYNC_TWIN_WAIVERS = {
 
 const CLASS_MAP = {
   AuthAPI: 'AuthAPI',
+  DiscoveryDomain: 'DiscoveryAPI',
   UsersAPI: 'UsersAPI',
   PortalAPI: 'PortalAPI',
   ServerStatusAPI: 'ServerStatusAPI',
@@ -332,6 +357,61 @@ const STRICT_CLASS_MAPS = Object.freeze({
 });
 
 const CROSS_CUTTING_EXPORT_MODULES = {
+  // The connection-machinery modules CrowdyJS 14 added. Listing them is the
+  // point: this audit only inspects modules named here, so until they were
+  // added, a new export in any of them was invisible to the gate — and these
+  // four are exactly where endpoint mobility lives.
+  'src/datacenter-redirect.ts': exportModule(
+    ['DatacenterMove', 'moveFromError', 'moveFromErrors'],
+    CATEGORY.NATIVE,
+    'redirect parsing has a header equivalent with the same decision order',
+    {
+      DatacenterMove: 'DatacenterMove',
+      moveFromError: 'moveFromError',
+      moveFromErrors: 'moveFromErrors',
+    },
+    'include/crowdy/graphql/datacenter_redirect.hpp',
+  ),
+  'src/bootstrap-rediscover.ts': exportModule(
+    ['BootstrapRediscoverOptions', 'createBootstrapRediscover'],
+    CATEGORY.NATIVE,
+    'bootstrap re-discovery is built into the client from ClientConfig::discoveryUrl',
+    {
+      BootstrapRediscoverOptions: 'RediscoveredEndpoint',
+      createBootstrapRediscover: 'RediscoverCoordinator',
+    },
+    'include/crowdy/graphql/rediscover.hpp',
+  ),
+  'src/rediscover.ts': exportModule(
+    ['MintCapablePortal', 'createMintRediscover'],
+    CATEGORY.NATIVE,
+    'mint-based re-discovery is any RediscoverFn calling portal().mintAppToken',
+    {
+      MintCapablePortal: 'PortalAPI',
+      createMintRediscover: 'RediscoverFn',
+    },
+    {
+      MintCapablePortal: 'include/crowdy/domains/portal.hpp',
+      createMintRediscover: 'include/crowdy/graphql/rediscover.hpp',
+    },
+  ),
+  'src/session.ts': exportModule(
+    [
+      'SessionListener',
+      'SessionStore',
+      'TokenStore',
+      'BrowserLocalStorageTokenStore',
+    ],
+    CATEGORY.NATIVE,
+    'token persistence maps to ITokenStore/AuthState; the localStorage backing is browser-only but its KEY SPLIT is mirrored by FileTokenStore',
+    {
+      SessionListener: 'onChange',
+      SessionStore: 'AuthState',
+      TokenStore: 'ITokenStore',
+      BrowserLocalStorageTokenStore: 'FileTokenStore',
+    },
+    'include/crowdy/graphql/auth_state.hpp',
+  ),
   'src/crowdy-studio/layout.ts': exportModule(
     [
       'STUDIO_LAYOUT_STORAGE_KEY',
@@ -814,9 +894,12 @@ report +=
   `- Schema signature differences: ${
     schemaDifferences.filter(({ kind }) => kind.includes('signature')).length
   }\n`;
-report += `- Endpoint-invalid generated operations: ${endpointCounts.invalid}\n`;
 report +=
-  `- Cross-SDK endpoint planes checked: ${state.endpointPlanesChecked}\n`;
+  `- Schema-invalid generated operations: ${
+    endpointOperationContracts.filter(({ valid }) => !valid).length
+  }\n`;
+report +=
+  `- Second-plane assertions checked: ${state.endpointPlanesChecked}\n`;
 report += `- C++ sync/async method twins checked: ${state.asyncTwinsChecked}\n`;
 report +=
   `- Reviewed async-twin waivers: ${state.usedAsyncTwinWaivers.size}\n`;

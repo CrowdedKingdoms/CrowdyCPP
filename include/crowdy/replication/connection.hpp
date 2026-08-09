@@ -61,6 +61,18 @@ class Connection {
   /// refreshes proactively through the session provider).
   void setToken(const TokenInfo& token);
 
+  /// Ask for a fresh server assignment on the next poll, as COMMAND_RECONNECT
+  /// and the silence watchdog do.
+  ///
+  /// Needed because assignment is fetched through the API client, so moving that
+  /// client to another datacenter without re-assigning would leave the UDP
+  /// session on a Buddy in the datacenter the app is NOT served from — gameplay
+  /// writes crossing a WAN, which reads as "the system is slow" rather than as a
+  /// routing error.
+  void requestReassignment() {
+    reconnectRequested_.store(true, std::memory_order_release);
+  }
+
   /// Stable lifecycle snapshot used by CrowdyClient's gameplay-token
   /// rotation. Handlers are copied so reconnecting the same native endpoint
   /// cannot lose or duplicate subscriptions.

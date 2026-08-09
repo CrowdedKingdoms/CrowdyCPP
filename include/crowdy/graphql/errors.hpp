@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /// Structured error classes for the GraphQL layer, mirroring CrowdyJS
@@ -38,12 +39,29 @@ class CrowdyHttpError : public CrowdyError {
   std::string body_;
 };
 
+/// extensions.code for "this app lives in another datacenter, go there".
+inline constexpr std::string_view kWrongDatacenterCode = "WRONG_DATACENTER";
+/// extensions.code for "this app's datacenter cannot serve it right now".
+/// Carries NO endpoint, deliberately: there is nowhere to move to.
+inline constexpr std::string_view kAppUnavailableCode = "APP_UNAVAILABLE";
+
 /// One entry of a GraphQL `errors` array.
 struct GraphQLErrorDetail {
   std::string message;
   std::string code;         ///< extensions.code (stable, enumerated)
   std::string remediation;  ///< extensions.remediation when provided
   std::string path;         ///< dotted path, e.g. "mintAppToken"
+
+  // Datacenter-routing extensions. Present on WRONG_DATACENTER and
+  // APP_UNAVAILABLE; empty elsewhere.
+  std::string appId;
+  std::string appDatacenter;  ///< where the app IS served
+  std::string servedBy;       ///< the datacenter that refused
+  std::string gameApiUrl;     ///< move target; only on WRONG_DATACENTER
+  std::string gameApiWsUrl;
+  /// extensions.retryable. Defaults TRUE to match the server contract, where
+  /// only an explicit `false` means "do not bother trying again".
+  bool retryable = true;
 };
 
 /// The server returned GraphQL errors. Preserves every error including
@@ -61,6 +79,32 @@ class CrowdyGraphQLError : public CrowdyError {
     return errors.front().code.empty() ? "GRAPHQL_ERROR" : errors.front().code;
   }
   std::vector<GraphQLErrorDetail> errors_;
+};
+
+/// The app's own datacenter cannot serve it right now, and there is nowhere to
+/// move to — so this is a typed error rather than a redirect. Distinct from
+/// WRONG_DATACENTER, which the client handles silently by moving.
+///
+/// `message` is written for a player to read; show it rather than substituting
+/// generic text, because the server knows why and the client does not.
+class CrowdyAppUnavailableError : public CrowdyGraphQLError {
+ public:
+  explicit CrowdyAppUnavailableError(std::vector<GraphQLErrorDetail> errors)
+      : CrowdyGraphQLError(std::move(errors)) {}
+
+  const std::string& appId() const { return detail().appId; }
+  const std::string& appDatacenter() const { return detail().appDatacenter; }
+  const std::string& servedBy() const { return detail().servedBy; }
+  /// False only when the server said so explicitly.
+  bool retryable() const { return detail().retryable; }
+
+ private:
+  const GraphQLErrorDetail& detail() const {
+    for (const auto& error : errors()) {
+      if (error.code == kAppUnavailableCode) return error;
+    }
+    return errors().front();
+  }
 };
 
 /// Network-level failure (DNS, TLS, connection refused).

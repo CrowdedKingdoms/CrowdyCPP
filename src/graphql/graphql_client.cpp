@@ -38,6 +38,14 @@ GraphQLOutcome interpret(int httpStatus, const std::string& body) {
       d.message = e["message"].asString("GraphQL error");
       d.code = e["extensions"]["code"].asString();
       d.remediation = e["extensions"]["remediation"].asString();
+      const Json extensions = e["extensions"];
+      d.appId = extensions["appId"].asString();
+      d.appDatacenter = extensions["appDatacenter"].asString();
+      d.servedBy = extensions["servedBy"].asString();
+      d.gameApiUrl = extensions["gameApiUrl"].asString();
+      d.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
+      d.retryable = !extensions["retryable"].isBool() ||
+                    extensions["retryable"].asBool();
       Json path = e["path"];
       if (path.isArray()) {
         path.forEach([&](Json seg) {
@@ -88,7 +96,13 @@ GraphQLOutcome outcomeFromHttp(HttpOutcome http) {
 [[noreturn]] void throwOutcome(const GraphQLOutcome& out) {
   switch (out.kind) {
     case GraphQLErrorKind::Http: throw CrowdyHttpError(out.httpStatus, out.body);
-    case GraphQLErrorKind::GraphQL: throw CrowdyGraphQLError(out.errors);
+    case GraphQLErrorKind::GraphQL:
+      // Typed, so a caller can tell "this app is down" from any other rejection
+      // and show the server's own message instead of retrying blindly.
+      if (isAppUnavailable(out.errors)) {
+        throw CrowdyAppUnavailableError(out.errors);
+      }
+      throw CrowdyGraphQLError(out.errors);
     case GraphQLErrorKind::Protocol: throw CrowdyProtocolError(out.errorMessage);
     case GraphQLErrorKind::Network: throw CrowdyNetworkError(out.errorMessage);
     case GraphQLErrorKind::Timeout: throw CrowdyTimeoutError(out.errorMessage);
@@ -99,6 +113,34 @@ GraphQLOutcome outcomeFromHttp(HttpOutcome http) {
 #endif
 
 }  // namespace
+
+bool GraphQLClient::applyDatacenterRedirect(const GraphQLOutcome& outcome) {
+  if (outcome.kind != GraphQLErrorKind::GraphQL) return false;
+  // Checked FIRST: APP_UNAVAILABLE carries no endpoint on purpose, and must not
+  // be read as a redirect whose target happens to be missing.
+  if (isAppUnavailable(outcome.errors)) return false;
+  const auto move = moveFromErrors(outcome.errors);
+  if (!move) return false;
+
+  std::function<bool(const DatacenterMove&)> handler;
+  {
+    std::lock_guard lock(endpointMutex_);
+    handler = wrongDatacenterHandler_;
+  }
+  if (!handler) return false;
+
+#ifndef CROWDY_NO_EXCEPTIONS
+  // A handler that throws must not turn a server error into a client crash;
+  // the caller still needs the original rejection.
+  try {
+    return handler(*move);
+  } catch (...) {
+    return false;
+  }
+#else
+  return handler(*move);
+#endif
+}
 
 HttpRequest GraphQLClient::buildHttpRequest(std::string_view document, const JVal& variables,
                                             std::string_view operationName) const {
@@ -138,22 +180,56 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
   }
   HttpRequest req = buildHttpRequest(document, variables, operationName);
   GraphQLOutcome out = outcomeFromHttp(sendInline(req));
+  // Exactly one retry, and only after the endpoint actually moved. Retrying a
+  // second WRONG_DATACENTER is how two datacenters that disagree about an app
+  // turn one query into an infinite ping-pong.
+  if (!out.ok() && applyDatacenterRedirect(out)) {
+    req = buildHttpRequest(document, variables, operationName);
+    out = outcomeFromHttp(sendInline(req));
+  }
   if (!out.ok()) throwOutcome(out);
   return out.data;
 }
 #else
 Json GraphQLClient::request(std::string_view document, const JVal& variables,
                             std::string_view operationName) {
-  const HttpRequest request =
-      buildHttpRequest(document, variables, operationName);
+  HttpRequest request = buildHttpRequest(document, variables, operationName);
   GraphQLOutcome outcome = outcomeFromHttp(sendInline(request));
+  if (!outcome.ok() && applyDatacenterRedirect(outcome)) {
+    request = buildHttpRequest(document, variables, operationName);
+    outcome = outcomeFromHttp(sendInline(request));
+  }
   return outcome.ok() ? outcome.data : Json{};
 }
 #endif
 
 void GraphQLClient::requestAsync(std::string_view document, const JVal& variables,
                                  std::string_view operationName, GraphQLCallback cb) {
+  requestAsyncAttempt(std::string(document), variables,
+                      std::string(operationName), std::move(cb), false);
+}
+
+void GraphQLClient::requestAsyncAttempt(std::string document,
+                                        const JVal& variables,
+                                        std::string operationName,
+                                        GraphQLCallback cb, bool isRetry) {
   HttpRequest req = buildHttpRequest(document, variables, operationName);
+
+  // Wrap the caller's callback so a redirect is applied and the request
+  // re-issued ONCE, before the caller ever sees the failure. `isRetry` is what
+  // makes it once: without it, two datacenters disagreeing about an app would
+  // bounce a request between them forever, asynchronously and invisibly.
+  if (!isRetry) {
+    cb = [this, document, variables, operationName,
+          cb = std::move(cb)](GraphQLOutcome out) mutable {
+      if (!out.ok() && applyDatacenterRedirect(out)) {
+        requestAsyncAttempt(document, variables, operationName, std::move(cb),
+                            true);
+        return;
+      }
+      cb(std::move(out));
+    };
+  }
 
   auto dispatcher = dispatcher_;
   auto scope = asyncScope_;

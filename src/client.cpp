@@ -1,3 +1,4 @@
+#include "crowdy/graphql/estate.hpp"
 #include "crowdy/client.hpp"
 
 #include <cctype>
@@ -88,6 +89,15 @@ std::string resolveGraphqlEndpoint(std::string_view base,
     return normalizeGraphqlBase(base);
   }
   return appendEndpointPath(base, endpoint);
+}
+
+/// http -> ws, https -> wss, leaving anything else alone. Used when a move
+/// target names an HTTP origin but no WebSocket one.
+std::string httpToWebsocketUrl(std::string_view httpUrl) {
+  std::string url = trimUrl(httpUrl);
+  if (url.rfind("https://", 0) == 0) return "wss://" + url.substr(8);
+  if (url.rfind("http://", 0) == 0) return "ws://" + url.substr(7);
+  return url;
 }
 
 /// Bridges the replication client to this CrowdyClient's GraphQL client:
@@ -410,6 +420,47 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
       std::make_unique<domains::CrowdyStudioAgentAPI>(gql_, dispatcher_);
 
   admin_ = std::make_unique<domains::AdminAPI>(gql_, gameApps_.get());
+
+  // Every transport moves together or the client ends up querying one
+  // datacenter while playing in another — which does not fail, it just makes
+  // every gameplay write cross the country.
+  gql_->setWrongDatacenterHandler(
+      [this](const graphql::DatacenterMove& move) {
+        return moveToDatacenter(move.gameApiUrl, move.gameApiWsUrl);
+      });
+}
+
+bool CrowdyClient::moveToDatacenter(const std::string& httpUrl,
+                                    const std::string& wsUrl) {
+  if (httpUrl.empty()) return false;
+  // A server may only send a client to its own estate. See estate.hpp: the
+  // directive is authenticated, so this bounds what may be ASKED for.
+  if (!graphql::isSameEstate(gql_->endpoint(), httpUrl)) return false;
+
+  const std::string endpoint =
+      resolveGraphqlEndpoint(httpUrl, config_.graphqlEndpoint);
+  if (!gql_->setEndpoint(endpoint)) return false;
+
+  config_.httpUrl = httpUrl;
+  const std::string nextWs = wsUrl.empty() ? httpToWebsocketUrl(httpUrl) : wsUrl;
+  if (!nextWs.empty()) {
+    const std::string resolved =
+        resolveGraphqlEndpoint(nextWs, config_.wsEndpoint);
+    if (subscriptions_ && subscriptions_->setEndpoint(resolved)) {
+      websocketEndpoint_ = resolved;
+      config_.wsUrl = nextWs;
+    }
+  }
+
+  // Assignment is fetched through the GraphQL client, so it now answers from
+  // the new datacenter. Without this the UDP session stays on a Buddy in the
+  // datacenter that just refused the request.
+  if (replication_) {
+    if (auto connection = replication_->activeConnection()) {
+      connection->requestReassignment();
+    }
+  }
+  return true;
 }
 
 CrowdyClient::~CrowdyClient() { close(); }

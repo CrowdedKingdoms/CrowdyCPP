@@ -10,6 +10,7 @@
 #include "crowdy/core/result.hpp"
 #include "crowdy/graphql/async_scope.hpp"
 #include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/datacenter_redirect.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/http.hpp"
@@ -79,6 +80,21 @@ class GraphQLClient {
   void requestAsync(std::string_view document, const JVal& variables,
                     std::string_view operationName, GraphQLCallback cb);
 
+  /// Handle a WRONG_DATACENTER redirect. The handler MOVES the client (this
+  /// endpoint, and typically the WebSocket and UDP session with it) and returns
+  /// whether it did. Only a `true` earns a retry, so declining is safe: the
+  /// caller then sees the server's original error.
+  ///
+  /// Set by CrowdyClient. Set it yourself only when driving a bare
+  /// GraphQLClient, and move every transport together if you do — an HTTP
+  /// client that follows a redirect while its subscriptions stay behind is
+  /// querying one datacenter and playing in another.
+  void setWrongDatacenterHandler(
+      std::function<bool(const DatacenterMove&)> handler) {
+    std::lock_guard lock(endpointMutex_);
+    wrongDatacenterHandler_ = std::move(handler);
+  }
+
   /// Inject the engine's async HTTP transport (FHttpModule, etc.).
   void setAsyncTransport(std::shared_ptr<IAsyncHttpTransport> transport) {
     asyncTransport_ = std::move(transport);
@@ -123,10 +139,17 @@ class GraphQLClient {
   HttpRequest buildHttpRequest(std::string_view document, const JVal& variables,
                                std::string_view operationName) const;
   HttpOutcome sendInline(const HttpRequest& request);
+  /// Offer a failed outcome to the wrong-datacenter handler. True when the
+  /// endpoint moved and the request is worth re-issuing.
+  bool applyDatacenterRedirect(const GraphQLOutcome& outcome);
+  void requestAsyncAttempt(std::string document, const JVal& variables,
+                           std::string operationName, GraphQLCallback cb,
+                           bool isRetry);
 
   GraphQLClientConfig config_;
   mutable std::mutex endpointMutex_;
   std::string endpoint_;
+  std::function<bool(const DatacenterMove&)> wrongDatacenterHandler_;
   std::shared_ptr<IHttpTransport> transport_;
   std::shared_ptr<AuthState> auth_;
   std::shared_ptr<IAsyncHttpTransport> asyncTransport_;

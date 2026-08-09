@@ -79,6 +79,14 @@ std::vector<GraphQLErrorDetail> parseGraphQLErrors(Json value) {
     detail.message = item["message"].asString("GraphQL subscription error");
     detail.code = item["extensions"]["code"].asString();
     detail.remediation = item["extensions"]["remediation"].asString();
+    const Json extensions = item["extensions"];
+    detail.appId = extensions["appId"].asString();
+    detail.appDatacenter = extensions["appDatacenter"].asString();
+    detail.servedBy = extensions["servedBy"].asString();
+    detail.gameApiUrl = extensions["gameApiUrl"].asString();
+    detail.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
+    detail.retryable = !extensions["retryable"].isBool() ||
+                       extensions["retryable"].asBool();
     const Json path = item["path"];
     if (path.isArray()) {
       path.forEach([&detail](Json segment) {

@@ -272,6 +272,17 @@ class CrowdyClient {
     return *subscriptions_;
   }
 
+  /// Move every transport to another datacenter: GraphQL endpoint, WebSocket
+  /// subscriptions, and a fresh UDP assignment. Wired to WRONG_DATACENTER
+  /// automatically; call it directly only when you have your own reason to move.
+  ///
+  /// Refuses a target outside this client's estate, and returns whether the
+  /// move happened. `wsUrl` may be empty, in which case it is derived from
+  /// httpUrl. False means nothing changed — the endpoint was already current,
+  /// empty, or off-estate.
+  bool moveToDatacenter(const std::string& httpUrl,
+                        const std::string& wsUrl = {});
+
   const ClientConfig& config() const { return config_; }
 
   /// Terminal dispose: cancels queued/in-flight async callback delivery,

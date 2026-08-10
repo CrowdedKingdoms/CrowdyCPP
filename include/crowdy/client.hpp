@@ -21,6 +21,7 @@
 #include "crowdy/domains/server_status.hpp"
 #include "crowdy/domains/users.hpp"
 #include "crowdy/domains/world_data.hpp"
+#include "crowdy/graphql/estate.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/graphql/rediscover.hpp"
 #include "crowdy/replication/types.hpp"

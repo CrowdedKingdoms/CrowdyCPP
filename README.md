@@ -881,8 +881,21 @@ None of these maintainer gates run during a normal external CMake build.
   refresh/reconnect, opt-in marketplace chunk claim/release, and the complete
   native Studio factory/edit/BUILD/draft/Play takeover lifecycle) that run
   against a deployment you configure via
-  environment variables (`CROWDY_E2E_MANAGEMENT_URL`, `CROWDY_E2E_HTTP_URL`,
+  environment variables (`CROWDY_E2E_API_URL`, `CROWDY_E2E_HTTP_URL`,
   `CROWDY_E2E_EMAIL`, `CROWDY_E2E_APP_ID`, …). Skipped when unset.
+- `tests/prodsmoke/` — a read-only smoke test of the discovery and endpoint-move
+  path against a live tier. Not part of any build and not run by CI; it needs the
+  network. It exists because the estate rule is the one piece that cannot be
+  proven by a fixture: a guard that refused
+  `ck.<tier>.cp.cks-env.com -> ck-<dc>.<tier>.cp.cks-env.com` would pass every
+  test in this repo and then decline every redirect in production. Build it
+  against an installed package and run:
+
+  ```bash
+  cmake -S tests/prodsmoke -B build-prodsmoke -DCMAKE_PREFIX_PATH=<install-prefix>
+  cmake --build build-prodsmoke
+  ./build-prodsmoke/prod_smoke https://ck.prod.cp.cks-env.com <appId>
+  ```
 - `benchmarks/` — codec ns/op, HMAC throughput, and end-to-end echo latency
   against an env-configured deployment.
 

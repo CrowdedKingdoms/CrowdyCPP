@@ -41,6 +41,7 @@ class ScriptedTransport final : public IHttpTransport {
  public:
   std::vector<std::string> bodies;
   std::vector<std::string> urls;
+  std::vector<std::string> authorizations;  // one per request; "" = no header
   std::size_t next = 0;
   /// Runs while the request is in flight, before its response is delivered.
   /// A test uses this to act as a CONCURRENT request whose redirect completes
@@ -49,6 +50,11 @@ class ScriptedTransport final : public IHttpTransport {
 
   HttpResponse send(const HttpRequest& request) override {
     urls.push_back(request.url);
+    std::string authorization;
+    for (const auto& header : request.headers) {
+      if (header.first == "Authorization") authorization = header.second;
+    }
+    authorizations.push_back(std::move(authorization));
     if (onSend) onSend(request);
     const std::string body =
         next < bodies.size() ? bodies[next] : bodies.back();
@@ -235,6 +241,31 @@ void testHandlerThatThrowsSurfacesTheOriginalRefusal() {
   CHECK_EQ(transport->urls.size(), std::size_t{1});
 }
 
+// A handler can move this endpoint and THEN throw: the HTTP move succeeded and
+// the WebSocket or session move did not. That torn state must surface the
+// original refusal loudly, not read as "already moved, retry quietly" - a
+// quiet success would hide a client querying one datacenter and playing in
+// another.
+void testHandlerThatMovesThenThrowsStillSurfacesTheOriginalRefusal() {
+  auto transport = std::make_shared<ScriptedTransport>();
+  transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
+  auto client = makeClient(transport);
+  client->setWrongDatacenterHandler([&](const DatacenterMove& move) -> bool {
+    client->setEndpoint(move.gameApiUrl + "/graphql");
+    throw std::runtime_error("the socket move blew up");
+  });
+
+  bool threw = false;
+  try {
+    (void)client->request("query");
+  } catch (const CrowdyGraphQLError& error) {
+    threw = true;
+    CHECK_EQ(error.code(), "WRONG_DATACENTER");
+  }
+  CHECK(threw);
+  CHECK_EQ(transport->urls.size(), std::size_t{1});
+}
+
 void testAppUnavailableThrowsATypedErrorAHostCanShowAPlayer() {
   auto transport = std::make_shared<ScriptedTransport>();
   transport->bodies = {appUnavailableBody()};
@@ -393,6 +424,53 @@ void testSyncRequestOvertakenByAnotherRedirectStillRetries() {
   CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
 }
 
+// The retry re-issues the same operation, so it must carry the credential the
+// attempt carried. The shared AuthState can hold a DIFFERENT caller's bearer by
+// the time the redirect is delivered - engines multiplex token planes over one
+// client and switch the state per call - and a retry rebuilt from it would run
+// the operation as someone else.
+void testTheRetryKeepsTheAttemptsBearer() {
+  auto transport = std::make_shared<ScriptedTransport>();
+  transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
+  auto client = makeClient(transport);
+  client->auth().setToken("attempt-bearer");
+  client->setWrongDatacenterHandler([&](const DatacenterMove& move) {
+    return client->setEndpoint(move.gameApiUrl + "/graphql");
+  });
+  // A concurrent caller switches the shared auth state while the request is in
+  // flight.
+  transport->onSend = [&](const HttpRequest&) {
+    if (transport->urls.size() == 1) client->auth().setToken("other-callers-bearer");
+  };
+
+  Json data = client->request("query");
+  CHECK_EQ(data["v"].asString(), "ok");
+  CHECK_EQ(transport->authorizations.size(), std::size_t{2});
+  CHECK_EQ(transport->authorizations[0], "Bearer attempt-bearer");
+  CHECK_EQ(transport->authorizations[1], "Bearer attempt-bearer");
+}
+
+void testAsyncRetryKeepsTheAttemptsBearer() {
+  auto transport = std::make_shared<ScriptedTransport>();
+  transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
+  auto client = makeClient(transport);
+  client->auth().setToken("attempt-bearer");
+  client->setWrongDatacenterHandler([&](const DatacenterMove& move) {
+    return client->setEndpoint(move.gameApiUrl + "/graphql");
+  });
+  transport->onSend = [&](const HttpRequest&) {
+    if (transport->urls.size() == 1) client->auth().setToken("other-callers-bearer");
+  };
+
+  GraphQLOutcome got;
+  client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) {
+    got = std::move(out);
+  });
+  CHECK(got.ok());
+  CHECK_EQ(transport->authorizations.size(), std::size_t{2});
+  CHECK_EQ(transport->authorizations[1], "Bearer attempt-bearer");
+}
+
 void testAsyncPathMovesAndRetriesOnce() {
   auto transport = std::make_shared<ScriptedTransport>();
   transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
@@ -427,6 +505,7 @@ int main() {
   testAsyncPathRetriesAtMostOnce();
 #ifndef CROWDY_NO_EXCEPTIONS
   testHandlerThatThrowsSurfacesTheOriginalRefusal();
+  testHandlerThatMovesThenThrowsStillSurfacesTheOriginalRefusal();
   testAppUnavailableThrowsATypedErrorAHostCanShowAPlayer();
   testRetryableIsFalseOnlyWhenTheServerSaysSo();
 #endif
@@ -434,6 +513,8 @@ int main() {
   testAnOrdinaryErrorIsUntouchedByAnyOfThis();
   testARequestOvertakenByAnotherRedirectStillRetries();
   testSyncRequestOvertakenByAnotherRedirectStillRetries();
+  testTheRetryKeepsTheAttemptsBearer();
+  testAsyncRetryKeepsTheAttemptsBearer();
   testAsyncPathMovesAndRetriesOnce();
   std::puts("datacenter_redirect_test OK");
   return 0;

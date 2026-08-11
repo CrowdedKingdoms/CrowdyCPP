@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -150,9 +151,16 @@ class GraphQLClient {
   /// how a redirect loop starts.
   bool applyDatacenterRedirect(const GraphQLOutcome& outcome,
                                std::string_view requestUrl);
+  /// `retryAuthorization` is set on the datacenter-redirect retry only: the
+  /// retry re-issues the SAME operation, so it carries the Authorization the
+  /// original attempt carried (empty = the attempt sent none) rather than
+  /// whatever the shared AuthState holds by delivery time - engines that
+  /// multiplex token planes over one client switch that state per call.
   void requestAsyncAttempt(std::string document, const JVal& variables,
                            std::string operationName, GraphQLCallback cb,
-                           bool isRetry);
+                           bool isRetry,
+                           std::optional<std::string> retryAuthorization =
+                               std::nullopt);
 
   GraphQLClientConfig config_;
   mutable std::mutex endpointMutex_;

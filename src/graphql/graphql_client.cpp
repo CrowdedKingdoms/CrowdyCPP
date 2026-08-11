@@ -1,5 +1,6 @@
 #include "crowdy/graphql/graphql_client.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <utility>
@@ -80,6 +81,24 @@ GraphQLOutcome interpret(int httpStatus, const std::string& body) {
   return out;
 }
 
+std::string authorizationOf(const HttpRequest& request) {
+  for (const auto& header : request.headers) {
+    if (header.first == "Authorization") return header.second;
+  }
+  return {};
+}
+
+/// Replace the request's Authorization with `value` (empty = carry none).
+void setAuthorization(HttpRequest& request, const std::string& value) {
+  request.headers.erase(
+      std::remove_if(request.headers.begin(), request.headers.end(),
+                     [](const auto& header) {
+                       return header.first == "Authorization";
+                     }),
+      request.headers.end());
+  if (!value.empty()) request.headers.emplace_back("Authorization", value);
+}
+
 GraphQLOutcome outcomeFromHttp(HttpOutcome http) {
   if (!http.status.ok()) {
     GraphQLOutcome out;
@@ -133,11 +152,15 @@ bool GraphQLClient::applyDatacenterRedirect(const GraphQLOutcome& outcome,
   if (handler) {
 #ifndef CROWDY_NO_EXCEPTIONS
     // A handler that throws must not turn a server error into a client crash;
-    // the caller still needs the original rejection.
+    // the caller still needs the original rejection. Returned directly rather
+    // than falling through: a handler can move this endpoint and THEN throw
+    // (the WebSocket or session move failed), and the endpoint comparison
+    // below would read that torn state as "already moved, retry quietly" -
+    // hiding exactly the split the throw was reporting.
     try {
       moved = handler(*move);
     } catch (...) {
-      moved = false;
+      return false;
     }
 #else
     moved = handler(*move);
@@ -200,7 +223,12 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
   // second WRONG_DATACENTER is how two datacenters that disagree about an app
   // turn one query into an infinite ping-pong.
   if (!out.ok() && applyDatacenterRedirect(out, req.url)) {
+    // The retry re-issues the SAME operation, so it keeps the attempt's own
+    // Authorization; the shared AuthState may hold a different caller's bearer
+    // by now.
+    const std::string sentAuthorization = authorizationOf(req);
     req = buildHttpRequest(document, variables, operationName);
+    setAuthorization(req, sentAuthorization);
     out = outcomeFromHttp(sendInline(req));
   }
   if (!out.ok()) throwOutcome(out);
@@ -212,7 +240,9 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
   HttpRequest request = buildHttpRequest(document, variables, operationName);
   GraphQLOutcome outcome = outcomeFromHttp(sendInline(request));
   if (!outcome.ok() && applyDatacenterRedirect(outcome, request.url)) {
+    const std::string sentAuthorization = authorizationOf(request);
     request = buildHttpRequest(document, variables, operationName);
+    setAuthorization(request, sentAuthorization);
     outcome = outcomeFromHttp(sendInline(request));
   }
   return outcome.ok() ? outcome.data : Json{};
@@ -228,22 +258,28 @@ void GraphQLClient::requestAsync(std::string_view document, const JVal& variable
 void GraphQLClient::requestAsyncAttempt(std::string document,
                                         const JVal& variables,
                                         std::string operationName,
-                                        GraphQLCallback cb, bool isRetry) {
+                                        GraphQLCallback cb, bool isRetry,
+                                        std::optional<std::string> retryAuthorization) {
   HttpRequest req = buildHttpRequest(document, variables, operationName);
+  if (retryAuthorization) {
+    setAuthorization(req, *retryAuthorization);
+  }
 
   // Wrap the caller's callback so a redirect is applied and the request
   // re-issued ONCE, before the caller ever sees the failure. `isRetry` is what
   // makes it once: without it, two datacenters disagreeing about an app would
   // bounce a request between them forever, asynchronously and invisibly.
-  // `sentUrl` is captured from the request, not read back from endpoint(),
-  // because the retry decision needs the URL this attempt actually used even
-  // after a concurrent redirect has moved the client.
+  // `sentUrl` and `sentAuthorization` are captured from the request, not read
+  // back at delivery time, because the retry needs the URL and the credential
+  // this attempt actually used even after a concurrent redirect moved the
+  // client or a concurrent caller switched the shared AuthState.
   if (!isRetry) {
     cb = [this, document, variables, operationName, sentUrl = req.url,
+          sentAuthorization = authorizationOf(req),
           cb = std::move(cb)](GraphQLOutcome out) mutable {
       if (!out.ok() && applyDatacenterRedirect(out, sentUrl)) {
         requestAsyncAttempt(document, variables, operationName, std::move(cb),
-                            true);
+                            true, std::move(sentAuthorization));
         return;
       }
       cb(std::move(out));

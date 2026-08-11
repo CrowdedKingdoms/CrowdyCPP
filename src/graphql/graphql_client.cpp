@@ -114,7 +114,8 @@ GraphQLOutcome outcomeFromHttp(HttpOutcome http) {
 
 }  // namespace
 
-bool GraphQLClient::applyDatacenterRedirect(const GraphQLOutcome& outcome) {
+bool GraphQLClient::applyDatacenterRedirect(const GraphQLOutcome& outcome,
+                                            std::string_view requestUrl) {
   if (outcome.kind != GraphQLErrorKind::GraphQL) return false;
   // Checked FIRST: APP_UNAVAILABLE carries no endpoint on purpose, and must not
   // be read as a redirect whose target happens to be missing.
@@ -127,19 +128,33 @@ bool GraphQLClient::applyDatacenterRedirect(const GraphQLOutcome& outcome) {
     std::lock_guard lock(endpointMutex_);
     handler = wrongDatacenterHandler_;
   }
-  if (!handler) return false;
 
+  bool moved = false;
+  if (handler) {
 #ifndef CROWDY_NO_EXCEPTIONS
-  // A handler that throws must not turn a server error into a client crash;
-  // the caller still needs the original rejection.
-  try {
-    return handler(*move);
-  } catch (...) {
-    return false;
-  }
+    // A handler that throws must not turn a server error into a client crash;
+    // the caller still needs the original rejection.
+    try {
+      moved = handler(*move);
+    } catch (...) {
+      moved = false;
+    }
 #else
-  return handler(*move);
+    moved = handler(*move);
 #endif
+  }
+  if (moved) return true;
+
+  // "No move happened" is not the same thing as "nowhere to go". Requests to
+  // one endpoint can be in flight together, and every one of them is answered
+  // with the same redirect; the first to complete moves the client, and the
+  // handler then reports "no move" to the rest only because the target is
+  // already current. Those requests retry too - the client sits somewhere
+  // other than where they were sent, so the retry reaches the new datacenter
+  // instead of restating the URL that was just refused. When the endpoint is
+  // unchanged the refusal stands, because retrying the same URL is how a
+  // redirect loop starts.
+  return endpoint() != requestUrl;
 }
 
 HttpRequest GraphQLClient::buildHttpRequest(std::string_view document, const JVal& variables,
@@ -180,10 +195,11 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
   }
   HttpRequest req = buildHttpRequest(document, variables, operationName);
   GraphQLOutcome out = outcomeFromHttp(sendInline(req));
-  // Exactly one retry, and only after the endpoint actually moved. Retrying a
+  // Exactly one retry, and only after the endpoint actually moved - whether
+  // this redirect moved it or a concurrent request's already had. Retrying a
   // second WRONG_DATACENTER is how two datacenters that disagree about an app
   // turn one query into an infinite ping-pong.
-  if (!out.ok() && applyDatacenterRedirect(out)) {
+  if (!out.ok() && applyDatacenterRedirect(out, req.url)) {
     req = buildHttpRequest(document, variables, operationName);
     out = outcomeFromHttp(sendInline(req));
   }
@@ -195,7 +211,7 @@ Json GraphQLClient::request(std::string_view document, const JVal& variables,
                             std::string_view operationName) {
   HttpRequest request = buildHttpRequest(document, variables, operationName);
   GraphQLOutcome outcome = outcomeFromHttp(sendInline(request));
-  if (!outcome.ok() && applyDatacenterRedirect(outcome)) {
+  if (!outcome.ok() && applyDatacenterRedirect(outcome, request.url)) {
     request = buildHttpRequest(document, variables, operationName);
     outcome = outcomeFromHttp(sendInline(request));
   }
@@ -219,10 +235,13 @@ void GraphQLClient::requestAsyncAttempt(std::string document,
   // re-issued ONCE, before the caller ever sees the failure. `isRetry` is what
   // makes it once: without it, two datacenters disagreeing about an app would
   // bounce a request between them forever, asynchronously and invisibly.
+  // `sentUrl` is captured from the request, not read back from endpoint(),
+  // because the retry decision needs the URL this attempt actually used even
+  // after a concurrent redirect has moved the client.
   if (!isRetry) {
-    cb = [this, document, variables, operationName,
+    cb = [this, document, variables, operationName, sentUrl = req.url,
           cb = std::move(cb)](GraphQLOutcome out) mutable {
-      if (!out.ok() && applyDatacenterRedirect(out)) {
+      if (!out.ok() && applyDatacenterRedirect(out, sentUrl)) {
         requestAsyncAttempt(document, variables, operationName, std::move(cb),
                             true);
         return;

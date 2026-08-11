@@ -6,6 +6,7 @@
 // typed refusal with deliberately no endpoint. The distinction is the whole
 // point: mistaking the second for the first produces a client that thinks it
 // moved and did not.
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -41,9 +42,14 @@ class ScriptedTransport final : public IHttpTransport {
   std::vector<std::string> bodies;
   std::vector<std::string> urls;
   std::size_t next = 0;
+  /// Runs while the request is in flight, before its response is delivered.
+  /// A test uses this to act as a CONCURRENT request whose redirect completes
+  /// first - the only way to script that race deterministically.
+  std::function<void(const HttpRequest&)> onSend;
 
   HttpResponse send(const HttpRequest& request) override {
     urls.push_back(request.url);
+    if (onSend) onSend(request);
     const std::string body =
         next < bodies.size() ? bodies[next] : bodies.back();
     ++next;
@@ -318,6 +324,75 @@ void testAnOrdinaryErrorIsUntouchedByAnyOfThis() {
   CHECK_EQ(transport->urls.size(), std::size_t{1});
 }
 
+// Requests to one endpoint can be in flight together, and every one of them is
+// answered with the same redirect. The first to complete moves the client; the
+// handler then tells the others "no move" only because the target is already
+// current. Those requests must retry too - at the endpoint the client now sits
+// on - rather than surface the redirect to their callers. This is the startup
+// shape of any host that fans out queries before first contact resolved the
+// app's datacenter.
+void testARequestOvertakenByAnotherRedirectStillRetries() {
+  auto transport = std::make_shared<ScriptedTransport>();
+  transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
+  auto client = makeClient(transport);
+
+  int moves = 0;
+  client->setWrongDatacenterHandler([&](const DatacenterMove& move) {
+    ++moves;
+    return client->setEndpoint(move.gameApiUrl + "/graphql");
+  });
+
+  // The concurrent winner: its redirect lands while this request is in
+  // flight, so by the time this one's redirect is offered to the handler the
+  // client already sits on the target.
+  transport->onSend = [&](const HttpRequest&) {
+    if (transport->urls.size() == 1) {
+      client->setEndpoint("https://ck-or.prod.cp.cks-env.com/graphql");
+    }
+  };
+
+  int calls = 0;
+  GraphQLOutcome got;
+  client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) {
+    ++calls;
+    got = std::move(out);
+  });
+
+  CHECK_EQ(calls, 1);
+  CHECK(got.ok());
+  CHECK_EQ(got.data["v"].asString(), "ok");
+  // The handler was offered the redirect and reported no move; the retry
+  // happened anyway, and at the moved-to endpoint rather than the refused one.
+  CHECK_EQ(moves, 1);
+  CHECK_EQ(transport->urls.size(), std::size_t{2});
+  CHECK_EQ(transport->urls[0], "https://ck-va.prod.cp.cks-env.com/graphql");
+  CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
+}
+
+// The same race through the blocking path, which has its own retry expression.
+void testSyncRequestOvertakenByAnotherRedirectStillRetries() {
+  auto transport = std::make_shared<ScriptedTransport>();
+  transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
+  auto client = makeClient(transport);
+
+  int moves = 0;
+  client->setWrongDatacenterHandler([&](const DatacenterMove& move) {
+    ++moves;
+    return client->setEndpoint(move.gameApiUrl + "/graphql");
+  });
+  transport->onSend = [&](const HttpRequest&) {
+    if (transport->urls.size() == 1) {
+      client->setEndpoint("https://ck-or.prod.cp.cks-env.com/graphql");
+    }
+  };
+
+  Json data = client->request("query");
+  CHECK_EQ(data["v"].asString(), "ok");
+  CHECK_EQ(moves, 1);
+  CHECK_EQ(transport->urls.size(), std::size_t{2});
+  CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
+}
+
 void testAsyncPathMovesAndRetriesOnce() {
   auto transport = std::make_shared<ScriptedTransport>();
   transport->bodies = {wrongDatacenterBody(), R"({"data":{"v":"ok"}})"};
@@ -357,6 +432,8 @@ int main() {
 #endif
   testAppUnavailableNeverLeaksAnEndpointToMoveTo();
   testAnOrdinaryErrorIsUntouchedByAnyOfThis();
+  testARequestOvertakenByAnotherRedirectStillRetries();
+  testSyncRequestOvertakenByAnotherRedirectStillRetries();
   testAsyncPathMovesAndRetriesOnce();
   std::puts("datacenter_redirect_test OK");
   return 0;

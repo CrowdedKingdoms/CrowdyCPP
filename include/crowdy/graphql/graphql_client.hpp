@@ -82,8 +82,11 @@ class GraphQLClient {
 
   /// Handle a WRONG_DATACENTER redirect. The handler MOVES the client (this
   /// endpoint, and typically the WebSocket and UDP session with it) and returns
-  /// whether it did. Only a `true` earns a retry, so declining is safe: the
-  /// caller then sees the server's original error.
+  /// whether it did. Declining is safe: the caller then sees the server's
+  /// original error. A retry is earned by a `true`, or by the client already
+  /// sitting somewhere other than where the failed request was sent - the case
+  /// where a concurrent request's redirect moved the client first, which the
+  /// handler reports as "no move" only because the target is already current.
   ///
   /// Set by CrowdyClient. Set it yourself only when driving a bare
   /// GraphQLClient, and move every transport together if you do — an HTTP
@@ -140,8 +143,13 @@ class GraphQLClient {
                                std::string_view operationName) const;
   HttpOutcome sendInline(const HttpRequest& request);
   /// Offer a failed outcome to the wrong-datacenter handler. True when the
-  /// endpoint moved and the request is worth re-issuing.
-  bool applyDatacenterRedirect(const GraphQLOutcome& outcome);
+  /// request is worth re-issuing: either this outcome's redirect moved the
+  /// endpoint, or another request's redirect had already moved it away from
+  /// `requestUrl` (the URL this request was actually sent to) while this one
+  /// was in flight. Retrying against an unchanged URL stays refused - that is
+  /// how a redirect loop starts.
+  bool applyDatacenterRedirect(const GraphQLOutcome& outcome,
+                               std::string_view requestUrl);
   void requestAsyncAttempt(std::string document, const JVal& variables,
                            std::string operationName, GraphQLCallback cb,
                            bool isRetry);

@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: 839f36cd4c26d5d5eb9054e7114a6698e1b7f829f8a1061ef3742dc2da8c274d
-// operations sha256: f759597fea2acf1476edb094af1304516c69dfaf6e101335a3cd74d2930f9bad
+// operations sha256: 3d186ffb5505b51d7463875a3132581f4722cc27e5b76fe7ec4c2679b400b53e
 
 #pragma once
 
@@ -6187,6 +6187,11 @@ inline constexpr std::string_view kCrowdyStudioAgentManagementDocument = R"gql(f
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6377,6 +6382,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6457,6 +6467,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision
@@ -6602,6 +6617,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6682,6 +6702,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision
@@ -6764,6 +6789,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6844,6 +6874,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision

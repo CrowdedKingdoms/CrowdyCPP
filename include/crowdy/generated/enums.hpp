@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 377d4a5117c425e14670981f38a836430d8e8359f30058d58423b70dd898b022
-// operations sha256: 4a8d55cf97cf74c394e0f072f75e97c0c4186e055dc3bb54a7fb1664a58460e8
+// schema.gql sha256: 839f36cd4c26d5d5eb9054e7114a6698e1b7f829f8a1061ef3742dc2da8c274d
+// operations sha256: 5cbb478160e35ee1ceb8a524bcc8ef220a387c031ad7b9652492cef9cf4c463f
 
 #pragma once
 
@@ -824,6 +824,28 @@ inline std::optional<CrowdyStudioTarget> crowdyStudioTargetFromString(std::strin
   return std::nullopt;
 }
 
+enum class DatacenterServingStatus {
+  SERVING,
+  NOT_SERVING,
+  UNKNOWN,
+};
+
+inline constexpr std::string_view toString(DatacenterServingStatus v) {
+  switch (v) {
+    case DatacenterServingStatus::SERVING: return "SERVING";
+    case DatacenterServingStatus::NOT_SERVING: return "NOT_SERVING";
+    case DatacenterServingStatus::UNKNOWN: return "UNKNOWN";
+  }
+  return "";
+}
+
+inline std::optional<DatacenterServingStatus> datacenterServingStatusFromString(std::string_view s) {
+  if (s == "SERVING") return DatacenterServingStatus::SERVING;
+  if (s == "NOT_SERVING") return DatacenterServingStatus::NOT_SERVING;
+  if (s == "UNKNOWN") return DatacenterServingStatus::UNKNOWN;
+  return std::nullopt;
+}
+
 enum class GameModelPlayerCountStatus {
   FRESH,
   PARTIAL,
@@ -909,6 +931,28 @@ inline constexpr std::string_view toString(GridTenure v) {
 inline std::optional<GridTenure> gridTenureFromString(std::string_view s) {
   if (s == "OWNED") return GridTenure::OWNED;
   if (s == "RENTED") return GridTenure::RENTED;
+  return std::nullopt;
+}
+
+enum class MeteredComputeEngine {
+  EXPRESSION,
+  STUDIO_WASM,
+  PLAYER_WASM,
+};
+
+inline constexpr std::string_view toString(MeteredComputeEngine v) {
+  switch (v) {
+    case MeteredComputeEngine::EXPRESSION: return "EXPRESSION";
+    case MeteredComputeEngine::STUDIO_WASM: return "STUDIO_WASM";
+    case MeteredComputeEngine::PLAYER_WASM: return "PLAYER_WASM";
+  }
+  return "";
+}
+
+inline std::optional<MeteredComputeEngine> meteredComputeEngineFromString(std::string_view s) {
+  if (s == "EXPRESSION") return MeteredComputeEngine::EXPRESSION;
+  if (s == "STUDIO_WASM") return MeteredComputeEngine::STUDIO_WASM;
+  if (s == "PLAYER_WASM") return MeteredComputeEngine::PLAYER_WASM;
   return std::nullopt;
 }
 
@@ -1057,6 +1101,64 @@ inline constexpr std::string_view toString(PlayerComputeTarget v) {
 inline std::optional<PlayerComputeTarget> playerComputeTargetFromString(std::string_view s) {
   if (s == "SERVER") return PlayerComputeTarget::SERVER;
   if (s == "CLIENT") return PlayerComputeTarget::CLIENT;
+  return std::nullopt;
+}
+
+enum class PlayerFaultCode {
+  USER_CODE_ERROR,
+  USER_CODE_TOO_SLOW,
+  USER_CODE_LIMIT_EXCEEDED,
+  PLATFORM_BUSY,
+  PLATFORM_ERROR,
+  BUDGET_EXCEEDED,
+  RATE_LIMITED,
+  QUOTA_EXHAUSTED,
+  TEMPORARILY_DISABLED,
+  INVALID_REQUEST,
+  NOT_ALLOWED,
+  NOT_FOUND,
+  UNAUTHENTICATED,
+  WRONG_DATACENTER,
+  APP_UNAVAILABLE,
+};
+
+inline constexpr std::string_view toString(PlayerFaultCode v) {
+  switch (v) {
+    case PlayerFaultCode::USER_CODE_ERROR: return "USER_CODE_ERROR";
+    case PlayerFaultCode::USER_CODE_TOO_SLOW: return "USER_CODE_TOO_SLOW";
+    case PlayerFaultCode::USER_CODE_LIMIT_EXCEEDED: return "USER_CODE_LIMIT_EXCEEDED";
+    case PlayerFaultCode::PLATFORM_BUSY: return "PLATFORM_BUSY";
+    case PlayerFaultCode::PLATFORM_ERROR: return "PLATFORM_ERROR";
+    case PlayerFaultCode::BUDGET_EXCEEDED: return "BUDGET_EXCEEDED";
+    case PlayerFaultCode::RATE_LIMITED: return "RATE_LIMITED";
+    case PlayerFaultCode::QUOTA_EXHAUSTED: return "QUOTA_EXHAUSTED";
+    case PlayerFaultCode::TEMPORARILY_DISABLED: return "TEMPORARILY_DISABLED";
+    case PlayerFaultCode::INVALID_REQUEST: return "INVALID_REQUEST";
+    case PlayerFaultCode::NOT_ALLOWED: return "NOT_ALLOWED";
+    case PlayerFaultCode::NOT_FOUND: return "NOT_FOUND";
+    case PlayerFaultCode::UNAUTHENTICATED: return "UNAUTHENTICATED";
+    case PlayerFaultCode::WRONG_DATACENTER: return "WRONG_DATACENTER";
+    case PlayerFaultCode::APP_UNAVAILABLE: return "APP_UNAVAILABLE";
+  }
+  return "";
+}
+
+inline std::optional<PlayerFaultCode> playerFaultCodeFromString(std::string_view s) {
+  if (s == "USER_CODE_ERROR") return PlayerFaultCode::USER_CODE_ERROR;
+  if (s == "USER_CODE_TOO_SLOW") return PlayerFaultCode::USER_CODE_TOO_SLOW;
+  if (s == "USER_CODE_LIMIT_EXCEEDED") return PlayerFaultCode::USER_CODE_LIMIT_EXCEEDED;
+  if (s == "PLATFORM_BUSY") return PlayerFaultCode::PLATFORM_BUSY;
+  if (s == "PLATFORM_ERROR") return PlayerFaultCode::PLATFORM_ERROR;
+  if (s == "BUDGET_EXCEEDED") return PlayerFaultCode::BUDGET_EXCEEDED;
+  if (s == "RATE_LIMITED") return PlayerFaultCode::RATE_LIMITED;
+  if (s == "QUOTA_EXHAUSTED") return PlayerFaultCode::QUOTA_EXHAUSTED;
+  if (s == "TEMPORARILY_DISABLED") return PlayerFaultCode::TEMPORARILY_DISABLED;
+  if (s == "INVALID_REQUEST") return PlayerFaultCode::INVALID_REQUEST;
+  if (s == "NOT_ALLOWED") return PlayerFaultCode::NOT_ALLOWED;
+  if (s == "NOT_FOUND") return PlayerFaultCode::NOT_FOUND;
+  if (s == "UNAUTHENTICATED") return PlayerFaultCode::UNAUTHENTICATED;
+  if (s == "WRONG_DATACENTER") return PlayerFaultCode::WRONG_DATACENTER;
+  if (s == "APP_UNAVAILABLE") return PlayerFaultCode::APP_UNAVAILABLE;
   return std::nullopt;
 }
 
@@ -1225,6 +1327,138 @@ inline std::optional<UdpErrorCode> udpErrorCodeFromString(std::string_view s) {
   if (s == "CANNOT_DELETE_DEFAULT_WORLD_GRID") return UdpErrorCode::CANNOT_DELETE_DEFAULT_WORLD_GRID;
   if (s == "GRID_HAS_NESTED_CHILDREN") return UdpErrorCode::GRID_HAS_NESTED_CHILDREN;
   if (s == "TOKEN_EXPIRED") return UdpErrorCode::TOKEN_EXPIRED;
+  return std::nullopt;
+}
+
+enum class UserCodeFaultBlame {
+  PLATFORM,
+  AUTHOR,
+  BUDGET,
+};
+
+inline constexpr std::string_view toString(UserCodeFaultBlame v) {
+  switch (v) {
+    case UserCodeFaultBlame::PLATFORM: return "PLATFORM";
+    case UserCodeFaultBlame::AUTHOR: return "AUTHOR";
+    case UserCodeFaultBlame::BUDGET: return "BUDGET";
+  }
+  return "";
+}
+
+inline std::optional<UserCodeFaultBlame> userCodeFaultBlameFromString(std::string_view s) {
+  if (s == "PLATFORM") return UserCodeFaultBlame::PLATFORM;
+  if (s == "AUTHOR") return UserCodeFaultBlame::AUTHOR;
+  if (s == "BUDGET") return UserCodeFaultBlame::BUDGET;
+  return std::nullopt;
+}
+
+enum class UserCodeFaultEngine {
+  EXPRESSION,
+  STUDIO_WASM,
+  PLAYER_WASM,
+};
+
+inline constexpr std::string_view toString(UserCodeFaultEngine v) {
+  switch (v) {
+    case UserCodeFaultEngine::EXPRESSION: return "EXPRESSION";
+    case UserCodeFaultEngine::STUDIO_WASM: return "STUDIO_WASM";
+    case UserCodeFaultEngine::PLAYER_WASM: return "PLAYER_WASM";
+  }
+  return "";
+}
+
+inline std::optional<UserCodeFaultEngine> userCodeFaultEngineFromString(std::string_view s) {
+  if (s == "EXPRESSION") return UserCodeFaultEngine::EXPRESSION;
+  if (s == "STUDIO_WASM") return UserCodeFaultEngine::STUDIO_WASM;
+  if (s == "PLAYER_WASM") return UserCodeFaultEngine::PLAYER_WASM;
+  return std::nullopt;
+}
+
+enum class UserCodeFaultKind {
+  EXPRESSION_TIMEOUT,
+  GAS_EXHAUSTED,
+  CALL_LIMIT_EXCEEDED,
+  EXPRESSION_ERROR,
+  WASM_TRAP,
+  FUEL_EXHAUSTED,
+  MEMORY_EXCEEDED,
+  WATCHDOG_TERMINATED,
+  MODULE_LOAD_FAILED,
+  BINDING_MISMATCH,
+  RESPONSE_TOO_LARGE,
+  SANDBOX_POISONED,
+  WORKER_EXIT,
+  HOST_CALL_FAILED,
+  UNKNOWN_HOST_FUNCTION,
+  INTERNAL_ERROR,
+  DB_OPS_EXCEEDED,
+  EGRESS_BUDGET_EXCEEDED,
+  STATE_WRITE_BUDGET_EXCEEDED,
+  RATE_LIMIT_EXCEEDED,
+  QUOTA_EXHAUSTED,
+  CONTRACT_VALIDATION_FAILED,
+  PLATFORM_BUSY,
+  CIRCUIT_OPEN,
+  DISABLED_BY_POLICY,
+};
+
+inline constexpr std::string_view toString(UserCodeFaultKind v) {
+  switch (v) {
+    case UserCodeFaultKind::EXPRESSION_TIMEOUT: return "EXPRESSION_TIMEOUT";
+    case UserCodeFaultKind::GAS_EXHAUSTED: return "GAS_EXHAUSTED";
+    case UserCodeFaultKind::CALL_LIMIT_EXCEEDED: return "CALL_LIMIT_EXCEEDED";
+    case UserCodeFaultKind::EXPRESSION_ERROR: return "EXPRESSION_ERROR";
+    case UserCodeFaultKind::WASM_TRAP: return "WASM_TRAP";
+    case UserCodeFaultKind::FUEL_EXHAUSTED: return "FUEL_EXHAUSTED";
+    case UserCodeFaultKind::MEMORY_EXCEEDED: return "MEMORY_EXCEEDED";
+    case UserCodeFaultKind::WATCHDOG_TERMINATED: return "WATCHDOG_TERMINATED";
+    case UserCodeFaultKind::MODULE_LOAD_FAILED: return "MODULE_LOAD_FAILED";
+    case UserCodeFaultKind::BINDING_MISMATCH: return "BINDING_MISMATCH";
+    case UserCodeFaultKind::RESPONSE_TOO_LARGE: return "RESPONSE_TOO_LARGE";
+    case UserCodeFaultKind::SANDBOX_POISONED: return "SANDBOX_POISONED";
+    case UserCodeFaultKind::WORKER_EXIT: return "WORKER_EXIT";
+    case UserCodeFaultKind::HOST_CALL_FAILED: return "HOST_CALL_FAILED";
+    case UserCodeFaultKind::UNKNOWN_HOST_FUNCTION: return "UNKNOWN_HOST_FUNCTION";
+    case UserCodeFaultKind::INTERNAL_ERROR: return "INTERNAL_ERROR";
+    case UserCodeFaultKind::DB_OPS_EXCEEDED: return "DB_OPS_EXCEEDED";
+    case UserCodeFaultKind::EGRESS_BUDGET_EXCEEDED: return "EGRESS_BUDGET_EXCEEDED";
+    case UserCodeFaultKind::STATE_WRITE_BUDGET_EXCEEDED: return "STATE_WRITE_BUDGET_EXCEEDED";
+    case UserCodeFaultKind::RATE_LIMIT_EXCEEDED: return "RATE_LIMIT_EXCEEDED";
+    case UserCodeFaultKind::QUOTA_EXHAUSTED: return "QUOTA_EXHAUSTED";
+    case UserCodeFaultKind::CONTRACT_VALIDATION_FAILED: return "CONTRACT_VALIDATION_FAILED";
+    case UserCodeFaultKind::PLATFORM_BUSY: return "PLATFORM_BUSY";
+    case UserCodeFaultKind::CIRCUIT_OPEN: return "CIRCUIT_OPEN";
+    case UserCodeFaultKind::DISABLED_BY_POLICY: return "DISABLED_BY_POLICY";
+  }
+  return "";
+}
+
+inline std::optional<UserCodeFaultKind> userCodeFaultKindFromString(std::string_view s) {
+  if (s == "EXPRESSION_TIMEOUT") return UserCodeFaultKind::EXPRESSION_TIMEOUT;
+  if (s == "GAS_EXHAUSTED") return UserCodeFaultKind::GAS_EXHAUSTED;
+  if (s == "CALL_LIMIT_EXCEEDED") return UserCodeFaultKind::CALL_LIMIT_EXCEEDED;
+  if (s == "EXPRESSION_ERROR") return UserCodeFaultKind::EXPRESSION_ERROR;
+  if (s == "WASM_TRAP") return UserCodeFaultKind::WASM_TRAP;
+  if (s == "FUEL_EXHAUSTED") return UserCodeFaultKind::FUEL_EXHAUSTED;
+  if (s == "MEMORY_EXCEEDED") return UserCodeFaultKind::MEMORY_EXCEEDED;
+  if (s == "WATCHDOG_TERMINATED") return UserCodeFaultKind::WATCHDOG_TERMINATED;
+  if (s == "MODULE_LOAD_FAILED") return UserCodeFaultKind::MODULE_LOAD_FAILED;
+  if (s == "BINDING_MISMATCH") return UserCodeFaultKind::BINDING_MISMATCH;
+  if (s == "RESPONSE_TOO_LARGE") return UserCodeFaultKind::RESPONSE_TOO_LARGE;
+  if (s == "SANDBOX_POISONED") return UserCodeFaultKind::SANDBOX_POISONED;
+  if (s == "WORKER_EXIT") return UserCodeFaultKind::WORKER_EXIT;
+  if (s == "HOST_CALL_FAILED") return UserCodeFaultKind::HOST_CALL_FAILED;
+  if (s == "UNKNOWN_HOST_FUNCTION") return UserCodeFaultKind::UNKNOWN_HOST_FUNCTION;
+  if (s == "INTERNAL_ERROR") return UserCodeFaultKind::INTERNAL_ERROR;
+  if (s == "DB_OPS_EXCEEDED") return UserCodeFaultKind::DB_OPS_EXCEEDED;
+  if (s == "EGRESS_BUDGET_EXCEEDED") return UserCodeFaultKind::EGRESS_BUDGET_EXCEEDED;
+  if (s == "STATE_WRITE_BUDGET_EXCEEDED") return UserCodeFaultKind::STATE_WRITE_BUDGET_EXCEEDED;
+  if (s == "RATE_LIMIT_EXCEEDED") return UserCodeFaultKind::RATE_LIMIT_EXCEEDED;
+  if (s == "QUOTA_EXHAUSTED") return UserCodeFaultKind::QUOTA_EXHAUSTED;
+  if (s == "CONTRACT_VALIDATION_FAILED") return UserCodeFaultKind::CONTRACT_VALIDATION_FAILED;
+  if (s == "PLATFORM_BUSY") return UserCodeFaultKind::PLATFORM_BUSY;
+  if (s == "CIRCUIT_OPEN") return UserCodeFaultKind::CIRCUIT_OPEN;
+  if (s == "DISABLED_BY_POLICY") return UserCodeFaultKind::DISABLED_BY_POLICY;
   return std::nullopt;
 }
 

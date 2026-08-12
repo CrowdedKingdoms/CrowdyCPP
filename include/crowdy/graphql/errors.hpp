@@ -62,6 +62,13 @@ struct GraphQLErrorDetail {
   /// extensions.retryable. Defaults TRUE to match the server contract, where
   /// only an explicit `false` means "do not bother trying again".
   bool retryable = true;
+  /// extensions.blame: "PLATFORM" (ours, a retry is reasonable), "AUTHOR" (the
+  /// app's own code, an identical call fails identically) or "BUDGET" (a spent
+  /// allowance). Empty when the error carried no attribution, which is NOT the
+  /// same as PLATFORM: pair it with `retryable` rather than reading either
+  /// alone, since `retryable` defaults true and an unattributed transport
+  /// failure must not read as a licensed retry.
+  std::string blame;
 };
 
 /// The server returned GraphQL errors. Preserves every error including

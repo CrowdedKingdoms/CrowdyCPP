@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 377d4a5117c425e14670981f38a836430d8e8359f30058d58423b70dd898b022
-// operations sha256: 4a8d55cf97cf74c394e0f072f75e97c0c4186e055dc3bb54a7fb1664a58460e8
+// schema.gql sha256: 839f36cd4c26d5d5eb9054e7114a6698e1b7f829f8a1061ef3742dc2da8c274d
+// operations sha256: 5cbb478160e35ee1ceb8a524bcc8ef220a387c031ad7b9652492cef9cf4c463f
 
 #pragma once
 
@@ -7610,6 +7610,11 @@ fragment GmInvokeResultFields on GmInvokeResult {
   success
   returnValueJson
   errorMessage
+  fault {
+    code
+    blame
+    retryable
+  }
   mutationsApplied {
     containerId
     key
@@ -8081,6 +8086,11 @@ fragment GmInvokeResultFields on GmInvokeResult {
   success
   returnValueJson
   errorMessage
+  fault {
+    code
+    blame
+    retryable
+  }
   mutationsApplied {
     containerId
     key

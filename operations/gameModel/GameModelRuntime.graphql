@@ -26,6 +26,11 @@ fragment GmInvokeResultFields on GmInvokeResult {
   success
   returnValueJson
   errorMessage
+  fault {
+    code
+    blame
+    retryable
+  }
   mutationsApplied {
     containerId
     key

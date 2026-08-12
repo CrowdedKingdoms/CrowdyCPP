@@ -47,6 +47,7 @@ GraphQLOutcome interpret(int httpStatus, const std::string& body) {
       d.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
       d.retryable = !extensions["retryable"].isBool() ||
                     extensions["retryable"].asBool();
+      d.blame = extensions["blame"].asString();
       Json path = e["path"];
       if (path.isArray()) {
         path.forEach([&](Json seg) {

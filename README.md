@@ -31,6 +31,18 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.22.0 builds on Windows again:** line endings are normalised through
+`.gitattributes` so a Windows checkout is byte-reproducible, the generated
+headers are regenerated from an LF checkout, and the CMake build compiles and
+tests under MSVC. Nothing about the API changed — this is the 0.21.0 surface,
+buildable on the platform where 0.21.0 was not.
+
+Released from the `dev` branch as `dev/v0.22.0`. Since 2026-08-12 this repo
+carries `dev`, `test` and `prod`, and a release tag names the branch it was cut
+from; a bare `vX.Y.Z` tag is the retired convention. Note that **v0.20.0 and
+v0.21.0 were never tagged on the remote** despite a commit saying they were —
+the highest published tag is `v0.19.0`.
+
 **v0.21.0 invoke fault attribution:** a failed `gameModelInvoke` now reports
 whose fault it was and whether repeating it can work, on both channels the
 server uses: `fault { code blame retryable }` in band on a rejection, and

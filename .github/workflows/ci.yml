@@ -1,8 +1,14 @@
 name: CI
 
+# Runs on a push to ANY branch. Under the three-branch model the interesting pushes are the
+# promotion merges — dev -> test -> prod — and `branches: [main]` would have run none of
+# them, leaving the branch a release is cut from unchecked. This repo is test-only and has no
+# release pipeline, so there is no tag trigger and no release-tier gate here: nothing in
+# CrowdyCPP publishes an artifact that an environment consumes.
+
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 

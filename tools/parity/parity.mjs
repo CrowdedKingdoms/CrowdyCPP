@@ -48,7 +48,8 @@ const CATEGORY = Object.freeze({
   COVERED: 'covered-extension',
 });
 
-// Current CrowdyJS and CrowdyCPP snapshots expose the same GraphQL schema.
+// CrowdyCPP syncs schema.gql from the published SDL, so it currently runs ahead
+// of CrowdyJS's committed snapshot rather than matching it.
 // Add reviewed extension classifications here only when one SDK intentionally
 // advances ahead of the other.
 // CrowdyCPP syncs schema.gql from the PUBLISHED SDL, which carries the
@@ -71,6 +72,137 @@ const SCHEMA_BASELINE = {
     "CrowdyJS's committed schema.gql predates the capacity-routing fields",
     'member-only',
     'CrowdyCPP',
+  ),
+  // The 0.21.0 schema sync advanced the published SDL by several server
+  // releases, so the groups below are all the situation described above: server
+  // surface CrowdyJS's pinned snapshot has not regenerated against yet. Each
+  // group goes stale, and the gate says so, the moment it does.
+  ...classifySchema(
+    [
+      'enum:MeteredComputeEngine',
+      'type:AppComputeBudgetInfo',
+      'type:AppComputeBudgetStatus',
+      'type:AppComputeUsage',
+      'type:EngineComputeUnits',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the app compute budget surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:Mutation.clearAppComputeBudget',
+      'type:Mutation.setAppComputeBudget',
+      'type:Query.appComputeBudget',
+      'type:Query.appComputeBudgetStatus',
+      'type:Query.appComputeUsage',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the app compute budget surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:WasmComputeStats.aggregatedThrough',
+      'type:WasmModuleLogEntry.instanceId',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the per-instance compute fields",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'enum:DatacenterServingStatus',
+      'type:PlaceableDatacenter',
+      'type:PlaceableDatacenters',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    ['input:CreateAppInput.datacenter', 'type:Query.placeableDatacenters'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'enum:PlayerFaultCode',
+      'enum:UserCodeFaultBlame',
+      'enum:UserCodeFaultEngine',
+      'enum:UserCodeFaultKind',
+      'type:PlayerFaultInfo',
+      'type:UserCodeFaultRecord',
+      'type:UserCodeFaultSummaryEntry',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the fault attribution surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:GmInvokeResult.fault',
+      'type:Query.userCodeFaultSummary',
+      'type:Query.userCodeFaults',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the fault attribution surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:CrowdyStudioAgentCapabilityGap',
+      'type:CrowdyStudioAgentCatalog',
+      'type:CrowdyStudioAgentCatalogModel',
+      'type:CrowdyStudioAgentCatalogTool',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:CrowdyStudioAgentPolicy.capabilityGaps',
+      'type:Query.cpCrowdyStudioAgentCatalog',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    ['type:GmFunctionBreakerStatus', 'type:GmFunctionCircuit'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the function circuit surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    ['type:Query.gameModelFunctionCircuits'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the function circuit surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  // The one difference here that is not a missing field. Both sides declare
+  // errorMessage, but the published SDL now deprecates it and redefines its
+  // contents as a player-safe sentence carrying no engine detail, with fault as
+  // the field a caller branches on. CrowdyJS's snapshot still documents it as
+  // the engine's error text, so the signatures disagree in both directions.
+  'type:GmInvokeResult.errorMessage': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the errorMessage deprecation",
+    'member-signature',
+    'both',
   ),
 };
 
@@ -1012,6 +1144,15 @@ function classification(category, reason, expectedKind, expectedSide) {
 function classifyNames(rootName, names, category, reason) {
   return Object.fromEntries(
     names.map((name) => [`${rootName}.${name}`, classification(category, reason)]),
+  );
+}
+
+function classifySchema(ids, category, reason, expectedKind, expectedSide) {
+  return Object.fromEntries(
+    ids.map((id) => [
+      id,
+      classification(category, reason, expectedKind, expectedSide),
+    ]),
   );
 }
 

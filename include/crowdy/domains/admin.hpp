@@ -277,17 +277,6 @@ class AppsAPI : public detail::AdminDomain {
   void mineAsync(graphql::GraphQLCallback cb) const {
     execUnwrapAsync(gen::apps::kMyAppsDocument, graphql::JVal(), {}, std::move(cb));
   }
-
-  /// Datacenter codes this deployment accepts for a new app, and whether each
-  /// can currently hold one. Query before createApp: the datacenter is required
-  /// and permanent, and the instance answering may not be in the one you want.
-  graphql::Json placeableDatacenters() const {
-    return execUnwrap(gen::apps::kPlaceableDatacentersDocument);
-  }
-  void placeableDatacentersAsync(graphql::GraphQLCallback cb) const {
-    execUnwrapAsync(gen::apps::kPlaceableDatacentersDocument, graphql::JVal(), {},
-                    std::move(cb));
-  }
   graphql::Json get(std::string_view appId) const {
     return execUnwrap(gen::apps::kAppDocument, one("appId", graphql::JVal(appId)));
   }

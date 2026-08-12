@@ -48,91 +48,161 @@ const CATEGORY = Object.freeze({
   COVERED: 'covered-extension',
 });
 
+// CrowdyCPP syncs schema.gql from the published SDL, so it currently runs ahead
+// of CrowdyJS's committed snapshot rather than matching it.
 // Add reviewed extension classifications here only when one SDK intentionally
 // advances ahead of the other.
-//
-// The capacity-routing entries that used to live here (ServerStatus.cpuCount
-// and routerThreads) are GONE rather than updated, and that is the whole point
-// of how they were written: they said "CrowdyJS's committed snapshot predates
-// these", which stopped being true when CrowdyJS regenerated, and re-pinning
-// made the gate report them stale exactly as their note promised. A waiver
-// whose stated reason has expired must be deleted, not carried.
-//
-// What is left is the other direction — surface the published SDL carries and
-// the CrowdyJS SDK has not adopted at all, at any commit. Each is covered by a
-// CrowdyCPP operation, so these are extensions CrowdyCPP has taken up first,
-// not gaps. They go stale the day CrowdyJS adopts them, and the gate says so.
+// CrowdyCPP syncs schema.gql from the PUBLISHED SDL, which carries the
+// capacity-routing fields; CrowdyJS's committed snapshot predates them. So this
+// is CrowdyJS trailing the server, not CrowdyCPP inventing fields — and it
+// disappears the next time CrowdyJS regenerates, at which point these two
+// entries go stale and the gate says so rather than letting them linger.
 //
 // The kind and side are part of the key on purpose: a waiver written for "exists
 // only in CrowdyCPP" must not silently cover the opposite direction.
-const AGENT_CATALOG_REASON =
-  'operator-facing Studio agent catalog (models, tools, modes, risk classes); ' +
-  'CrowdyJS exposes no catalog surface, CrowdyCPP reads it via ' +
-  'CpCrowdyStudioAgentCatalog';
-const FUNCTION_CIRCUIT_REASON =
-  'player-invoke circuit breaker state; CrowdyJS has no breaker surface, ' +
-  'CrowdyCPP reads it via GameModelFunctionCircuits';
 const SCHEMA_BASELINE = {
-  'type:CrowdyStudioAgentCatalog': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:CrowdyStudioAgentCatalogModel': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:CrowdyStudioAgentCatalogTool': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:CrowdyStudioAgentCapabilityGap': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  'type:CrowdyStudioAgentPolicy.capabilityGaps': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
+  'type:ServerStatus.cpuCount': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
     'member-only',
     'CrowdyCPP',
   ),
-  'type:Query.cpCrowdyStudioAgentCatalog': classification(
-    CATEGORY.COVERED,
-    AGENT_CATALOG_REASON,
+  'type:ServerStatus.routerThreads': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
     'member-only',
     'CrowdyCPP',
   ),
-  'type:GmFunctionBreakerStatus': classification(
-    CATEGORY.COVERED,
-    FUNCTION_CIRCUIT_REASON,
+  // The 0.21.0 schema sync advanced the published SDL by several server
+  // releases, so the groups below are all the situation described above: server
+  // surface CrowdyJS's pinned snapshot has not regenerated against yet. Each
+  // group goes stale, and the gate says so, the moment it does.
+  ...classifySchema(
+    [
+      'enum:MeteredComputeEngine',
+      'type:AppComputeBudgetInfo',
+      'type:AppComputeBudgetStatus',
+      'type:AppComputeUsage',
+      'type:EngineComputeUnits',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the app compute budget surface",
     'definition-only',
     'CrowdyCPP',
   ),
-  'type:GmFunctionCircuit': classification(
-    CATEGORY.COVERED,
-    FUNCTION_CIRCUIT_REASON,
+  ...classifySchema(
+    [
+      'type:Mutation.clearAppComputeBudget',
+      'type:Mutation.setAppComputeBudget',
+      'type:Query.appComputeBudget',
+      'type:Query.appComputeBudgetStatus',
+      'type:Query.appComputeUsage',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the app compute budget surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:WasmComputeStats.aggregatedThrough',
+      'type:WasmModuleLogEntry.instanceId',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the per-instance compute fields",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'enum:DatacenterServingStatus',
+      'type:PlaceableDatacenter',
+      'type:PlaceableDatacenters',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
     'definition-only',
     'CrowdyCPP',
   ),
-  'type:Query.gameModelFunctionCircuits': classification(
-    CATEGORY.COVERED,
-    FUNCTION_CIRCUIT_REASON,
+  ...classifySchema(
+    ['input:CreateAppInput.datacenter', 'type:Query.placeableDatacenters'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
     'member-only',
     'CrowdyCPP',
   ),
-  'type:WasmComputeStats.aggregatedThrough': classification(
-    CATEGORY.COVERED,
-    'watermark telling a reader how far the usage rollup has aggregated; ' +
-      "CrowdyJS's WasmComputeStats stops at the counters",
+  ...classifySchema(
+    [
+      'enum:PlayerFaultCode',
+      'enum:UserCodeFaultBlame',
+      'enum:UserCodeFaultEngine',
+      'enum:UserCodeFaultKind',
+      'type:PlayerFaultInfo',
+      'type:UserCodeFaultRecord',
+      'type:UserCodeFaultSummaryEntry',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the fault attribution surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:GmInvokeResult.fault',
+      'type:Query.userCodeFaultSummary',
+      'type:Query.userCodeFaults',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the fault attribution surface",
     'member-only',
     'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:CrowdyStudioAgentCapabilityGap',
+      'type:CrowdyStudioAgentCatalog',
+      'type:CrowdyStudioAgentCatalogModel',
+      'type:CrowdyStudioAgentCatalogTool',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    [
+      'type:CrowdyStudioAgentPolicy.capabilityGaps',
+      'type:Query.cpCrowdyStudioAgentCatalog',
+    ],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    ['type:GmFunctionBreakerStatus', 'type:GmFunctionCircuit'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the function circuit surface",
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  ...classifySchema(
+    ['type:Query.gameModelFunctionCircuits'],
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the function circuit surface",
+    'member-only',
+    'CrowdyCPP',
+  ),
+  // The one difference here that is not a missing field. Both sides declare
+  // errorMessage, but the published SDL now deprecates it and redefines its
+  // contents as a player-safe sentence carrying no engine detail, with fault as
+  // the field a caller branches on. CrowdyJS's snapshot still documents it as
+  // the engine's error text, so the signatures disagree in both directions.
+  'type:GmInvokeResult.errorMessage': classification(
+    CATEGORY.NATIVE,
+    "CrowdyJS's committed schema.gql predates the errorMessage deprecation",
+    'member-signature',
+    'both',
   ),
 };
 
@@ -1074,6 +1144,15 @@ function classification(category, reason, expectedKind, expectedSide) {
 function classifyNames(rootName, names, category, reason) {
   return Object.fromEntries(
     names.map((name) => [`${rootName}.${name}`, classification(category, reason)]),
+  );
+}
+
+function classifySchema(ids, category, reason, expectedKind, expectedSide) {
+  return Object.fromEntries(
+    ids.map((id) => [
+      id,
+      classification(category, reason, expectedKind, expectedSide),
+    ]),
   );
 }
 

@@ -1,3 +1,25 @@
+fragment UserCodeFaultRecordFields on UserCodeFaultRecord {
+  faultId
+  appId
+  engine
+  kind
+  blame
+  retryable
+  subject
+  entryPoint
+  flowId
+  gridId
+  actingUserId
+  durationUs
+  budgetUs
+  unitsUsed
+  unitsLimit
+  stepsCompleted
+  detail
+  instanceId
+  occurredAt
+}
+
 query UserCodeFaults(
   $appId: BigInt!
   $engine: UserCodeFaultEngine
@@ -18,25 +40,7 @@ query UserCodeFaults(
     limit: $limit
     offset: $offset
   ) {
-    faultId
-    appId
-    engine
-    kind
-    blame
-    retryable
-    subject
-    entryPoint
-    flowId
-    gridId
-    actingUserId
-    durationUs
-    budgetUs
-    unitsUsed
-    unitsLimit
-    stepsCompleted
-    detail
-    instanceId
-    occurredAt
+    ...UserCodeFaultRecordFields
   }
 }
 

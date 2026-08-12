@@ -98,24 +98,53 @@ int main() {
 }
 ]=])
 
+# The consumer configures as its own project, so nothing given to the parent
+# build reaches it automatically. A toolchain file has to be forwarded or the
+# installed package's own find_dependency(CURL) cannot resolve a dependency the
+# parent located seconds earlier, which is every vcpkg or cross-compiled build.
+set(_consumer_args "-DCMAKE_PREFIX_PATH=${_prefix}")
+if(CROWDY_TOOLCHAIN_FILE)
+  list(APPEND _consumer_args
+       "-DCMAKE_TOOLCHAIN_FILE=${CROWDY_TOOLCHAIN_FILE}")
+endif()
+if(DEFINED CROWDY_CONFIG AND NOT CROWDY_CONFIG STREQUAL "")
+  list(APPEND _consumer_args "-DCMAKE_BUILD_TYPE=${CROWDY_CONFIG}")
+endif()
 execute_process(
   COMMAND "${CROWDY_CMAKE_COMMAND}"
           -S "${_source}" -B "${_build}"
-          "-DCMAKE_PREFIX_PATH=${_prefix}"
+          ${_consumer_args}
   RESULT_VARIABLE _configure_result)
 if(NOT _configure_result EQUAL 0)
   message(FATAL_ERROR
           "installed no-exception consumer configure failed")
 endif()
+set(_build_command
+    "${CROWDY_CMAKE_COMMAND}" --build "${_build}" --parallel 4)
+if(DEFINED CROWDY_CONFIG AND NOT CROWDY_CONFIG STREQUAL "")
+  list(APPEND _build_command --config "${CROWDY_CONFIG}")
+endif()
 execute_process(
-  COMMAND "${CROWDY_CMAKE_COMMAND}" --build "${_build}" --parallel 4
+  COMMAND ${_build_command}
   RESULT_VARIABLE _build_result)
 if(NOT _build_result EQUAL 0)
   message(FATAL_ERROR "installed no-exception consumer build failed")
 endif()
+
+# A multi-config generator writes the executable into a per-config directory;
+# a single-config one writes it straight into the build tree.
+set(_consumer_name
+    "no_exceptions_install_consumer${CROWDY_EXECUTABLE_SUFFIX}")
+set(_consumer "${_build}/${_consumer_name}")
+if(NOT EXISTS "${_consumer}")
+  set(_consumer "${_build}/${CROWDY_CONFIG}/${_consumer_name}")
+endif()
+if(NOT EXISTS "${_consumer}")
+  message(FATAL_ERROR
+          "installed no-exception consumer binary was not produced")
+endif()
 execute_process(
-  COMMAND
-    "${_build}/no_exceptions_install_consumer${CROWDY_EXECUTABLE_SUFFIX}"
+  COMMAND "${_consumer}"
   RESULT_VARIABLE _run_result)
 if(NOT _run_result EQUAL 0)
   message(FATAL_ERROR "installed no-exception consumer run failed")

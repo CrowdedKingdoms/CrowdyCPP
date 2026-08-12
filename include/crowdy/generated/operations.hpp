@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: 839f36cd4c26d5d5eb9054e7114a6698e1b7f829f8a1061ef3742dc2da8c274d
-// operations sha256: 491b362add5e0d1c073bbbc8451e789966b039221de4c8a3c94f16f973cd440c
+// operations sha256: 3d186ffb5505b51d7463875a3132581f4722cc27e5b76fe7ec4c2679b400b53e
 
 #pragma once
 
@@ -1231,37 +1231,6 @@ inline constexpr std::string_view kMyAppsIsolatedDocument = R"gql(query MyApps {
 })gql";
 inline constexpr std::string_view kMyAppsOperationName = "MyApps";
 
-/// apps/PlaceableDatacenters.graphql
-inline constexpr std::string_view kPlaceableDatacentersDocument = R"gql(query PlaceableDatacenters {
-  placeableDatacenters {
-    placementEnforced
-    servedBy
-    datacenters {
-      code
-      gameApiUrl
-      gameApiWsUrl
-      placeable
-      appShardCount
-      serving
-    }
-  }
-})gql";
-inline constexpr std::string_view kPlaceableDatacentersIsolatedDocument = R"gql(query PlaceableDatacenters {
-  placeableDatacenters {
-    placementEnforced
-    servedBy
-    datacenters {
-      code
-      gameApiUrl
-      gameApiWsUrl
-      placeable
-      appShardCount
-      serving
-    }
-  }
-})gql";
-inline constexpr std::string_view kPlaceableDatacentersOperationName = "PlaceableDatacenters";
-
 /// apps/SetAppVisibility.graphql
 inline constexpr std::string_view kSetAppVisibilityDocument = R"gql(mutation SetAppVisibility($appId: BigInt!, $visibility: AppVisibility!) {
   setAppVisibility(appId: $appId, visibility: $visibility) {
@@ -1323,7 +1292,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceApps") return kMarketplaceAppsIsolatedDocument;
   if (operationName == "AppsConnection") return kAppsConnectionIsolatedDocument;
   if (operationName == "MyApps") return kMyAppsIsolatedDocument;
-  if (operationName == "PlaceableDatacenters") return kPlaceableDatacentersIsolatedDocument;
   if (operationName == "SetAppVisibility") return kSetAppVisibilityIsolatedDocument;
   if (operationName == "UpdateApp") return kUpdateAppIsolatedDocument;
   return {};
@@ -2656,15 +2624,27 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 namespace compute {
 
 /// compute/AppComputeBudget.graphql
-inline constexpr std::string_view kAppComputeBudgetDocument = R"gql(query AppComputeUsage($appId: BigInt!, $windowMinutes: Int) {
+inline constexpr std::string_view kAppComputeBudgetDocument = R"gql(fragment EngineComputeUnitsFields on EngineComputeUnits {
+  engine
+  units
+}
+
+fragment AppComputeBudgetInfoFields on AppComputeBudgetInfo {
+  appId
+  unitsPerMinute
+  enforce
+  note
+  updatedAt
+}
+
+query AppComputeUsage($appId: BigInt!, $windowMinutes: Int) {
   appComputeUsage(appId: $appId, windowMinutes: $windowMinutes) {
     windowMinutes
     totalUnits
     peakMinuteUnits
     meanUnitsPerMinute
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
 }
@@ -2679,19 +2659,14 @@ query AppComputeBudgetStatus($appId: BigInt!) {
     enforced
     retryAfterMs
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
 }
 
 query AppComputeBudget($appId: BigInt!) {
   appComputeBudget(appId: $appId) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
 }
 
@@ -2707,11 +2682,7 @@ mutation SetAppComputeBudget(
     enforce: $enforce
     note: $note
   ) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
 }
 
@@ -2725,10 +2696,14 @@ inline constexpr std::string_view kAppComputeUsageIsolatedDocument = R"gql(query
     peakMinuteUnits
     meanUnitsPerMinute
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
+}
+
+fragment EngineComputeUnitsFields on EngineComputeUnits {
+  engine
+  units
 })gql";
 inline constexpr std::string_view kAppComputeUsageOperationName = "AppComputeUsage";
 inline constexpr std::string_view kAppComputeBudgetStatusIsolatedDocument = R"gql(query AppComputeBudgetStatus($appId: BigInt!) {
@@ -2741,20 +2716,28 @@ inline constexpr std::string_view kAppComputeBudgetStatusIsolatedDocument = R"gq
     enforced
     retryAfterMs
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
+}
+
+fragment EngineComputeUnitsFields on EngineComputeUnits {
+  engine
+  units
 })gql";
 inline constexpr std::string_view kAppComputeBudgetStatusOperationName = "AppComputeBudgetStatus";
 inline constexpr std::string_view kAppComputeBudgetIsolatedDocument = R"gql(query AppComputeBudget($appId: BigInt!) {
   appComputeBudget(appId: $appId) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
+}
+
+fragment AppComputeBudgetInfoFields on AppComputeBudgetInfo {
+  appId
+  unitsPerMinute
+  enforce
+  note
+  updatedAt
 })gql";
 inline constexpr std::string_view kAppComputeBudgetOperationName = "AppComputeBudget";
 inline constexpr std::string_view kSetAppComputeBudgetIsolatedDocument = R"gql(mutation SetAppComputeBudget($appId: BigInt!, $unitsPerMinute: Int!, $enforce: Boolean, $note: String) {
@@ -2764,12 +2747,16 @@ inline constexpr std::string_view kSetAppComputeBudgetIsolatedDocument = R"gql(m
     enforce: $enforce
     note: $note
   ) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
+}
+
+fragment AppComputeBudgetInfoFields on AppComputeBudgetInfo {
+  appId
+  unitsPerMinute
+  enforce
+  note
+  updatedAt
 })gql";
 inline constexpr std::string_view kSetAppComputeBudgetOperationName = "SetAppComputeBudget";
 inline constexpr std::string_view kClearAppComputeBudgetIsolatedDocument = R"gql(mutation ClearAppComputeBudget($appId: BigInt!) {
@@ -3444,7 +3431,29 @@ fragment ComputeModuleFields on WasmModule {
 inline constexpr std::string_view kComputeDeployTemplateOperationName = "ComputeDeployTemplate";
 
 /// compute/UserCodeFaults.graphql
-inline constexpr std::string_view kUserCodeFaultsDocument = R"gql(query UserCodeFaults(
+inline constexpr std::string_view kUserCodeFaultsDocument = R"gql(fragment UserCodeFaultRecordFields on UserCodeFaultRecord {
+  faultId
+  appId
+  engine
+  kind
+  blame
+  retryable
+  subject
+  entryPoint
+  flowId
+  gridId
+  actingUserId
+  durationUs
+  budgetUs
+  unitsUsed
+  unitsLimit
+  stepsCompleted
+  detail
+  instanceId
+  occurredAt
+}
+
+query UserCodeFaults(
   $appId: BigInt!
   $engine: UserCodeFaultEngine
   $kind: UserCodeFaultKind
@@ -3464,25 +3473,7 @@ inline constexpr std::string_view kUserCodeFaultsDocument = R"gql(query UserCode
     limit: $limit
     offset: $offset
   ) {
-    faultId
-    appId
-    engine
-    kind
-    blame
-    retryable
-    subject
-    entryPoint
-    flowId
-    gridId
-    actingUserId
-    durationUs
-    budgetUs
-    unitsUsed
-    unitsLimit
-    stepsCompleted
-    detail
-    instanceId
-    occurredAt
+    ...UserCodeFaultRecordFields
   }
 }
 
@@ -3507,26 +3498,30 @@ inline constexpr std::string_view kUserCodeFaultsIsolatedDocument = R"gql(query 
     limit: $limit
     offset: $offset
   ) {
-    faultId
-    appId
-    engine
-    kind
-    blame
-    retryable
-    subject
-    entryPoint
-    flowId
-    gridId
-    actingUserId
-    durationUs
-    budgetUs
-    unitsUsed
-    unitsLimit
-    stepsCompleted
-    detail
-    instanceId
-    occurredAt
+    ...UserCodeFaultRecordFields
   }
+}
+
+fragment UserCodeFaultRecordFields on UserCodeFaultRecord {
+  faultId
+  appId
+  engine
+  kind
+  blame
+  retryable
+  subject
+  entryPoint
+  flowId
+  gridId
+  actingUserId
+  durationUs
+  budgetUs
+  unitsUsed
+  unitsLimit
+  stepsCompleted
+  detail
+  instanceId
+  occurredAt
 })gql";
 inline constexpr std::string_view kUserCodeFaultsOperationName = "UserCodeFaults";
 inline constexpr std::string_view kUserCodeFaultSummaryIsolatedDocument = R"gql(query UserCodeFaultSummary($appId: BigInt!, $windowMinutes: Int) {
@@ -6192,6 +6187,11 @@ inline constexpr std::string_view kCrowdyStudioAgentManagementDocument = R"gql(f
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6382,6 +6382,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6462,6 +6467,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision
@@ -6607,6 +6617,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6687,6 +6702,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision
@@ -6769,6 +6789,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     rateCardId
     walletDebitEnabled
   }
+  capabilityGaps {
+    mode
+    code
+    detail
+  }
   revision
   platformRevision
   appRevision
@@ -6849,6 +6874,11 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
     payerKind
     rateCardId
     walletDebitEnabled
+  }
+  capabilityGaps {
+    mode
+    code
+    detail
   }
   revision
   platformRevision
@@ -11592,6 +11622,37 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 
 namespace platform {
 
+/// platform/PlaceableDatacenters.graphql
+inline constexpr std::string_view kPlaceableDatacentersDocument = R"gql(query PlaceableDatacenters {
+  placeableDatacenters {
+    placementEnforced
+    servedBy
+    datacenters {
+      code
+      gameApiUrl
+      gameApiWsUrl
+      placeable
+      appShardCount
+      serving
+    }
+  }
+})gql";
+inline constexpr std::string_view kPlaceableDatacentersIsolatedDocument = R"gql(query PlaceableDatacenters {
+  placeableDatacenters {
+    placementEnforced
+    servedBy
+    datacenters {
+      code
+      gameApiUrl
+      gameApiWsUrl
+      placeable
+      appShardCount
+      serving
+    }
+  }
+})gql";
+inline constexpr std::string_view kPlaceableDatacentersOperationName = "PlaceableDatacenters";
+
 /// platform/PlatformConfig.graphql
 inline constexpr std::string_view kPlatformConfigDocument = R"gql(query PlatformConfig {
   platformConfig {
@@ -11610,6 +11671,7 @@ inline constexpr std::string_view kPlatformConfigIsolatedDocument = R"gql(query 
 inline constexpr std::string_view kPlatformConfigOperationName = "PlatformConfig";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
+  if (operationName == "PlaceableDatacenters") return kPlaceableDatacentersIsolatedDocument;
   if (operationName == "PlatformConfig") return kPlatformConfigIsolatedDocument;
   return {};
 }

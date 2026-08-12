@@ -1,3 +1,16 @@
+fragment EngineComputeUnitsFields on EngineComputeUnits {
+  engine
+  units
+}
+
+fragment AppComputeBudgetInfoFields on AppComputeBudgetInfo {
+  appId
+  unitsPerMinute
+  enforce
+  note
+  updatedAt
+}
+
 query AppComputeUsage($appId: BigInt!, $windowMinutes: Int) {
   appComputeUsage(appId: $appId, windowMinutes: $windowMinutes) {
     windowMinutes
@@ -5,8 +18,7 @@ query AppComputeUsage($appId: BigInt!, $windowMinutes: Int) {
     peakMinuteUnits
     meanUnitsPerMinute
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
 }
@@ -21,19 +33,14 @@ query AppComputeBudgetStatus($appId: BigInt!) {
     enforced
     retryAfterMs
     byEngine {
-      engine
-      units
+      ...EngineComputeUnitsFields
     }
   }
 }
 
 query AppComputeBudget($appId: BigInt!) {
   appComputeBudget(appId: $appId) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
 }
 
@@ -49,11 +56,7 @@ mutation SetAppComputeBudget(
     enforce: $enforce
     note: $note
   ) {
-    appId
-    unitsPerMinute
-    enforce
-    note
-    updatedAt
+    ...AppComputeBudgetInfoFields
   }
 }
 

@@ -48,27 +48,89 @@ const CATEGORY = Object.freeze({
   COVERED: 'covered-extension',
 });
 
-// Current CrowdyJS and CrowdyCPP snapshots expose the same GraphQL schema.
 // Add reviewed extension classifications here only when one SDK intentionally
 // advances ahead of the other.
-// CrowdyCPP syncs schema.gql from the PUBLISHED SDL, which carries the
-// capacity-routing fields; CrowdyJS's committed snapshot predates them. So this
-// is CrowdyJS trailing the server, not CrowdyCPP inventing fields — and it
-// disappears the next time CrowdyJS regenerates, at which point these two
-// entries go stale and the gate says so rather than letting them linger.
+//
+// The capacity-routing entries that used to live here (ServerStatus.cpuCount
+// and routerThreads) are GONE rather than updated, and that is the whole point
+// of how they were written: they said "CrowdyJS's committed snapshot predates
+// these", which stopped being true when CrowdyJS regenerated, and re-pinning
+// made the gate report them stale exactly as their note promised. A waiver
+// whose stated reason has expired must be deleted, not carried.
+//
+// What is left is the other direction — surface the published SDL carries and
+// the CrowdyJS SDK has not adopted at all, at any commit. Each is covered by a
+// CrowdyCPP operation, so these are extensions CrowdyCPP has taken up first,
+// not gaps. They go stale the day CrowdyJS adopts them, and the gate says so.
 //
 // The kind and side are part of the key on purpose: a waiver written for "exists
 // only in CrowdyCPP" must not silently cover the opposite direction.
+const AGENT_CATALOG_REASON =
+  'operator-facing Studio agent catalog (models, tools, modes, risk classes); ' +
+  'CrowdyJS exposes no catalog surface, CrowdyCPP reads it via ' +
+  'CpCrowdyStudioAgentCatalog';
+const FUNCTION_CIRCUIT_REASON =
+  'player-invoke circuit breaker state; CrowdyJS has no breaker surface, ' +
+  'CrowdyCPP reads it via GameModelFunctionCircuits';
 const SCHEMA_BASELINE = {
-  'type:ServerStatus.cpuCount': classification(
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
+  'type:CrowdyStudioAgentCatalog': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:CrowdyStudioAgentCatalogModel': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:CrowdyStudioAgentCatalogTool': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:CrowdyStudioAgentCapabilityGap': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:CrowdyStudioAgentPolicy.capabilityGaps': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
     'member-only',
     'CrowdyCPP',
   ),
-  'type:ServerStatus.routerThreads': classification(
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
+  'type:Query.cpCrowdyStudioAgentCatalog': classification(
+    CATEGORY.COVERED,
+    AGENT_CATALOG_REASON,
+    'member-only',
+    'CrowdyCPP',
+  ),
+  'type:GmFunctionBreakerStatus': classification(
+    CATEGORY.COVERED,
+    FUNCTION_CIRCUIT_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:GmFunctionCircuit': classification(
+    CATEGORY.COVERED,
+    FUNCTION_CIRCUIT_REASON,
+    'definition-only',
+    'CrowdyCPP',
+  ),
+  'type:Query.gameModelFunctionCircuits': classification(
+    CATEGORY.COVERED,
+    FUNCTION_CIRCUIT_REASON,
+    'member-only',
+    'CrowdyCPP',
+  ),
+  'type:WasmComputeStats.aggregatedThrough': classification(
+    CATEGORY.COVERED,
+    'watermark telling a reader how far the usage rollup has aggregated; ' +
+      "CrowdyJS's WasmComputeStats stops at the counters",
     'member-only',
     'CrowdyCPP',
   ),

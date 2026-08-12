@@ -1,0 +1,62 @@
+query AppComputeUsage($appId: BigInt!, $windowMinutes: Int) {
+  appComputeUsage(appId: $appId, windowMinutes: $windowMinutes) {
+    windowMinutes
+    totalUnits
+    peakMinuteUnits
+    meanUnitsPerMinute
+    byEngine {
+      engine
+      units
+    }
+  }
+}
+
+query AppComputeBudgetStatus($appId: BigInt!) {
+  appComputeBudgetStatus(appId: $appId) {
+    appId
+    unitsUsed
+    allowance
+    allowanceIsAppOwn
+    overBudget
+    enforced
+    retryAfterMs
+    byEngine {
+      engine
+      units
+    }
+  }
+}
+
+query AppComputeBudget($appId: BigInt!) {
+  appComputeBudget(appId: $appId) {
+    appId
+    unitsPerMinute
+    enforce
+    note
+    updatedAt
+  }
+}
+
+mutation SetAppComputeBudget(
+  $appId: BigInt!
+  $unitsPerMinute: Int!
+  $enforce: Boolean
+  $note: String
+) {
+  setAppComputeBudget(
+    appId: $appId
+    unitsPerMinute: $unitsPerMinute
+    enforce: $enforce
+    note: $note
+  ) {
+    appId
+    unitsPerMinute
+    enforce
+    note
+    updatedAt
+  }
+}
+
+mutation ClearAppComputeBudget($appId: BigInt!) {
+  clearAppComputeBudget(appId: $appId)
+}

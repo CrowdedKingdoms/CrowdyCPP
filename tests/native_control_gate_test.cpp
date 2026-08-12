@@ -889,7 +889,7 @@ void testSharedControlGateFixture() {
         "crowdy.player-control-gate/1");
   CHECK(fixture["crowdyJs"]["version"].asStringView() == "14.1.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "90f4b7bb2562d007aa62d01d4b21abdb76923e9b");
+        "9d87d14a6edc7f13898a93249211acb6b22b8b20");
   CHECK(fixture["construction"]["clearAgentIntentRequired"].asBool());
   testSharedControlGateDefaultsAndWindowFixture(fixture);
   testSharedControlGateRebindStopFixture(fixture);

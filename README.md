@@ -34,11 +34,13 @@ natively.
 **v0.21.0 invoke fault attribution:** a failed `gameModelInvoke` now reports
 whose fault it was and whether repeating it can work, on both channels the
 server uses: `fault { code blame retryable }` in band on a rejection, and
-`extensions.blame` on the thrown overload refusal. The parity pin is unmoved at
-CrowdyJS 14.1.0 `90f4b7bb2562d007aa62d01d4b21abdb76923e9b`, and **the release
-gate has not been re-run for this version**: the invoke document changed, which
-is exactly the kind of change the portable-gap check exists to judge, so run
-`docs/release-checklist.md` against a CrowdyJS checkout before publishing.
+`extensions.blame` on the thrown overload refusal. **The release gate has since
+been re-run, and it did not pass on the first try** — the same SDL resync that
+brought the fault types brought ten server root fields nothing here selected,
+which is what the portable-gap check exists to catch. Those are covered now, and
+the pin has moved to CrowdyJS 14.1.0
+`9d87d14a6edc7f13898a93249211acb6b22b8b20`, the commit at which CrowdyJS carries
+the same fault and datacenter surface.
 
 **v0.20.0 one origin, movable endpoints:** the release gate reported zero
 portable gaps, unclassified differences, and stale classifications against

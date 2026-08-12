@@ -54,7 +54,11 @@ function(crowdy_configure_exception_mode target)
 endfunction()
 
 if(MSVC)
-  add_compile_options(/W4)
+  # /Zc:preprocessor because the traditional preprocessor cannot carry a raw
+  # string literal through a macro argument. The test macros stringify their
+  # condition, so MSVC reads the JSON quoting inside R"(...)" as escape
+  # sequences and rejects it (C2017) where every other toolchain accepts it.
+  add_compile_options(/W4 /Zc:preprocessor)
 else()
   add_compile_options(-Wall -Wextra -Wshadow -Wconversion)
 endif()
@@ -156,11 +160,39 @@ set_property(DIRECTORY APPEND
 file(READ
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
   CROWDY_AGENT_FIXTURE_JSON)
+
+# MSVC caps a single string literal at 65535 bytes (C2026) and this fixture is
+# nearly three times that, so it is emitted as a sequence of adjacent raw string
+# literals rather than one. Adjacent literals are concatenated by the compiler,
+# so the resulting constant is byte-identical on every toolchain. The fixture is
+# ASCII, so a chunk boundary cannot split a character.
+string(LENGTH "${CROWDY_AGENT_FIXTURE_JSON}" CROWDY_AGENT_FIXTURE_LENGTH)
+set(CROWDY_AGENT_FIXTURE_LITERALS "")
+set(CROWDY_AGENT_FIXTURE_OFFSET 0)
+while(CROWDY_AGENT_FIXTURE_OFFSET LESS CROWDY_AGENT_FIXTURE_LENGTH)
+  math(EXPR CROWDY_AGENT_FIXTURE_REMAINING
+    "${CROWDY_AGENT_FIXTURE_LENGTH} - ${CROWDY_AGENT_FIXTURE_OFFSET}")
+  set(CROWDY_AGENT_FIXTURE_TAKE 16384)
+  if(CROWDY_AGENT_FIXTURE_REMAINING LESS CROWDY_AGENT_FIXTURE_TAKE)
+    set(CROWDY_AGENT_FIXTURE_TAKE ${CROWDY_AGENT_FIXTURE_REMAINING})
+  endif()
+  string(SUBSTRING "${CROWDY_AGENT_FIXTURE_JSON}"
+    ${CROWDY_AGENT_FIXTURE_OFFSET} ${CROWDY_AGENT_FIXTURE_TAKE}
+    CROWDY_AGENT_FIXTURE_CHUNK)
+  string(APPEND CROWDY_AGENT_FIXTURE_LITERALS
+    "\n    R\"crowdyjson(${CROWDY_AGENT_FIXTURE_CHUNK})crowdyjson\"")
+  math(EXPR CROWDY_AGENT_FIXTURE_OFFSET
+    "${CROWDY_AGENT_FIXTURE_OFFSET} + ${CROWDY_AGENT_FIXTURE_TAKE}")
+endwhile()
+
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# NEWLINE_STYLE LF because the embedded constant must not vary by host: without
+# it configure_file writes CRLF on Windows, putting carriage returns inside the
+# raw literal that the committed fixture does not have.
 configure_file(
   cmake/agent_fixture.hpp.in
   "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_agent_fixture.hpp"
-  @ONLY)
+  @ONLY NEWLINE_STYLE LF)
 
 # Embed the pinned CrowdyJS layout fixture for native cross-SDK tests. The
 # generated header is build-local and remains fully offline.
@@ -170,7 +202,7 @@ file(READ
 configure_file(
   cmake/studio_layout_fixture.hpp.in
   "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_studio_layout_fixture.hpp"
-  @ONLY)
+  @ONLY NEWLINE_STYLE LF)
 
 # ---- vendored yyjson (JSON for the GraphQL layer only; never on the UDP path)
 add_library(crowdy_yyjson STATIC third_party/yyjson/yyjson.c)

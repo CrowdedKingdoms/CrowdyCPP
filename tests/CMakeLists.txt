@@ -54,6 +54,7 @@ if(CROWDY_NO_EXCEPTIONS)
       "-DCROWDY_CMAKE_COMMAND=${CMAKE_COMMAND}"
       "-DCROWDY_CONFIG=$<CONFIG>"
       "-DCROWDY_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
+      "-DCROWDY_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
       -P "${PROJECT_SOURCE_DIR}/tests/no_exceptions_install_test.cmake")
   set_tests_properties(no_exceptions_install_test PROPERTIES TIMEOUT 300)
 endif()

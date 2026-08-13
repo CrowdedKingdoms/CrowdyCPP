@@ -4,13 +4,19 @@ CrowdyCPP is a standalone public C++20 SDK. A normal configure, build, install,
 or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed.
 
+GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS
+**14.1.0**. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
+is PostgreSQL + Citus, not galaxy. `cks-management-api` is not a running
+service (GitHub repo still exists, unarchived).
+
 ## Public-surface maintenance
 
-When a Management/Game GraphQL surface changes:
+When the unified GraphQL surface changes:
 
 1. Run `npm ci` for maintainer-only schema tooling.
-2. Refresh `schema.gql` with `scripts/schema-sync.mjs` from the coordinated
-   Management and Game SDLs.
+2. Refresh `schema.gql` with `scripts/schema-sync.mjs` from the published
+   unified SDL (`/schema/game-api.graphql`). The management docs SDL is
+   derived from that schema; do not sync a second endpoint.
 3. Run `node scripts/codegen.mjs`; commit `schema.gql`,
    `include/crowdy/generated/enums.hpp`, and
    `include/crowdy/generated/operations.hpp` together.
@@ -46,9 +52,10 @@ matrix; it prints the steps it cannot do for you. Four things reliably bite
 when this is done by hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
-  CrowdyJS behavior cannot go green until that CrowdyJS commit is on `main`,
-  because CI fetches the pinned SHA from the remote. Land CrowdyJS first, then
-  re-pin here. A pin pointing at an unpushed commit fails at checkout.
+  CrowdyJS behavior cannot go green until that CrowdyJS commit is fetchable
+  from GitHub (CI checks out the pinned SHA). CrowdyJS's default branch is
+  **`prod`**; land the commit on `dev` and promote so the SHA exists remotely,
+  then re-pin here. A pin pointing at an unpushed commit fails at checkout.
 - **`parity.mjs` embeds its own gate mode**, so a matrix written without
   `--strict` never satisfies the `--strict` check CI runs. Write and check with
   the same flags. `parity:repin` always writes the strict form.

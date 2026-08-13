@@ -6,8 +6,9 @@ exact target declared by `crowdyjsParityTarget` in `package.json`, built with
 
 If the release moves the pin, do that first with
 `npm run parity:repin -- --crowdyjs "$CROWDYJS_PATH"` (see
-[`AGENTS.md`](../AGENTS.md)) — the CrowdyJS commit must already be on its
-`main`, since CI fetches the pinned SHA from the remote.
+[`AGENTS.md`](../AGENTS.md)) — the CrowdyJS commit must already be fetchable
+from the remote (CrowdyJS default branch is `prod`; the SHA must exist on
+GitHub — typically after landing on `dev` and promoting).
 
 Bumping the minor also means updating `project(CrowdyCPP VERSION ...)` in
 `CMakeLists.txt`, the `find_package(CrowdyCPP <minor> ...)` request in

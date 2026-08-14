@@ -80,6 +80,11 @@ struct Config {
 
   /// Kernel receive buffer size hint.
   int socketRecvBufferBytes = 1 << 20;
+
+  /// Kernel send buffer size hint. Raise it for a client that emits many
+  /// entities in one frame: the send buffer is what absorbs a burst, and when
+  /// it fills, sends return Errc::WouldBlock until it drains.
+  int socketSendBufferBytes = 1 << 20;
 };
 
 /// Parameters for a spatial send. Payload bytes are copied into the send

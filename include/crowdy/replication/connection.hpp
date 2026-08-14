@@ -177,6 +177,14 @@ class Connection {
     std::uint64_t messagesReceived = 0;
     std::uint64_t bytesSent = 0;
     std::uint64_t bytesReceived = 0;
+    /// Sends the kernel could not accept because its buffer was full. The
+    /// datagram was not transmitted and the socket is healthy: this counter
+    /// rising means the client is outrunning the send buffer, not that sends
+    /// are failing. Callers that requeue should expect it to move under load.
+    std::uint64_t sendsDeferred = 0;
+    /// Sends that failed for a genuine socket fault. Unlike sendsDeferred,
+    /// this one rising is a problem.
+    std::uint64_t sendsFailed = 0;
     std::uint64_t hmacFailures = 0;
     std::uint64_t malformed = 0;
     std::uint64_t ringDropped = 0;
@@ -230,6 +238,10 @@ class Connection {
   void housekeeping();
   void setState(ConnState next);
   Status doAssign();
+  // Claimed before the datagram is encoded, so a send that is deferred or
+  // fails still consumes a sequence number. That is harmless and deliberate:
+  // sequences are correlation, not idempotency, they wrap at 256, and rolling
+  // the counter back would hand the same number to a concurrent sender.
   std::uint8_t nextSequence() { return sequence_.fetch_add(1, std::memory_order_relaxed); }
   wire::Token64 tokenSnapshot() const;
 

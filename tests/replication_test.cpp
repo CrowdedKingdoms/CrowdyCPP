@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -311,10 +313,166 @@ void run() {
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Closed));
 }
 
+// ---------------------------------------------------------------------------
+// Send path: the send buffer knob, and backpressure told apart from failure.
+// ---------------------------------------------------------------------------
+
+// An ephemeral port that nothing is bound to. A connected UDP socket sending
+// there gets ICMP port-unreachable back, which the kernel reports as
+// ECONNREFUSED on the following send — a real errno for a real fault, with no
+// descriptor surgery needed.
+int unboundLoopbackPort() {
+  const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  CHECK(fd >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  CHECK(::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+  socklen_t len = sizeof(addr);
+  CHECK(::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
+  const int port = ntohs(addr.sin_port);
+  ::close(fd);
+  return port;
+}
+
+int sockOpt(const UdpSocket& sock, int option) {
+  int value = 0;
+  socklen_t len = sizeof(value);
+  CHECK(::getsockopt(static_cast<int>(sock.nativeHandle()), SOL_SOCKET, option, &value, &len) ==
+        0);
+  return value;
+}
+
+void runSendPath() {
+  const std::uint8_t datagram[64] = {};
+  const Bytes payload(datagram, sizeof(datagram));
+
+  // --- A socket that was never opened is NotConnected, not a fault.
+  {
+    UdpSocket sock;
+    CHECK_EQ(sock.send(payload).code, Errc::NotConnected);
+  }
+
+  // --- Both buffer hints are applied. Kernels round up and Linux doubles the
+  // request, so the contract is "at least what was asked for". Asserting the
+  // receive side too catches a send-side argument that displaced it.
+  {
+    FakeServer peer;
+    peer.start();
+    UdpSocket sock;
+    const int wantRecv = 1 << 20;
+    const int wantSend = 1 << 19;
+    CHECK(sock.open("127.0.0.1", peer.port, wantRecv, wantSend).ok());
+    CHECK(sockOpt(sock, SO_SNDBUF) >= wantSend);
+    CHECK(sockOpt(sock, SO_RCVBUF) >= wantRecv);
+    CHECK(sock.send(payload).ok());
+    CHECK_EQ(peer.recvOne().size(), sizeof(datagram));
+  }
+
+  // --- Opting out leaves the OS default alone rather than setting zero.
+  {
+    FakeServer peer;
+    peer.start();
+    UdpSocket sock;
+    CHECK(sock.open("127.0.0.1", peer.port, 0, 0).ok());
+    CHECK(sockOpt(sock, SO_SNDBUF) > 0);
+    CHECK(sock.send(payload).ok());
+  }
+
+  // --- A genuine fault still reports SocketError. This is what keeps the
+  // WouldBlock mapping from being over-broad: if it swallowed everything, a
+  // dead socket would read as a busy one and no caller could ever give up.
+  {
+    UdpSocket sock;
+    CHECK(sock.open("127.0.0.1", unboundLoopbackPort(), 1 << 16, 1 << 16).ok());
+    CHECK(sock.send(payload).ok());  // nothing has come back yet
+    CHECK_EQ(sock.send(payload).code, Errc::SocketError);
+  }
+
+  // --- Connection separates the two counters. A real failure moves
+  // sendsFailed only, and the datagram is not counted as sent.
+  {
+    auto provider = std::make_shared<StubProvider>(unboundLoopbackPort());
+    Config cfg;
+    cfg.appId = 7;
+    cfg.token = TokenInfo{kToken, 42, 0};
+    cfg.manualPump = true;
+    cfg.sessionReadyWaitMs = 0;
+    Connection conn(cfg, provider, core::opensslCrypto());
+    CHECK(conn.connect().ok());
+
+    SpatialSend p;
+    p.chunk = {1, 2, 3};
+    p.uuid = uuid('a');
+    p.payload = payload;
+    CHECK(conn.sendActorUpdate(p).ok());
+
+    auto failed = conn.sendActorUpdate(p);
+    CHECK(!failed.ok());
+    CHECK_EQ(failed.error(), Errc::SocketError);
+
+    const auto s = conn.stats();
+    CHECK_EQ(s.sendsFailed, 1u);
+    CHECK_EQ(s.sendsDeferred, 0u);
+    CHECK_EQ(s.datagramsSent, 1u);  // only the one that actually left
+    CHECK_EQ(s.messagesSent, 1u);
+    conn.disconnect();
+  }
+
+  // --- Optional live backpressure evidence.
+  //
+  // Loopback cannot produce it: the sender's buffer is released as the packet
+  // is delivered or dropped at the receiver, so a tight loopback send loop
+  // never fills it and an assertion there would pass whatever this code does.
+  // Real backpressure needs a destination that does not drain — an address on
+  // a link-scope subnet with no host to answer ARP will hold the datagrams in
+  // the unresolved-neighbour queue, charged to this socket's send buffer.
+  // Point CROWDY_TEST_BACKPRESSURE_IP at such an address to exercise it.
+  if (const char* host = std::getenv("CROWDY_TEST_BACKPRESSURE_IP")) {
+    UdpSocket sock;
+    // The smallest send buffer the kernel will grant, so the queue fills fast.
+    CHECK(sock.open(host, 9999, 1 << 16, 1).ok());
+    std::uint8_t burst[1232] = {};
+    int sent = 0, deferred = 0, failed = 0;
+    for (int i = 0; i < 2000; ++i) {
+      const Status st = sock.send(Bytes(burst, sizeof(burst)));
+      if (st.ok()) {
+        ++sent;
+      } else if (st.code == Errc::WouldBlock) {
+        ++deferred;
+      } else {
+        ++failed;
+      }
+    }
+    std::printf("  backpressure vs %s: sent=%d deferred=%d failed=%d\n", host, sent, deferred,
+                failed);
+    // The point of the exercise: saturation is never reported as a fault.
+    CHECK_EQ(failed, 0);
+    CHECK(deferred > 0);
+  } else {
+    std::puts("  backpressure: not exercised (set CROWDY_TEST_BACKPRESSURE_IP)");
+  }
+
+  // --- A descriptor closed behind the socket's back is a fault too. Kept
+  // last: the socket still believes it owns the descriptor, so its destructor
+  // closes the number again. Nothing opens a descriptor in between, so that
+  // second close finds the number free and does nothing.
+  {
+    FakeServer peer;
+    peer.start();
+    UdpSocket sock;
+    CHECK(sock.open("127.0.0.1", peer.port, 1 << 16, 1 << 16).ok());
+    CHECK(::close(static_cast<int>(sock.nativeHandle())) == 0);
+    CHECK_EQ(sock.send(payload).code, Errc::SocketError);
+  }
+}
+
 }  // namespace
 
 int main() {
   run();
+  runSendPath();
   std::puts("replication_test OK");
   return 0;
 }

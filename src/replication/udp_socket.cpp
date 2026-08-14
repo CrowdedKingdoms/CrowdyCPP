@@ -16,6 +16,8 @@ using SockLen = socklen_t;
 
 #include <cstring>
 
+#include "socket_errors.hpp"
+
 namespace crowdy::replication {
 
 namespace {
@@ -32,7 +34,8 @@ void ensureWinsock() {
 
 }  // namespace
 
-Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes) {
+Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes,
+                       int sendBufferBytes) {
   close();
 #ifdef _WIN32
   ensureWinsock();
@@ -71,6 +74,10 @@ Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes) {
     ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&recvBufferBytes),
                  sizeof(recvBufferBytes));
   }
+  if (sendBufferBytes > 0) {
+    ::setsockopt(fd, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sendBufferBytes),
+                 sizeof(sendBufferBytes));
+  }
 
   if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), addrLen) != 0) {
 #ifdef _WIN32
@@ -108,12 +115,24 @@ void UdpSocket::close() {
 
 Status UdpSocket::send(Bytes datagram) {
   if (fd_ < 0) return Errc::NotConnected;
+  // A datagram socket takes the whole datagram or none of it, so a short write
+  // that is not an error cannot happen; only n < 0 carries a meaningful error
+  // code, and consulting one after a non-negative return would read a stale
+  // value from some earlier call.
 #ifdef _WIN32
+  // The socket is non-blocking (see open), so a full send buffer reports
+  // WSAEWOULDBLOCK here rather than waiting for room.
   const int n = ::send(static_cast<SOCKET>(fd_), reinterpret_cast<const char*>(datagram.data()),
                        static_cast<int>(datagram.size()), 0);
+  if (n < 0) return detail::sendErrcFromNativeError(WSAGetLastError());
   if (n != static_cast<int>(datagram.size())) return Errc::SocketError;
 #else
-  const ssize_t n = ::send(static_cast<int>(fd_), datagram.data(), datagram.size(), 0);
+  // MSG_DONTWAIT for the same reason recv uses it: the caller may be a game
+  // loop, which must not stall behind a full buffer. Without it a saturated
+  // socket blocks here instead of reporting WouldBlock.
+  const ssize_t n =
+      ::send(static_cast<int>(fd_), datagram.data(), datagram.size(), MSG_DONTWAIT);
+  if (n < 0) return detail::sendErrcFromNativeError(errno);
   if (n != static_cast<ssize_t>(datagram.size())) return Errc::SocketError;
 #endif
   return Errc::Ok;

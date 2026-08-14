@@ -83,8 +83,8 @@ Status Connection::doAssign() {
       (config_.preferIpv6 && !endpoint.ip6.empty()) ? endpoint.ip6 : endpoint.ip4;
   if (host.empty() || endpoint.clientPort <= 0) return Errc::Rejected;
 
-  Status st =
-      socket_.open(host, endpoint.clientPort, config_.socketRecvBufferBytes);
+  Status st = socket_.open(host, endpoint.clientPort, config_.socketRecvBufferBytes,
+                           config_.socketSendBufferBytes);
   if (!st.ok()) return st;
   {
     std::lock_guard lock(assignmentMutex_);
@@ -140,6 +140,16 @@ Status Connection::transmit(const std::uint8_t* data, std::size_t len) {
     ++stats_.messagesSent;
     stats_.bytesSent += len;
     if (len > 0) ++stats_.messagesSentByType[data[0]];
+    return st;
+  }
+  // A deferred datagram never reached the wire, so it must not advance
+  // lastSendMs_: the silence watchdog reassigns when sends are flowing and
+  // nothing comes back, and backpressure is not traffic going out.
+  std::lock_guard lock(statsMutex_);
+  if (st.code == Errc::WouldBlock) {
+    ++stats_.sendsDeferred;
+  } else {
+    ++stats_.sendsFailed;
   }
   return st;
 }

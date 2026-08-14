@@ -22,6 +22,10 @@ enum class Errc {
   Rejected,
   Closed,
   CryptoUnavailable,
+  /// Transient: the operation could not proceed right now (a full kernel send
+  /// buffer is the usual cause) and nothing was transferred. The socket is
+  /// healthy — retry shortly. Distinct from SocketError, which is a fault.
+  WouldBlock,
 };
 
 inline const char* errcName(Errc e) {
@@ -38,6 +42,7 @@ inline const char* errcName(Errc e) {
     case Errc::Rejected: return "Rejected";
     case Errc::Closed: return "Closed";
     case Errc::CryptoUnavailable: return "CryptoUnavailable";
+    case Errc::WouldBlock: return "WouldBlock";
   }
   return "Unknown";
 }

@@ -333,10 +333,90 @@ void run() {
   session.dispose();
 }
 
+// An ephemeral port nothing is bound to: a connected UDP socket sending there
+// takes ICMP port-unreachable and reports ECONNREFUSED on the next send.
+int unboundLoopbackPort() {
+  const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  CHECK(fd >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  CHECK(::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+  socklen_t len = sizeof(addr);
+  CHECK(::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
+  const int port = ntohs(addr.sin_port);
+  ::close(fd);
+  return port;
+}
+
+// A heartbeat that never reached the wire must not be recorded as sent.
+// Banking the interval for a send that did not happen lets presence lapse on a
+// saturated or briefly broken socket while every counter still reads healthy.
+//
+// The failing socket here alternates strictly: a send to a port with no
+// listener succeeds, the ICMP port-unreachable arms the socket error, the next
+// send reports ECONNREFUSED and clears it, and because that send transmitted
+// nothing there is no new ICMP — so the pattern is ok, fail, ok, fail. The
+// join below is the first "ok", which leaves the next send due to fail.
+void runHeartbeatNotSent() {
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  auto conn = std::make_shared<Connection>(
+      cfg, std::make_shared<StubProvider>(unboundLoopbackPort()), core::defaultCrypto());
+  CHECK(conn->connect().ok());
+
+  LocalActorStore::Options options;
+  options.sendHz = 1000;                 // a tick slot every millisecond
+  options.keyframeIntervalMs = 1000000;  // never due, so the heartbeat branch runs
+  options.heartbeatIntervalMs = 100;
+  LocalActorStore self(*conn, uuidOf('a'), options);
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  CHECK(self.join({0, 0, 0}, Bytes(pose, sizeof(pose))).ok());
+  const auto afterJoin = conn->stats();
+  CHECK_EQ(afterJoin.datagramsSent, 1u);
+  CHECK_EQ(afterJoin.sendsFailed, 0u);
+
+  // t=100: the heartbeat is due and the socket is in its failing phase.
+  self.tick(100);
+  const auto afterFailed = conn->stats();
+  CHECK_EQ(afterFailed.sendsFailed, 1u);
+  CHECK_EQ(afterFailed.datagramsSent, 1u);  // the heartbeat did not go out
+  CHECK_EQ(afterFailed.sendsDeferred, 0u);  // a fault, not backpressure
+
+  // t=101: because nothing was sent, the heartbeat is still owed and the very
+  // next tick must try again. A store that recorded the failed attempt as sent
+  // goes quiet here until another full interval has passed.
+  self.tick(101);
+  CHECK_EQ(conn->stats().datagramsSent, 2u);
+
+  // A genuine fault is still reported to the application. The WouldBlock
+  // exemption in sendNow must not have turned into "never record an error".
+  const std::uint8_t moved[] = {9, 9, 9, 9};
+  self.setState(Bytes(moved, sizeof(moved)));
+  self.tick(200);  // dirty send, and the socket is failing again
+  CHECK_EQ(conn->stats().sendsFailed, 2u);
+  CHECK(self.lastError().has_value());
+  CHECK_EQ(self.lastError()->status.code, Errc::SocketError);
+  CHECK_EQ(static_cast<int>(self.status()), static_cast<int>(LocalActorStatus::Error));
+
+  // ...and the update it could not send is still owed, so the next tick sends
+  // it rather than dropping the state change.
+  self.tick(201);
+  CHECK_EQ(conn->stats().datagramsSent, 3u);
+
+  conn->disconnect();
+}
+
 }  // namespace
 
 int main() {
   run();
+  runHeartbeatNotSent();
   std::puts("session_test OK");
   return 0;
 }

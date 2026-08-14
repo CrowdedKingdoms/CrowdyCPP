@@ -246,10 +246,14 @@ class LocalActorStore {
         std::lock_guard lock(observationMutex_);
         chunk = chunk_;
       }
-      conn_.sendHeartbeat(chunk, uuid_);
-      std::lock_guard lock(observationMutex_);
-      lastHeartbeatMs_ = nowMs;
-      lastSendMs_ = nowMs;
+      // Only record the heartbeat once it has actually gone out. Marking a
+      // deferred or failed heartbeat as sent silently swallows the interval,
+      // and presence lapses while every counter still reads healthy.
+      if (conn_.sendHeartbeat(chunk, uuid_).ok()) {
+        std::lock_guard lock(observationMutex_);
+        lastHeartbeatMs_ = nowMs;
+        lastSendMs_ = nowMs;
+      }
     }
   }
 
@@ -286,13 +290,17 @@ class LocalActorStore {
       dirty_ = false;
       lastSendMs_ = nowMs;
       lastFullSendMs_ = nowMs;
-    } else {
+    } else if (seq.error() != Errc::WouldBlock) {
       lastError_ = LocalActorSendError{
           .status = Status(seq.error()),
           .serverCode = std::nullopt,
           .sequence = std::nullopt,
           .receivedAtMs = nowMs};
     }
+    // A deferred send is backpressure, not an error: the datagram never left,
+    // so dirty_ stays set and the next tick retries it. Recording it in
+    // lastError_ would make status() report Error for a merely busy socket.
+    // Connection::stats().sendsDeferred is where saturation is observable.
     return seq.ok() ? Status(Errc::Ok) : Status(seq.error());
   }
 

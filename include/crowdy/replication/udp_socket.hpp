@@ -19,11 +19,17 @@ class UdpSocket {
   UdpSocket& operator=(const UdpSocket&) = delete;
 
   /// Open and connect to host:port. `host` is a literal IPv4 or IPv6 address.
-  Status open(const std::string& host, int port, int recvBufferBytes);
+  /// Buffer sizes are hints passed to SO_RCVBUF / SO_SNDBUF; a value <= 0
+  /// leaves the OS default in place. Kernels may round up (Linux doubles),
+  /// and a request the kernel declines is not an error.
+  Status open(const std::string& host, int port, int recvBufferBytes, int sendBufferBytes);
   void close();
   bool isOpen() const { return fd_ >= 0; }
 
-  /// Send one datagram. Non-blocking; returns SocketError on failure.
+  /// Send one datagram. Never blocks. Returns Errc::Ok when the datagram was
+  /// handed to the kernel, Errc::WouldBlock when the send buffer is full — a
+  /// transient condition, nothing was sent, retry shortly — and
+  /// Errc::SocketError only for a genuine fault.
   Status send(Bytes datagram);
 
   /// Receive one datagram into `buffer`, waiting up to timeoutMs (0 = no
@@ -37,6 +43,11 @@ class UdpSocket {
   /// falls back to a recv loop elsewhere. Returns the number received.
   Result<std::size_t> recvBatch(std::uint8_t* slab, std::size_t slotSize, std::size_t count,
                                 std::size_t* lengths, int timeoutMs);
+
+  /// Underlying descriptor (a SOCKET on Windows), or -1 when closed. For
+  /// diagnostics and tests — reading socket options back, for instance. The
+  /// socket remains owned by this object; do not close or reconfigure it.
+  long long nativeHandle() const { return fd_; }
 
  private:
   long long fd_ = -1;

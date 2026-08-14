@@ -31,6 +31,15 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.23.0 tells backpressure apart from a broken socket:** a full kernel send
+buffer now returns the new transient `Errc::WouldBlock` instead of
+`Errc::SocketError`, so a client outrunning its send buffer under burst load is
+no longer indistinguishable from a genuine socket fault. The POSIX send is
+non-blocking to match Winsock and the receive path, `SO_SNDBUF` is configurable
+through `ReplicationConfig::socketSendBufferBytes`, and `Connection::Stats`
+separates `sendsDeferred` from `sendsFailed`. See [MIGRATION.md](MIGRATION.md) —
+callers that switch exhaustively over `Errc` need a new case.
+
 **v0.22.0 builds on Windows again:** line endings are normalised through
 `.gitattributes` so a Windows checkout is byte-reproducible, the generated
 headers are regenerated from an LF checkout, and the CMake build compiles and
@@ -458,6 +467,17 @@ heap allocation (pooled datagram buffers), no copies on parse (payloads are
 spans into the receive buffer until you copy them), and no exceptions.
 Notification callbacks run on the thread that calls `poll()` — never on the
 network thread.
+
+Sends never block. When a burst outruns the kernel send buffer, `send` returns
+`Errc::WouldBlock`: the datagram was not transmitted, the socket is healthy,
+and the caller should requeue and retry shortly. That is a different outcome
+from `Errc::SocketError`, which means a real fault — branch on the two rather
+than treating any non-`Ok` as fatal, or a saturated client silently loses
+outbound updates at exactly the moment it can least afford to. `Connection`
+counts them separately (`stats().sendsDeferred` vs `stats().sendsFailed`), and
+`ReplicationConfig::socketSendBufferBytes` (default 1 MiB) sizes the buffer
+that absorbs the burst — raise it for clients replicating many entities per
+frame.
 
 ## The session layer: data structures that do the bookkeeping
 

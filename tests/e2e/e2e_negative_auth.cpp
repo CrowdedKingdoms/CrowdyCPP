@@ -51,7 +51,7 @@ int run() {
   // Raw socket to the same assigned server, next to the healthy connection.
   const Assignment& asg = a.conn->assignment();
   UdpSocket raw;
-  E2E_CHECK(raw.open(asg.ip4, asg.clientPort, 1 << 16).ok());
+  E2E_CHECK(raw.open(asg.ip4, asg.clientPort, 1 << 16, 1 << 16).ok());
 
   const auto token = wire::Token64::fromString(a.appToken.token);
   E2E_CHECK(token.has_value());

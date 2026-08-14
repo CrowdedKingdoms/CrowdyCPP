@@ -125,6 +125,15 @@ add_executable(codec_struct_test codec_struct_test.cpp)
 target_link_libraries(codec_struct_test PRIVATE crowdy_core)
 add_test(NAME codec_struct_test COMMAND codec_struct_test)
 
+# Deliberately not gated on WIN32: the send-error classification is the one
+# part of the replication send path that can be tested on Windows, where
+# replication_test is not built and where WSAEWOULDBLOCK actually occurs.
+# Reaches into src/ for the internal (uninstalled) classification header.
+add_executable(socket_send_test socket_send_test.cpp)
+target_link_libraries(socket_send_test PRIVATE crowdy_core)
+target_include_directories(socket_send_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
+add_test(NAME socket_send_test COMMAND socket_send_test)
+
 if(NOT CROWDY_NO_EXCEPTIONS)
   add_executable(kit_test kit_test.cpp)
   target_link_libraries(kit_test PRIVATE crowdy)

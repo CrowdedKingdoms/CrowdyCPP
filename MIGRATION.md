@@ -1,5 +1,53 @@
 # CrowdyCPP migration notes
 
+## 0.23.0 send backpressure is not a socket failure
+
+The UDP send path treated every short write as `Errc::SocketError` and threw
+the OS error code away. On a non-blocking socket a full kernel send buffer is
+`WSAEWOULDBLOCK`/`EAGAIN` — ordinary backpressure — so a client emitting a large
+population in one frame silently lost outbound updates and logged them as
+socket faults. It was reported from a 200-entity, 10 Hz Unreal harness: several
+hundred sends "failing" inside three milliseconds, which no broken socket does.
+
+Nothing about the wire changed. No datagram, framing, or HMAC behavior is
+affected.
+
+### Added
+
+- **`Errc::WouldBlock`** — transient: nothing was sent, the socket is healthy,
+  retry shortly. Appended to the enum, so every existing value is unmoved.
+- **`ReplicationConfig::socketSendBufferBytes`** (default `1 << 20`) — the
+  `SO_SNDBUF` hint, matching the `socketRecvBufferBytes` that already existed.
+  The send side previously ran on whatever the OS default happened to be.
+- **`Connection::Stats::sendsDeferred`** and **`sendsFailed`** — saturation and
+  faults counted apart. `sendsDeferred` rising under load is expected;
+  `sendsFailed` rising is not.
+- **`UdpSocket::nativeHandle()`** — the underlying descriptor, for diagnostics
+  and reading socket options back. The socket still owns it.
+
+### Changed
+
+- **`UdpSocket::send` returns `Errc::WouldBlock` for a full send buffer.**
+  Callers treating any non-`Ok` as fatal will now see it. Requeue and retry
+  instead of dropping; a permanently full socket needs a bounded queue.
+- **An exhaustive `switch` over `Errc` needs a `WouldBlock` case.** `errcName`
+  handles it, and unmatched values still fall through to `"Unknown"`.
+- **The POSIX send is now non-blocking** (`MSG_DONTWAIT`), matching Winsock and
+  the receive path in the same file. Previously a saturated buffer blocked the
+  calling thread on POSIX — a frame hitch in a game loop — where it now returns
+  `WouldBlock` promptly. Portable callers must handle that return.
+- **`UdpSocket::open` takes a fourth argument**, `sendBufferBytes`. Direct
+  callers of the socket (rather than `Connection`) need updating; `<= 0` keeps
+  the OS default.
+- **`LocalActorStore` no longer records a deferred send as an error.**
+  `status()` stays out of `Error` for a merely busy socket, and the update
+  remains dirty so the next tick retries it.
+- **A heartbeat that failed to send is no longer recorded as sent.** It
+  previously advanced the heartbeat timestamp regardless of the result, so a
+  heartbeat that never left the box banked the whole interval and presence
+  could lapse while every counter still read healthy. This applies to any
+  failure, not only backpressure.
+
 ## 0.20.0 one origin, and endpoints that can move (breaking)
 
 Tracks CrowdyJS 14.1.0. 0.17.0 unified the two APIs behind one server but kept

@@ -31,6 +31,15 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.24.0 signs with a pre-keyed MAC:** the replication path signed every
+datagram with a one-shot HMAC that re-imported the 64-octet token each time,
+which was essentially the entire per-datagram CPU cost — encoding is 4 ns,
+signing was 1225. `ICrypto::makeHmacSha256()` now supplies a reusable keyed
+`IMac`, cutting sign to 319 ns and notification verify to 337 ns, about 1.5x
+less CPU for a 200-entity frame. No wire change. Implementing the new method is
+optional: providers that do not fall back to the old path unchanged. Numbers
+and method in [benchmarks/README.md](benchmarks/README.md).
+
 **v0.23.0 tells backpressure apart from a broken socket:** a full kernel send
 buffer now returns the new transient `Errc::WouldBlock` instead of
 `Errc::SocketError`, so a client outrunning its send buffer under burst load is
@@ -600,7 +609,10 @@ The design rules that make it wrappable:
      install its event callback in `start()`, and provide thread-safe,
      non-blocking `send()` / `close()`. The engine may complete on any thread;
      CrowdyCPP fences stale connections and posts user callbacks to `poll()`.
-   - `ICrypto` — Unreal binds its bundled OpenSSL for HMAC-SHA256.
+   - `ICrypto` — Unreal binds its bundled OpenSSL for HMAC-SHA256. Implement
+     `makeHmacSha256()` as well: it returns a keyed `IMac` reused across
+     datagrams, and it is the single largest CPU win on the replication path.
+     Omitting it is supported and falls back to the one-shot call.
    - `ILogger` / `IAllocator` / `IClock` — adapters onto `UE_LOG`, `FMemory`,
      and engine time so SDK activity shows up in engine tooling.
 3. **Threading stays with the engine.** Use manual-pump mode: the plugin runs
@@ -853,8 +865,11 @@ None of these maintainer gates run during a normal external CMake build.
   cmake --build build-prodsmoke
   ./build-prodsmoke/prod_smoke https://ck.prod.cp.cks-env.com <appId>
   ```
-- `benchmarks/` — codec ns/op, HMAC throughput, and end-to-end echo latency
-  against an env-configured deployment.
+- `benchmarks/` — codec ns/op, the send-path cost breakdown (`bench_send`:
+  encode vs MAC vs socket write, with the alternatives for each priced side by
+  side), and end-to-end echo latency against an env-configured deployment. See
+  [benchmarks/README.md](benchmarks/README.md) for how to run them and the
+  recorded results.
 
 ## Docs
 

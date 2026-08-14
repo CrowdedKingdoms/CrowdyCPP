@@ -30,7 +30,17 @@ void Connection::setHandlers(Handlers handlers) {
 void Connection::setToken(const TokenInfo& token) {
   std::lock_guard lock(tokenMutex_);
   token_ = token;
-  if (auto t = wire::Token64::fromString(token.token)) token64_ = *t;
+  if (auto t = wire::Token64::fromString(token.token)) {
+    token64_ = *t;
+    // Built once per token rather than per datagram. Null when the provider
+    // has no pre-keyed form; the codec then signs the way it always did.
+    mac_ = crypto_.makeHmacSha256(token64_.bytes());
+  }
+}
+
+Connection::Credentials Connection::credentials() const {
+  std::lock_guard lock(tokenMutex_);
+  return {token64_, mac_, token_.gameTokenId};
 }
 
 Connection::Snapshot Connection::snapshot() const {
@@ -156,6 +166,11 @@ Status Connection::transmit(const std::uint8_t* data, std::size_t len) {
 
 Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const SpatialSend& p) {
   if (!socket_.isOpen()) return Errc::NotConnected;
+  // One lock for everything the token owns: the id, the key and the pre-keyed
+  // MAC used to sign with it. Reading them separately took the same lock twice
+  // and could straddle a token rotation.
+  const Credentials creds = credentials();
+
   wire::LongSpatialParams params;
   params.type = type;
   params.appId = config_.appId;
@@ -164,15 +179,12 @@ Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const Spatial
   params.decay = p.decay;
   params.uuid = p.uuid;
   params.payload = p.payload;
-  {
-    std::lock_guard lock(tokenMutex_);
-    params.gameTokenId = token_.gameTokenId;
-  }
+  params.gameTokenId = creds.gameTokenId;
   params.sequence = nextSequence();
 
   std::uint8_t buf[wire::kMaxDatagramSize];
-  auto n = wire::encodeLongSpatial(crypto_, params, tokenSnapshot(),
-                                   MutableBytes(buf, sizeof(buf)));
+  auto n = wire::encodeLongSpatial(crypto_, params, creds.token, MutableBytes(buf, sizeof(buf)),
+                                   creds.mac.get());
   if (!n.ok()) return n.error();
   Status st = transmit(buf, n.value());
   if (!st.ok()) return st.code;
@@ -228,19 +240,18 @@ Result<std::uint8_t> Connection::sendSingleActorMessage(const wire::ChunkCoord& 
 Result<std::uint8_t> Connection::sendChannelMessage(std::int64_t channelId,
                                                     const core::ActorUuid& uuid, Bytes payload) {
   if (!socket_.isOpen()) return Errc::NotConnected;
+  const Credentials creds = credentials();
+
   wire::ChannelMessageParams params;
   params.channelId = channelId;
   params.uuid = uuid;
   params.payload = payload;
-  {
-    std::lock_guard lock(tokenMutex_);
-    params.gameTokenId = token_.gameTokenId;
-  }
+  params.gameTokenId = creds.gameTokenId;
   params.sequence = nextSequence();
 
   std::uint8_t buf[wire::kMaxDatagramSize];
-  auto n = wire::encodeChannelMessage(crypto_, params, tokenSnapshot(),
-                                      MutableBytes(buf, sizeof(buf)));
+  auto n = wire::encodeChannelMessage(crypto_, params, creds.token, MutableBytes(buf, sizeof(buf)),
+                                      creds.mac.get());
   if (!n.ok()) return n.error();
   Status st = transmit(buf, n.value());
   if (!st.ok()) return st.code;
@@ -282,7 +293,10 @@ void Connection::handleDatagram(Bytes datagram) {
     return;
   }
 
-  const wire::Token64 token = tokenSnapshot();
+  // Read once for the whole datagram: a bundle can carry many notifications and
+  // each one is verified with the same key.
+  const Credentials creds = credentials();
+  const wire::Token64& token = creds.token;
   Status bundleStatus = wire::forEachMessage(datagram, [&](Bytes message) {
     if (message.empty()) return;
     const std::uint8_t type = message[0];
@@ -310,7 +324,7 @@ void Connection::handleDatagram(Bytes datagram) {
         return;
       }
       if (config_.verifyNotifications &&
-          !wire::verifyLongSpatial(crypto_, message, token).ok()) {
+          !wire::verifyLongSpatial(crypto_, message, token, creds.mac.get()).ok()) {
         std::lock_guard lock(statsMutex_);
         ++stats_.hmacFailures;
         return;

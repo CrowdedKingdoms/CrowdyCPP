@@ -1,4 +1,7 @@
+#include <atomic>
 #include <cstring>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include "crowdy/core/crypto.hpp"
@@ -301,6 +304,116 @@ void testRoundTripAllTypes() {
   }
 }
 
+// A pre-keyed MAC must be an optimisation and nothing else: same key, same
+// message, same bytes on the wire. It reuses one context across calls and
+// across threads, so it is also the one place where a stale or shared context
+// would silently produce a wrong tag rather than fail.
+void testPreKeyedMacMatchesOneShot() {
+  auto mac = crypto().makeHmacSha256(testToken().bytes());
+  CHECK(mac != nullptr);  // the OpenSSL provider offers one
+
+  LongSpatialParams p;
+  p.type = MessageType::GenericSpatial1;
+  p.appId = 7;
+  p.chunk = {1, -2, 3};
+  p.distance = 8;
+  p.decay = DecayRate::Exponential;
+  p.uuid = testUuid();
+  const std::uint8_t payload[] = {0xde, 0xad, 0xbe, 0xef};
+  p.payload = Bytes(payload, sizeof(payload));
+  p.gameTokenId = 123456789;
+  p.sequence = 42;
+
+  // Identical to the independently computed golden vector, not merely to our
+  // own one-shot path.
+  std::uint8_t keyed[256];
+  auto n = encodeLongSpatial(crypto(), p, testToken(), MutableBytes(keyed, sizeof(keyed)),
+                             mac.get());
+  CHECK(n.ok());
+  CHECK_EQ(n.value(), sizeof(kGoldenSpatial));
+  CHECK(std::memcmp(keyed, kGoldenSpatial, sizeof(kGoldenSpatial)) == 0);
+
+  // Reuse must be repeatable: a context that is not reset properly typically
+  // gets the first one right and the rest wrong.
+  for (int round = 0; round < 8; ++round) {
+    std::uint8_t again[256];
+    auto m = encodeLongSpatial(crypto(), p, testToken(), MutableBytes(again, sizeof(again)),
+                               mac.get());
+    CHECK(m.ok());
+    CHECK(std::memcmp(again, kGoldenSpatial, sizeof(kGoldenSpatial)) == 0);
+  }
+
+  // Verification agrees in both directions, and still refuses a tampered frame.
+  CHECK(verifyLongSpatial(crypto(), Bytes(keyed, n.value()), testToken(), mac.get()).ok());
+  CHECK(verifyLongSpatial(crypto(), Bytes(keyed, n.value()), testToken(), nullptr).ok());
+  std::vector<std::uint8_t> tampered(keyed, keyed + n.value());
+  tampered[offsets::kPayload] ^= 0xff;
+  CHECK_EQ(static_cast<int>(
+               verifyLongSpatial(crypto(), Bytes(tampered.data(), tampered.size()), testToken(),
+                                 mac.get())
+                   .code),
+           static_cast<int>(Errc::HmacMismatch));
+
+  // Channel messages sign through the same helper.
+  {
+    ChannelMessageParams c;
+    c.channelId = 55;
+    c.uuid = testUuid();
+    const std::uint8_t hi[] = {'h', 'i'};
+    c.payload = Bytes(hi, sizeof(hi));
+    c.gameTokenId = 42;
+    c.sequence = 3;
+    std::uint8_t withMac[256], withoutMac[256];
+    auto a = encodeChannelMessage(crypto(), c, testToken(), MutableBytes(withMac, sizeof(withMac)),
+                                  mac.get());
+    auto b = encodeChannelMessage(crypto(), c, testToken(),
+                                  MutableBytes(withoutMac, sizeof(withoutMac)));
+    CHECK(a.ok() && b.ok());
+    CHECK_EQ(a.value(), b.value());
+    CHECK(std::memcmp(withMac, withoutMac, a.value()) == 0);
+  }
+
+  // One MAC, many threads. The implementation keeps a per-thread context, so
+  // this is the case that would break if it kept a shared one.
+  {
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 500;
+    std::atomic<int> mismatches{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&] {
+        for (int i = 0; i < kPerThread; ++i) {
+          std::uint8_t out[256];
+          auto r = encodeLongSpatial(crypto(), p, testToken(), MutableBytes(out, sizeof(out)),
+                                     mac.get());
+          if (!r.ok() || std::memcmp(out, kGoldenSpatial, sizeof(kGoldenSpatial)) != 0)
+            mismatches.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+    }
+    for (auto& th : threads) th.join();
+    CHECK_EQ(mismatches.load(), 0);
+  }
+
+  // Two live keys at once must not contaminate each other, which is what a
+  // per-thread cache keyed on the wrong thing would do.
+  {
+    auto other = crypto().makeHmacSha256(
+        Token64::fromString(std::string(64, 'z'))->bytes());
+    CHECK(other != nullptr);
+    for (int round = 0; round < 4; ++round) {
+      std::uint8_t a[256], b[256];
+      CHECK(encodeLongSpatial(crypto(), p, testToken(), MutableBytes(a, sizeof(a)), mac.get())
+                .ok());
+      CHECK(encodeLongSpatial(crypto(), p, *Token64::fromString(std::string(64, 'z')),
+                              MutableBytes(b, sizeof(b)), other.get())
+                .ok());
+      CHECK(std::memcmp(a, kGoldenSpatial, sizeof(kGoldenSpatial)) == 0);
+      CHECK(std::memcmp(a, b, sizeof(kGoldenSpatial)) != 0);  // different keys, different tags
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -315,6 +428,7 @@ int main() {
   testBundleIteration();
   testMalformedInputs();
   testRoundTripAllTypes();
+  testPreKeyedMacMatchesOneShot();
   std::puts("wire_test OK");
   return 0;
 }

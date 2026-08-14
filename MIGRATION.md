@@ -1,5 +1,57 @@
 # CrowdyCPP migration notes
 
+## 0.24.0 sign and verify with a pre-keyed MAC
+
+Every datagram was signed with OpenSSL's one-shot `HMAC()`, which builds a
+context and re-imports the 64-octet token for each call. The token changes only
+on refresh, so that setup was repeated needlessly on every send and on every
+inbound notification, and it was not a small part of the cost: it was
+essentially all of it. Encoding a datagram takes 4 ns; signing it took 1225.
+
+Measured on the builder, with the numbers and the method in
+[benchmarks/README.md](benchmarks/README.md):
+
+- encode + sign: 1225 ns -> **319 ns**
+- verify a notification: 1276 ns -> **337 ns**
+- a 200-entity frame through `Connection::sendActorUpdate`: about
+  **1.5x** less CPU
+
+No wire change. Same key, same message, same tag — the golden vectors are
+unmoved and a test signs against them through the new path, including from
+several threads at once.
+
+### Added
+
+- **`crowdy::core::IMac`** — a MAC bound to one key, reusable across messages,
+  computing over parts without concatenating them.
+- **`ICrypto::makeHmacSha256(key)`** — returns a pre-keyed `IMac`, or nullptr.
+
+**Implementing it is optional.** The base class returns nullptr and every
+caller falls back to `hmacSha256`, so an engine-injected `ICrypto` written
+before this release keeps compiling and behaving identically; it simply does
+not get the speedup. Engines that bind their own crypto should implement
+`makeHmacSha256` to pick it up — it is the single largest CPU win available on
+the replication path.
+
+- **`spatialHmac`, `encodeLongSpatial`, `encodeChannelMessage` and
+  `verifyLongSpatial`** take an optional trailing `const IMac*`. Existing calls
+  compile and behave exactly as before.
+
+### Changed
+
+- `Connection` builds the pre-keyed MAC once per token, rebuilds it on
+  rotation, and reads the token id, key and MAC under a single lock where it
+  previously took the same mutex twice per send.
+
+### Considered and rejected
+
+Batching writes with `sendmmsg` measured between 1.00x and 1.04x, including
+with loopback delivery removed from the measurement, because the kernel does
+the same per-datagram work either way and only the syscall boundary is
+amortised. No batch API was added. The evidence is in
+[benchmarks/README.md](benchmarks/README.md) so the decision can be revisited
+on hardware where syscalls cost more.
+
 ## 0.23.0 send backpressure is not a socket failure
 
 The UDP send path treated every short write as `Errc::SocketError` and threw

@@ -44,10 +44,19 @@ struct Token64 {
 };
 
 /// Compute the spatial HMAC tag over `prefix`. `out` must hold 32 bytes.
-/// Uses a stack scratch buffer; prefix must fit one datagram.
+///
+/// Pass `mac` (from ICrypto::makeHmacSha256 for this token) to sign with a
+/// pre-keyed context, which is several times cheaper than the one-shot path and
+/// also feeds the two parts straight in rather than concatenating them into a
+/// stack buffer. Without it the behaviour is unchanged: same key, same message,
+/// same tag.
 inline bool spatialHmac(const core::ICrypto& crypto, Bytes prefix, const Token64& token,
-                        std::uint8_t* out) {
+                        std::uint8_t* out, const core::IMac* mac = nullptr) {
   if (prefix.size() > kMaxDatagramSize) return false;
+  if (mac != nullptr) {
+    const Bytes parts[] = {prefix, token.bytes()};
+    return mac->compute(parts, 2, out);
+  }
   std::uint8_t msg[kMaxDatagramSize + kTokenOctets];
   std::memcpy(msg, prefix.data(), prefix.size());
   std::memcpy(msg + prefix.size(), token.octets, kTokenOctets);
@@ -79,7 +88,7 @@ inline constexpr std::size_t longSpatialSize(std::size_t payloadLen, bool withHm
 /// Returns the number of bytes written, or an error.
 inline Result<std::size_t> encodeLongSpatial(const core::ICrypto& crypto,
                                              const LongSpatialParams& p, const Token64& token,
-                                             MutableBytes out) {
+                                             MutableBytes out, const core::IMac* mac = nullptr) {
   if (!isLongSpatialLayout(static_cast<std::uint8_t>(p.type))) return Errc::InvalidArgument;
   if (p.payload.size() > kMaxLongSpatialPayload) return Errc::InvalidArgument;
   const std::size_t total = longSpatialSize(p.payload.size());
@@ -100,7 +109,7 @@ inline Result<std::size_t> encodeLongSpatial(const core::ICrypto& crypto,
   if (!p.payload.empty()) std::memcpy(b + offsets::kPayload, p.payload.data(), p.payload.size());
 
   const std::size_t prefixLen = kLongSpatialHeaderSize + p.payload.size();
-  if (!spatialHmac(crypto, Bytes(b, prefixLen), token, b + prefixLen)) return Errc::Malformed;
+  if (!spatialHmac(crypto, Bytes(b, prefixLen), token, b + prefixLen, mac)) return Errc::Malformed;
   le::writeI64(b + prefixLen + kHmacTagSize, p.gameTokenId);
   b[total - 1] = p.sequence;
   return total;
@@ -157,7 +166,7 @@ inline Result<LongSpatialView> parseLongSpatial(Bytes datagram) {
 /// notification, keyed on this client's token. Unsigned messages verify
 /// trivially (nothing to check).
 inline Status verifyLongSpatial(const core::ICrypto& crypto, Bytes datagram,
-                                const Token64& token) {
+                                const Token64& token, const core::IMac* mac = nullptr) {
   if (datagram.size() < kMinLongSpatialNoHmac) return Errc::Malformed;
   if (datagram[offsets::kContainsAuth] == 0) return Errc::Ok;
   const Status cryptoStatus = crypto.availability();
@@ -165,7 +174,8 @@ inline Status verifyLongSpatial(const core::ICrypto& crypto, Bytes datagram,
   if (datagram.size() < kMinLongSpatialWithHmac) return Errc::Malformed;
   const std::size_t prefixLen = datagram.size() - kTailWithHmac;
   std::uint8_t expected[kHmacTagSize];
-  if (!spatialHmac(crypto, datagram.first(prefixLen), token, expected)) return Errc::Malformed;
+  if (!spatialHmac(crypto, datagram.first(prefixLen), token, expected, mac))
+    return Errc::Malformed;
   if (!crypto.constantTimeEquals(expected, datagram.data() + prefixLen, kHmacTagSize))
     return Errc::HmacMismatch;
   return Errc::Ok;
@@ -255,7 +265,8 @@ inline constexpr std::size_t channelRequestSize(std::size_t payloadLen) {
 /// and including containsAuth, concatenated with the token octets.
 inline Result<std::size_t> encodeChannelMessage(const core::ICrypto& crypto,
                                                 const ChannelMessageParams& p,
-                                                const Token64& token, MutableBytes out) {
+                                                const Token64& token, MutableBytes out,
+                                                const core::IMac* mac = nullptr) {
   if (p.payload.size() > channel::kMaxPayload) return Errc::InvalidArgument;
   const std::size_t total = channelRequestSize(p.payload.size());
   if (out.size() < total) return Errc::BufferTooSmall;
@@ -273,7 +284,7 @@ inline Result<std::size_t> encodeChannelMessage(const core::ICrypto& crypto,
   const std::size_t authOffset = channel::kPayloadOffset + p.payload.size();
   b[authOffset] = 1;  // containsAuth
   const std::size_t prefixLen = authOffset + 1;
-  if (!spatialHmac(crypto, Bytes(b, prefixLen), token, b + prefixLen)) return Errc::Malformed;
+  if (!spatialHmac(crypto, Bytes(b, prefixLen), token, b + prefixLen, mac)) return Errc::Malformed;
   le::writeI64(b + prefixLen + kHmacTagSize, p.gameTokenId);
   b[total - 1] = p.sequence;
   return total;

@@ -230,6 +230,15 @@ class Connection {
     Event& operator=(Event&& other) noexcept { return *this = static_cast<const Event&>(other); }
   };
 
+  // Everything the current token owns, read under one lock. Signing needs all
+  // three together, and taking them separately could straddle a rotation.
+  struct Credentials {
+    wire::Token64 token;
+    std::shared_ptr<const core::IMac> mac;
+    std::int64_t gameTokenId = 0;
+  };
+  Credentials credentials() const;
+
   Result<std::uint8_t> sendLongSpatial(wire::MessageType type, const SpatialSend& p);
   Status transmit(const std::uint8_t* data, std::size_t len);
   void netLoop();
@@ -258,6 +267,9 @@ class Connection {
   mutable std::mutex tokenMutex_;
   TokenInfo token_;
   wire::Token64 token64_{};
+  /// Pre-keyed MAC for token64_, rebuilt on rotation. Null when the injected
+  /// crypto provider offers no pre-keyed form, which is not an error.
+  std::shared_ptr<const core::IMac> mac_;
 
   Handlers handlers_;
   mutable std::mutex handlersMutex_;

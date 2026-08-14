@@ -381,25 +381,44 @@ void runHeartbeatNotSent() {
   CHECK_EQ(afterJoin.datagramsSent, 1u);
   CHECK_EQ(afterJoin.sendsFailed, 0u);
 
+  // Whether ICMP port-unreachable is surfaced to the application is a platform
+  // decision. Where it is not, there is no portable way to make this
+  // connection's socket fail, so say so rather than assert something that
+  // cannot happen here.
+  if (conn->sendHeartbeat({0, 0, 0}, uuidOf('a')).ok()) {
+    std::puts("  heartbeat retry: platform does not surface the fault; scenario skipped");
+    conn->disconnect();
+    return;
+  }
+  CHECK_EQ(conn->stats().sendsFailed, 1u);
+  CHECK_EQ(conn->stats().datagramsSent, 1u);
+
+  // The probe above consumed the pending error, so the next send succeeds and
+  // the one after that fails: line the parity up so the tick at t=100 lands on
+  // a failing send.
+  CHECK(conn->sendHeartbeat({0, 0, 0}, uuidOf('a')).ok());
+
   // t=100: the heartbeat is due and the socket is in its failing phase.
+  const auto before = conn->stats();
   self.tick(100);
   const auto afterFailed = conn->stats();
-  CHECK_EQ(afterFailed.sendsFailed, 1u);
-  CHECK_EQ(afterFailed.datagramsSent, 1u);  // the heartbeat did not go out
-  CHECK_EQ(afterFailed.sendsDeferred, 0u);  // a fault, not backpressure
+  CHECK_EQ(afterFailed.sendsFailed - before.sendsFailed, 1u);
+  CHECK_EQ(afterFailed.datagramsSent, before.datagramsSent);  // it did not go out
+  CHECK_EQ(afterFailed.sendsDeferred, 0u);                    // a fault, not backpressure
 
   // t=101: because nothing was sent, the heartbeat is still owed and the very
   // next tick must try again. A store that recorded the failed attempt as sent
   // goes quiet here until another full interval has passed.
   self.tick(101);
-  CHECK_EQ(conn->stats().datagramsSent, 2u);
+  CHECK_EQ(conn->stats().datagramsSent, before.datagramsSent + 1);
 
   // A genuine fault is still reported to the application. The WouldBlock
   // exemption in sendNow must not have turned into "never record an error".
   const std::uint8_t moved[] = {9, 9, 9, 9};
   self.setState(Bytes(moved, sizeof(moved)));
+  const auto beforeDirty = conn->stats();
   self.tick(200);  // dirty send, and the socket is failing again
-  CHECK_EQ(conn->stats().sendsFailed, 2u);
+  CHECK_EQ(conn->stats().sendsFailed - beforeDirty.sendsFailed, 1u);
   CHECK(self.lastError().has_value());
   CHECK_EQ(self.lastError()->status.code, Errc::SocketError);
   CHECK_EQ(static_cast<int>(self.status()), static_cast<int>(LocalActorStatus::Error));
@@ -407,7 +426,7 @@ void runHeartbeatNotSent() {
   // ...and the update it could not send is still owed, so the next tick sends
   // it rather than dropping the state change.
   self.tick(201);
-  CHECK_EQ(conn->stats().datagramsSent, 3u);
+  CHECK_EQ(conn->stats().datagramsSent, beforeDirty.datagramsSent + 1);
 
   conn->disconnect();
 }

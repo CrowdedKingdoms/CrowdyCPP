@@ -336,6 +336,19 @@ int unboundLoopbackPort() {
   return port;
 }
 
+// Provoke a genuine send fault on a socket connected to a dead port. Linux
+// reports the resulting ICMP port-unreachable on the very next send; other
+// kernels take a moment or, on some, never surface it to the application at
+// all. Returns the first failing Status, or Ok if the platform never did.
+Status provokeSendFault(UdpSocket& sock, Bytes payload) {
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    const Status st = sock.send(payload);
+    if (!st.ok()) return st;
+    ::usleep(2000);
+  }
+  return Errc::Ok;
+}
+
 int sockOpt(const UdpSocket& sock, int option) {
   int value = 0;
   socklen_t len = sizeof(value);
@@ -400,11 +413,32 @@ void runSendPath() {
   // --- A genuine fault still reports SocketError. This is what keeps the
   // WouldBlock mapping from being over-broad: if it swallowed everything, a
   // dead socket would read as a busy one and no caller could ever give up.
+  //
+  // A datagram past the hard 65507-byte IPv4 limit is refused by every kernel
+  // regardless of buffer sizes or routing, which makes it the one fault that
+  // is assertable everywhere.
+  {
+    FakeServer peer;
+    peer.start();
+    UdpSocket sock;
+    CHECK(sock.open("127.0.0.1", peer.port, 1 << 16, 1 << 16).ok());
+    const std::vector<std::uint8_t> oversized(70000, 0);
+    CHECK_EQ(sock.send(Bytes(oversized.data(), oversized.size())).code, Errc::SocketError);
+    CHECK(sock.send(payload).ok());  // and the socket is still usable after
+  }
+
+  // The same conclusion from a real errno rather than a size check. Whether
+  // ICMP port-unreachable reaches the application is a platform decision, so
+  // this reports rather than fails when a kernel keeps it to itself.
   {
     UdpSocket sock;
     CHECK(sock.open("127.0.0.1", unboundLoopbackPort(), 1 << 16, 1 << 16).ok());
-    CHECK(sock.send(payload).ok());  // nothing has come back yet
-    CHECK_EQ(sock.send(payload).code, Errc::SocketError);
+    const Status fault = provokeSendFault(sock, payload);
+    if (fault.ok()) {
+      std::puts("  icmp fault: not surfaced by this platform (oversize case still covers it)");
+    } else {
+      CHECK_EQ(fault.code, Errc::SocketError);
+    }
   }
 
   // --- Connection separates the two counters. A real failure moves
@@ -423,17 +457,30 @@ void runSendPath() {
     p.chunk = {1, 2, 3};
     p.uuid = uuid('a');
     p.payload = payload;
-    CHECK(conn.sendActorUpdate(p).ok());
 
-    auto failed = conn.sendActorUpdate(p);
-    CHECK(!failed.ok());
-    CHECK_EQ(failed.error(), Errc::SocketError);
+    Errc observed = Errc::Ok;
+    std::uint64_t attempts = 0;
+    for (int i = 0; i < 50 && observed == Errc::Ok; ++i) {
+      ++attempts;
+      auto sent = conn.sendActorUpdate(p);
+      if (!sent.ok()) observed = sent.error();
+      else ::usleep(2000);
+    }
 
     const auto s = conn.stats();
-    CHECK_EQ(s.sendsFailed, 1u);
-    CHECK_EQ(s.sendsDeferred, 0u);
-    CHECK_EQ(s.datagramsSent, 1u);  // only the one that actually left
-    CHECK_EQ(s.messagesSent, 1u);
+    if (observed == Errc::Ok) {
+      std::puts("  stats split: platform never surfaced a send fault; counters unexercised");
+      CHECK_EQ(s.sendsFailed, 0u);
+      CHECK_EQ(s.datagramsSent, attempts);
+    } else {
+      CHECK_EQ(observed, Errc::SocketError);
+      CHECK_EQ(s.sendsFailed, 1u);
+      CHECK_EQ(s.sendsDeferred, 0u);
+      // Every attempt is either counted as sent or as failed, never both and
+      // never neither.
+      CHECK_EQ(s.datagramsSent + s.sendsFailed, attempts);
+      CHECK_EQ(s.messagesSent, s.datagramsSent);
+    }
     conn.disconnect();
   }
 

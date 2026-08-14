@@ -354,19 +354,36 @@ void runSendPath() {
     CHECK_EQ(sock.send(payload).code, Errc::NotConnected);
   }
 
-  // --- Both buffer hints are applied. Kernels round up and Linux doubles the
-  // request, so the contract is "at least what was asked for". Asserting the
-  // receive side too catches a send-side argument that displaced it.
+  // --- Both buffer hints reach the socket.
+  //
+  // The absolute size a request produces is not assertable: the kernel clamps
+  // to net.core.wmem_max before Linux doubles what it granted, so asking for
+  // 512 KiB yields 425984 on a stock runner whose ceiling is 212992. An
+  // earlier version of this test asserted "at least what was asked for" and
+  // passed only because this builder's ceiling happens to be 4 MiB.
+  //
+  // What holds on any system is that a larger request produces a larger
+  // buffer, up to the ceiling — and a hint that never reaches setsockopt
+  // cannot do that, since both sockets would come back with the same default.
   {
     FakeServer peer;
     peer.start();
-    UdpSocket sock;
-    const int wantRecv = 1 << 20;
-    const int wantSend = 1 << 19;
-    CHECK(sock.open("127.0.0.1", peer.port, wantRecv, wantSend).ok());
-    CHECK(sockOpt(sock, SO_SNDBUF) >= wantSend);
-    CHECK(sockOpt(sock, SO_RCVBUF) >= wantRecv);
-    CHECK(sock.send(payload).ok());
+    const int modest = 1 << 15;  // 32 KiB, below every plausible ceiling
+    const int larger = 1 << 20;  // 1 MiB, may be clamped but must still win
+
+    UdpSocket small;
+    CHECK(small.open("127.0.0.1", peer.port, modest, modest).ok());
+    CHECK(sockOpt(small, SO_SNDBUF) >= modest);
+    CHECK(sockOpt(small, SO_RCVBUF) >= modest);
+
+    UdpSocket big;
+    CHECK(big.open("127.0.0.1", peer.port, larger, larger).ok());
+    CHECK(sockOpt(big, SO_SNDBUF) > sockOpt(small, SO_SNDBUF));
+    // The receive side too, which catches a send-side argument that displaced
+    // it rather than sitting beside it.
+    CHECK(sockOpt(big, SO_RCVBUF) > sockOpt(small, SO_RCVBUF));
+
+    CHECK(big.send(payload).ok());
     CHECK_EQ(peer.recvOne().size(), sizeof(datagram));
   }
 

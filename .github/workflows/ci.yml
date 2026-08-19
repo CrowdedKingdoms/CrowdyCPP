@@ -20,6 +20,11 @@ on:
 
 jobs:
   content-policy:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +32,11 @@ jobs:
         run: bash scripts/check-content-policy.sh
 
   release-gates:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 because resolve-release-tier.test.sh builds its own bare
@@ -42,6 +52,11 @@ jobs:
         run: scripts/ci/assert-tag-version.test.sh
 
   parity-baseline:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +128,11 @@ jobs:
           node tools/parity/blueprints-diff.mjs "$RUNNER_TEMP/crowdyjs-blueprints.json" "$RUNNER_TEMP/crowdycpp-blueprints.json"
 
   build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +166,11 @@ jobs:
         run: ctest --test-dir build -C Release --timeout 120 --output-on-failure
 
   no-exception-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,6 +214,11 @@ jobs:
           ./build-noexceptions-consumer/crowdycpp_consumer
 
   crypto-off-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -215,6 +245,11 @@ jobs:
           ./build-crypto-off-consumer/crowdycpp_consumer
 
   asan-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

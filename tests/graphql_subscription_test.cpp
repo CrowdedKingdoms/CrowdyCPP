@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <future>
@@ -651,6 +652,31 @@ void testTerminalGraphqlErrors() {
   }
 }
 
+// The websocket path used to run its own copy of the error parser, and the copy
+// had already lost `blame`. Both carriers read the same extensions now, so the
+// same refusal means the same thing however it arrived.
+void testSubscriptionErrorsCarryBlameAndRetryAfterMs() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<Dispatcher>();
+  auto client = makeClient(transport, std::make_shared<AuthState>(), dispatcher);
+  GraphQLSubscriptionError got;
+  GraphQLSubscriptionCallbacks callbacks;
+  callbacks.onError = [&](GraphQLSubscriptionError error) { got = std::move(error); };
+  auto handle = client->subscribe("subscription { watch { value } }", JVal(), {},
+                                  std::move(callbacks));
+  const auto connection = transport->connection(0);
+  acknowledge(connection);
+  connection->emitText(
+      R"({"id":"1","type":"error","payload":[{"message":"Too many calls","extensions":)"
+      R"({"code":"RATE_LIMITED","blame":"BUDGET","retryAfterMs":4200}}]})");
+  dispatcher->drain();
+
+  CHECK_EQ(got.errors.size(), std::size_t{1});
+  CHECK(got.errors[0].blame == "BUDGET");
+  CHECK(got.errors[0].retryAfterMs.has_value());
+  CHECK_EQ(*got.errors[0].retryAfterMs, std::int64_t{4200});
+}
+
 void testFrameAndUtf8Limits() {
   GraphQLSubscriptionOptions options;
   options.maxFrameBytes = 256;
@@ -1020,6 +1046,7 @@ int main() {
   testServerCompleteAndCloseMapping();
   testReconnectReplayAndStaleConnectionFencing();
   testTerminalGraphqlErrors();
+  testSubscriptionErrorsCarryBlameAndRetryAfterMs();
   testFrameAndUtf8Limits();
   testAcknowledgementTimeoutAndReconnectCap();
   testCrowdyClientInjectionAndPoll();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -69,6 +71,20 @@ struct GraphQLErrorDetail {
   /// alone, since `retryable` defaults true and an unattributed transport
   /// failure must not read as a licensed retry.
   std::string blame;
+  /// extensions.retryAfterMs: how long to wait before trying again, in
+  /// milliseconds measured when the server built the refusal.
+  ///
+  /// OPTIONAL rather than an int defaulting to 0, and the `retryable` default
+  /// above must NOT be copied here: "retry immediately" and "the server named
+  /// no wait" are different instructions, and a zero standing for both would
+  /// turn silence into a busy loop. Absent whenever the key is missing or is
+  /// not a JSON number.
+  ///
+  /// On the invoke rate limit this is what REMAINS of a fixed window, not a
+  /// fixed backoff, so a later refusal in the same window carries a smaller
+  /// number. Treat it as a deadline from receipt, not as an interval to
+  /// reuse.
+  std::optional<std::int64_t> retryAfterMs;
 };
 
 /// The server returned GraphQL errors. Preserves every error including

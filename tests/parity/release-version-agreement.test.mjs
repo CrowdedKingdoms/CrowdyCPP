@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..', '..');
 const read = (relative) => readFileSync(join(root, relative), 'utf8');
 
 /**
- * The version is written in four places, and they have to agree.
+ * The version is written in five places, and they have to agree.
  *
  * This has broken a release three times: `fix(release): request the CrowdyCPP
  * 0.15 package line`, again at 0.18, and again at 0.20. Every time it was the
@@ -33,6 +33,26 @@ test('package.json version matches the CMake project version', () => {
   assert.equal(JSON.parse(read('package.json')).version, projectVersion());
 });
 
+/**
+ * The fifth place, and the one this gate was blind to.
+ *
+ * `package-lock.json` carries the version twice and stood at 0.18.1 while the
+ * project built 0.24.0 — six releases, none of which the checklist or this test
+ * looked at, because a gate reading four of five sites reports the fifth as
+ * fine. npm only rewrites these on an install that changes the tree, so a
+ * version bump alone leaves them behind silently.
+ */
+test('both package-lock.json versions match the CMake project version', () => {
+  const lock = JSON.parse(read('package-lock.json'));
+  const version = projectVersion();
+  assert.equal(lock.version, version, 'package-lock.json top-level version is stale');
+  assert.equal(
+    lock.packages?.['']?.version,
+    version,
+    'package-lock.json root package version is stale',
+  );
+});
+
 test('the consumer fixture requests the current minor line', () => {
   const source = read('tests/consumer/CMakeLists.txt');
   const match = /find_package\(CrowdyCPP (\d+\.\d+)(?:\.\d+)? CONFIG/u.exec(source);
@@ -47,6 +67,29 @@ test('the consumer fixture requests the current minor line', () => {
     `${major}.${minor}`,
     'the consumer fixture requests a different minor than the project builds, ' +
       'so the install test cannot link and CI fails after building the whole SDK',
+  );
+});
+
+/**
+ * The sixth place. `docs/compatibility.md` opens by naming the version its
+ * parity claim is about, and repeats it as a table column header. A stale
+ * number there is worse than no number: it attaches a real gate result to a
+ * release that gate never ran against.
+ */
+test('the compatibility doc names the current version wherever it names one', () => {
+  const version = projectVersion();
+  const source = read('docs/compatibility.md');
+  const mentioned = [...source.matchAll(/CrowdyCPP (\d+\.\d+\.\d+)/gu)].map((m) => m[1]);
+  assert.ok(
+    mentioned.length > 0,
+    'docs/compatibility.md no longer names a CrowdyCPP version, so this gate ' +
+      'would pass on any release; restore the version or delete this test',
+  );
+  assert.deepEqual(
+    [...new Set(mentioned)],
+    [version],
+    'docs/compatibility.md names a CrowdyCPP version other than the one the ' +
+      'project builds, so its parity claim is about a release it did not gate',
   );
 });
 

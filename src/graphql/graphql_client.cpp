@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 
+#include "error_extensions.hpp"
+
 namespace crowdy::graphql {
 
 namespace {
@@ -35,27 +37,7 @@ GraphQLOutcome interpret(int httpStatus, const std::string& body) {
   Json errors = parsed["errors"];
   if (errors.isArray() && errors.size() > 0) {
     errors.forEach([&](Json e) {
-      GraphQLErrorDetail d;
-      d.message = e["message"].asString("GraphQL error");
-      d.code = e["extensions"]["code"].asString();
-      d.remediation = e["extensions"]["remediation"].asString();
-      const Json extensions = e["extensions"];
-      d.appId = extensions["appId"].asString();
-      d.appDatacenter = extensions["appDatacenter"].asString();
-      d.servedBy = extensions["servedBy"].asString();
-      d.gameApiUrl = extensions["gameApiUrl"].asString();
-      d.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
-      d.retryable = !extensions["retryable"].isBool() ||
-                    extensions["retryable"].asBool();
-      d.blame = extensions["blame"].asString();
-      Json path = e["path"];
-      if (path.isArray()) {
-        path.forEach([&](Json seg) {
-          if (!d.path.empty()) d.path += '.';
-          d.path += seg.isString() ? seg.asString() : std::to_string(seg.asInt64());
-        });
-      }
-      out.errors.push_back(std::move(d));
+      out.errors.push_back(detail::readGraphQLError(e, "GraphQL error"));
     });
     out.status = Errc::Rejected;
     out.kind = GraphQLErrorKind::GraphQL;

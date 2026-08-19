@@ -2,9 +2,15 @@ name: CI
 
 # Runs on a push to ANY branch. Under the three-branch model the interesting pushes are the
 # promotion merges — dev -> test -> prod — and `branches: [main]` would have run none of
-# them, leaving the branch a release is cut from unchecked. This repo is test-only and has no
-# release pipeline, so there is no tag trigger and no release-tier gate here: nothing in
-# CrowdyCPP publishes an artifact that an environment consumes.
+# them, leaving the branch a release is cut from unchecked.
+#
+# Releases live in release.yml and are cut by `<tier>/vX.Y.Z` TAGS, so there is no tag trigger
+# here. This file used to say CrowdyCPP had no release pipeline "because nothing in it
+# publishes an artifact an environment consumes" — true, and beside the point: consumers pin a
+# ref, and four consecutive versions shipped with no tag to pin. The release gates have
+# self-tests, and they run in the release-gates job below rather than only in the workflow they
+# guard, because a gate exercised only by the thing it gates is checked on exactly the runs
+# where it is too late to hear about it.
 
 on:
   push:
@@ -14,13 +20,43 @@ on:
 
 jobs:
   content-policy:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Check public content policy
         run: bash scripts/check-content-policy.sh
 
+  release-gates:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 because resolve-release-tier.test.sh builds its own bare
+      # remote and clone; it does not read this checkout's history, but the script
+      # under test runs `git fetch`, and testing it in a shallow repository would
+      # exercise a different path than the release workflow takes.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release tier gate refuses a tag outside its branch
+        run: scripts/ci/resolve-release-tier.test.sh
+      - name: Version gate refuses a tag that is not what the tree builds
+        run: scripts/ci/assert-tag-version.test.sh
+
   parity-baseline:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +128,11 @@ jobs:
           node tools/parity/blueprints-diff.mjs "$RUNNER_TEMP/crowdyjs-blueprints.json" "$RUNNER_TEMP/crowdycpp-blueprints.json"
 
   build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -125,6 +166,11 @@ jobs:
         run: ctest --test-dir build -C Release --timeout 120 --output-on-failure
 
   no-exception-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +214,11 @@ jobs:
           ./build-noexceptions-consumer/crowdycpp_consumer
 
   crypto-off-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +245,11 @@ jobs:
           ./build-crypto-off-consumer/crowdycpp_consumer
 
   asan-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

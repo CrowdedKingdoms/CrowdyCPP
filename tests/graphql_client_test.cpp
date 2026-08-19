@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -146,6 +147,58 @@ void testAsyncGraphqlErrors() {
   CHECK_EQ(got.errors.size(), std::size_t{1});
   CHECK(got.errors[0].code == "FORBIDDEN");
   CHECK(got.errors[0].message == "nope");
+}
+
+// The server carries the wait for a rate-limit refusal in extensions.
+// A client that can classify the refusal but not time it has to guess.
+void testRetryAfterMsIsReadFromExtensions() {
+  auto async = std::make_shared<FakeAsyncTransport>();
+  async->outcome = httpOk(200,
+                          R"({"errors":[{"message":"Too many calls","extensions":)"
+                          R"({"code":"RATE_LIMITED","blame":"BUDGET","retryAfterMs":4200}}]})");
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  client->setAsyncTransport(async);
+
+  GraphQLOutcome got;
+  client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { got = std::move(out); });
+
+  CHECK_EQ(got.errors.size(), std::size_t{1});
+  CHECK(got.errors[0].code == "RATE_LIMITED");
+  CHECK(got.errors[0].blame == "BUDGET");
+  CHECK(got.errors[0].retryAfterMs.has_value());
+  CHECK_EQ(*got.errors[0].retryAfterMs, std::int64_t{4200});
+}
+
+// "Retry immediately" and "the server said nothing" are different instructions,
+// so a zero must not be reachable by an absent key. This is the whole reason the
+// field is optional rather than an int defaulting to 0.
+void testRetryAfterMsDistinguishesZeroFromAbsent() {
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  auto async = std::make_shared<FakeAsyncTransport>();
+  client->setAsyncTransport(async);
+
+  auto errorFor = [&](const char* body) {
+    async->outcome = httpOk(200, body);
+    GraphQLOutcome got;
+    client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { got = std::move(out); });
+    CHECK_EQ(got.errors.size(), std::size_t{1});
+    return got.errors[0];
+  };
+
+  const GraphQLErrorDetail absent =
+      errorFor(R"({"errors":[{"message":"nope","extensions":{"code":"FORBIDDEN"}}]})");
+  CHECK(!absent.retryAfterMs.has_value());
+
+  const GraphQLErrorDetail zero = errorFor(
+      R"({"errors":[{"message":"now","extensions":{"code":"RATE_LIMITED","retryAfterMs":0}}]})");
+  CHECK(zero.retryAfterMs.has_value());
+  CHECK_EQ(*zero.retryAfterMs, std::int64_t{0});
+
+  // A non-numeric value is the server saying nothing intelligible, which is
+  // nearer to absent than to zero.
+  const GraphQLErrorDetail wrongType = errorFor(
+      R"({"errors":[{"message":"?","extensions":{"code":"RATE_LIMITED","retryAfterMs":"soon"}}]})");
+  CHECK(!wrongType.retryAfterMs.has_value());
 }
 
 void testAsyncHttpError() {
@@ -389,6 +442,8 @@ void testSyncRequestThrowsHttp() {
 int main() {
   testAsyncSuccess();
   testAsyncGraphqlErrors();
+  testRetryAfterMsIsReadFromExtensions();
+  testRetryAfterMsDistinguishesZeroFromAbsent();
   testAsyncHttpError();
   testAsyncProtocolError();
   testAsyncTransportFailure();

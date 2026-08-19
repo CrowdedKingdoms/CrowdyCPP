@@ -35,6 +35,33 @@ When the unified GraphQL surface changes:
    Both exact fixtures must be replayed by their focused C++ tests.
 9. Run the blueprint structural gate documented in `README.md`.
 
+## Releasing
+
+**Cut the tag.** This SDK has no registry — consumers clone a ref and
+`cmake --install` it — so the tag IS the artifact, and a release nobody can pin
+is not a release. From 0.20.0 to 0.24.0 this repo had no release path at all,
+four versions shipped untagged, and an SDK author re-reported a defect that had
+been fixed five days earlier because the newest tag was `v0.19.0`.
+
+Work through [`docs/release-checklist.md`](docs/release-checklist.md), then tag
+the tier branch after the merge lands on it:
+
+```bash
+git checkout dev && git pull
+V="v$(node -p "require('./package.json').version")"
+git tag -a "dev/$V" -m "CrowdyCPP dev $V" && git push origin "dev/$V"
+```
+
+Annotated, and tier-prefixed. The push runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml), whose guard
+refuses a tag outside the branch it names and a tag that is not the version the
+tree builds, before installing the package and linking `tests/consumer` against
+it. Both gates have self-tests and CI runs them on every branch push.
+
+The version lives in **six** places and `npm test` refuses when they disagree.
+Two of them — `package-lock.json` and `docs/compatibility.md` — were added to
+that gate at 0.25.0, after the lock file was found six releases stale.
+
 ## Moving the CrowdyJS pin
 
 The CrowdyJS commit in `package.json` is deliberately pinned and consumed by

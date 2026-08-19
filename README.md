@@ -31,6 +31,13 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.25.0 reads the wait off a rate-limit refusal:** `GraphQLErrorDetail` now
+carries `retryAfterMs` from `extensions`, as a `std::optional<std::int64_t>` so
+that "retry immediately" and "the server named no wait" stay apart. The HTTP and
+websocket paths were parsing errors independently and had already diverged — the
+subscription copy never read `blame` — so both now share one parser and a field
+added to either reaches both. No wire change.
+
 **v0.24.0 signs with a pre-keyed MAC:** the replication path signed every
 datagram with a one-shot HMAC that re-imported the 64-octet token each time,
 which was essentially the entire per-datagram CPU cost — encoding is 4 ns,

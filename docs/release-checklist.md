@@ -12,18 +12,51 @@ GitHub — typically after landing on `dev` and promoting).
 
 Bumping the minor also means updating `project(CrowdyCPP VERSION ...)` in
 `CMakeLists.txt`, the `find_package(CrowdyCPP <minor> ...)` request in
-`tests/consumer/CMakeLists.txt`, `version` in `package.json`, and the target
-line in `README.md`. The consumer test is what proves the package config
-rejects a different `0.x` minor, so a stale request there passes for the wrong
-reason.
+`tests/consumer/CMakeLists.txt`, `version` in `package.json`, the target
+line in `README.md`, both `version` fields in `package-lock.json`, and the
+version `docs/compatibility.md` attaches its parity claim to. The consumer test
+is what proves the package config rejects a different `0.x` minor, so a stale
+request there passes for the wrong reason.
 
-`npm test` now refuses when those four disagree
+`npm test` refuses when those six disagree
 (`tests/parity/release-version-agreement.test.mjs`). That gate exists because
 this item was on this list and was still missed at 0.15, 0.18 and 0.20 — every
 time in the consumer fixture, and every time found by CI two minutes into a job
 that first builds and installs the whole SDK. A stale request cannot fail
 locally until a package of the new minor exists to reject it, which is why
-reading the checklist was never enough.
+reading the checklist was never enough. The last two sites were added at 0.25.0,
+when the lock file was found six releases behind: a gate reading four of six
+sites reports the other two as fine.
+
+## Cut the tag — this is the step that reaches a consumer
+
+**A release nobody can find is not a release.** CrowdyCPP is consumed as source,
+so the tag IS the artifact. Everything above this line proves the tree is good;
+none of it makes the tree reachable. 0.20.0, 0.21.0, 0.23.0 and 0.24.0 all
+passed this checklist and none was ever tagged on the remote, so a consumer
+looking for the newest release found `v0.19.0` and a developer re-reported a
+defect that had been fixed five days earlier.
+
+Tag the tier branch after the merge lands on it, one tag per tier:
+
+```bash
+git checkout dev && git pull
+git tag -a "dev/v$(node -p "require('./package.json').version")" \
+  -m "CrowdyCPP dev v$(node -p "require('./package.json').version")"
+git push origin "dev/v$(node -p "require('./package.json').version")"
+```
+
+Annotated (`-a`), not lightweight: a lightweight tag carries no author, date or
+message, and `dev/v0.22.0` — the one tier-prefixed tag that predates this
+section — is lightweight and cannot say who cut it or when.
+
+The push triggers [`release.yml`](../.github/workflows/release.yml), which
+refuses a tag whose commit is not contained in the branch it names
+(`scripts/ci/resolve-release-tier.sh`) and a tag whose version is not the
+version the tree builds (`scripts/ci/assert-tag-version.sh`), then installs the
+package and links `tests/consumer` against it before creating the release. Both
+gates have self-tests that watch them refuse, and CI runs those on every branch
+push, not only when a release is being cut.
 
 ## Content, codegen, and parity
 

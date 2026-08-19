@@ -1,5 +1,51 @@
 # CrowdyCPP migration notes
 
+## 0.25.0 rate-limit refusals carry how long to wait
+
+The server sends `extensions.retryAfterMs` on a `RATE_LIMITED` refusal.
+`GraphQLErrorDetail` parsed a fixed set of extension keys and kept no raw
+`extensions` handle, so that one was unreachable: a caller could tell that it had
+been refused for asking too often and could not tell for how long. CrowdyJS
+callers read `error.extensions` directly and never had this gap.
+
+### Added
+
+- **`GraphQLErrorDetail::retryAfterMs`** — `std::optional<std::int64_t>`,
+  populated from `extensions.retryAfterMs` when it is a JSON number.
+
+It is optional deliberately, and the `retryable` field beside it is the wrong
+model to copy. `retryable` defaults to `true` because the server contract says an
+absent value means "trying again is reasonable". There is no such default for a
+duration: **`0` means retry now and absent means the server named no wait**, and
+collapsing the two would turn silence into a busy loop. A value that is present
+but not a number reads as absent.
+
+```cpp
+if (const auto& wait = error.retryAfterMs) {
+  scheduleRetryIn(std::chrono::milliseconds(*wait));
+} else {
+  scheduleRetryWithLocalBackoff();
+}
+```
+
+**Read it as a deadline, not as an interval to reuse.** On the invoke rate limit
+the server computes what REMAINS of a fixed window rather than a fixed backoff,
+so a second refusal inside the same window carries a smaller number, and a value
+cached from an earlier refusal will be too long.
+
+### Fixed
+
+Subscriptions and HTTP requests were parsing the GraphQL `errors` array through
+two independent copies of the same code, and they had drifted: the subscription
+copy never read `blame`, so the same refusal arriving over the websocket lost its
+attribution. Both call one internal `readGraphQLError` now.
+
+**If you branched on `blame` and treated its absence on a subscription error as
+"unattributed", that branch will now see the real value** — which is the
+documented contract, but it is a behaviour change on the websocket path.
+
+No wire change, and no other public type moved.
+
 ## 0.24.0 sign and verify with a pre-keyed MAC
 
 Every datagram was signed with OpenSSL's one-shot `HMAC()`, which builds a

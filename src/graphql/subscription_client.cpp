@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "error_extensions.hpp"
+
 namespace crowdy::graphql {
 
 namespace {
@@ -75,27 +77,7 @@ std::vector<GraphQLErrorDetail> parseGraphQLErrors(Json value) {
   std::vector<GraphQLErrorDetail> errors;
   auto append = [&errors](Json item) {
     if (!item.isObject()) return;
-    GraphQLErrorDetail detail;
-    detail.message = item["message"].asString("GraphQL subscription error");
-    detail.code = item["extensions"]["code"].asString();
-    detail.remediation = item["extensions"]["remediation"].asString();
-    const Json extensions = item["extensions"];
-    detail.appId = extensions["appId"].asString();
-    detail.appDatacenter = extensions["appDatacenter"].asString();
-    detail.servedBy = extensions["servedBy"].asString();
-    detail.gameApiUrl = extensions["gameApiUrl"].asString();
-    detail.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
-    detail.retryable = !extensions["retryable"].isBool() ||
-                       extensions["retryable"].asBool();
-    const Json path = item["path"];
-    if (path.isArray()) {
-      path.forEach([&detail](Json segment) {
-        if (!detail.path.empty()) detail.path += '.';
-        detail.path +=
-            segment.isString() ? segment.asString() : std::to_string(segment.asInt64());
-      });
-    }
-    errors.push_back(std::move(detail));
+    errors.push_back(detail::readGraphQLError(item, "GraphQL subscription error"));
   };
 
   if (value.isArray()) {

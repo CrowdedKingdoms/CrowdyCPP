@@ -2,9 +2,15 @@ name: CI
 
 # Runs on a push to ANY branch. Under the three-branch model the interesting pushes are the
 # promotion merges — dev -> test -> prod — and `branches: [main]` would have run none of
-# them, leaving the branch a release is cut from unchecked. This repo is test-only and has no
-# release pipeline, so there is no tag trigger and no release-tier gate here: nothing in
-# CrowdyCPP publishes an artifact that an environment consumes.
+# them, leaving the branch a release is cut from unchecked.
+#
+# Releases live in release.yml and are cut by `<tier>/vX.Y.Z` TAGS, so there is no tag trigger
+# here. This file used to say CrowdyCPP had no release pipeline "because nothing in it
+# publishes an artifact an environment consumes" — true, and beside the point: consumers pin a
+# ref, and four consecutive versions shipped with no tag to pin. The release gates have
+# self-tests, and they run in the release-gates job below rather than only in the workflow they
+# guard, because a gate exercised only by the thing it gates is checked on exactly the runs
+# where it is too late to hear about it.
 
 on:
   push:
@@ -19,6 +25,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check public content policy
         run: bash scripts/check-content-policy.sh
+
+  release-gates:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 because resolve-release-tier.test.sh builds its own bare
+      # remote and clone; it does not read this checkout's history, but the script
+      # under test runs `git fetch`, and testing it in a shallow repository would
+      # exercise a different path than the release workflow takes.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release tier gate refuses a tag outside its branch
+        run: scripts/ci/resolve-release-tier.test.sh
+      - name: Version gate refuses a tag that is not what the tree builds
+        run: scripts/ci/assert-tag-version.test.sh
 
   parity-baseline:
     runs-on: ubuntu-latest

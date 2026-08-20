@@ -2,10 +2,10 @@
 // connect the native UDP replication client, and walk an actor around while
 // printing whoever else is nearby.
 //
-//   walker <apiUrl> <email> <appId> [seconds]
+//   walker <apiUrl> <email> <password> <appId> [seconds]
 //
-// apiUrl is the shared entry origin. The server must run with DEV_AUTH_BYPASS
-// for the dev sign-in; production apps use the magic-link or social flows.
+// apiUrl is the shared entry origin. Sign-in is email + password, which works
+// against every environment; magic link and social are the other two paths.
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -16,20 +16,21 @@
 using namespace crowdy;
 
 int main(int argc, char** argv) {
-  if (argc < 4) {
-    std::fprintf(stderr, "usage: walker <apiUrl> <email> <appId> [seconds]\n");
+  if (argc < 5) {
+    std::fprintf(stderr, "usage: walker <apiUrl> <email> <password> <appId> [seconds]\n");
     return 2;
   }
   const std::string apiUrl = argv[1];
   const std::string email = argv[2];
-  const std::string appId = argv[3];
-  const int seconds = argc > 4 ? std::atoi(argv[4]) : 30;
+  const std::string password = argv[3];
+  const std::string appId = argv[4];
+  const int seconds = argc > 5 ? std::atoi(argv[5]) : 30;
 
-  // 1) Identity client + passwordless (dev) sign-in.
+  // 1) Identity client + email/password sign-in.
   ClientConfig identityCfg;
   identityCfg.httpUrl = apiUrl;
   CrowdyClient identity(std::move(identityCfg));
-  auto login = identity.auth().devLogin(email);
+  auto login = identity.auth().login(email, password);
   std::printf("signed in as user %s\n", login.userId.c_str());
 
   // 2) App-scoped token -> per-game client.

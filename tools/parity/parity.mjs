@@ -61,152 +61,39 @@ const CATEGORY = Object.freeze({
 // The kind and side are part of the key on purpose: a waiver written for "exists
 // only in CrowdyCPP" must not silently cover the opposite direction.
 const SCHEMA_BASELINE = {
-  'type:ServerStatus.cpuCount': classification(
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  'type:ServerStatus.routerThreads': classification(
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the capacity-routing fields",
-    'member-only',
-    'CrowdyCPP',
-  ),
   // The 0.21.0 schema sync advanced the published SDL by several server
   // releases, so the groups below are all the situation described above: server
   // surface CrowdyJS's pinned snapshot has not regenerated against yet. Each
   // group goes stale, and the gate says so, the moment it does.
-  ...classifySchema(
-    [
-      'enum:MeteredComputeEngine',
-      'type:AppComputeBudgetInfo',
-      'type:AppComputeBudgetStatus',
-      'type:AppComputeUsage',
-      'type:EngineComputeUnits',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the app compute budget surface",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'type:Mutation.clearAppComputeBudget',
-      'type:Mutation.setAppComputeBudget',
-      'type:Query.appComputeBudget',
-      'type:Query.appComputeBudgetStatus',
-      'type:Query.appComputeUsage',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the app compute budget surface",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'type:WasmComputeStats.aggregatedThrough',
-      'type:WasmModuleLogEntry.instanceId',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the per-instance compute fields",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'enum:DatacenterServingStatus',
-      'type:PlaceableDatacenter',
-      'type:PlaceableDatacenters',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    ['input:CreateAppInput.datacenter', 'type:Query.placeableDatacenters'],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the datacenter placement surface",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'enum:PlayerFaultCode',
-      'enum:UserCodeFaultBlame',
-      'enum:UserCodeFaultEngine',
-      'enum:UserCodeFaultKind',
-      'type:PlayerFaultInfo',
-      'type:UserCodeFaultRecord',
-      'type:UserCodeFaultSummaryEntry',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the fault attribution surface",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'type:GmInvokeResult.fault',
-      'type:Query.userCodeFaultSummary',
-      'type:Query.userCodeFaults',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the fault attribution surface",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'type:CrowdyStudioAgentCapabilityGap',
-      'type:CrowdyStudioAgentCatalog',
-      'type:CrowdyStudioAgentCatalogModel',
-      'type:CrowdyStudioAgentCatalogTool',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'type:CrowdyStudioAgentPolicy.capabilityGaps',
-      'type:Query.cpCrowdyStudioAgentCatalog',
-    ],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the Studio agent catalog surface",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    ['type:GmFunctionBreakerStatus', 'type:GmFunctionCircuit'],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the function circuit surface",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    ['type:Query.gameModelFunctionCircuits'],
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the function circuit surface",
-    'member-only',
-    'CrowdyCPP',
-  ),
   // The one difference here that is not a missing field. Both sides declare
   // errorMessage, but the published SDL now deprecates it and redefines its
   // contents as a player-safe sentence carrying no engine detail, with fault as
   // the field a caller branches on. CrowdyJS's snapshot still documents it as
   // the engine's error text, so the signatures disagree in both directions.
-  'type:GmInvokeResult.errorMessage': classification(
-    CATEGORY.NATIVE,
-    "CrowdyJS's committed schema.gql predates the errorMessage deprecation",
-    'member-signature',
-    'both',
-  ),
 };
 
 const ROOT_CLASSIFICATIONS = {
+  // The operator-only billing surface, added to the API across cycles eighteen
+  // to twenty and picked up here when the pin moved to CrowdyJS 15.0.0.
+  //
+  // Deliberately unwrapped rather than not-yet-wrapped. Every one of these is
+  // @RequiresOperator or org-admin: setting a price, exempting an org from
+  // billing, or driving the usage tick. CrowdyCPP is a GAME CLIENT SDK shipped
+  // to players' machines, and a wrapper there would be a method no holder of a
+  // player's app-scoped token could ever call. Studio and the operator scripts
+  // are where this surface belongs.
+  ...classifyNames(
+    'Mutation',
+    ['runSharedUsageBillingTick', 'setBillingRate', 'setOrgBillingExempt'],
+    CATEGORY.BROWSER,
+    'operator-only billing control; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Query',
+    ['billingExemptOrgs', 'billingRateCard'],
+    CATEGORY.BROWSER,
+    'operator-only billing reads; not a game-client surface',
+  ),
   ...classifyNames(
     'Mutation',
     [
@@ -351,9 +238,9 @@ const CLASS_CLASSIFICATIONS = {
 };
 
 const METHOD_ALIASES = {
-  // CrowdyJS calls it `register`; C++ cannot, because `register` was a reserved
-  // keyword until C++17 and reads badly beside `registerUser`'s async twin. The
-  // pair arrived in CrowdyJS 15.0.0 when the dev-auth bypass was deleted and
+  // CrowdyJS 15.0.0 calls it `register`; C++ cannot, because `register` was a
+  // reserved keyword until C++17 and reads badly beside `registerUser`'s async
+  // twin. The pair became load-bearing when the dev-auth bypass was deleted and
   // password sign-in became the path an automated client uses.
   'AuthAPI.register': 'registerUser',
   'ActorsAPI.delete': 'remove',

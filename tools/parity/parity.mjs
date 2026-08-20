@@ -351,6 +351,11 @@ const CLASS_CLASSIFICATIONS = {
 };
 
 const METHOD_ALIASES = {
+  // CrowdyJS calls it `register`; C++ cannot, because `register` was a reserved
+  // keyword until C++17 and reads badly beside `registerUser`'s async twin. The
+  // pair arrived in CrowdyJS 15.0.0 when the dev-auth bypass was deleted and
+  // password sign-in became the path an automated client uses.
+  'AuthAPI.register': 'registerUser',
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
   'PlayerComputeAPI.delete': 'remove',

@@ -294,6 +294,19 @@ class AppsAPI : public detail::AdminDomain {
                     two("orgSlug", graphql::JVal(orgSlug), "appSlug", graphql::JVal(appSlug)), {},
                     std::move(cb));
   }
+  /// The datacenters this deployment can place a new app in.
+  ///
+  /// `createApp`'s `datacenter` is required and PERMANENT -- an app is
+  /// distributed on app_id, so its shard lands where the id says and moving it
+  /// afterwards is a physical shard move. Read the accepted codes from here
+  /// rather than hardcoding one.
+  graphql::Json placeableDatacenters() const {
+    return execUnwrap(gen::platform::kPlaceableDatacentersDocument, graphql::JVal{});
+  }
+  void placeableDatacentersAsync(graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::platform::kPlaceableDatacentersDocument, graphql::JVal{}, {},
+                    std::move(cb));
+  }
   graphql::Json forOrg(std::string_view orgSlug) const {
     return execUnwrap(gen::apps::kAppsForOrgDocument, one("orgSlug", graphql::JVal(orgSlug)));
   }

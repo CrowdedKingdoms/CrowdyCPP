@@ -21,7 +21,7 @@
  * build dir so the embedded fixture headers pick up the new content.
  */
 import { execFileSync } from 'node:child_process';
-import { globSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -67,56 +67,6 @@ if (options.check) {
 
 pkg.crowdyjsParityTarget = { version, commit };
 writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-
-// The gate test asserts the pin as a LITERAL, deliberately, so a move is a
-// reviewed edit rather than something that follows package.json silently. That
-// makes it a second place holding the same fact, and this tool wrote only the
-// first -- so every repin left the suite failing on a value the tool had just
-// changed. Update both, or the literal is not a review gate, it is a chore.
-const gateTestPath = join(root, 'tests/parity/parity-gate.test.mjs');
-const gateTest = readFileSync(gateTestPath, 'utf8');
-const updatedGateTest = gateTest
-  .replace(
-    new RegExp(`version: '${escapeRegExp(previous.version)}'`),
-    `version: '${version}'`,
-  )
-  .replace(
-    new RegExp(`commit: '${escapeRegExp(previous.commit)}'`),
-    `commit: '${commit}'`,
-  );
-if (updatedGateTest === gateTest) {
-  throw new Error(
-    `could not update the pinned target in ${gateTestPath}: it did not contain ` +
-      `${previous.version}@${previous.commit.slice(0, 10)}. Update it by hand, ` +
-      `then rerun -- a pin recorded in one place and asserted in another is drift.`,
-  );
-}
-writeFileSync(gateTestPath, updatedGateTest);
-
-// And the C++ suites, which assert the fixture's recorded CrowdyJS version.
-// This makes FIVE places holding one fact. Each was a reasonable local decision
-// -- a literal so a move is visible in review -- and together they meant a
-// repin left CI red in a way the tool could not see, because it only ever wrote
-// package.json. Anything that records the pin has to be written by the thing
-// that moves it.
-const cppSuites = globSync('tests/**/*.cpp', { cwd: root, absolute: true });
-let cppUpdated = 0;
-for (const file of cppSuites) {
-  const body = readFileSync(file, 'utf8');
-  // Version AND commit: the suites assert both, and updating one leaves a
-  // failure that looks like a different problem than the repin.
-  if (!body.includes(previous.version) && !body.includes(previous.commit)) continue;
-  writeFileSync(
-    file,
-    body.replaceAll(previous.version, version).replaceAll(previous.commit, commit),
-  );
-  cppUpdated += 1;
-}
-console.log(`updated ${cppUpdated} C++ suite(s) asserting the pinned version`);
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // Regenerate everything the pin feeds. Order matters only in that the matrix
 // is written last, so it reports against the refreshed fixtures.

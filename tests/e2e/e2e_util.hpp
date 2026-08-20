@@ -53,8 +53,7 @@
 ///   CROWDY_E2E_WEBSOCKET=1      enable optional live GraphQL-WS coverage
 ///   CROWDY_E2E_SLOW=1           enable slow suites (soak, TTL waits)
 ///
-/// The suites register their own accounts, so the server needs no special
-/// configuration; production-style
+/// The server must run with DEV_AUTH_BYPASS (dev sign-in); production-style
 /// magic-link flows are covered by the auth suite itself. Tests exit 77
 /// (ctest SKIP_RETURN_CODE) when their required variables are unset.
 namespace e2e {
@@ -211,15 +210,6 @@ inline const std::string& runSuffix() {
 
 /// Plus-address a derived account into the base email:
 /// alice@x.com + "voxel-1" -> alice+voxel-1-<runSuffix>@x.com
-/// The password for a derived e2e address.
-///
-/// These accounts are created by the suite with `registerUser`, one per run, so
-/// the password only has to be reproducible within the run and satisfy the
-/// server's 8-character floor. Derived from the address rather than stored.
-inline std::string derivePassword(const std::string& email) {
-  return "Aa1!e2e-" + email;
-}
-
 inline std::string deriveEmail(const E2eConfig& cfg, const std::string& tag) {
   const auto at = cfg.email.find('@');
   return cfg.email.substr(0, at) + "+" + tag + "-" + runSuffix() + cfg.email.substr(at);
@@ -298,11 +288,7 @@ inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg
   crowdy::ClientConfig c;
   c.httpUrl = cfg.apiUrl;
   auto client = std::make_unique<crowdy::CrowdyClient>(std::move(c));
-  // registerUser, not a bypass. The address carries a per-run suffix, which is
-  // what makes this the CREATE case -- `register` returns a session only for an
-  // address it has never seen; one that already exists gets the password
-  // attached pending confirmation and no token.
-  auto auth = client->auth().registerUser(email, derivePassword(email));
+  auto auth = client->auth().devLogin(email);
   E2E_CHECK(!auth.token.empty());
   if (userId) *userId = auth.userId;
   return client;

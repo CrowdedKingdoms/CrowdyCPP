@@ -41,10 +41,8 @@ class AuthAPI : public DomainBase {
   }
 
   /// Email a one-time magic sign-in link (creates the account on first
-  /// sign-in). The token arrives ONLY by email: `devToken` used to hand it back
-  /// in the response whenever the server had the dev bypass on, and that field
-  /// is gone. An automated caller should registerUser() an account it holds the
-  /// password to instead.
+  /// sign-in). In development (DEV_AUTH_BYPASS) the response carries
+  /// `devToken` to pass straight to completeLoginLink without an inbox.
   graphql::Json requestLoginLink(std::string_view email, std::string_view redirectUri = {}) const {
     graphql::JVal input;
     input["email"] = email;
@@ -53,7 +51,7 @@ class AuthAPI : public DomainBase {
     vars["input"] = input;
     return execUnwrap(
         "mutation RequestLoginLink($input: RequestLoginLinkInput!) {"
-        " requestLoginLink(input: $input) { sent } }",
+        " requestLoginLink(input: $input) { sent devToken } }",
         vars);
   }
 
@@ -66,7 +64,7 @@ class AuthAPI : public DomainBase {
     vars["input"] = input;
     execUnwrapAsync(
         "mutation RequestLoginLink($input: RequestLoginLinkInput!) {"
-        " requestLoginLink(input: $input) { sent } }",
+        " requestLoginLink(input: $input) { sent devToken } }",
         vars, {}, std::move(cb));
   }
 
@@ -160,11 +158,37 @@ class AuthAPI : public DomainBase {
         });
   }
 
-  // devLogin() and devLoginAsync() are REMOVED. They wrapped a server mutation
-  // that issued a session for any address with no proof of ownership, gated on
-  // DEV_AUTH_BYPASS; ck-api deleted it on 2026-08-20, so a wrapper could only
-  // produce a GraphQL validation error. Use login() / registerUser() below --
-  // they were already here and need neither an inbox nor a browser.
+  /// DEV ONLY bypass sign-in (server must have DEV_AUTH_BYPASS). Stores the
+  /// session token; throws FORBIDDEN when the bypass is disabled.
+  AuthResponse devLogin(std::string_view email) const {
+    graphql::JVal vars;
+    vars["input"]["email"] = email;
+    auto r = AuthResponse::fromJson(execUnwrap(
+        "mutation DevLogin($input: DevLoginInput!) {"
+        " devLogin(input: $input) { token gameTokenId user { userId email gamertag } } }",
+        vars));
+    if (!r.token.empty()) auth_->setToken(r.token);
+    return r;
+  }
+
+  void devLoginAsync(std::string_view email,
+                     std::function<void(graphql::GraphQLOutcome, AuthResponse)> cb) const {
+    graphql::JVal vars;
+    vars["input"]["email"] = email;
+    execUnwrapAsync(
+        "mutation DevLogin($input: DevLoginInput!) {"
+        " devLogin(input: $input) { token gameTokenId user { userId email gamertag } } }",
+        vars, {},
+        [auth = auth_, cb = std::move(cb)](
+            graphql::GraphQLOutcome out) mutable {
+          AuthResponse value{};
+          if (out.ok()) {
+            value = AuthResponse::fromJson(out.data);
+            if (!value.token.empty()) auth->setToken(value.token);
+          }
+          cb(std::move(out), value);
+        });
+  }
 
   /// The signed-in user's linked sign-in identities.
   graphql::Json myIdentities() const {

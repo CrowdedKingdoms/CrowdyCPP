@@ -2,7 +2,7 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: d406901b500a43dcfc838a8cff648eb2c41d600b04ad06003e15f7b45727e615
+// schema.gql sha256: 839f36cd4c26d5d5eb9054e7114a6698e1b7f829f8a1061ef3742dc2da8c274d
 // operations sha256: 3d186ffb5505b51d7463875a3132581f4722cc27e5b76fe7ec4c2679b400b53e
 
 #pragma once
@@ -1159,25 +1159,6 @@ inline std::optional<PlayerFaultCode> playerFaultCodeFromString(std::string_view
   if (s == "UNAUTHENTICATED") return PlayerFaultCode::UNAUTHENTICATED;
   if (s == "WRONG_DATACENTER") return PlayerFaultCode::WRONG_DATACENTER;
   if (s == "APP_UNAVAILABLE") return PlayerFaultCode::APP_UNAVAILABLE;
-  return std::nullopt;
-}
-
-enum class RateScope {
-  SHARED,
-  PLAYER,
-};
-
-inline constexpr std::string_view toString(RateScope v) {
-  switch (v) {
-    case RateScope::SHARED: return "SHARED";
-    case RateScope::PLAYER: return "PLAYER";
-  }
-  return "";
-}
-
-inline std::optional<RateScope> rateScopeFromString(std::string_view s) {
-  if (s == "SHARED") return RateScope::SHARED;
-  if (s == "PLAYER") return RateScope::PLAYER;
   return std::nullopt;
 }
 

@@ -700,10 +700,6 @@ type SocialLoginStart {
 type RequestLoginLinkResult {
   """Always true (does not reveal whether the email exists)."""
   sent: Boolean!
-  """
-  DEV ONLY: when DEV_AUTH_BYPASS is enabled (so no email is delivered), the one-time token to pass to completeLoginLink. Always null in production.
-  """
-  devToken: String
 }
 
 """
@@ -1273,7 +1269,7 @@ type WalletTransaction {
   """
   balanceAfter: BigInt!
   """
-  What produced this transaction. Known values: "topup" (wallet credit from a checkout/top-up), "usage" (per-app usage charge, negative), "shared_usage" (shared-environment usage charge, negative), "reserved_throughput" (monthly/prorated reserved egress capacity, negative), "environment_usage" (hourly environment cost, negative), "auto_recharge" (automatic wallet recharge), "agent_usage" (Crowdy Studio agent run charged at provider cost, negative), "admin_credit" (operator credit applied without a payment provider). Other caller-supplied deposit types are possible.
+  What produced this transaction. The complete set of values this API writes: "topup" (wallet credit from a completed checkout, positive), "admin_credit" (operator credit applied without a payment provider, positive), "auto_recharge" (off-session automatic wallet recharge, positive), "shared_usage" (hourly shared-environment metered charge for one closed clock hour, negative), "agent_usage" (Crowdy Studio agent run charged at provider cost, negative), "reserved_throughput" (monthly or prorated reserved egress capacity, negative), "markup_payout" (the app developer's markup on a player's compute bill, credited to the org in the same transaction as the player debit that produced it, positive). No other value is written; earlier versions of this description also listed "usage" and "environment_usage", neither of which was ever produced.
   """
   transactionType: String!
   """
@@ -1315,6 +1311,96 @@ type AppBudget {
   createdAt: DateTime!
   """When the budget was last updated (ISO-8601 UTC timestamp)."""
   updatedAt: DateTime!
+}
+
+"""
+One priced dimension: its rate and, where it has one, its hourly free allowance. A dimension with a price of 0 is metered but not charged.
+"""
+type RateCardEntryType {
+  """Which card this row is on."""
+  scope: RateScope!
+  """
+  The metered dimension, e.g. "graphql_recv_ops" or "player_wasm_compute_units". Matches a key the billing tick aggregates.
+  """
+  metric: String!
+  """
+  Human unit this price is quoted in, e.g. "GiB" or "M units". Display only; the arithmetic uses unitQuantity.
+  """
+  unitLabel: String!
+  """
+  How many raw metric units one priceCents charge covers, as a BigInt decimal string. A price of 15 with unitQuantity 1073741824 is 15 cents per GiB.
+  """
+  unitQuantity: BigInt!
+  """
+  Cents charged per unitQuantity raw units, above the free allowance. Fractional values are permitted (the column is NUMERIC(20,6)). 0 means metered but not charged.
+  """
+  priceCents: Float!
+  """ISO currency code. USD today."""
+  currency: String!
+  """
+  Raw metric units free per clock hour before anything is charged, as a BigInt decimal string. Null when this dimension has no allowance row, which for a priced dimension means it bills from the first unit.
+  """
+  freePerHour: BigInt
+  """
+  Raw metric units free per UTC calendar month, as a BigInt decimal string. On the PLAYER card this is the pooled monthly trial budget per (player, app), and player_wasm_compute_units is its canonical key. Null when this dimension has no monthly allowance.
+  """
+  freePerMonth: BigInt
+  """Operator note on the seed row; null when unset."""
+  description: String
+}
+
+"""
+Which rate card. SHARED prices organization metered usage for shared-environment apps (billed hourly to the org wallet as "shared_usage"). PLAYER prices player compute (billed hourly to the player wallet as "usage_debit").
+"""
+enum RateScope {
+  SHARED
+  PLAYER
+}
+
+"""
+One field that moved, with the value it held before. Reported so a price change is auditable from the response rather than reconstructed afterwards.
+"""
+type RateChangeType {
+  scope: RateScope!
+  metric: String!
+  """
+  One of "priceCents", "unitLabel", "unitQuantity", "freePerHour" or "freePerMonth".
+  """
+  field: String!
+  """
+  The value before this call, as a decimal string. "none" when there was no allowance row.
+  """
+  previous: String!
+  """The value after this call, as a decimal string."""
+  updated: String!
+}
+
+"""The result of setting a rate: the new row and what moved."""
+type SetRateCardResult {
+  """The dimension as it now stands."""
+  entry: RateCardEntryType!
+  """
+  One entry per field that changed. Never empty: a call that would change nothing is refused rather than reported as a successful no-op.
+  """
+  changes: [RateChangeType!]!
+}
+
+"""
+An organization whose wallet is not debited and whose apps are not denied for funds. Usage is still metered; waived amounts are in org_billing_waivers.
+"""
+type BillingExemptOrgType {
+  """Organization id (BigInt as a decimal string)."""
+  orgId: BigInt!
+  """Organization name."""
+  name: String!
+  """Organization slug."""
+  slug: String!
+  """Why the exemption exists. Required when setting it true."""
+  reason: String!
+  """When the exemption was last set true."""
+  setAt: DateTime!
+  """Operator user_id who last set the exemption true."""
+  setBy: BigInt
 }
 
 type Checkout {
@@ -1856,7 +1942,7 @@ type PlayerWalletTransaction {
   """Balance after this entry."""
   balanceAfter: BigInt!
   """
-  One of 'topup', 'usage_debit', 'auto_recharge', 'refund', 'adjustment'.
+  What produced this entry. The complete set of values this API writes: "topup" (credit from a completed checkout, positive), "auto_recharge" (off-session automatic recharge, positive), "payout_credit" (marketplace seller payout, positive), "refund" (marketplace refund returned to the buyer, positive), "usage_debit" (hourly player-compute metered charge for one closed clock hour, negative), "purchase" (marketplace purchase, negative), "adjustment" (operator or dispute-clawback correction, signed).
   """
   transactionType: String!
   """Human description."""
@@ -4271,7 +4357,7 @@ type GraphQLServer {
   """TCP port the GraphQL/HTTP API listens on (default 4000)."""
   apiPort: Int!
   """
-  Public hostname clients can reach this instance on directly over TLS, e.g. `ck-api-2.gxca.prod.cp.cks-env.com`. Null when the instance has no public DNS name or certificate yet, in which case it is reachable only through the shared load balancer and must not be connected to directly. Prefer the `gameApiUrl` returned by mintAppToken over building a URL from this field: that call already picks a low-load instance for you.
+  Public hostname clients can reach this instance on directly over TLS, e.g. `ck-api-or-1.prod.v7.cks-env.com`. Null when the instance has no public DNS name or certificate yet, in which case it is reachable only through the shared load balancer and must not be connected to directly. Prefer the `gameApiUrl` returned by mintAppToken over building a URL from this field: that call already picks a low-load instance for you.
   """
   publicHostname: String
   """
@@ -5546,6 +5632,8 @@ type GmTimer {
 
 """
 Why an invocation failed, in the only vocabulary a player may be shown: a stable code, whose problem it is, and whether repeating the identical call could succeed. It carries no message, no engine name and no internal detail by design — blame attribution is the platform's job and presentation is the game's.
+
+IT CARRIES NO TIMING, AND NOTHING THAT NEEDS TIMING ARRIVES HERE. A refusal that can tell you how long to wait — `RATE_LIMITED` above all — is THROWN, with `extensions.retryAfterMs`, and never returned in band on a result. So `retryable: true` here means "try again", not "try again after N milliseconds", and a client with nothing but this object is right to use its own backoff. `expression-fault.classifier.spec.ts` holds that split rather than leaving it to how the code happens to be arranged.
 """
 type PlayerFaultInfo {
   """A stable, enumerated reason. Branch on this rather than on any text."""
@@ -5583,7 +5671,7 @@ enum PlayerFaultCode {
   """
   BUDGET_EXCEEDED
   """
-  This caller is asking too often. `retryAfterMs` is carried in error extensions when it is known.
+  This caller is asking too often. It arrives ONLY as a thrown error, never in band on a result, and `extensions.retryAfterMs` carries the wait. That number is the milliseconds REMAINING in the current fixed window at the moment the refusal was built, not a fixed backoff, so a second refusal inside the same window carries a smaller number: treat it as a deadline from receipt and do not reuse a cached one.
   """
   RATE_LIMITED
   """A metered allowance is spent and does not return on its own."""
@@ -7287,7 +7375,7 @@ type Query {
     appId: BigInt!
   ): [AppGrantMemberCandidate!]! @requiresPermission(scope: "app", permission: "manage_access_tiers", scopeArg: "appId")
   """
-  The federated sign-in providers currently enabled (e.g. ['google']). Use one with socialLoginStart. The dev mock provider only appears when the dev bypass is enabled.
+  The federated sign-in providers currently enabled (e.g. ['google']). Use one with socialLoginStart.
   """
   availableLoginProviders: [String!]!
   """
@@ -7508,6 +7596,17 @@ type Query {
     """
     orgId: BigInt!
   ): [AppBudget!]! @requiresPermission(scope: "org", permission: "view_billing", scopeArg: "orgId")
+  """
+  OPERATOR ONLY. The metered rate card for a scope: every priced dimension with its unit, price and hourly free allowance. SHARED is organization usage billed to the org wallet as "shared_usage"; PLAYER is player compute billed to the player wallet as "usage_debit". A dimension priced at 0 is metered but not charged. Read-only.
+  """
+  billingRateCard(
+    """Which card to read."""
+    scope: RateScope!
+  ): [RateCardEntryType!]! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  OPERATOR ONLY. Every organization currently marked billing_exempt. An exemption nobody can enumerate is an exemption that outlives its reason.
+  """
+  billingExemptOrgs: [BillingExemptOrgType!]! @requiresPermission(scope: "operator", permission: "is_operator")
   """
   Public platform discovery. Returns the shared game-api URL clients use for shared-environment apps (served by the platform shared environment). No auth required.
   """
@@ -7880,7 +7979,7 @@ type Query {
     orgId: BigInt!
   ): PlayerPulse! @requiresPermission(scope: "org", permission: "view_usage", scopeArg: "orgId")
   """
-  Pick a low-load game server for a native (direct-UDP) client to connect to: returns a random server from the least-loaded ~20% (by client count) of ReadyForClients servers to spread load, preferring one co-located with the datacenter that holds the data for this app (all rows for one app live in a single datacenter) and falling back to any healthy server if none is. Requires a bearer game token; as a side effect it authorizes that token’s P2P session with the chosen Buddy so the native client’s spatial datagrams are accepted. Connect the native client to the returned ip4 and clientPort. Browser clients should instead use the UDP proxy (connectUdpProxy / udpNotifications) and do not need this.
+  Pick a low-load game server for a native (direct-UDP) client to connect to: returns a random server from the least-loaded ~20% (by client count) of ReadyForClients servers to spread load, always CO-LOCATED with the datacenter that holds the data for this app (all rows for one app live in a single datacenter). If that datacenter has no healthy Buddy this REFUSES with NO_LOCAL_BUDDY rather than returning one elsewhere: every gameplay write for the session would otherwise cross datacenters, which is invisible because each write still succeeds. Requires a bearer game token; as a side effect it authorizes that token’s P2P session with the chosen Buddy so the native client’s spatial datagrams are accepted. Connect the native client to the returned ip4 and clientPort. Browser clients should instead use the UDP proxy (connectUdpProxy / udpNotifications) and do not need this.
   """
   serverWithLeastClients: ServerStatus!
   """
@@ -9305,10 +9404,6 @@ type Mutation {
   """
   socialLoginComplete(input: SocialLoginCompleteInput!): AuthResponse!
   """
-  DEV ONLY bypass sign-in: returns a session for the given email without email/social verification. Active only when DEV_AUTH_BYPASS is enabled; throws (FORBIDDEN) otherwise. Never enabled in production.
-  """
-  devLogin(input: DevLoginInput!): AuthResponse!
-  """
   Authenticates with email + password and starts a new session. Returns an AuthResponse whose `token` must be sent on subsequent requests as `Authorization: Bearer <token>`. Public (no auth required); throws on invalid credentials. If the account also has another verified sign-in method, the password must first be email-confirmed.
   """
   login(
@@ -9601,6 +9696,32 @@ type Mutation {
     """
     referenceId: String
   ): WalletTransaction! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  OPERATOR ONLY. Runs the shared-usage billing tick once. It still bills only the last CLOSED clock hour — it will not charge an open hour. Use this to prove a closed-hour debit without waiting for the ~60s cron. Backdating usage rows is a local-test fixture, not something this mutation does on a live tier.
+  """
+  runSharedUsageBillingTick: Boolean! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  OPERATOR ONLY. Sets a metered dimension's price, the UNIT that price is quoted in, its free allowances, or any combination, and returns the new row alongside the values that moved. THIS IS THE ONLY SANCTIONED WAY TO CHANGE A PRICE OR A UNIT: the schema seeds use ON CONFLICT DO NOTHING, so a rate reaches a tier once at install and a unit corrected in the declaration never reaches a tier that already exists. Refuses an unknown or unmetered metric (a rate for a dimension nothing meters bills nobody while appearing configured), refuses a negative price, refuses unitLabel without unitQuantity (which would restate the rate card while the arithmetic kept the old divisor), and refuses a call that would change nothing. A unit change that also moves the money needs acknowledgeRepricing: true, so restating a price and cutting it cannot be confused. NOT RETROACTIVE: charges already written are history and the tick is idempotent per closed hour, so a new rate applies to hours billed from now on. Takes effect within about a minute — both billing ticks reload the card on every run, so no restart is needed.
+  """
+  setBillingRate(
+    """Which dimension to reprice, the new price and/or allowance, and why."""
+    input: SetRateCardInput!
+  ): SetRateCardResult! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  OPERATOR ONLY. Sets or clears an organization billing exemption. When true, org-wallet debits and money-driven runtime denials are skipped; usage is still metered and every waived amount is written to org_billing_waivers. Does not waive player-wallet charges, failure breakers, or the per-minute compute budget. reason is required when setting true. SIDE EFFECT: re-evaluates the runtime gate for every shared app in the org, so clearing the exemption re-denies immediately instead of waiting for the next hourly tick.
+  """
+  setOrgBillingExempt(
+    """Organization to exempt or un-exempt."""
+    orgId: BigInt!
+    """
+    true to skip org charges and money-driven denials; false to restore them.
+    """
+    exempt: Boolean!
+    """
+    Why the exemption is being set or cleared. Required (non-empty after trim) when exempt is true.
+    """
+    reason: String!
+  ): BillingExemptOrgType! @requiresPermission(scope: "operator", permission: "is_operator")
   """
   Publishes an app to the shared game-api environment. Free under the org's app-slot quota (result.free = true); beyond the quota, publish still succeeds and hourly usage is debited from the org wallet. Requires the 'manage_apps' permission on the app's org. Blocked when SHARED_GAME_API_URL is not configured.
   """
@@ -11503,14 +11624,6 @@ input SocialLoginCompleteInput {
   state: String!
 }
 
-"""
-Dev-only bypass sign-in (active only when DEV_AUTH_BYPASS is enabled; never in production).
-"""
-input DevLoginInput {
-  """Email of the account to sign in as (created if absent)."""
-  email: String!
-}
-
 input LoginUserInput {
   """Account email address."""
   email: String!
@@ -11729,6 +11842,43 @@ input SetAppClientSettingsInput {
   clientType: String
   """Browser launch URL players are sent to when entering the app."""
   launchUrl: String
+}
+
+input SetRateCardInput {
+  """Which card to edit."""
+  scope: RateScope!
+  """
+  The metered dimension to reprice. Refused unless the platform actually meters it: a rate for an unmetered metric bills nobody while appearing configured.
+  """
+  metric: String!
+  """
+  New price in cents per unitQuantity raw units. Must be >= 0; 0 means meter but do not charge. Omit to leave the price unchanged. Fractional values are accepted (the column is NUMERIC(20,6)).
+  """
+  priceCents: Float
+  """
+  New human unit this price is quoted in, e.g. "GiB" or "GiB-mo". Must be supplied together with unitQuantity: a label on its own restates the rate card while the arithmetic keeps the old divisor. Omit both to leave the unit unchanged.
+  """
+  unitLabel: String
+  """
+  New number of raw metric units one priceCents charge covers, as a BigInt decimal string. Must be > 0 and supplied together with unitLabel. Needed because every rate seed is ON CONFLICT DO NOTHING, so a unit corrected in the declaration never reaches a tier that is already installed.
+  """
+  unitQuantity: BigInt
+  """
+  Required when a unit change also changes the money. Restating 15c per GiB as 1.396984c per 100 MB is the same price and needs nothing; changing 20c per 100 MB to 20c per GiB-month is a 7841x cut and must be stated deliberately. The mutation refuses rather than guessing which one you meant.
+  """
+  acknowledgeRepricing: Boolean
+  """
+  New hourly free allowance in raw metric units, as a BigInt decimal string. Must be >= 0. Omit to leave the allowance unchanged.
+  """
+  freePerHour: BigInt
+  """
+  New monthly free allowance in raw metric units, as a BigInt decimal string. Must be >= 0. On the PLAYER card with metric player_wasm_compute_units this is the pooled monthly TRIAL BUDGET per (player, app) — the only sanctioned way to change it on a live tier. Omit to leave it unchanged.
+  """
+  freePerMonth: BigInt
+  """
+  Why this price is changing. Required: a rate change with no stated reason is not auditable after the fact. Recorded in the operator log with the before and after values.
+  """
+  reason: String!
 }
 
 """

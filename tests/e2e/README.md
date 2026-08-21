@@ -37,8 +37,10 @@ suite or carries an explicit exclusion reason.
 \* a few legacy suites can run with pre-entitled fixed accounts
 (`CROWDY_E2E_EMAIL`/`_EMAIL_2`) instead, but the owner unlocks everything.
 
-The management server must run with `DEV_AUTH_BYPASS` (the suites sign in with
-`devLogin`; the auth suite also exercises the magic-link dev-token flow).
+The suites sign in with **email + password** (`auth.login` / `auth.register`).
+`DEV_AUTH_BYPASS` and `devLogin` were REMOVED from every tier on 2026-08-20 and
+no longer exist to enable; a suite still asking for them will fail to
+authenticate rather than fall back.
 Every test exits **77** (ctest `SKIP_RETURN_CODE`) when its required
 variables are unset, so an unconfigured checkout reports skips, not failures.
 Hosted CI intentionally has no live deployment credentials: it compiles these

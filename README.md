@@ -65,9 +65,12 @@ buildable on the platform where 0.21.0 was not.
 
 Released from the `dev` branch as `dev/v0.22.0`. Since 2026-08-12 this repo
 carries `dev`, `test` and `prod`, and a release tag names the branch it was cut
-from; a bare `vX.Y.Z` tag is the retired convention. Note that **v0.20.0 and
-v0.21.0 were never tagged on the remote** despite a commit saying they were —
-the highest published tag is `v0.19.0`.
+from; a bare `vX.Y.Z` tag is the retired convention. **v0.20.0 and v0.21.0 were
+never tagged on the remote** despite a commit saying they were, which is why the
+tier-tag release path and its gates exist. That is history now: releases have
+been tagged from `<tier>/vX.Y.Z` since 0.25.0, and as of 2026-08-21 `dev`,
+`test`, `prod` and `main` are all **0.26.0**. Derive the current one from
+`git tag --sort=v:refname` rather than from this paragraph.
 
 **v0.21.0 invoke fault attribution:** a failed `gameModelInvoke` now reports
 whose fault it was and whether repeating it can work, on both channels the

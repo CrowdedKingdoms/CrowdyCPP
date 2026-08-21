@@ -5,7 +5,8 @@ or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed.
 
 GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS
-**14.1.0**. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
+**15.0.0** — read it from `crowdyjsParityTarget` in `package.json`, which is the source
+of truth CI checks out; this line said **14.1.0** for a day after 0.26.0 moved it. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
 is PostgreSQL + Citus, not galaxy. `cks-management-api` is not a running
 service (GitHub repo still exists, unarchived).
 

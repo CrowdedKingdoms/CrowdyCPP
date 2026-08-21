@@ -69,7 +69,10 @@ from; a bare `vX.Y.Z` tag is the retired convention. **v0.20.0 and v0.21.0 were
 never tagged on the remote** despite a commit saying they were, which is why the
 tier-tag release path and its gates exist. That is history now: releases have
 been tagged from `<tier>/vX.Y.Z` since 0.25.0, and as of 2026-08-21 `dev`,
-`test`, `prod` and `main` are all **0.26.0**. Derive the current one from
+`test` and `prod` are all **0.26.0**. `main` was fast-forwarded to `prod` and
+then **deleted** the same day, with every other repo's — a public branch a
+consumer can mistake for the release had already cost a wasted defect report.
+Derive the current one from
 `git tag --sort=v:refname` rather than from this paragraph.
 
 **v0.21.0 invoke fault attribution:** a failed `gameModelInvoke` now reports

@@ -21,7 +21,7 @@
  * build dir so the embedded fixture headers pick up the new content.
  */
 import { execFileSync } from 'node:child_process';
-import { globSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,7 +56,20 @@ const pkg = JSON.parse(packageRaw);
 const previous = pkg.crowdyjsParityTarget;
 console.log(`pin ${previous.version}@${previous.commit.slice(0, 10)} -> ${version}@${commit.slice(0, 10)}`);
 
+// Discovered before the --check exit so a dry run walks the tree too. The whole
+// point of the CI dry run is to fail here rather than during a real repin, and
+// a --check that returned before touching the filesystem could only ever have
+// caught an import-time fault -- which is one of the two ways this has broken.
+const cppSuites = discoverCppSuites();
+
 if (options.check) {
+  const stale = cppSuites.filter((file) => {
+    const body = readFileSync(file, 'utf8');
+    return body.includes(previous.version) || body.includes(previous.commit);
+  });
+  console.log(
+    `found ${cppSuites.length} C++ suite(s), ${stale.length} asserting the current pin`,
+  );
   if (previous.version === version && previous.commit === commit) {
     console.log('pin is already current');
     process.exit(0);
@@ -99,7 +112,6 @@ writeFileSync(gateTestPath, updatedGateTest);
 // repin left CI red in a way the tool could not see, because it only ever wrote
 // package.json. Anything that records the pin has to be written by the thing
 // that moves it.
-const cppSuites = globSync('tests/**/*.cpp', { cwd: root, absolute: true });
 let cppUpdated = 0;
 for (const file of cppSuites) {
   const body = readFileSync(file, 'utf8');
@@ -116,6 +128,17 @@ console.log(`updated ${cppUpdated} C++ suite(s) asserting the pinned version`);
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Recursive readdirSync rather than fs.globSync: globSync landed in Node 22 and
+// every workflow in this repo pins Node 20, so the commit that taught this tool
+// to write all five places also made it unrunnable on the only version CI has.
+// It threw at import, and nothing noticed for a day, because no gate ran a repin.
+function discoverCppSuites() {
+  return readdirSync(join(root, 'tests'), { recursive: true })
+    .map((entry) => String(entry))
+    .filter((entry) => entry.endsWith('.cpp'))
+    .map((entry) => join(root, 'tests', entry));
 }
 
 // Regenerate everything the pin feeds. Order matters only in that the matrix

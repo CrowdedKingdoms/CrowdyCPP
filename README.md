@@ -65,9 +65,15 @@ buildable on the platform where 0.21.0 was not.
 
 Released from the `dev` branch as `dev/v0.22.0`. Since 2026-08-12 this repo
 carries `dev`, `test` and `prod`, and a release tag names the branch it was cut
-from; a bare `vX.Y.Z` tag is the retired convention. Note that **v0.20.0 and
-v0.21.0 were never tagged on the remote** despite a commit saying they were —
-the highest published tag is `v0.19.0`.
+from; a bare `vX.Y.Z` tag is the retired convention. **v0.20.0 and v0.21.0 were
+never tagged on the remote** despite a commit saying they were, which is why the
+tier-tag release path and its gates exist. That is history now: releases have
+been tagged from `<tier>/vX.Y.Z` since 0.25.0, and as of 2026-08-21 `dev`,
+`test` and `prod` are all **0.26.0**. `main` was fast-forwarded to `prod` and
+then **deleted** the same day, with every other repo's — a public branch a
+consumer can mistake for the release had already cost a wasted defect report.
+Derive the current one from
+`git tag --sort=v:refname` rather than from this paragraph.
 
 **v0.21.0 invoke fault attribution:** a failed `gameModelInvoke` now reports
 whose fault it was and whether repeating it can work, on both channels the
@@ -178,11 +184,13 @@ across the SDK boundary.
 int main() {
   const std::string appId = "42";  // GraphQL BigInt stays a decimal string.
 
-  // 1) Identity client on the shared entry origin — passwordless sign-in.
+  // 1) Identity client on the shared entry origin.
   crowdy::CrowdyClient identity(crowdy::ClientConfig{
       .httpUrl = "https://ck.example.com",
   });
-  auto login = identity.auth().devLogin("player@example.com");  // dev/test only
+  // devLogin was REMOVED in 0.26.0 (ck-api deleted it on every tier).
+  // registerUser is `register` renamed, because C++ cannot name a method after a keyword.
+  auto login = identity.auth().login("player@example.com", "correct-horse-battery");
 
   // 2) Mint an app-scoped token and build the per-game client.
   auto minted = identity.portal().mintAppToken(appId);
@@ -294,7 +302,7 @@ app-scoped token):
 
 | Sub-client | What it does |
 |---|---|
-| `client.auth()` | Passwordless sign-in (magic link, social/OIDC, dev bypass), log out, linked identities. |
+| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
 | `client.users()` | `me`, `updateGamertag`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
 | `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs. |
@@ -653,7 +661,8 @@ There is one API origin since 0.20.0, but still two tokens. CrowdyCPP follows th
 platform's
 [portal / app-scoped token model](https://docs.crowdedkingdoms.com/management-api/portals-and-app-tokens):
 
-1. Passwordless sign-in yields an **identity session token** — account, studio
+1. Sign-in (`login` / `registerUser`, magic link, or social/OIDC) yields an
+   **identity session token** — account, studio
    admin and minting. Not accepted for gameplay.
 2. Gameplay requires a short-lived **app-scoped token** per app
    (`portal().mintAppToken(appId)`), which is also the 64-octet HMAC key for
@@ -787,9 +796,9 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **14.1.0** at
-`90f4b7bb2562d007aa62d01d4b21abdb76923e9b`. The source of truth is
-`crowdyjsParityTarget` in `package.json`; CI reads that commit before checkout,
+CrowdyCPP tracks CrowdyJS **15.0.0**. The source of truth is
+`crowdyjsParityTarget` in `package.json` — quote it from there, not from this
+sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
 does not match. After either SDK changes its public surface:
 

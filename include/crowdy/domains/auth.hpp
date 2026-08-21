@@ -442,6 +442,37 @@ class AuthAPI : public DomainBase {
         });
   }
 
+  /// Adds a password to a signed-in account that has none.
+  ///
+  /// Distinct from `changePassword`, which verifies a current password and so
+  /// cannot serve an account created by magic link or a social provider. The
+  /// session is the proof of account control, so the password works
+  /// immediately. Refuses with CONFLICT when a password already exists, which
+  /// is the case for `changePassword`.
+  bool setInitialPassword(std::string_view newPassword) const {
+    graphql::JVal vars;
+    vars["newPassword"] = newPassword;
+    return execUnwrap(
+               "mutation SetInitialPassword($newPassword: String!) {"
+               " setInitialPassword(newPassword: $newPassword) }",
+               vars)
+        .asBool();
+  }
+
+  void setInitialPasswordAsync(std::string_view newPassword,
+                               std::function<void(graphql::GraphQLOutcome, bool)> cb) const {
+    graphql::JVal vars;
+    vars["newPassword"] = newPassword;
+    execUnwrapAsync(
+        "mutation SetInitialPassword($newPassword: String!) {"
+        " setInitialPassword(newPassword: $newPassword) }",
+        vars, {}, [cb = std::move(cb)](graphql::GraphQLOutcome out) mutable {
+          bool value = false;
+          if (out.ok()) value = out.data.asBool();
+          cb(std::move(out), value);
+        });
+  }
+
   /// Single-device logout; clears the stored token.
   bool logout() const {
     const graphql::Json result = execUnwrap(gen::auth::kLogoutDocument);

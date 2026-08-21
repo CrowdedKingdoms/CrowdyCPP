@@ -94,6 +94,22 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'operator-only billing reads; not a game-client surface',
   ),
+  // The operator-only email deliverability surface, from the SES cycle. Same
+  // reasoning as billing above: all four carry @RequiresOperator, so a wrapper
+  // here would be a method no holder of a player's app-scoped token could call.
+  // `sendTestEmail` drives a tier verification harness, not a game.
+  ...classifyNames(
+    'Mutation',
+    ['sendTestEmail', 'forgetEmailDeliverability'],
+    CATEGORY.BROWSER,
+    'operator-only email deliverability control; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Query',
+    ['emailDeliverability', 'emailDeliveryConfig'],
+    CATEGORY.BROWSER,
+    'operator-only email deliverability reads; not a game-client surface',
+  ),
   ...classifyNames(
     'Mutation',
     [

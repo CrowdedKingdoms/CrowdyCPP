@@ -101,6 +101,18 @@ jobs:
           --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
           --check docs/parity-matrix.md
           --strict
+      # The repin tool is documented as THE way to move the pin, and nothing ran
+      # it, so it was free to stop working -- which it did: the commit that
+      # taught it to write all five places used fs.globSync, added in Node 22,
+      # while every job here pins Node 20. It threw at import. This dry run is
+      # a no-op when the pin is current (which it always is here, since CI
+      # checks out the pinned commit), and that is the point: it proves the
+      # tool still LOADS and still walks the tree.
+      - name: Check the repin tool still runs
+        run: >
+          node tools/parity/repin.mjs
+          --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
+          --check
       - name: Check agent descriptor and preemption fixtures
         run: >
           node tools/parity/agent-fixtures.mjs

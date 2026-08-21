@@ -1,4 +1,4 @@
-// Minimal native game client: sign in (dev bypass), mint an app token,
+// Minimal native game client: sign in (email + password), mint an app token,
 // connect the native UDP replication client, and walk an actor around while
 // printing whoever else is nearby.
 //

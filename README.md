@@ -787,8 +787,19 @@ node scripts/codegen.mjs                # regenerates include/crowdy/generated/
 (`https://docs.crowdedkingdoms.com/schema/game-api.graphql`); `--game <path|url>`
 overrides the source. There is one schema because there is one origin: the
 published management SDL is a **derived** subset for the docs tab, not a second
-endpoint. `--check` compares the committed `schema.gql` with the source without
-writing. Operation documents live in `operations/<domain>/*.graphql` and follow
+endpoint. A sync also records where the snapshot came from, in
+`package.json`'s `publishedSchemaSnapshot` — commit that alongside `schema.gql`.
+
+`schema.gql` is the **pinned artifact**: it is what every external build compiles
+against, and CI checks it **offline**
+(`node scripts/schema-sync.mjs --check --offline`) — that it is in canonical form
+and matches its provenance record, both of which are properties of the commit.
+CI used to compare it against the live SDL, which meant an unrelated commit could
+turn red hours after it was pushed because someone republished the docs site.
+Whether the snapshot has fallen *behind* the published SDL is a real question and
+is asked daily by `.github/workflows/schema-drift.yml`, which files an issue
+naming the `cks-docs` commit that published the change, which fields moved, and
+what to run. `--check` without `--offline` performs that live comparison by hand. Operation documents live in `operations/<domain>/*.graphql` and follow
 the same shapes as CrowdyJS. Codegen isolates each named operation with only
 its transitive fragments and embeds schema and operation-input digests in
 generated headers; `node scripts/codegen.mjs --check` verifies them without

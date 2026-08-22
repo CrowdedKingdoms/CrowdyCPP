@@ -1,0 +1,67 @@
+# Reports when the committed `schema.gql` snapshot has fallen behind the published SDL.
+#
+# This job exists because the question it asks does NOT belong in per-commit CI. Until
+# 2026-08-22 `ci.yml` compared the snapshot against the live SDL on every push, which made a
+# branch's verdict a property of the world rather than of its commit: on 2026-08-21 a
+# CODEOWNERS-only commit went red two hours after it was pushed, because `cks-docs` published
+# a new SDL in between. Nothing the author could change on their branch would have fixed it.
+# The gate is now `schema-sync.mjs --check --offline`, which asks the network nothing, and the
+# world is watched here instead, where the output is a report somebody can act on.
+#
+# TWO THINGS ABOUT THIS FILE THAT ARE EASY TO GET WRONG.
+#
+# A scheduled workflow runs ONLY from the repository's DEFAULT branch, which is `prod`. So
+# this file being correct on `dev` means it never runs -- the same shape that broke the
+# `cks-docs` link fix earlier in this cycle, where a fix landed on the branch that does not
+# publish. It has to be promoted through to `prod` to exist at all.
+#
+# And it deliberately checks out `dev`, not the branch it runs from. Drift is closed by
+# syncing on `dev`, so `dev` is the snapshot whose currency is worth asking about; measuring
+# `prod` would report drift that is simply the promotion lag and would stay red until a
+# release, which is the "red nobody reads" this design is trying to avoid.
+
+name: Schema drift
+
+on:
+  schedule:
+    # 07:00 UTC daily. Nothing about the choice is load-bearing -- the SDL is published by a
+    # human action, so any interval short enough to notice within a working day will do.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Compare the snapshot against the published SDL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node scripts/schema-drift.mjs --issue
+          code=$?
+          set -e
+          # 0 current or a formatting-only republish, 1 the snapshot must be synced,
+          # 2 the job could not answer. Two is reported as a FAILURE and one is not:
+          # a drift is tracked by the issue the script just filed, and failing the job as
+          # well would put a permanent red on a repository whose own commits are all fine.
+          # A job that could not run is the outcome nobody notices, so that one is loud.
+          case "$code" in
+            0) echo "snapshot is current" ;;
+            1) echo "::notice::schema.gql is behind the published SDL -- see the tracking issue" ;;
+            2) echo "::error::schema-drift could not run; the snapshot's currency is UNKNOWN"; exit 1 ;;
+            *) echo "::error::unexpected exit $code"; exit 1 ;;
+          esac

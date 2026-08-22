@@ -218,9 +218,18 @@ async function main() {
     lines.push('node scripts/schema-sync.mjs   # rewrites schema.gql and its provenance record');
     lines.push('node scripts/codegen.mjs       # regenerates include/crowdy/generated/');
     lines.push('```');
-    lines.push('Commit both, on `dev`. `schema-sync.mjs --check --offline` in CI will refuse the');
-    lines.push('first without the second, because the provenance record and the snapshot are');
-    lines.push('written in the same act.');
+    lines.push('Commit `schema.gql`, `package.json` and the regenerated headers together. CI\'s');
+    lines.push('offline gate refuses the snapshot without its provenance record, because the two');
+    lines.push('are written in the same act.');
+    lines.push('');
+    lines.push('**Syncing is usually not sufficient on its own.** The snapshot is compared against');
+    lines.push('the CrowdyJS checkout pinned in `package.json`\'s `crowdyjsParityTarget`, so pulling');
+    lines.push('in a field the pinned SDK does not have opens a parity gap and `parity-baseline`');
+    lines.push('fails on `Check schema, API, and generated matrix parity` — which is exactly what');
+    lines.push('happened on the first attempt to land this job. Move the pin in the same change');
+    lines.push('(`npm run parity:repin -- --crowdyjs <path>`) once CrowdyJS carries the new surface,');
+    lines.push('or wait for it: the chain is cks-game-api → the published SDL → the CrowdyJS mirror,');
+    lines.push('and it takes more than one publish to come round.');
   }
 
   const report = lines.join('\n');

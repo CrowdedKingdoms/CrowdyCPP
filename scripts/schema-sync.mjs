@@ -189,9 +189,15 @@ if (args.check) {
   // The provenance record is written in the same act as the snapshot, so the two cannot
   // disagree unless somebody edits one by hand -- which is precisely what --offline
   // refuses. A record updated by a separate step would be a second copy of a fact.
+  // `url` is the endpoint drift is measured AGAINST and is always the published one;
+  // `syncedFrom` is where these particular bytes were read this time. They differ when a
+  // maintainer syncs from a file or from a pinned raw ref -- and conflating them would
+  // quietly repoint the daily drift job at a URL that can never move, which is a check
+  // that cannot fail wearing the costume of one that passed.
   const pkg = JSON.parse(readFileSync(PACKAGE, 'utf8'));
   pkg.publishedSchemaSnapshot = {
-    url: args.game,
+    url: DEFAULTS.game,
+    ...(args.game === DEFAULTS.game ? {} : { syncedFrom: args.game }),
     sourceBlob: gitBlob(served),
     snapshotSha256: sha256(normalised),
     syncedAt: new Date().toISOString(),

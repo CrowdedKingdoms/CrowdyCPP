@@ -32,8 +32,9 @@
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
-    "sourceBlob": "13ac00a0d33d27726f3b590ef57ccb4d84fa447d",
-    "snapshotSha256": "499d678123c06ce18bbb72bcd33eb92dbae72c8fbed7d38e339d6a92bdd4d5ad",
-    "syncedAt": "2026-08-22T01:23:40.656Z"
+    "syncedFrom": "https://raw.githubusercontent.com/CrowdedKingdoms/cks-docs/3a17dc10/static/schema/game-api.graphql",
+    "sourceBlob": "ab18934023cc877a737ba64e0c6d7a6a238eba33",
+    "snapshotSha256": "007c25fa35420b55dca5e1e4b427341136e86381aff4d7b8bbc6b6dd4a408a75",
+    "syncedAt": "2026-08-22T01:33:59.748Z"
   }
 }

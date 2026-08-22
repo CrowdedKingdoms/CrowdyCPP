@@ -18,9 +18,13 @@ When the unified GraphQL surface changes:
 2. Refresh `schema.gql` with `scripts/schema-sync.mjs` from the published
    unified SDL (`/schema/game-api.graphql`). The management docs SDL is
    derived from that schema; do not sync a second endpoint.
-3. Run `node scripts/codegen.mjs`; commit `schema.gql`,
+3. Run `node scripts/codegen.mjs`; commit `schema.gql`, `package.json` (the sync
+   rewrites its `publishedSchemaSnapshot` provenance record in the same act),
    `include/crowdy/generated/enums.hpp`, and
-   `include/crowdy/generated/operations.hpp` together.
+   `include/crowdy/generated/operations.hpp` together. CI's schema gate is
+   offline and checks the snapshot against that record, so committing the
+   snapshot without the record — or either without the regenerated headers —
+   is refused on the branch rather than discovered later.
 4. Run `node scripts/codegen.mjs --check`.
 5. Compare the reviewed CrowdyJS checkout with
    `node tools/parity/parity.mjs --crowdyjs <path> --write

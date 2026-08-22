@@ -91,8 +91,16 @@ jobs:
         env:
           CROWDYJS_PATH: ${{ github.workspace }}/CrowdyJS
         run: npm test
-      - name: Check published endpoint schema snapshots
-        run: node scripts/schema-sync.mjs --check
+      # OFFLINE on purpose. This step used to fetch the live SDL from
+      # docs.crowdedkingdoms.com and compare, which made this branch's verdict a property of
+      # the world at the moment the job ran: on 2026-08-21 a commit that changed only
+      # CODEOWNERS went red two hours after being pushed because `cks-docs` published a new
+      # SDL in between, and no change to this branch could have made it green again. The
+      # snapshot is the pinned artifact; this asserts it is canonical and matches its
+      # provenance record, both of which are true or false of the commit alone. Whether it
+      # is BEHIND the published SDL is asked by .github/workflows/schema-drift.yml, daily.
+      - name: Check the committed schema snapshot is canonical and unedited
+        run: node scripts/schema-sync.mjs --check --offline
       - name: Check deterministic C++ codegen
         run: node scripts/codegen.mjs --check
       - name: Check schema, API, and generated matrix parity

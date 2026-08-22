@@ -15,16 +15,25 @@
     "check:studio-host-fixtures": "node tools/parity/studio-host-fixtures.mjs",
     "check:studio-state-fixtures": "node tools/parity/studio-state-fixtures.mjs",
     "check:codegen": "node scripts/codegen.mjs --check",
+    "check:schema": "node scripts/schema-sync.mjs --check --offline",
     "check:layout-fixtures": "node tools/parity/layout-fixtures.mjs",
     "check:operations": "node --test tests/parity/codegen-operation-isolation.test.mjs",
     "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
-    "check:release": "npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm run check:control-gate-fixtures && npm run check:studio-host-fixtures && npm run check:layout-fixtures && npm run check:studio-state-fixtures && npm test",
+    "check:release": "npm run check:schema && npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm run check:control-gate-fixtures && npm run check:studio-host-fixtures && npm run check:layout-fixtures && npm run check:studio-state-fixtures && npm test",
     "test": "node --test tests/parity/*.test.mjs",
-    "parity:repin": "node tools/parity/repin.mjs"
+    "parity:repin": "node tools/parity/repin.mjs",
+    "schema:sync": "node scripts/schema-sync.mjs",
+    "schema:drift": "node scripts/schema-drift.mjs"
   },
   "license": "MIT",
   "devDependencies": {
     "@graphql-tools/merge": "^9.2.2",
     "graphql": "^16.14.2"
+  },
+  "publishedSchemaSnapshot": {
+    "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
+    "sourceBlob": "13ac00a0d33d27726f3b590ef57ccb4d84fa447d",
+    "snapshotSha256": "499d678123c06ce18bbb72bcd33eb92dbae72c8fbed7d38e339d6a92bdd4d5ad",
+    "syncedAt": "2026-08-22T01:23:40.656Z"
   }
 }

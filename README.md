@@ -302,7 +302,7 @@ app-scoped token):
 
 | Sub-client | What it does |
 |---|---|
-| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
+| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
 | `client.users()` | `me`, `updateGamertag`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
 | `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs. |

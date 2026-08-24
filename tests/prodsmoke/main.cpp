@@ -4,12 +4,20 @@
 // token by design, because a cold client has to ask where its app lives before it
 // has anything to authenticate with.
 //
-//   ./prod_smoke https://ck.prod.cp.cks-env.com 77330192913920
+//   ./prod_smoke <origin> <appId>
+//   ./prod_smoke                      # crowdy::kDefaultHttpOrigin
 //
 // What it proves that a unit test cannot: that the estate rule accepts the real
-// pair of hostnames this tier uses. A guard that refused
-// ck.prod.cp.cks-env.com -> ck-or.prod.cp.cks-env.com would pass every fixture I
-// wrote and then decline every redirect in production.
+// pair of hostnames this tier uses. A guard that refused a shared origin's
+// redirect to its own per-datacenter name would pass every fixture I wrote and
+// then decline every redirect in production.
+//
+// THE DEFAULT USED TO BE A TYPED LITERAL, and it named a host RETIRED ON
+// 2026-08-19 — so running this with no argument dialled NXDOMAIN and reported it
+// as a product failure. It takes the generated default now, which the wrapper's
+// check-sdk-default-origin.mjs holds to the tier table. Note that the default is
+// this build's TIER, so a `dev` build of the SDK smokes dev; pass the origin
+// explicitly to smoke another.
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -28,8 +36,7 @@ void check(bool ok, const std::string& what) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::string origin =
-      argc > 1 ? argv[1] : "https://ck.prod.cp.cks-env.com";
+  const std::string origin = argc > 1 ? argv[1] : crowdy::kDefaultHttpOrigin;
   const std::string appId = argc > 2 ? argv[2] : "77330192913920";
 
   std::printf("shared origin: %s\napp: %s\n\n", origin.c_str(), appId.c_str());

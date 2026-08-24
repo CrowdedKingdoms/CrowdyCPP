@@ -6,6 +6,7 @@
 #include <string>
 
 #include "crowdy/core/result.hpp"
+#include "crowdy/default_origin.hpp"
 #include "crowdy/domains/auth.hpp"
 #include "crowdy/domains/discovery.hpp"
 #include "crowdy/domains/realtime_control.hpp"
@@ -66,6 +67,13 @@ struct ClientConfig {
   /// API base URL. One origin serves identity and gameplay alike; for a
   /// per-game client this is the app's own datacenter endpoint
   /// (mintAppToken's gameApiUrl), because that is where its shards live.
+  ///
+  /// LEAVE EVERY ORIGIN EMPTY AND THE CLIENT USES crowdy::kDefaultHttpOrigin —
+  /// the public CK API origin for the tier this build was released for, from
+  /// the generated `crowdy/default_origin.hpp`. The rule is ALL-OR-NOTHING: set
+  /// any one of httpUrl / wsUrl / wsEndpoint and nothing is invented around it,
+  /// because a client whose HTTP is on your host and whose WEBSOCKET is on the
+  /// tier default is one session split across two origins, looking connected.
   std::string httpUrl;
   /// The SHARED origin (multivalue DNS over every datacenter's balancer). Set
   /// this and a client that loses its endpoint can ask where to go next; leave

@@ -1,14 +1,14 @@
-// GENERATED — do not edit. `scripts/sync-client-origins.mjs --write --tier dev`
-// in the cks-michael-root wrapper writes this file, and
-// `scripts/check-sdk-default-origin.mjs` refuses it when it names the wrong tier
-// or a host the tier table does not declare.
+// GENERATED — do not edit. The operator tooling's
+// `sync-client-origins.mjs --write --tier dev` writes this file, and
+// `check-sdk-default-origin.mjs` refuses it when it names the wrong tier or a
+// host that declaration does not carry. Regenerate; never hand-edit.
 //
 // THE DEFAULT IS LOAD-BEARING DURING A ROLLOUT: while the branches are
 // mid-migration this is what an unconfigured consumer gets, so a WRONG default on
 // one branch is worse than no default at all. The literal that used to live in
 // tests/prodsmoke/main.cpp named a host retired on 2026-08-19 and nothing said so.
 //
-// Source: cp-tiers.json tiers.dev.clientOriginHost (mirror of CK_CLIENT_ORIGIN_HOST_BY_TIER in dns-tier.ts)
+// Source: the operator's per-tier public CK API origin declaration, tier 'dev'
 #ifndef CROWDY_DEFAULT_ORIGIN_HPP
 #define CROWDY_DEFAULT_ORIGIN_HPP
 

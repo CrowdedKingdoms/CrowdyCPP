@@ -34,7 +34,12 @@
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
     "syncedFrom": "https://raw.githubusercontent.com/CrowdedKingdoms/cks-docs/3a17dc10/static/schema/game-api.graphql",
     "sourceBlob": "ab18934023cc877a737ba64e0c6d7a6a238eba33",
-    "snapshotSha256": "007c25fa35420b55dca5e1e4b427341136e86381aff4d7b8bbc6b6dd4a408a75",
-    "syncedAt": "2026-08-22T01:33:59.748Z"
+    "snapshotSha256": "648397fa7e9221b5334e00bbd3085483b19772d2c268af34b2e00e8c85fbd92a",
+    "syncedAt": "2026-08-22T01:33:59.748Z",
+    "localCorrection": {
+      "reason": "Three GraphQL descriptions named internal repositories. Corrected here ahead of the upstream publish so this public repo does not carry them, and fixed at the source in the API GraphQL decorators the same day. url/syncedFrom/sourceBlob still name where these bytes were read; this snapshot differs from that source in those three descriptions ONLY.",
+      "appliedAt": "2026-08-24T03:29:02.244Z",
+      "convergesWhen": "the published SDL is republished from the corrected decorators, after which an ordinary schema-sync drops this field"
+    }
   }
 }

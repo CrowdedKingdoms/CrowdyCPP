@@ -20,6 +20,10 @@ add_executable(rediscover_test rediscover_test.cpp)
 target_link_libraries(rediscover_test PRIVATE crowdy_graphql Threads::Threads)
 add_test(NAME rediscover_test COMMAND rediscover_test)
 
+add_executable(default_origin_test default_origin_test.cpp)
+target_link_libraries(default_origin_test PRIVATE crowdy)
+add_test(NAME default_origin_test COMMAND default_origin_test)
+
 add_executable(estate_test estate_test.cpp)
 target_link_libraries(estate_test PRIVATE crowdy_graphql)
 add_test(NAME estate_test COMMAND estate_test)

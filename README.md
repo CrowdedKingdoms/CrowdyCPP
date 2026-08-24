@@ -31,6 +31,14 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.27.0 ships a default origin:** a client constructed with no explicit origin
+now dials the public CK API for the tier this build was released for, from the
+generated `crowdy/default_origin.hpp` — `kDefaultHttpOrigin`, `kDefaultWsOrigin`,
+`kDefaultHost` and `kDefaultTier`. The header is written by the operator tooling
+from one per-tier declaration and a gate refuses it when it names the wrong tier,
+so the default cannot quietly drift from the host that actually serves. An
+explicit origin still wins; nothing that configures one changes behaviour.
+
 **v0.26.0 drops the dev auth bypass:** `devLogin` and `devLoginAsync` are gone,
 along with `requestLoginLink`'s `devToken` selection, because ck-api deleted all
 three — the mirror cannot offer a field the server does not have. Sign in with
@@ -302,7 +310,7 @@ app-scoped token):
 
 | Sub-client | What it does |
 |---|---|
-| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
+| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
 | `client.users()` | `me`, `updateGamertag`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
 | `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs. |

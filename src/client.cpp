@@ -384,6 +384,25 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   auth_ = std::make_shared<graphql::AuthState>(config_.tokenStore);
   dispatcher_ = std::make_shared<graphql::Dispatcher>();
 
+  // THE DEFAULT ORIGIN, AND IT IS ALL-OR-NOTHING.
+  //
+  // A config that names no origin at all gets the tier's public one, from the
+  // generated crowdy/default_origin.hpp. A config that names ANY of them gets
+  // exactly what it named: filling in the rest would put HTTP on the caller's
+  // host and the websocket on the tier default, which is one session across two
+  // origins and looks connected the whole time.
+  //
+  // discoveryUrl is filled too, and deliberately: the default IS the shared
+  // multivalue name over every datacenter's balancer, which is precisely what
+  // discoveryUrl wants. Leaving it empty would give an unconfigured client no
+  // way back from an instance that stops answering.
+  if (config_.httpUrl.empty() && config_.wsUrl.empty() &&
+      config_.wsEndpoint.empty()) {
+    config_.httpUrl = kDefaultHttpOrigin;
+    config_.wsUrl = kDefaultWsOrigin;
+    if (config_.discoveryUrl.empty()) config_.discoveryUrl = kDefaultHttpOrigin;
+  }
+
   const std::string endpoint =
       resolveGraphqlEndpoint(config_.httpUrl, config_.graphqlEndpoint);
 

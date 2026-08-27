@@ -34,12 +34,12 @@
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
     "syncedFrom": "https://raw.githubusercontent.com/CrowdedKingdoms/cks-docs/3a17dc10/static/schema/game-api.graphql",
     "sourceBlob": "ab18934023cc877a737ba64e0c6d7a6a238eba33",
-    "snapshotSha256": "648397fa7e9221b5334e00bbd3085483b19772d2c268af34b2e00e8c85fbd92a",
+    "snapshotSha256": "74ffb903074de4198eb5ff2ef0679a6f596120942942296741114b5a2cad0431",
     "syncedAt": "2026-08-22T01:33:59.748Z",
     "localCorrection": {
-      "reason": "Three GraphQL descriptions named internal repositories. Corrected here ahead of the upstream publish so this public repo does not carry them, and fixed at the source in the API GraphQL decorators the same day. url/syncedFrom/sourceBlob still name where these bytes were read; this snapshot differs from that source in those three descriptions ONLY.",
-      "appliedAt": "2026-08-24T03:29:02.244Z",
-      "convergesWhen": "the published SDL is republished from the corrected decorators, after which an ordinary schema-sync drops this field"
+      "reason": "TWO corrections now, both applied here ahead of the upstream publish and both fixed at the source the same day. (1) 2026-08-24: three GraphQL descriptions named internal repositories, which this public repo must not carry. (2) 2026-08-27: descriptions named hosts on the retired cks-env.com domain, which every tier left in the August root migration; the operator's requirement is that the name is gone from shipped artifacts, and a description is shipped. url/syncedFrom/sourceBlob still name where these bytes were read; this snapshot differs from that source in those descriptions ONLY.",
+      "appliedAt": "2026-08-27T06:20:00.000Z",
+      "convergesWhen": "the published SDL is republished from the corrected decorators in cks-game-api, after which an ordinary schema-sync drops this field. The scheduled schema-drift job is what reports that the republish has happened."
     }
   }
 }

@@ -30,13 +30,13 @@ void testTheAnswerIsPassedThrough() {
   coordinator.setCallback([&](const std::string& appId) {
     sawAppId = appId;
     RediscoveredEndpoint endpoint;
-    endpoint.httpUrl = "https://ck-or.prod.cp.cks-env.com";
-    endpoint.wsUrl = "wss://ck-or.prod.cp.cks-env.com";
+    endpoint.httpUrl = "https://ck-or.prod.crowdedkingdoms.com";
+    endpoint.wsUrl = "wss://ck-or.prod.crowdedkingdoms.com";
     return endpoint;
   });
   const auto answer = coordinator.attempt("42");
   CHECK_EQ(sawAppId, "42");
-  CHECK_EQ(answer.httpUrl, "https://ck-or.prod.cp.cks-env.com");
+  CHECK_EQ(answer.httpUrl, "https://ck-or.prod.crowdedkingdoms.com");
   CHECK(!answer.empty());
 }
 
@@ -61,7 +61,7 @@ void testAThrowingCallbackIsNotFatal() {
   // in-flight flag stuck, which would disable re-discovery for the process.
   coordinator.setCallback([](const std::string&) {
     RediscoveredEndpoint endpoint;
-    endpoint.httpUrl = "https://ck-va.prod.cp.cks-env.com";
+    endpoint.httpUrl = "https://ck-va.prod.crowdedkingdoms.com";
     return endpoint;
   });
   CHECK(!coordinator.attempt("42").empty());
@@ -87,7 +87,7 @@ void testConcurrentAttemptsShareOne() {
       std::this_thread::yield();
     }
     RediscoveredEndpoint endpoint;
-    endpoint.httpUrl = "https://ck-or.prod.cp.cks-env.com";
+    endpoint.httpUrl = "https://ck-or.prod.crowdedkingdoms.com";
     return endpoint;
   });
 

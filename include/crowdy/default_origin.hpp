@@ -18,13 +18,13 @@ namespace crowdy {
 inline constexpr const char* kDefaultTier = "prod";
 
 /// The public CK API origin for that tier.
-inline constexpr const char* kDefaultHttpOrigin = "https://ck.crowdedkingdoms.com";
+inline constexpr const char* kDefaultHttpOrigin = "https://ck.prod.crowdedkingdoms.com";
 
 /// The same host over WebSocket. A scheme is composed; a hostname is looked up.
-inline constexpr const char* kDefaultWsOrigin = "wss://ck.crowdedkingdoms.com";
+inline constexpr const char* kDefaultWsOrigin = "wss://ck.prod.crowdedkingdoms.com";
 
 /// The bare hostname, for callers that need to compare rather than dial.
-inline constexpr const char* kDefaultHost = "ck.crowdedkingdoms.com";
+inline constexpr const char* kDefaultHost = "ck.prod.crowdedkingdoms.com";
 
 }  // namespace crowdy
 

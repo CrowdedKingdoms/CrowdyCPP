@@ -12,13 +12,13 @@ using crowdy::graphql::isSameEstate;
 namespace {
 
 void testAcceptsSiblingInstanceInSameEstate() {
-  CHECK(isSameEstate("wss://ck-api-1.pgc.prod.cp.cks-env.com/realtime",
-                     "wss://ck-api-4.pgc.prod.cp.cks-env.com"));
+  CHECK(isSameEstate("wss://ck-api-or-1.prod.crowdedkingdoms.com/realtime",
+                     "wss://ck-api-or-4.prod.crowdedkingdoms.com"));
 }
 
 void testAcceptsSharedLoadBalancer() {
-  CHECK(isSameEstate("wss://ck-api-1.pgc.prod.cp.cks-env.com/realtime",
-                     "wss://ck.prod.cp.cks-env.com"));
+  CHECK(isSameEstate("wss://ck-api-or-1.prod.crowdedkingdoms.com/realtime",
+                     "wss://ck.prod.crowdedkingdoms.com"));
 }
 
 void testAcceptsIdenticalOrigin() {
@@ -26,14 +26,14 @@ void testAcceptsIdenticalOrigin() {
 }
 
 void testRefusesOriginOutsideEstate() {
-  CHECK(!isSameEstate("wss://ck-api-1.pgc.prod.cp.cks-env.com/realtime",
+  CHECK(!isSameEstate("wss://ck-api-or-1.prod.crowdedkingdoms.com/realtime",
                       "wss://evil.example.com"));
 }
 
 void testRefusesLookalikeSharingOnlyAPrefix() {
-  // cks-env.com.evil.com must not pass as cks-env.com.
-  CHECK(!isSameEstate("wss://ck.prod.cp.cks-env.com/realtime",
-                      "wss://ck.prod.cp.cks-env.com.evil.com"));
+  // crowdedkingdoms.com.evil.com must not pass as crowdedkingdoms.com.
+  CHECK(!isSameEstate("wss://ck.prod.crowdedkingdoms.com/realtime",
+                      "wss://ck.prod.crowdedkingdoms.com.evil.com"));
 }
 
 void testRefusesUnparseableRatherThanGuessing() {
@@ -59,11 +59,15 @@ void testHostnameParsing() {
   CHECK(!estateHostname("https://").has_value());
   CHECK(!estateHostname("ck.example.com").has_value());
 
-  // Userinfo must not be mistaken for the host, in either direction.
+  // Userinfo must not be mistaken for the host, in either direction. The
+  // userinfo below must stay the ESTATE ROOT of the first argument: that is the
+  // only reason a parser that read it as the host would answer true, and a
+  // rename that left some other domain there would turn this into an assertion
+  // that passes no matter how estateHostname behaves.
   CHECK_EQ(estateHostname("wss://evil.com@ck.example.com/x").value_or(""),
            "ck.example.com");
-  CHECK(!isSameEstate("wss://ck.prod.cp.cks-env.com",
-                      "wss://cks-env.com@evil.example.com"));
+  CHECK(!isSameEstate("wss://ck.prod.crowdedkingdoms.com",
+                      "wss://crowdedkingdoms.com@evil.example.com"));
 }
 
 // A localhost pair is the shape local development is in, and a two-instance
@@ -73,8 +77,8 @@ void testDevelopmentAndSingleInstanceShapes() {
   CHECK(isSameEstate("http://localhost:3000/graphql",
                      "ws://localhost:3000/graphql"));
   CHECK(!isSameEstate("http://localhost:3000", "http://127.0.0.1:3000"));
-  CHECK(isSameEstate("https://ck-or.prod.cp.cks-env.com",
-                     "https://ck-va.prod.cp.cks-env.com"));
+  CHECK(isSameEstate("https://ck-or.prod.crowdedkingdoms.com",
+                     "https://ck-va.prod.crowdedkingdoms.com"));
 }
 
 // The token-store naming split lives here because it enforces the same kind of

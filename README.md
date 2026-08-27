@@ -892,14 +892,14 @@ None of these maintainer gates run during a normal external CMake build.
   path against a live tier. Not part of any build and not run by CI; it needs the
   network. It exists because the estate rule is the one piece that cannot be
   proven by a fixture: a guard that refused
-  `ck.<tier>.v7.cks-env.com -> ck-<dc>.<tier>.v7.cks-env.com` would pass every
+  `ck.<tier>.crowdedkingdoms.com -> ck-<dc>.<tier>.crowdedkingdoms.com` would pass every
   test in this repo and then decline every redirect in production. Build it
   against an installed package and run:
 
   ```bash
   cmake -S tests/prodsmoke -B build-prodsmoke -DCMAKE_PREFIX_PATH=<install-prefix>
   cmake --build build-prodsmoke
-  ./build-prodsmoke/prod_smoke https://ck.prod.v7.cks-env.com <appId>
+  ./build-prodsmoke/prod_smoke https://ck.prod.crowdedkingdoms.com <appId>
   ```
 - `benchmarks/` — codec ns/op, the send-path cost breakdown (`bench_send`:
   encode vs MAC vs socket write, with the alternatives for each priced side by

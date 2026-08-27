@@ -26,8 +26,8 @@ std::string wrongDatacenterBody() {
   return R"({"errors":[{"message":"App 42 is served from datacenter 'or', not 'va'.",)"
          R"("extensions":{"code":"WRONG_DATACENTER","appId":"42",)"
          R"("appDatacenter":"or","servedBy":"va",)"
-         R"("gameApiUrl":"https://ck-or.prod.cp.cks-env.com",)"
-         R"("gameApiWsUrl":"wss://ck-or.prod.cp.cks-env.com"}}]})";
+         R"("gameApiUrl":"https://ck-or.prod.crowdedkingdoms.com",)"
+         R"("gameApiWsUrl":"wss://ck-or.prod.crowdedkingdoms.com"}}]})";
 }
 
 std::string appUnavailableBody() {
@@ -72,7 +72,7 @@ class ScriptedTransport final : public IHttpTransport {
 std::shared_ptr<GraphQLClient> makeClient(
     const std::shared_ptr<IHttpTransport>& transport) {
   return std::make_shared<GraphQLClient>(
-      GraphQLClientConfig{"https://ck-va.prod.cp.cks-env.com/graphql", 1000},
+      GraphQLClientConfig{"https://ck-va.prod.crowdedkingdoms.com/graphql", 1000},
       transport, std::make_shared<AuthState>());
 }
 
@@ -90,8 +90,8 @@ std::vector<GraphQLErrorDetail> errorsFrom(const std::string& body) {
 void testMoveFromErrorsReadsTheEndpoint() {
   const auto move = moveFromErrors(errorsFrom(wrongDatacenterBody()));
   CHECK(move.has_value());
-  CHECK_EQ(move->gameApiUrl, "https://ck-or.prod.cp.cks-env.com");
-  CHECK_EQ(move->gameApiWsUrl, "wss://ck-or.prod.cp.cks-env.com");
+  CHECK_EQ(move->gameApiUrl, "https://ck-or.prod.crowdedkingdoms.com");
+  CHECK_EQ(move->gameApiWsUrl, "wss://ck-or.prod.crowdedkingdoms.com");
   CHECK_EQ(move->appId, "42");
   CHECK_EQ(move->appDatacenter, "or");
 }
@@ -103,10 +103,10 @@ void testMoveFromErrorsScansPastALeadingUnrelatedError() {
       R"({"errors":[{"message":"nope","extensions":{"code":"FORBIDDEN"}},)"
       R"({"message":"wrong dc","extensions":{"code":"WRONG_DATACENTER",)"
       R"("appId":"42","appDatacenter":"or",)"
-      R"("gameApiUrl":"https://ck-or.prod.cp.cks-env.com"}}]})";
+      R"("gameApiUrl":"https://ck-or.prod.crowdedkingdoms.com"}}]})";
   const auto move = moveFromErrors(errorsFrom(body));
   CHECK(move.has_value());
-  CHECK_EQ(move->gameApiUrl, "https://ck-or.prod.cp.cks-env.com");
+  CHECK_EQ(move->gameApiUrl, "https://ck-or.prod.crowdedkingdoms.com");
 }
 
 void testMoveFromErrorsRefusesOnAppUnavailable() {
@@ -137,8 +137,8 @@ void testTransportMovesAndRetriesOnceAndTheRetrySucceeds() {
   CHECK_EQ(data["v"].asString(), "ok");
   CHECK_EQ(moves, 1);
   CHECK_EQ(transport->urls.size(), std::size_t{2});
-  CHECK_EQ(transport->urls[0], "https://ck-va.prod.cp.cks-env.com/graphql");
-  CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
+  CHECK_EQ(transport->urls[0], "https://ck-va.prod.crowdedkingdoms.com/graphql");
+  CHECK_EQ(transport->urls[1], "https://ck-or.prod.crowdedkingdoms.com/graphql");
 }
 
 void testTransportDoesNotRetryWhenTheHandlerDeclines() {
@@ -325,7 +325,7 @@ void testAppUnavailableNeverLeaksAnEndpointToMoveTo() {
 #endif
   CHECK_EQ(moves, 0);
   CHECK_EQ(transport->urls.size(), std::size_t{1});
-  CHECK_EQ(client->endpoint(), "https://ck-va.prod.cp.cks-env.com/graphql");
+  CHECK_EQ(client->endpoint(), "https://ck-va.prod.crowdedkingdoms.com/graphql");
 }
 
 void testAnOrdinaryErrorIsUntouchedByAnyOfThis() {
@@ -378,7 +378,7 @@ void testARequestOvertakenByAnotherRedirectStillRetries() {
   // client already sits on the target.
   transport->onSend = [&](const HttpRequest&) {
     if (transport->urls.size() == 1) {
-      client->setEndpoint("https://ck-or.prod.cp.cks-env.com/graphql");
+      client->setEndpoint("https://ck-or.prod.crowdedkingdoms.com/graphql");
     }
   };
 
@@ -396,8 +396,8 @@ void testARequestOvertakenByAnotherRedirectStillRetries() {
   // happened anyway, and at the moved-to endpoint rather than the refused one.
   CHECK_EQ(moves, 1);
   CHECK_EQ(transport->urls.size(), std::size_t{2});
-  CHECK_EQ(transport->urls[0], "https://ck-va.prod.cp.cks-env.com/graphql");
-  CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
+  CHECK_EQ(transport->urls[0], "https://ck-va.prod.crowdedkingdoms.com/graphql");
+  CHECK_EQ(transport->urls[1], "https://ck-or.prod.crowdedkingdoms.com/graphql");
 }
 
 // The same race through the blocking path, which has its own retry expression.
@@ -413,7 +413,7 @@ void testSyncRequestOvertakenByAnotherRedirectStillRetries() {
   });
   transport->onSend = [&](const HttpRequest&) {
     if (transport->urls.size() == 1) {
-      client->setEndpoint("https://ck-or.prod.cp.cks-env.com/graphql");
+      client->setEndpoint("https://ck-or.prod.crowdedkingdoms.com/graphql");
     }
   };
 
@@ -421,7 +421,7 @@ void testSyncRequestOvertakenByAnotherRedirectStillRetries() {
   CHECK_EQ(data["v"].asString(), "ok");
   CHECK_EQ(moves, 1);
   CHECK_EQ(transport->urls.size(), std::size_t{2});
-  CHECK_EQ(transport->urls[1], "https://ck-or.prod.cp.cks-env.com/graphql");
+  CHECK_EQ(transport->urls[1], "https://ck-or.prod.crowdedkingdoms.com/graphql");
 }
 
 // The retry re-issues the same operation, so it must carry the credential the

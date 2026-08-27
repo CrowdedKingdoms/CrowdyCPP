@@ -67,8 +67,9 @@ inline std::optional<std::string> estateHostname(std::string_view url) {
 /// True when `candidate` may be moved to from `current`.
 ///
 /// Accepts an identical host, or two hosts sharing their last two labels
-/// (`ck-api-4.prod.cp.cks-env.com` and `ck.prod.cp.cks-env.com` both reduce to
-/// `cks-env.com`). Refuses anything that will not parse, rather than guessing.
+/// (`ck-api-or-4.prod.crowdedkingdoms.com` and `ck.prod.crowdedkingdoms.com`
+/// both reduce to `crowdedkingdoms.com`). Refuses anything that will not parse,
+/// rather than guessing.
 /// A single-label host such as `localhost` matches only itself, which is what
 /// keeps `localhost` from pairing with `otherhost` in local development.
 inline bool isSameEstate(std::string_view current, std::string_view candidate) {

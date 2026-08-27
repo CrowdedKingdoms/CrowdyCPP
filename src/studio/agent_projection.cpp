@@ -135,6 +135,15 @@ agent::StudioDiagnosticSourceV1 diagnosticSource(
       return agent::StudioDiagnosticSourceV1::LocalAdvisory;
     case CrowdyStudioDiagnosticSource::Runtime:
       return agent::StudioDiagnosticSourceV1::Runtime;
+    // ModelLint projects onto Runtime rather than widening the V1 wire enum.
+    // That enum is versioned and shared with peers built against v1: adding a
+    // value would produce a source those peers cannot decode, to say something
+    // they have no separate handling for anyway. Runtime is also the honest
+    // mapping -- the finding comes from the running server, not from the
+    // compiler and not from a local check. A v2 can separate them if a consumer
+    // ever needs to tell them apart.
+    case CrowdyStudioDiagnosticSource::ModelLint:
+      return agent::StudioDiagnosticSourceV1::Runtime;
   }
   return agent::StudioDiagnosticSourceV1::LocalAdvisory;
 }

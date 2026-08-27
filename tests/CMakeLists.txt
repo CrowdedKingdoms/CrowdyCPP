@@ -89,6 +89,10 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     target_link_libraries(crowdy_studio_test PRIVATE crowdy)
     add_test(NAME crowdy_studio_test COMMAND crowdy_studio_test)
 
+    add_executable(model_lint_test model_lint_test.cpp)
+    target_link_libraries(model_lint_test PRIVATE crowdy)
+    add_test(NAME model_lint_test COMMAND model_lint_test)
+
     add_executable(crowdy_studio_state_test crowdy_studio_state_test.cpp)
     target_link_libraries(crowdy_studio_state_test PRIVATE crowdy)
     target_compile_definitions(crowdy_studio_state_test PRIVATE

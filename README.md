@@ -815,7 +815,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.0.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **15.3.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

@@ -110,6 +110,25 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'operator-only email deliverability reads; not a game-client surface',
   ),
+  // The organization-retirement surface, picked up here when the pin moved to CrowdyJS
+  // 15.3.0 -- it had been in ck-api for a while and became visible to this gate only when
+  // the schema snapshot advanced. Same reasoning as billing and email above, and the SDL
+  // states it outright: `retireOrganization` is `is_super_admin`, the other two are
+  // `is_operator`, and both mutations open their own descriptions with "OPERATOR ONLY".
+  // A wrapper here would be a method no holder of a player's app-scoped token could ever
+  // call. Retiring a tenant is a console act.
+  ...classifyNames(
+    'Mutation',
+    ['retireOrganization', 'reinstateOrganization'],
+    CATEGORY.BROWSER,
+    'operator-only organization lifecycle; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Query',
+    ['retiredOrganizations'],
+    CATEGORY.BROWSER,
+    'operator-only organization lifecycle reads; not a game-client surface',
+  ),
   ...classifyNames(
     'Mutation',
     [

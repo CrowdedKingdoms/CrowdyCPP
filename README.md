@@ -31,6 +31,18 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.28.0 reads the quarantine extensions:** a game-model function or automation can be
+refused because an enforced `gameModelLint` error stands against it, and
+`GraphQLErrorDetail` now carries `quarantinedKind`, `quarantinedName` and
+`quarantineReason`. `readGraphQLError` had ignored all three, so a caller was told nothing
+it could act on — `quarantineReason` names the finding to fix. Do **not** gate on
+`code == "OBJECT_QUARANTINED"`: on `gameModelInvoke` the server rebuilds the error at the
+user-code boundary and the code arrives as `USER_CODE_ERROR` with blame `AUTHOR`, while
+those three survive. Also new: `crowdy/kit/notifications.hpp`, whose `sessionChannel`
+builder addresses the app's own session channel by NAME, so a model copied between apps
+follows the app it runs in. Schema synced to ck-api v1.67; parity pinned to CrowdyJS
+15.3.0.
+
 **v0.27.0 ships a default origin:** a client constructed with no explicit origin
 now dials the public CK API for the tier this build was released for, from the
 generated `crowdy/default_origin.hpp` — `kDefaultHttpOrigin`, `kDefaultWsOrigin`,
@@ -815,7 +827,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.0.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **15.3.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

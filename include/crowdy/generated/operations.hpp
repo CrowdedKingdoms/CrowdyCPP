@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 74ffb903074de4198eb5ff2ef0679a6f596120942942296741114b5a2cad0431
-// operations sha256: 3d186ffb5505b51d7463875a3132581f4722cc27e5b76fe7ec4c2679b400b53e
+// schema.gql sha256: ce6448eced016c626b0f4cfbe1f16bab3c2c8fcb10840570b572d2109da3428f
+// operations sha256: f5198d4d2cc0f7c12b74600789b9cb0bb92e242f5e0c9d604daae998971a21d9
 
 #pragma once
 
@@ -7481,6 +7481,8 @@ query GameModelAppDiagnostics($appId: BigInt!) {
     events24h
     failedEvents24h
     automationEvents24h
+    notificationsEmitted24h
+    notificationsUndeliverable24h
     topFunctions {
       functionName
       invocations
@@ -7875,6 +7877,8 @@ inline constexpr std::string_view kGameModelAppDiagnosticsIsolatedDocument = R"g
     events24h
     failedEvents24h
     automationEvents24h
+    notificationsEmitted24h
+    notificationsUndeliverable24h
     topFunctions {
       functionName
       invocations
@@ -7968,6 +7972,47 @@ inline constexpr std::string_view kGameModelFunctionCircuitsIsolatedDocument = R
   }
 })gql";
 inline constexpr std::string_view kGameModelFunctionCircuitsOperationName = "GameModelFunctionCircuits";
+
+/// gameModel/GameModelLint.graphql
+inline constexpr std::string_view kGameModelLintDocument = R"gql(# The studio lint query. It lived as an inline string constant in
+# include/crowdy/studio/model_lint.hpp, which meant the codegen operation-isolation test
+# could never validate it against the schema -- the one query asking "is this app's model
+# coherent" was itself unchecked. Mirrors CrowdyJS's GameModelLint.graphql field for field.
+query CrowdyModelLint($appId: BigInt!) {
+  gameModelLint(appId: $appId) {
+    appId
+    errorCount
+    warningCount
+    clean
+    findings {
+      code
+      severity
+      subjectKind
+      subject
+      message
+      remedy
+      count
+    }
+  }
+})gql";
+inline constexpr std::string_view kCrowdyModelLintIsolatedDocument = R"gql(query CrowdyModelLint($appId: BigInt!) {
+  gameModelLint(appId: $appId) {
+    appId
+    errorCount
+    warningCount
+    clean
+    findings {
+      code
+      severity
+      subjectKind
+      subject
+      message
+      remedy
+      count
+    }
+  }
+})gql";
+inline constexpr std::string_view kCrowdyModelLintOperationName = "CrowdyModelLint";
 
 /// gameModel/GameModelRuntime.graphql
 inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmSessionFields on GmSession {
@@ -9400,6 +9445,7 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameModelCancelTimer") return kGameModelCancelTimerIsolatedDocument;
   if (operationName == "GameModelTimers") return kGameModelTimersIsolatedDocument;
   if (operationName == "GameModelFunctionCircuits") return kGameModelFunctionCircuitsIsolatedDocument;
+  if (operationName == "CrowdyModelLint") return kCrowdyModelLintIsolatedDocument;
   if (operationName == "GameModelCreateSession") return kGameModelCreateSessionIsolatedDocument;
   if (operationName == "GameModelJoinSession") return kGameModelJoinSessionIsolatedDocument;
   if (operationName == "GameModelSetSessionTurn") return kGameModelSetSessionTurnIsolatedDocument;

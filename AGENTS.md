@@ -4,11 +4,17 @@ CrowdyCPP is a standalone public C++20 SDK. A normal configure, build, install,
 or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed.
 
-GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS
-**15.0.0** — read it from `crowdyjsParityTarget` in `package.json`, which is the source
-of truth CI checks out; this line said **14.1.0** for a day after 0.26.0 moved it. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
+GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS —
+read `crowdyjsParityTarget` in `package.json` (source of truth CI checks out);
+do not hardcode the version number in this sentence. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
 is PostgreSQL + Citus, not galaxy. `cks-management-api` is not a running
-service (GitHub repo still exists, unarchived).
+service (GitHub repo still exists, **archived**; not a schema source).
+
+**TIER ALIGNMENT (hard rule).** This branch’s CrowdyJS parity pin must point at
+a commit that exists on the **same** CrowdyJS tier branch (`dev`↔`dev`,
+`test`↔`test`, `prod`↔`prod`). Do not re-pin CrowdyCPP `dev` to a SHA that only
+lives on CrowdyJS `prod`/`latest`, and do not promote this repo’s pin to a
+higher-tier CrowdyJS artifact on a `dev` PR — promote each ladder separately.
 
 ## Public-surface maintenance
 

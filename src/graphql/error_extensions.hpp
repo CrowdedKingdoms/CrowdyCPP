@@ -34,6 +34,19 @@ inline GraphQLErrorDetail readGraphQLError(Json entry, std::string_view fallback
   detail.gameApiWsUrl = extensions["gameApiWsUrl"].asString();
   detail.retryable = !extensions["retryable"].isBool() || extensions["retryable"].asBool();
   detail.blame = extensions["blame"].asString();
+  // A quarantined function or automation names itself and the finding that stopped it.
+  // Read here for the same reason `blame` is: the alternative is every caller digging the
+  // fields out of a raw extensions bag, and `quarantineReason` is the ONLY actionable
+  // value in the refusal -- without it a developer is told their object is quarantined and
+  // left to guess which of their lint errors did it.
+  //
+  // NOTE the code is NOT always OBJECT_QUARANTINED. On `gameModelInvoke` the server
+  // rebuilds the error from a { code, blame, retryable } triple, so the code arrives as
+  // USER_CODE_ERROR while these three survive. Keying off the code alone misses the
+  // refusal on the one path a player takes.
+  detail.quarantinedKind = extensions["quarantinedKind"].asString();
+  detail.quarantinedName = extensions["quarantinedName"].asString();
+  detail.quarantineReason = extensions["quarantineReason"].asString();
   // Guarded by isNumber() rather than taking asInt64's fallback: the fallback
   // would make an absent key indistinguishable from an explicit 0, which is the
   // one distinction this field exists to preserve.

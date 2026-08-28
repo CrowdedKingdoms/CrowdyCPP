@@ -71,6 +71,17 @@ struct GraphQLErrorDetail {
   /// alone, since `retryable` defaults true and an unattributed transport
   /// failure must not read as a licensed retry.
   std::string blame;
+  // Quarantine extensions. A game-model function or automation refusing to run because an
+  // ENFORCED gameModelLint error stands against it. `quarantineReason` is the finding, and
+  // it is the only actionable field in the refusal; the other two say which object.
+  //
+  // Do NOT gate reading these on code == "OBJECT_QUARANTINED". On `gameModelInvoke` the
+  // server rebuilds the error at the user-code boundary and the code arrives as
+  // USER_CODE_ERROR with blame AUTHOR, while these three survive intact — so a non-empty
+  // `quarantineReason` is the reliable signal. Empty elsewhere.
+  std::string quarantinedKind;    ///< "function" or "automation"
+  std::string quarantinedName;    ///< the object to go and re-upsert
+  std::string quarantineReason;   ///< the lint finding that stopped it
   /// extensions.retryAfterMs: how long to wait before trying again, in
   /// milliseconds measured when the server built the refusal.
   ///

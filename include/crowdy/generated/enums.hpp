@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 74ffb903074de4198eb5ff2ef0679a6f596120942942296741114b5a2cad0431
-// operations sha256: 3d186ffb5505b51d7463875a3132581f4722cc27e5b76fe7ec4c2679b400b53e
+// schema.gql sha256: ce6448eced016c626b0f4cfbe1f16bab3c2c8fcb10840570b572d2109da3428f
+// operations sha256: 0054a3c4f93dd0725f4e34ef6c32967a081fe58101247e992edccd51ef376234
 
 #pragma once
 
@@ -868,6 +868,105 @@ inline std::optional<GameModelPlayerCountStatus> gameModelPlayerCountStatusFromS
   return std::nullopt;
 }
 
+enum class GmLintCode {
+  CONTAINER_TYPE_UNDEFINED,
+  APP_HAS_NO_CONTAINER_TYPES,
+  FUNCTION_NOT_DEFINED,
+  PROPERTY_NOT_DECLARED,
+  PARAM_NOT_DECLARED,
+  TIMER_TARGET_MISSING,
+  TIMER_TARGET_NOT_AUTONOMOUS,
+  PERMISSION_KEY_UNKNOWN,
+  GRID_LITERAL_INVALID,
+  AUTOMATION_TRIGGER_UNMATCHABLE,
+  NOTIFICATION_CHANNEL_FOREIGN,
+  NOTIFICATION_CHANNEL_UNKNOWN,
+  FUNCTION_UNCOMPILABLE,
+};
+
+inline constexpr std::string_view toString(GmLintCode v) {
+  switch (v) {
+    case GmLintCode::CONTAINER_TYPE_UNDEFINED: return "CONTAINER_TYPE_UNDEFINED";
+    case GmLintCode::APP_HAS_NO_CONTAINER_TYPES: return "APP_HAS_NO_CONTAINER_TYPES";
+    case GmLintCode::FUNCTION_NOT_DEFINED: return "FUNCTION_NOT_DEFINED";
+    case GmLintCode::PROPERTY_NOT_DECLARED: return "PROPERTY_NOT_DECLARED";
+    case GmLintCode::PARAM_NOT_DECLARED: return "PARAM_NOT_DECLARED";
+    case GmLintCode::TIMER_TARGET_MISSING: return "TIMER_TARGET_MISSING";
+    case GmLintCode::TIMER_TARGET_NOT_AUTONOMOUS: return "TIMER_TARGET_NOT_AUTONOMOUS";
+    case GmLintCode::PERMISSION_KEY_UNKNOWN: return "PERMISSION_KEY_UNKNOWN";
+    case GmLintCode::GRID_LITERAL_INVALID: return "GRID_LITERAL_INVALID";
+    case GmLintCode::AUTOMATION_TRIGGER_UNMATCHABLE: return "AUTOMATION_TRIGGER_UNMATCHABLE";
+    case GmLintCode::NOTIFICATION_CHANNEL_FOREIGN: return "NOTIFICATION_CHANNEL_FOREIGN";
+    case GmLintCode::NOTIFICATION_CHANNEL_UNKNOWN: return "NOTIFICATION_CHANNEL_UNKNOWN";
+    case GmLintCode::FUNCTION_UNCOMPILABLE: return "FUNCTION_UNCOMPILABLE";
+  }
+  return "";
+}
+
+inline std::optional<GmLintCode> gmLintCodeFromString(std::string_view s) {
+  if (s == "CONTAINER_TYPE_UNDEFINED") return GmLintCode::CONTAINER_TYPE_UNDEFINED;
+  if (s == "APP_HAS_NO_CONTAINER_TYPES") return GmLintCode::APP_HAS_NO_CONTAINER_TYPES;
+  if (s == "FUNCTION_NOT_DEFINED") return GmLintCode::FUNCTION_NOT_DEFINED;
+  if (s == "PROPERTY_NOT_DECLARED") return GmLintCode::PROPERTY_NOT_DECLARED;
+  if (s == "PARAM_NOT_DECLARED") return GmLintCode::PARAM_NOT_DECLARED;
+  if (s == "TIMER_TARGET_MISSING") return GmLintCode::TIMER_TARGET_MISSING;
+  if (s == "TIMER_TARGET_NOT_AUTONOMOUS") return GmLintCode::TIMER_TARGET_NOT_AUTONOMOUS;
+  if (s == "PERMISSION_KEY_UNKNOWN") return GmLintCode::PERMISSION_KEY_UNKNOWN;
+  if (s == "GRID_LITERAL_INVALID") return GmLintCode::GRID_LITERAL_INVALID;
+  if (s == "AUTOMATION_TRIGGER_UNMATCHABLE") return GmLintCode::AUTOMATION_TRIGGER_UNMATCHABLE;
+  if (s == "NOTIFICATION_CHANNEL_FOREIGN") return GmLintCode::NOTIFICATION_CHANNEL_FOREIGN;
+  if (s == "NOTIFICATION_CHANNEL_UNKNOWN") return GmLintCode::NOTIFICATION_CHANNEL_UNKNOWN;
+  if (s == "FUNCTION_UNCOMPILABLE") return GmLintCode::FUNCTION_UNCOMPILABLE;
+  return std::nullopt;
+}
+
+enum class GmLintSeverity {
+  ERROR,
+  WARNING,
+};
+
+inline constexpr std::string_view toString(GmLintSeverity v) {
+  switch (v) {
+    case GmLintSeverity::ERROR: return "ERROR";
+    case GmLintSeverity::WARNING: return "WARNING";
+  }
+  return "";
+}
+
+inline std::optional<GmLintSeverity> gmLintSeverityFromString(std::string_view s) {
+  if (s == "ERROR") return GmLintSeverity::ERROR;
+  if (s == "WARNING") return GmLintSeverity::WARNING;
+  return std::nullopt;
+}
+
+enum class GmLintSubjectKind {
+  APP,
+  CONTAINER_TYPE,
+  CONTAINER,
+  FUNCTION,
+  AUTOMATION,
+};
+
+inline constexpr std::string_view toString(GmLintSubjectKind v) {
+  switch (v) {
+    case GmLintSubjectKind::APP: return "APP";
+    case GmLintSubjectKind::CONTAINER_TYPE: return "CONTAINER_TYPE";
+    case GmLintSubjectKind::CONTAINER: return "CONTAINER";
+    case GmLintSubjectKind::FUNCTION: return "FUNCTION";
+    case GmLintSubjectKind::AUTOMATION: return "AUTOMATION";
+  }
+  return "";
+}
+
+inline std::optional<GmLintSubjectKind> gmLintSubjectKindFromString(std::string_view s) {
+  if (s == "APP") return GmLintSubjectKind::APP;
+  if (s == "CONTAINER_TYPE") return GmLintSubjectKind::CONTAINER_TYPE;
+  if (s == "CONTAINER") return GmLintSubjectKind::CONTAINER;
+  if (s == "FUNCTION") return GmLintSubjectKind::FUNCTION;
+  if (s == "AUTOMATION") return GmLintSubjectKind::AUTOMATION;
+  return std::nullopt;
+}
+
 enum class GridClaimPolicy {
   SELF_CLAIM,
   APPROVAL,
@@ -1419,6 +1518,7 @@ enum class UserCodeFaultKind {
   PLATFORM_BUSY,
   CIRCUIT_OPEN,
   DISABLED_BY_POLICY,
+  NOTIFICATION_UNDELIVERABLE,
 };
 
 inline constexpr std::string_view toString(UserCodeFaultKind v) {
@@ -1448,6 +1548,7 @@ inline constexpr std::string_view toString(UserCodeFaultKind v) {
     case UserCodeFaultKind::PLATFORM_BUSY: return "PLATFORM_BUSY";
     case UserCodeFaultKind::CIRCUIT_OPEN: return "CIRCUIT_OPEN";
     case UserCodeFaultKind::DISABLED_BY_POLICY: return "DISABLED_BY_POLICY";
+    case UserCodeFaultKind::NOTIFICATION_UNDELIVERABLE: return "NOTIFICATION_UNDELIVERABLE";
   }
   return "";
 }
@@ -1478,6 +1579,7 @@ inline std::optional<UserCodeFaultKind> userCodeFaultKindFromString(std::string_
   if (s == "PLATFORM_BUSY") return UserCodeFaultKind::PLATFORM_BUSY;
   if (s == "CIRCUIT_OPEN") return UserCodeFaultKind::CIRCUIT_OPEN;
   if (s == "DISABLED_BY_POLICY") return UserCodeFaultKind::DISABLED_BY_POLICY;
+  if (s == "NOTIFICATION_UNDELIVERABLE") return UserCodeFaultKind::NOTIFICATION_UNDELIVERABLE;
   return std::nullopt;
 }
 

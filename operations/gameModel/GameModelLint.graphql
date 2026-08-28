@@ -1,0 +1,21 @@
+# The studio lint query. It lived as an inline string constant in
+# include/crowdy/studio/model_lint.hpp, which meant the codegen operation-isolation test
+# could never validate it against the schema -- the one query asking "is this app's model
+# coherent" was itself unchecked. Mirrors CrowdyJS's GameModelLint.graphql field for field.
+query CrowdyModelLint($appId: BigInt!) {
+  gameModelLint(appId: $appId) {
+    appId
+    errorCount
+    warningCount
+    clean
+    findings {
+      code
+      severity
+      subjectKind
+      subject
+      message
+      remedy
+      count
+    }
+  }
+}

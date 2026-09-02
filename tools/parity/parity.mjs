@@ -90,9 +90,21 @@ const ROOT_CLASSIFICATIONS = {
   ),
   ...classifyNames(
     'Query',
-    ['billingExemptOrgs', 'billingRateCard'],
+    ['billingExemptOrgs', 'billingRateCard', 'agentRateCards'],
     CATEGORY.BROWSER,
     'operator-only billing reads; not a game-client surface',
+  ),
+  // `meteredRateCard` is the one billing read that is PUBLIC -- it exists so a
+  // visitor deciding whether to sign up can see prices without a login, which
+  // API ToS 4.1 obliges us to publish. It is still not a game-client surface: a
+  // player's app-scoped token has no use for a price list, and the audience is
+  // the pricing page and the studio dashboard. Waived on audience rather than on
+  // permission, which is why it is its own entry with its own reason.
+  ...classifyNames(
+    'Query',
+    ['meteredRateCard'],
+    CATEGORY.BROWSER,
+    'public price list for the pricing page and dashboard; a game client has no use for it',
   ),
   // The operator-only email deliverability surface, from the SES cycle. Same
   // reasoning as billing above: all four carry @RequiresOperator, so a wrapper
@@ -159,6 +171,15 @@ const ROOT_CLASSIFICATIONS = {
 
 
 const METHOD_CLASSIFICATIONS = {
+  // CrowdyJS added this wrapper in 15.4.0; CrowdyCPP has had the same mutation
+  // since before the split, as `admin().setAppReservedThroughput`, named for the
+  // schema field rather than shortened. Same mutation, same arguments, different
+  // domain -- a native equivalent, not missing work. Reserving capacity is an
+  // org-admin action either way and is not reachable with a player's token.
+  'SharedEnvironmentAPI.setReservedThroughput': classification(
+    CATEGORY.NATIVE,
+    'admin().setAppReservedThroughput wraps the same mutation under the schema field name',
+  ),
   'WorldClient.subscribe': classification(
     CATEGORY.NATIVE,
     'Connection handlers and WorldSession receive native UDP events',

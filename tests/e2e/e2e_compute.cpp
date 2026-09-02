@@ -1,9 +1,16 @@
 // Compute Modules: the owner drives the full compute surface — create a
 // module, deploy the starter Rust source, wait for the on-instance compile,
 // bind tick + invoke triggers, enable, synchronously invoke an export, read
-// the monitoring surface, and delete. Modules are server-only; the module is
-// alwaysOn because a playerless test app never activates lazily, and healthy
-// ticks aggregate into per-minute usage (only loads/failures write run rows).
+// the monitoring surface, and delete. Modules are server-only, and healthy ticks
+// aggregate into per-minute usage (only loads/failures write run rows).
+//
+// This used to set alwaysOn because a playerless test app never activated
+// lazily. Since 2026-09-01 a module ticks only while its app has a player
+// present and alwaysOn is REFUSED, so the flag is gone. Nothing else needed to
+// change: every assertion below is driven by the synchronous invoke, which is a
+// request rather than a scheduled tick and is not presence-gated. What this test
+// therefore does not cover is a tick actually firing -- that needs a connected
+// player and belongs in a realtime suite.
 // Mirrors CrowdyJS e2e: compute-module.
 // Reference: https://docs.crowdedkingdoms.com/game-api/compute-modules
 #include <chrono>
@@ -54,13 +61,12 @@ int run() {
 
   const std::string moduleName = "e2e-counter-" + e2e::runSuffix();
 
-  E2E_SUBTEST("author: upsert module (starts disabled, alwaysOn)");
+  E2E_SUBTEST("author: upsert module (starts disabled)");
   {
     graphql::JVal input;
     input["appId"] = cfg.appId;
     input["name"] = moduleName;
     input["description"] = "e2e counter";
-    input["alwaysOn"] = true;
     graphql::Json mod = compute.upsertModule(input);
     E2E_CHECK(mod["name"].asString() == moduleName);
     E2E_CHECK(mod["enabled"].asBool() == false);

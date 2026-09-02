@@ -1,8 +1,8 @@
 {
   "contractVersion": "crowdy.studio-agent/1",
   "crowdyJs": {
-    "version": "15.3.0",
-    "commit": "4bc67fb3b8abcb2c224f1138f2ae34041cd498f7"
+    "version": "15.4.0",
+    "commit": "89370750187592d7d3c4da99bf98334666146829"
   },
   "digest": "sha256:81dd9cb78b5c171456430fe1b5aefa4a628ab17d7f2a35d1ed5bf78b31834dc1",
   "reasons": [

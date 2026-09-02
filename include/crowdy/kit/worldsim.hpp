@@ -10,9 +10,16 @@
 
 /// World simulation — day/night + weather (a WorldState singleton),
 /// regenerating ResourceNodes, growing Crops / production jobs, and
-/// WaveSpawner counters — all driven by interval automations that run with
-/// no client online (the automations simulation tier: seconds, never
-/// per-frame). Mirrors CrowdyJS's worldsimBlueprint / kit.worldsim.
+/// WaveSpawner counters — all driven by interval automations on the automations
+/// simulation tier (seconds, never per-frame). Mirrors CrowdyJS's
+/// worldsimBlueprint / kit.worldsim.
+///
+/// PRESENCE-GATED (2026-09-01): these automations run only while the app has a
+/// player in it. Scheduled work that comes due while the app is empty is skipped
+/// and rescheduled from the moment a player returns; missed runs are never made
+/// up. Write each tick to be IDEMPOTENT IN ELAPSED TIME -- advance by
+/// `now - lastTick` rather than one fixed step -- or the world silently stalls
+/// while nobody is playing.
 namespace crowdy::kit {
 
 /// Day/night + weather: an interval automation advances time_of_day
@@ -110,9 +117,15 @@ inline WorldsimNames worldsimNames(std::string_view typePrefix = {}) {
 
 /// Blueprint for world simulation: day/night + weather (WorldState
 /// singleton), regenerating ResourceNodes, growing Crops / production jobs,
-/// and WaveSpawner counters — all driven by interval automations that run
-/// with no client online (the automations simulation tier: seconds, never
-/// per-frame).
+/// and WaveSpawner counters — all driven by interval automations on the
+/// automations simulation tier (seconds, never per-frame).
+///
+/// PRESENCE-GATED (2026-09-01): these automations run only while the app has a
+/// player in it. Scheduled work that comes due while the app is empty is skipped
+/// and rescheduled from the moment a player returns; missed runs are never made
+/// up. Write each tick to be IDEMPOTENT IN ELAPSED TIME -- advance by
+/// `now - lastTick` rather than one fixed step -- or the world silently stalls
+/// while nobody is playing.
 ///
 /// The world clock emits a spatial notification at the world anchor chunk
 /// each tick, so nearby clients update the sky push-style instead of

@@ -727,6 +727,14 @@ class UsageAPI : public detail::AdminDomain {
   }
   /// Org-wide usage rollup for a window ("since" = ISO-8601 or relative like
   /// "7d"; defaults server-side to 7d).
+  ///
+  /// WHICH OF THESE BYTES YOU PAY FOR. The `*RecvBytes` fields are metered but
+  /// are NOT counted toward Aggregate Data Volume, the monthly free-tier and
+  /// overage measure -- that is egress only. The `*SendBytes` fields are the
+  /// billable direction. All byte figures are wire bytes measured at the
+  /// platform's network interface, including transport and network headers, and
+  /// after any compression the service applies; they will not match a client's
+  /// own counters (see replication::Connection::Stats).
   graphql::Json orgSummary(std::string_view orgId, std::string_view since = {}) const {
     graphql::JVal vars;
     vars["orgId"] = orgId;
@@ -888,8 +896,29 @@ class SharedEnvironmentAPI : public detail::AdminDomain {
   void removePaymentMethodAsync(const graphql::JVal& vars, graphql::GraphQLCallback cb) const {
     runAsync("RemoveSharedPaymentMethod", vars, std::move(cb));
   }
-  /// ECONOMY-SENSITIVE: reserve sustained egress throughput for a shared app
-  /// (bytes/s; 0 clears back to the free tier). Pass an idempotencyKey.
+  /// ECONOMY-SENSITIVE: reserve realtime (UDP) capacity for a shared app
+  /// (bytes/s, decimal: 1'000'000 = 1 MB/s; 0 clears the reservation). Pass an
+  /// idempotencyKey.
+  ///
+  /// A reservation is a CAPACITY FLOOR, not a ceiling and not a rate-limit
+  /// bypass. It obliges the platform to keep that much capacity provisioned for
+  /// you by raising the fleet's autoscaling minimum; it does not cap what you may
+  /// send, and traffic above the reserved rate is metered rather than refused.
+  ///
+  /// It buys capacity, NOT VOLUME: the monthly fee is charged in addition to
+  /// metered usage and carries no data allowance. Reserving 5 MB/s does not make
+  /// the first 5 MB/s free.
+  ///
+  /// It is NOT how the free-tier cap is lifted. Unfunded free apps are shaped at
+  /// roughly 1 MB/s; funding the org wallet or enabling auto-billing lifts that.
+  /// Before 2026-09-01 a reservation did double duty as the bypass, which is why
+  /// this comment said "clears back to the free tier" -- clearing a reservation
+  /// changes what is provisioned, not what is shaped.
+  ///
+  /// Sold in two independent dimensions since 2026-09-01: realtime throughput
+  /// (this mutation) and GraphQL operations/sec. Reserving one does not reserve
+  /// the other. Read both back from App.reservedUdpBytesPerSec and
+  /// App.reservedGraphqlOpsPerSec.
   graphql::Json setAppReservedThroughput(const graphql::JVal& input,
                                          std::string_view idempotencyKey = {}) const {
     graphql::JVal vars;

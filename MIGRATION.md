@@ -1,5 +1,86 @@
 # CrowdyCPP migration notes
 
+## 0.29.0 nothing runs for an app with no player in it
+
+The schema snapshot moves from 2026-08-28 to the current published SDL, which
+carries three platform changes the SDK was documenting incorrectly. Two are
+source-compatible; the third refuses a value this SDK's own docs told you to
+pass.
+
+### `alwaysOn` is refused
+
+`compute().upsertModule()` with `alwaysOn: true` now fails with `BAD_REQUEST`.
+The field is deprecated server-side, always reads `false`, and is dropped from
+the module fragment this SDK selects, so `ComputeModuleFields` no longer returns
+it.
+
+`compute.hpp` told you to "set alwaysOn=true for world simulation that must run
+without connected players". That is now the one thing it cannot do. Delete the
+argument.
+
+### Modules and scheduled work require a player
+
+A compute module ticks only while its app has at least one player connected
+anywhere in the fleet, and stops when the last one leaves. Scheduled automations
+and `gm_timers` follow the same rule, with one difference worth knowing:
+
+- **Automations** due while the app is empty are **skipped** and rescheduled from
+  the moment a player returns. Missed runs are never made up.
+- **Timers** whose deadline passes while the app is empty **wait** and fire on
+  return. Late, not lost.
+- **`event` and `manual` triggers** are unaffected — something already asked.
+- **Synchronous `compute().invoke()`** is unaffected — a request, not a tick.
+
+**What to change in a game.** Make scheduled work idempotent in *elapsed time*
+rather than assuming a cadence: advance the world by `now - lastTick`, and store
+expiries as timestamps rather than remaining-tick counters. The Game Kit headers
+for `worldsim`, `combat` and `economy` said their automations run "with no client
+online"; that was true and is not, and all three now say so along with how to
+write against it. A blueprint that assumes a cadence stalls silently while nobody
+is playing, which is the failure mode to design out.
+
+### Reservations split, and mean something different
+
+`App` gains `reservedUdpBytesPerSec` and `reservedGraphqlOpsPerSec`, and the app
+query now selects both. `reservedEgressBytesPerSec` is deprecated and returns the
+UDP value for one release. Reserving one dimension does not reserve the other.
+
+`admin().setAppReservedThroughput()` is unchanged in shape and changed in
+meaning. Three things a reservation is **not**, all of which it either was or
+appeared to be before:
+
+1. **Not a ceiling.** It obliges the platform to keep that much capacity
+   provisioned for you and does not cap what you may send. Traffic above the
+   reserved rate is metered, not refused.
+2. **Not a data allowance.** The monthly fee buys capacity, not volume, and is
+   charged *in addition to* metered usage. Reserving 5 MB/s does not make the
+   first 5 MB/s free.
+3. **Not the way to lift the free-tier cap.** Unfunded free apps are shaped at
+   roughly 1 MB/s; funding the org wallet or enabling auto-billing lifts that.
+   Until 2026-09-01 a reservation did double duty as the bypass, which is why the
+   old schema description said "bypasses the ~1 MB/s rate limit".
+
+### `Connection::Stats` byte counters are not your bill
+
+No behaviour change; a documentation one worth reading if you have ever compared
+the two. `bytesSent` and `bytesReceived` are a local diagnostic and will not
+reconcile against an invoice:
+
+- Billing counts **egress only**. `bytesSent` is traffic leaving the CLIENT,
+  which is ingress to the platform and is not counted toward Aggregate Data
+  Volume at all.
+- The platform measures at **its** network interface, including IP and UDP
+  headers. These counters count the datagram payload.
+
+Use them for backpressure and diagnosis; use `admin().appUsageSummary()` for what
+you are charged.
+
+### Also
+
+The rate-card field docs carried a stale worked example of 15c per GiB; the
+published SDL now says 19c, matching the shipped card.
+
+
 ## 0.25.0 rate-limit refusals carry how long to wait
 
 The server sends `extensions.retryAfterMs` on a `RATE_LIMITED` refusal.

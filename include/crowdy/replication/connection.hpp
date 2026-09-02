@@ -170,6 +170,23 @@ class Connection {
   /// included); per-type counters are indexed by the raw wire::MessageType
   /// opcode (e.g. messagesSentByType[static_cast<std::uint8_t>(
   /// wire::MessageType::ActorUpdateRequest)]).
+  ///
+  /// THESE ARE A LOCAL DIAGNOSTIC, NOT YOUR BILL. Do not reconcile them against
+  /// an invoice; they will not agree, and they are not meant to:
+  ///
+  ///   - Billing counts EGRESS ONLY. `bytesSent` here is traffic leaving the
+  ///     CLIENT, which is ingress to the platform and is not counted toward
+  ///     Aggregate Data Volume at all. The billed figure corresponds more nearly
+  ///     to `bytesReceived`.
+  ///   - The platform measures at ITS network interface, so its count includes
+  ///     the IP and UDP headers of each datagram. This counts the datagram
+  ///     payload, which excludes them.
+  ///   - A datagram lost in flight is counted here and not there, or vice versa,
+  ///     depending on which side of the loss you are standing on.
+  ///
+  /// Use these for rate limiting, backpressure tuning and diagnosing a chatty
+  /// client. For what you are actually charged, read the usage API
+  /// (admin::appUsageSummary) or the account's billing pages.
   struct Stats {
     std::uint64_t datagramsSent = 0;
     std::uint64_t datagramsReceived = 0;

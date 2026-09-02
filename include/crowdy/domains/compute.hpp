@@ -38,8 +38,18 @@ class ComputeAPI : public DomainBase {
   // ----- Authoring (requires manage_compute) ---------------------------------
 
   /// Create or update a module's metadata (upsert key: appId + name). New
-  /// modules start disabled. Set alwaysOn=true for world simulation that must
-  /// run without connected players (modules otherwise load lazily).
+  /// modules start disabled.
+  ///
+  /// NOTHING RUNS FOR AN APP WITH NO PLAYER IN IT. A module ticks only while its
+  /// app has at least one player connected somewhere in the fleet, and stops when
+  /// the last one leaves. `alwaysOn` is retired (2026-09-01) and passing true is
+  /// REFUSED -- this comment used to tell you to set it for world simulation that
+  /// must run without connected players, which is now the one thing it cannot do.
+  ///
+  /// A world that must advance while empty should compute the elapsed time on its
+  /// first tick after a player returns: cheaper than ticking an empty world, and
+  /// the same answer. Synchronous invoke is unaffected -- it is a request, not a
+  /// scheduled tick.
   graphql::Json upsertModule(const graphql::JVal& input) const {
     return byInput("ComputeUpsertModule", input);
   }

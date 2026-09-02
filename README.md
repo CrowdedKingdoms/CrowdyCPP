@@ -43,6 +43,23 @@ builder addresses the app's own session channel by NAME, so a model copied betwe
 follows the app it runs in. Schema synced to ck-api v1.67; parity pinned to CrowdyJS
 15.3.0.
 
+**v0.29.0: nothing runs for an app with no player in it.** A compute module ticks only
+while its app has at least one player connected, and `alwaysOn` is retired --
+`compute().upsertModule()` now REFUSES `alwaysOn: true`, and `compute.hpp` used to tell
+you to set it. Scheduled automations due while an app is empty are skipped and rescheduled
+from the moment a player returns; timers wait and fire late. The Game Kit headers for
+`worldsim`, `combat` and `economy` said their automations run "with no client online",
+which was true and is not; all three now say how to write against the rule instead
+(advance by elapsed time, store expiries as timestamps).
+
+Reservations split into `reservedUdpBytesPerSec` and `reservedGraphqlOpsPerSec`, and mean
+something different: a reservation is a capacity FLOOR, not a rate-limit bypass and not a
+data allowance. Funding the wallet lifts the ~1 MB/s free-tier shaping, not reserving. And
+`Connection::Stats` byte counters are now documented as a local diagnostic that will not
+reconcile against a bill -- billing counts egress only, at the platform's NIC, including
+headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
+15.4.0.
+
 **v0.27.0 ships a default origin:** a client constructed with no explicit origin
 now dials the public CK API for the tier this build was released for, from the
 generated `crowdy/default_origin.hpp` — `kDefaultHttpOrigin`, `kDefaultWsOrigin`,
@@ -600,7 +617,7 @@ pay into a wallet, a plot purchase can grant enforced build permissions):
 |---|---|---|
 | Items & bags (RPG, survival, sandbox) | `inventoryBlueprint` → `kit.inventory()` | Per-player bags and item stacks (`item_id`/`quantity`/`slot`); owner-gated grant/consume/move and atomic two-stack transfer; the consume guard refuses overdraw server-side. |
 | Doors, chests, gates | `lockBlueprint` → `kit.objects()` | Lockable world objects with pluggable authority: key item, owner, group/team permission, grid permission, enforced chunk permission, or custom policy trees; several lock types per app via `objectsFor()`. |
-| NPCs & world ticks | `npcBlueprint` → `kit.npcs()` | Server-driven behaviors (interval/cron/event triggers) with selector targeting — wander, restock, guards reacting only to intruders via permission predicates; runs with no client online. |
+| NPCs & world ticks | `npcBlueprint` → `kit.npcs()` | Server-driven behaviors (interval/cron/event triggers) with selector targeting — wander, restock, guards reacting only to intruders via permission predicates. Scheduled triggers run only while the app has a player in it (2026-09-01) — write them idempotent in elapsed time. |
 | Land ownership (MMO, sandbox) | `plotBlueprint` → `kit.plots()` | Buy/rent/evict plots where payment and **replication-enforced grid permissions** commit atomically — buying land grants real build rights, not just a database row. |
 | Economy (any genre) | `economyBlueprint` → `kit.economy()` | Multi-currency wallets, atomic shop purchases, escrow player trades, a player market with escrowed listings, restock automation; every mutation guard is server-side. |
 | Progression (RPG, arcade) | `progressionBlueprint` → `kit.progression()` | XP/levels on a configurable curve, skill trees with prerequisite chains, achievements, host-gated rating. |
@@ -827,7 +844,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.3.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **15.4.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

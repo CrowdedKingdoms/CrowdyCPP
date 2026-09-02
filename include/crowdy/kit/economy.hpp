@@ -47,6 +47,11 @@ struct EconomyBlueprintOptions {
   /// When set, adds a restock_listing automation that periodically raises
   /// every listing's stock (by amount, clamped to max_stock) — the NPC
   /// trader restock pattern.
+  ///
+  /// Runs only while the app has a player in it (2026-09-01), so a shop does not
+  /// restock while the world is empty and does not backfill the runs it missed.
+  /// Clamping to max_stock is what keeps that harmless: the shop refills to its
+  /// ceiling on the first tick after somebody returns rather than staying empty.
   std::optional<EconomyRestockSpec> restock;
 };
 

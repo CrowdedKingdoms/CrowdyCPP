@@ -50,6 +50,18 @@ jobs:
         run: scripts/ci/resolve-release-tier.test.sh
       - name: Version gate refuses a tag that is not what the tree builds
         run: scripts/ci/assert-tag-version.test.sh
+      - name: Default-origin gate refuses a tier other than the one being released
+        run: scripts/ci/assert-default-origin.test.sh
+      # The two gates above are self-tests: they prove the scripts refuse, on fixtures. This
+      # one judges THIS tree, which is the part that catches a promotion. On a pull request it
+      # reads GITHUB_BASE_REF, so a dev -> test promotion is judged by test's rule BEFORE the
+      # merge; a feature branch carries no tier rule and is skipped, and says so.
+      #
+      # It has to be here rather than only in release.yml, because a promotion merge lands long
+      # before anyone cuts a tag, and this SDK has no registry to correct afterwards -- a
+      # consumer clones the ref, so a bad tag stands until a new tag exists.
+      - name: This tree's default origin names its own tier
+        run: scripts/ci/assert-default-origin.sh --from-ref
 
   parity-baseline:
     # Bounded because an unbounded job runs to the six-hour default, and on the day

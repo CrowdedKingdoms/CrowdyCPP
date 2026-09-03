@@ -60,6 +60,16 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.0.
 
+**v0.29.1 ships the default origin its tier actually declares.** The generated
+`default_origin.hpp` on the `dev` and `test` lines said `prod` — carried there by promotion
+merges, which is the hazard the generated-file-plus-gate arrangement exists to catch. So a
+consumer of a `dev` or `test` tag that constructed a client with no explicit origin dialled
+**production**. That is the one direction worse than shipping no default at all: it is what
+an unconfigured consumer gets, and it fails in a way that looks like the product rather
+than like a misconfiguration. Fixing the branch was only half of it — this SDK is consumed
+as source, so the tag IS the artifact and nothing reached a consumer until this was cut.
+Nothing else changed; parity stays pinned to CrowdyJS 15.4.0, because no surface moved.
+
 **v0.27.0 ships a default origin:** a client constructed with no explicit origin
 now dials the public CK API for the tier this build was released for, from the
 generated `crowdy/default_origin.hpp` — `kDefaultHttpOrigin`, `kDefaultWsOrigin`,

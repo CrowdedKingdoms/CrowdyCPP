@@ -2,7 +2,7 @@
   "contractVersion": "crowdy.studio-agent/1",
   "crowdyJs": {
     "version": "15.4.0",
-    "commit": "89370750187592d7d3c4da99bf98334666146829"
+    "commit": "fb8acc6567e7425a94ec0f379220a7baba9032f6"
   },
   "digest": "sha256:81dd9cb78b5c171456430fe1b5aefa4a628ab17d7f2a35d1ed5bf78b31834dc1",
   "reasons": [

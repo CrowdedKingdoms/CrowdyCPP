@@ -1,11 +1,31 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.29.1 (this `dev` line) passes the strict portable-parity gate
-against CrowdyJS **15.4.0**. The gate pins CrowdyJS commit
-`89370750187592d7d3c4da99bf98334666146829` (`crowdyjsParityTarget` in
+CrowdyCPP 0.29.1 passes the strict portable-parity gate against CrowdyJS
+**15.4.0**. The gate pins CrowdyJS commit
+`fb8acc6567e7425a94ec0f379220a7baba9032f6` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+**The pinned commit must be one this tier has actually been promoted.** Before
+2026-09-02 all three branches pinned `8937075…`, a merge commit created on
+CrowdyJS `prod` and therefore reachable from `prod` and from neither `dev` nor
+`test` — so the `dev` and `test` lines were claiming parity against another
+tier's commit. `check-parity-target-tier.mjs` refuses that now.
+
+The rule is **reachability from this tier's branch**, which is the same thing as
+"this commit has been promoted to me". Because promotions merge forward, one
+commit satisfies every tier once it has travelled the ladder: `fb8acc6…` is
+`dev/v15.4.0` and is an ancestor of `dev`, `test` and `prod` alike. So this line
+does not need to differ per tier and the value promotes forward like any other.
+
+The asymmetry is deliberate and is not a gap. `prod` may pin a commit that also
+lives on `dev`, because reaching `prod` means it was promoted there; `dev` may
+not pin a `prod`-only merge commit, because that commit has never been promoted
+back. Pin a **commit**, never a branch head — an ancestor keeps the generated
+fixtures reproducible, whereas a moving head is the "same-version moving branch"
+the pin exists to prevent. Moving the version is a separate, deliberate act; see
+[`release-checklist.md`](release-checklist.md).
 
 | Surface | CrowdyCPP 0.29.1 | CrowdyJS 15.4.0 | Required public API generation |
 |---|---|---|---|

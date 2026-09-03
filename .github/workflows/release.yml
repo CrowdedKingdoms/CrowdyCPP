@@ -58,6 +58,14 @@ jobs:
         run: scripts/ci/resolve-release-tier.sh
       - name: Refuse a tag that is not the version the tree builds
         run: scripts/ci/assert-tag-version.sh "${{ steps.tier.outputs.version }}"
+      # The two gates above ask whether the tag's COMMIT belongs to this tier's branch and
+      # whether the tag's NUMBER is what the tree builds. Neither reads what the commit
+      # CONTAINS, so a prod tag over a tree still declaring `test` passed both -- which is what
+      # a promotion left on prod in this repo and in CrowdyJS on 2026-09-02, with no conflict
+      # reported. Judged against the tier the TAG names, in `guard`, so a refusal lands before
+      # consumer-install and long before a release exists.
+      - name: Refuse a default origin that names another tier
+        run: scripts/ci/assert-default-origin.sh "${{ steps.tier.outputs.tier }}"
 
   # A consumer's own path, run against the exact tagged tree. CI has already
   # built this commit on the tier branch across three operating systems; what it
@@ -100,6 +108,34 @@ jobs:
       contents: write # creating a release writes to the repository
     steps:
       - uses: actions/checkout@v4
+      # What a consumer will actually clone, read back from the TAG rather than from anything
+      # this run believes. There is no registry here and no dist-tag to move, so the tag ref is
+      # the artifact -- `git show <tag>:<path>` is the exact equivalent of unpacking a published
+      # tarball, which is how CrowdyJS's 15.4.0 mistake was eventually found.
+      #
+      # Defence in depth, not the primary catch: `guard` already refused a tag whose tree names
+      # the wrong tier, earlier and more cheaply. This covers only what guard cannot see -- a tag
+      # moved to a different commit after guard ran.
+      - name: What the tag actually carries declares this tier
+        env:
+          TAG: ${{ github.ref_name }}
+          TIER: ${{ needs.guard.outputs.tier }}
+        run: |
+          set -euo pipefail
+          header=include/crowdy/default_origin.hpp
+          # Fetched explicitly rather than relying on what checkout happened to bring: reading
+          # the TAG is the whole point, and a missing ref here would fail a good release with a
+          # confusing message.
+          git fetch --no-tags --depth 1 origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null ||
+            git fetch origin "+refs/tags/$TAG:refs/tags/$TAG"
+          got=$(git show "$TAG:$header" | sed -n 's/.*kDefaultTier *= *"\([a-z]*\)".*/\1/p' | head -n1)
+          host=$(git show "$TAG:$header" | sed -n 's/.*kDefaultHost *= *"\([^"]*\)".*/\1/p' | head -n1)
+          echo "  $TAG carries tier '$got' (host $host)"
+          if [ "$got" != "$TIER" ]; then
+            echo "::error::tag '$TAG' releases tier '$TIER' but the file AT THAT TAG declares '$got'. Consumers clone the ref, so this release would dial the wrong environment. Move the tag to a commit whose default origin is regenerated for '$TIER'."
+            exit 1
+          fi
+          echo "  verified at the ref a consumer clones: declares '$TIER'"
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

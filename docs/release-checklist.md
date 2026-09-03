@@ -28,6 +28,60 @@ reading the checklist was never enough. The last two sites were added at 0.25.0,
 when the lock file was found six releases behind: a gate reading four of six
 sites reports the other two as fine.
 
+## Read `include/crowdy/default_origin.hpp` before you tag
+
+**It is generated per tier and NEVER hand-edited.** `dev` declares `dev`, `test`
+declares `test`, `prod` declares `prod`, so a client built with no explicit origin
+dials the tier the build was released for. Regenerate with
+`infra-control-plane/scripts/ops/sync-client-origins.mjs --write --tier <tier>`;
+`check-sdk-default-origin.mjs` judges all three branches without checking any of
+them out.
+
+**A PROMOTION CAN REWRITE THIS FILE WITH NO CONFLICT AND NO MENTION, AND THE
+CLEAN MERGE IS THE DANGEROUS CASE.** On 2026-09-02 that put `tier = "test"` on
+`prod` here **and** on CrowdyJS, in the same release, both silently. Caught only
+by re-reading the file after a merge that claimed there was nothing to resolve.
+
+The mechanism was measured in a scratch repository, and the first explanation
+written down was wrong: it is not that resolving the `dev` → `test` conflict
+leaves `test` as the only side that touched the file. A promotion rewrites this
+file silently whenever **the merge base already holds the DESTINATION's value and
+the destination has not re-committed it while the source has** — one side changed,
+so git resolves it trivially and reports success. The correction matters because
+the wrong version implied the risk sits at one particular rung, and it does not.
+
+The same lab ruled out the tidier fix, twice over. **A `.gitattributes` merge
+driver cannot help.** Git never consults a driver for a one-sided change, and
+one-sided is the dangerous case — zero invocations were logged while a carry
+happened. And `.gitattributes` can *name* a driver but not ship it, so
+`merge.<name>.driver` reads as unset in a fresh clone and git falls back
+silently; a CI runner has no driver at all.
+
+**This is now enforced rather than remembered.**
+`scripts/ci/assert-default-origin.sh --from-ref` runs in `ci.yml`'s
+`release-gates` on every push, judging the pull request **base** so a promotion is
+refused before the merge; `release.yml`'s `guard` runs it against the tier the
+**tag** names, before `consumer-install`; and `publish` re-reads the file at the
+pushed tag. The steps below are still worth doing by hand before a release, but a
+missed reading is no longer the difference between a good release and a bad one.
+
+For this SDK the consequence is worse than a wrong number in a package. There is
+no registry and no dist-tag to correct afterwards: consumers clone the ref, so a
+`prod` tag cut over a `test` origin *is* the release, and it aims every
+unconfigured production consumer at the test tier until a new tag exists.
+
+So before every tag, on the branch you are about to tag:
+
+```bash
+grep -n 'kDefaultTier\|kDefaultHost' include/crowdy/default_origin.hpp
+```
+
+and confirm it names the tier you are tagging. If a promotion touched it,
+**regenerate for the destination tier** rather than editing it by hand. Note that
+`sync-client-origins.mjs` writes **both** SDK trees regardless of what branch each
+has checked out, so check `git status` in CrowdyJS too and revert what you did not
+mean to change.
+
 ## Cut the tag — this is the step that reaches a consumer
 
 **A release nobody can find is not a release.** CrowdyCPP is consumed as source,

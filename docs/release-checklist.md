@@ -38,13 +38,32 @@ dials the tier the build was released for. Regenerate with
 them out.
 
 **A PROMOTION CAN REWRITE THIS FILE WITH NO CONFLICT AND NO MENTION, AND THE
-CLEAN MERGE IS THE DANGEROUS CASE.** The pattern is mechanical, not random:
-`dev` → `test` conflicts because both sides changed the file, and resolving that
-writes a commit on `test` touching it — so at `test` → `prod` the destination has
-no competing edit, git takes the source side by fast logic, and reports success.
-On 2026-09-02 that put `tier = "test"` on `prod` here **and** on CrowdyJS, in the
-same release, both silently. Caught only by re-reading the file after a merge that
-claimed there was nothing to resolve.
+CLEAN MERGE IS THE DANGEROUS CASE.** On 2026-09-02 that put `tier = "test"` on
+`prod` here **and** on CrowdyJS, in the same release, both silently. Caught only
+by re-reading the file after a merge that claimed there was nothing to resolve.
+
+The mechanism was measured in a scratch repository, and the first explanation
+written down was wrong: it is not that resolving the `dev` → `test` conflict
+leaves `test` as the only side that touched the file. A promotion rewrites this
+file silently whenever **the merge base already holds the DESTINATION's value and
+the destination has not re-committed it while the source has** — one side changed,
+so git resolves it trivially and reports success. The correction matters because
+the wrong version implied the risk sits at one particular rung, and it does not.
+
+The same lab ruled out the tidier fix, twice over. **A `.gitattributes` merge
+driver cannot help.** Git never consults a driver for a one-sided change, and
+one-sided is the dangerous case — zero invocations were logged while a carry
+happened. And `.gitattributes` can *name* a driver but not ship it, so
+`merge.<name>.driver` reads as unset in a fresh clone and git falls back
+silently; a CI runner has no driver at all.
+
+**This is now enforced rather than remembered.**
+`scripts/ci/assert-default-origin.sh --from-ref` runs in `ci.yml`'s
+`release-gates` on every push, judging the pull request **base** so a promotion is
+refused before the merge; `release.yml`'s `guard` runs it against the tier the
+**tag** names, before `consumer-install`; and `publish` re-reads the file at the
+pushed tag. The steps below are still worth doing by hand before a release, but a
+missed reading is no longer the difference between a good release and a bad one.
 
 For this SDK the consequence is worse than a wrong number in a package. There is
 no registry and no dist-tag to correct afterwards: consumers clone the ref, so a

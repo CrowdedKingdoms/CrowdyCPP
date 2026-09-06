@@ -534,9 +534,79 @@ void runSendPath() {
 
 }  // namespace
 
+// --- Proactive refresh keeps the server when the API authorized the new token there,
+// and re-assigns when it did not (ck-api v1.83.7 `refreshAppToken(currentServer)`).
+// Before 2026-09-06 the connection kept its socket after EVERY refresh, and a Buddy
+// drops datagrams for a token it was never told about -- so each 30-minute refresh
+// left the client mute until the (opt-in) watchdog re-placed it.
+struct RefreshClock final : core::IClock {
+  std::int64_t epoch = 1'700'000'000'000LL;
+  std::int64_t mono = 10'000;
+  std::int64_t epochMillis() const override { return epoch; }
+  std::int64_t monotonicMillis() const override { return mono; }
+};
+
+struct RefreshProvider final : ISessionProvider {
+  int port;
+  int assignCalls = 0;
+  int refreshCalls = 0;
+  bool authorizeOnCurrent;
+  const Assignment* lastCurrent = nullptr;
+  Assignment lastCurrentCopy;
+  RefreshProvider(int p, bool authorize) : port(p), authorizeOnCurrent(authorize) {}
+  Result<Assignment> assignServer() override {
+    ++assignCalls;
+    return Assignment{"127.0.0.1", "", port};
+  }
+  Result<TokenInfo> refreshToken() override { return refreshToken(nullptr); }
+  Result<TokenInfo> refreshToken(const Assignment* current) override {
+    ++refreshCalls;
+    lastCurrent = current;
+    if (current) lastCurrentCopy = *current;
+    TokenInfo t{kToken, 42, 0};
+    t.expiresAtEpochMs = 1'700'000'000'000LL + 3'600'000;  // far away: refresh once
+    t.authorizedOnCurrentServer = authorizeOnCurrent;
+    return t;
+  }
+};
+
+void runRefreshKeepsServer(bool authorize, int expectedAssignCalls) {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<RefreshProvider>(server.port, authorize);
+  RefreshClock clock;
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, clock.epoch + 1000};  // expires in 1 s
+  cfg.refreshLeadMs = 5000;                              // so the first tick refreshes
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  Connection conn(cfg, provider, core::opensslCrypto(), clock);
+  CHECK(conn.connect().ok());
+  CHECK_EQ(provider->assignCalls, 1);
+
+  for (int i = 0; i < 10 && provider->refreshCalls == 0; ++i) {
+    conn.pump(5);
+    conn.poll();
+  }
+  CHECK_EQ(provider->refreshCalls, 1);
+  // The connection named the server it is on.
+  CHECK(provider->lastCurrent != nullptr);
+  CHECK_EQ(provider->lastCurrentCopy.ip4, std::string("127.0.0.1"));
+  CHECK_EQ(provider->lastCurrentCopy.clientPort, server.port);
+
+  for (int i = 0; i < 20 && provider->assignCalls < expectedAssignCalls; ++i) {
+    conn.pump(5);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assignCalls, expectedAssignCalls);
+}
+
 int main() {
   run();
   runSendPath();
+  runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
+  runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
   std::puts("replication_test OK");
   return 0;
 }

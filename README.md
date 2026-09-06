@@ -58,7 +58,16 @@ data allowance. Funding the wallet lifts the ~1 MB/s free-tier shaping, not rese
 `Connection::Stats` byte counters are now documented as a local diagnostic that will not
 reconcile against a bill -- billing counts egress only, at the platform's NIC, including
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
-15.4.0.
+15.4.2.
+
+**v0.29.2: a native client keeps its Buddy across a token refresh.** `refreshToken`
+now names the replication server the client is on (`refreshAppToken(currentServer)`,
+Game API v1.83.7+) and the connection keeps its socket when the API reports the new
+token `authorizedOnCurrentServer`, re-assigning only when it does not. Before, every
+30-minute refresh left the client on a Buddy that had never heard of its new token —
+mute until the (opt-in) watchdog re-placed it. `ISessionProvider::refreshToken(const
+Assignment*)` is a new virtual with a default that forwards to the old form, so
+existing providers compile unchanged (and re-assign after every refresh, as before).
 
 **v0.29.1 ships the default origin its tier actually declares.** The generated
 `default_origin.hpp` on the `dev` and `test` lines said `prod` — carried there by promotion
@@ -854,7 +863,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.4.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **15.4.2**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

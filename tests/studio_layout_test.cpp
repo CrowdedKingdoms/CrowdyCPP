@@ -50,9 +50,9 @@ void testPinnedCrowdyJsFixture() {
       generated::kCrowdyJsStudioLayoutFixtureV1);
   CHECK(fixture.isObject());
   CHECK_EQ(fixture["fixtureVersion"].asInt64(), std::int64_t{1});
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.4.2");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.5.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "52467275a023014d05c2b7f690de2cbea948e34a");
+        "243cfc31f6d9892bb4625893a4f7c5a8f6137638");
   CHECK(fixture["storageKey"].asStringView() ==
         STUDIO_LAYOUT_STORAGE_KEY);
 

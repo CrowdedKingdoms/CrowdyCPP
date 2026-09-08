@@ -3,7 +3,7 @@
   "contractVersion": "crowdy.player-control-gate/1",
   "crowdyJs": {
     "version": "15.5.0",
-    "commit": "243cfc31f6d9892bb4625893a4f7c5a8f6137638"
+    "commit": "21b59f804d268794205b0f3cac749161aae03edd"
   },
   "construction": {
     "clearAgentIntentRequired": true

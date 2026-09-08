@@ -314,7 +314,22 @@ inline crowdy::CrowdyClient& owner(const E2eConfig& cfg) {
   static std::unique_ptr<crowdy::CrowdyClient> cached;
   if (!cached) {
     requireOwner(cfg);
-    cached = identityClient(cfg, cfg.ownerEmail);
+    // On a deployed tier the owner is a REAL account (Secrets Manager
+    // `infra-cp/<tier>/org-admin/...`), which `register` refuses with
+    // EMAIL_ALREADY_REGISTERED. CROWDY_E2E_OWNER_PASSWORD selects `login`
+    // instead, the same knob the CrowdyJS harness has (CROWDY_OWNER_PASSWORD).
+    // Unset, the local-stack behaviour stands: a fresh derived owner.
+    const std::string ownerPassword = envOr("CROWDY_E2E_OWNER_PASSWORD");
+    if (!ownerPassword.empty()) {
+      crowdy::ClientConfig c;
+      c.httpUrl = cfg.apiUrl;
+      cached = std::make_unique<crowdy::CrowdyClient>(std::move(c));
+      auto auth = cached->auth().login(cfg.ownerEmail, ownerPassword);
+      E2E_CHECK(!auth.token.empty());
+      cached->setToken(auth.token);
+    } else {
+      cached = identityClient(cfg, cfg.ownerEmail);
+    }
   }
   return *cached;
 }
@@ -337,16 +352,18 @@ inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
   return *cached;
 }
 
-/// Find-or-create the e2e access tier carrying every runtime permission.
-/// Idempotent across runs (keyed by name, not suffix).
+/// Find-or-create the e2e access tier carrying every gameplay runtime
+/// permission. Idempotent across runs (keyed by name, not suffix). Renamed at
+/// 0.30.0 when `use_video_chat` joined the list: the old "crowdycpp-e2e" tier
+/// on a shared app still exists without it and must not be reused.
 inline std::string ensureEntitledTier(const E2eConfig& cfg, const std::string& appId) {
-  static constexpr const char* kTierName = "crowdycpp-e2e";
+  static constexpr const char* kTierName = "crowdycpp-e2e-video";
   auto& adminClient = owner(cfg);
   crowdy::graphql::Json tiers = adminClient.admin().appAccess().tiers(appId);
   std::string tierId;
   tiers.forEach([&](crowdy::graphql::Json t) {
     if (!tierId.empty()) return;
-    if (t["name"].asString() == kTierName && t["permissionKeys"].size() >= 4)
+    if (t["name"].asString() == kTierName && t["permissionKeys"].size() >= 5)
       tierId = t["tierId"].asString();
   });
   if (!tierId.empty()) return tierId;
@@ -355,10 +372,11 @@ inline std::string ensureEntitledTier(const E2eConfig& cfg, const std::string& a
   input["appId"] = appId;
   input["name"] = kTierName;
   input["isFree"] = true;
-  input["description"] = "CrowdyCPP e2e tier: all runtime permissions";
+  input["description"] = "CrowdyCPP e2e tier: all gameplay runtime permissions";
   input["permissionKeys"] = crowdy::graphql::JVal::array(
       {crowdy::graphql::JVal("access"), crowdy::graphql::JVal("teleport"),
-       crowdy::graphql::JVal("update_voxel_data"), crowdy::graphql::JVal("use_voice_chat")});
+       crowdy::graphql::JVal("update_voxel_data"), crowdy::graphql::JVal("use_voice_chat"),
+       crowdy::graphql::JVal("use_video_chat")});
   crowdy::graphql::Json created = adminClient.admin().appAccess().createTier(input);
   tierId = created["tierId"].asString();
   E2E_CHECK(!tierId.empty());

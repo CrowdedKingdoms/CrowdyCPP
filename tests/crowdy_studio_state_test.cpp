@@ -101,9 +101,9 @@ void testSharedDiagnosticFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-diagnostics/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.4.2");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.5.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "52467275a023014d05c2b7f690de2cbea948e34a");
+        "21b59f804d268794205b0f3cac749161aae03edd");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -623,9 +623,9 @@ void testSharedRuntimeProjectionFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-runtime-sync-projection/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.4.2");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.5.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "52467275a023014d05c2b7f690de2cbea948e34a");
+        "21b59f804d268794205b0f3cac749161aae03edd");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     CrowdyStudioState state;
     CrowdyStudioProject project;

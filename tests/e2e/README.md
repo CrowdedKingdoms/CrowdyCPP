@@ -20,6 +20,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_EMAIL` | yes | base email; suites derive fresh accounts by plus-addressing |
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
 | `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players, deploys kit blueprints) |
+| `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
 | `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |

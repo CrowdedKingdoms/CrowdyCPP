@@ -59,7 +59,19 @@ void testLayoutConstants() {
   CHECK(isLongSpatialLayout(128) && isLongSpatialLayout(140) && isLongSpatialLayout(142));
   CHECK(isLongSpatialLayout(26));   // heartbeat reuses the layout
   CHECK(!isLongSpatialLayout(141)); // short spatial reserved
-  CHECK(!isLongSpatialLayout(143));
+  // v0.30.0: the video pair and actor-left share the layout (Buddy v0.25.0).
+  CHECK(isLongSpatialLayout(143) && isLongSpatialLayout(144) && isLongSpatialLayout(145));
+  CHECK(!isLongSpatialLayout(146));
+  CHECK_EQ(static_cast<int>(MessageType::ClientVideoPacket), 143);
+  CHECK_EQ(static_cast<int>(MessageType::ClientVideoNotification), 144);
+  CHECK_EQ(static_cast<int>(MessageType::ActorLeftNotification), 145);
+  CHECK(isServerOnlySpatialType(144) && isServerOnlySpatialType(145) && isServerOnlySpatialType(130));
+  CHECK(!isServerOnlySpatialType(143) && !isServerOnlySpatialType(128) && !isServerOnlySpatialType(138));
+  const std::uint8_t stale[] = {0}, reserved[] = {1}, unknown[] = {7};
+  CHECK_EQ(actorLeftReason(stale, 1), 0u);
+  CHECK_EQ(actorLeftReason(reserved, 1), 1u);
+  CHECK_EQ(actorLeftReason(unknown, 1), 0u);
+  CHECK_EQ(actorLeftReason(nullptr, 0), 0u);
   CHECK(isSpatialType(128) && !isSpatialType(26));
 }
 

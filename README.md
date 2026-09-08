@@ -60,6 +60,18 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.30.0: webcam video and the server-announced departure.** Tracks CrowdyJS 15.5.0
+(Buddy `v0.25.x`, Game API `v1.87.x`). `Connection::sendVideo` sends one fragment and
+`sendVideoFrame` fragments a whole encoded frame (`include/crowdy/media/video_frames.hpp`:
+the 6-byte header, at most 16 fragments of 1117 bytes, `VideoFrameAssembler` for the
+receiving side -- byte-identical to CrowdyJS, seven shared fixture cases).
+`Handlers::video` and `Handlers::actorLeft` are dispatched from opcodes 144 and 145;
+`WorldSession` forwards audio/video through `WorldSessionConfig::onAudio` / `onVideo`
+(it used to swallow both) and removes an announced actor from `actors()` at once,
+firing `onLeave` and `onActorLeft`, instead of after the `staleAfterMs` reap. Video is
+gated by `use_video_chat` (bit 9), opt-in on the app's tier. The e2e harness gains
+`CROWDY_E2E_OWNER_PASSWORD` so it can sign in a tier's real owner.
+
 **v0.29.2: a native client keeps its Buddy across a token refresh.** `refreshToken`
 now names the replication server the client is on (`refreshAppToken(currentServer)`,
 Game API v1.83.7+) and the connection keeps its socket when the API reports the new
@@ -863,7 +875,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.4.2**. The source of truth is
+CrowdyCPP tracks CrowdyJS **15.5.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

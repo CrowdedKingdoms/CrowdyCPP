@@ -115,6 +115,18 @@ void run() {
   sess.actors.historySize = 2;
   sess.hostHeartbeatIntervalMs = 0;  // no CrowdyClient in this test
   sess.reapIntervalMs = 10;
+  // Media and departures the session forwards to the game (v0.30.0).
+  int audioSeen = 0, videoSeen = 0, leftSeen = 0;
+  std::uint8_t lastLeftReason = 9;
+  sess.onAudio = [&](const replication::SpatialNotification&) { ++audioSeen; };
+  sess.onVideo = [&](const replication::SpatialNotification& n) {
+    ++videoSeen;
+    CHECK_EQ(n.payload.size(), std::size_t{9});
+  };
+  sess.onActorLeft = [&](const core::ActorUuid&, std::uint8_t reason) {
+    ++leftSeen;
+    lastLeftReason = reason;
+  };
   WorldSession session(conn, nullptr, sess);
 
   // --- Join sends the first actor update.
@@ -316,6 +328,56 @@ void run() {
   CHECK(session.chunks().list().size() >= 1);
   CHECK_EQ(session.chunks().pruneBeyond({2, 0, 0}, 0), 0u);  // only chunk 2,0,0 cached
 
+  // --- Media reaches the game through the session (OQ5): audio and one video
+  // fragment (6-byte header + 3 body bytes) from `other`.
+  const std::uint8_t audioBytes[] = {1, 2, 3};
+  auto audioNote = makeNotification(wire::MessageType::ClientAudioNotification, other, {1, 0, 0},
+                                    Bytes(audioBytes, sizeof(audioBytes)), 1700000000800LL, 10);
+  server.reply(audioNote.data(), audioNote.size());
+  const std::uint8_t videoBytes[] = {1, 0, 0x00, 0x05, 0, 1, 0xaa, 0xbb, 0xcc};
+  auto videoNote = makeNotification(wire::MessageType::ClientVideoNotification, other, {1, 0, 0},
+                                    Bytes(videoBytes, sizeof(videoBytes)), 1700000000810LL, 11);
+  server.reply(videoNote.data(), videoNote.size());
+  for (int i = 0; i < 100 && (audioSeen < 1 || videoSeen < 1); ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(audioSeen, 1);
+  CHECK_EQ(videoSeen, 1);
+
+  // --- Server-announced departure (ActorLeftNotification, Buddy v0.25.0): the
+  // mob is fresh (well inside staleAfterMs) yet leaves at once, onLeave fires once
+  // on its lane, the game callback sees the reason, and a repeat is a no-op.
+  int leavesBefore = laneLeaves;
+  const std::uint8_t leftReason[] = {0};
+  auto leftNote = makeNotification(wire::MessageType::ActorLeftNotification, mob, {1, 0, 0},
+                                   Bytes(leftReason, 1), 1700000000820LL, 0);
+  server.reply(leftNote.data(), leftNote.size());
+  for (int i = 0; i < 100 && leftSeen < 1; ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(leftSeen, 1);
+  CHECK_EQ(lastLeftReason, 0u);
+  CHECK_EQ(laneLeaves, leavesBefore + 1);
+  CHECK(mobLane.find(mob) == nullptr);
+  server.reply(leftNote.data(), leftNote.size());
+  for (int i = 0; i < 20; ++i) {
+    conn->pump(5);
+    session.tick();
+  }
+  CHECK_EQ(laneLeaves, leavesBefore + 1);  // idempotent: nothing to remove twice
+  CHECK_EQ(leftSeen, 2);                   // the game is still told; it filters
+  // A leave naming OUR uuid is ignored (the self store owns our presence).
+  auto selfLeft = makeNotification(wire::MessageType::ActorLeftNotification, session.actorUuid(),
+                                   {1, 0, 0}, Bytes(leftReason, 1), 1700000000830LL, 0);
+  server.reply(selfLeft.data(), selfLeft.size());
+  for (int i = 0; i < 20; ++i) {
+    conn->pump(5);
+    session.tick();
+  }
+  CHECK_EQ(leftSeen, 2);
+
   // --- Staleness reaping: with no more traffic the remote actors expire
   // (default lane and named lanes; onLeave fires).
   for (int i = 0; i < 100 && (session.actors().size() > 0 || mobLane.size() > 0); ++i) {
@@ -324,7 +386,7 @@ void run() {
   }
   CHECK_EQ(session.actors().size(), 0u);
   CHECK_EQ(mobLane.size(), 0u);
-  CHECK_EQ(laneLeaves, 1);
+  CHECK_EQ(laneLeaves, 1);  // the mob left once, by announcement; the reap found nothing to fire
   CHECK(mobLane.revision() >= 2);
   session.errors().clear();
   CHECK(session.errors().recent().empty());

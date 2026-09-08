@@ -149,6 +149,8 @@ const ROOT_CLASSIFICATIONS = {
       'sendActorUpdate',
       'sendVoxelUpdate',
       'sendAudioPacket',
+      // 15.5.0 / 0.30.0: webcam video rides the same native path (Connection::sendVideo / sendVideoFrame).
+      'sendVideoPacket',
       'sendTextPacket',
       'sendClientEvent',
       'sendSingleActorMessage',

@@ -1,3 +1,8 @@
+# Header-only media codec; no crypto, no network.
+add_executable(video_frames_test video_frames_test.cpp)
+target_link_libraries(video_frames_test PRIVATE crowdy_core)
+add_test(NAME video_frames_test COMMAND video_frames_test)
+
 if(CROWDY_WITH_OPENSSL)
   add_executable(wire_test wire_test.cpp)
   target_link_libraries(wire_test PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)

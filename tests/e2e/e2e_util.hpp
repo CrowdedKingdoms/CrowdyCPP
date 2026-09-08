@@ -292,6 +292,13 @@ struct Player {
 };
 
 /// Sign in an identity client (session token, shared origin).
+// DIRECT SIGN-IN FROM HERE IS ALLOWED, AND WILL STAY ALLOWED (ck-api v1.88.0).
+// The API serves `register` / `login` only to first-party browser origins and to
+// callers that send no `Origin` header at all. libcurl sends none, so a native
+// client is the second kind and is unaffected by the hosted-sign-in cutover; a
+// browser game on its own domain is refused (HOSTED_SIGN_IN_REQUIRED) and goes
+// through Studio's /authorize instead. If this harness is ever ported to a
+// browser context, that is the flow it would need.
 inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg,
                                                             const std::string& email,
                                                             std::string* userId = nullptr) {

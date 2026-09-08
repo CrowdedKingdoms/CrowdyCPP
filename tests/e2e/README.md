@@ -42,6 +42,14 @@ The suites sign in with **email + password** (`auth.login` / `auth.register`).
 `DEV_AUTH_BYPASS` and `devLogin` were REMOVED from every tier on 2026-08-20 and
 no longer exist to enable; a suite still asking for them will fail to
 authenticate rather than fall back.
+
+**That direct sign-in keeps working here, by design** (ck-api v1.88.0,
+2026-09-08). The API serves `login` / `register` only to first-party browser
+origins and to callers that send no `Origin` header; libcurl sends none, so a
+native client is exempt. A browser game on its own domain is refused
+(`HOSTED_SIGN_IN_REQUIRED`) and signs its players in through Studio's hosted
+`/authorize` (PKCE) instead. If a suite ever runs inside a browser context, it
+would need that flow.
 Every test exits **77** (ctest `SKIP_RETURN_CODE`) when its required
 variables are unset, so an unconfigured checkout reports skips, not failures.
 Hosted CI intentionally has no live deployment credentials: it compiles these

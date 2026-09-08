@@ -1,4 +1,4 @@
-// The SDK-side video fragment contract (Buddy v0.25.0 / CrowdyJS 15.5.0).
+// The SDK-side video fragment contract (Buddy v0.25.0 / CrowdyJS 15.6.0).
 // These seven cases mirror CrowdyJS test/unit/video-frames.test.mjs one for one;
 // a change to either SDK's behaviour must change both files.
 #include <cstdio>

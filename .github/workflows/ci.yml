@@ -87,7 +87,7 @@ jobs:
         run: |
           test "$(jq -r '.version' CrowdyJS/package.json)" = "${{ steps.crowdyjs-target.outputs.version }}"
           test "$(git -C CrowdyJS rev-parse HEAD)" = "${{ steps.crowdyjs-target.outputs.commit }}"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm

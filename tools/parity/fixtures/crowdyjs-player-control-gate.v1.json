@@ -2,8 +2,8 @@
   "fixtureVersion": 1,
   "contractVersion": "crowdy.player-control-gate/1",
   "crowdyJs": {
-    "version": "15.4.2",
-    "commit": "52467275a023014d05c2b7f690de2cbea948e34a"
+    "version": "15.5.0",
+    "commit": "a6c8342a1c4f3e31b502f14d250ce3176eaf086f"
   },
   "construction": {
     "clearAgentIntentRequired": true

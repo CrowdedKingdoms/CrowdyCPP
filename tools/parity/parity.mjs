@@ -188,7 +188,15 @@ const METHOD_CLASSIFICATIONS = {
   ),
   'PortalAPI.handleAuthorizeRequest': classification(
     CATEGORY.BROWSER,
-    'Overworld browser-page redirect handler; native uses authorization-code APIs',
+    'Studio /authorize browser-page redirect handler; native uses authorization-code APIs',
+  ),
+  'PortalAPI.signIn': classification(
+    CATEGORY.BROWSER,
+    'hosted sign-in navigates the browser to Studio /authorize (ck-api v1.88.0); a native client sends no Origin header, signs in with auth().login and mints directly',
+  ),
+  'PortalAPI.handleSignInCallback': classification(
+    CATEGORY.BROWSER,
+    'the browser return leg of hosted sign-in (reads location.search, rewrites history); native uses exchangeCode with the code it received',
   ),
   'WorldSessionCore.on': classification(
     CATEGORY.NATIVE,

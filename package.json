@@ -32,7 +32,6 @@
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
-    "syncedFrom": "/home/ubuntu/cks-michael-root/cks-game-api/schema.gql",
     "sourceBlob": "865d8fd0f722f35073aafceb6022464004124d24",
     "snapshotSha256": "4dd8f4fda0e19c11758a977249a3288e5efb901395327e1f4a4e2a09856b86b8",
     "syncedAt": "2026-09-09T14:56:07.645Z"

@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
 CrowdyCPP 0.30.0 passes the strict portable-parity gate against CrowdyJS
-**15.5.0**. The gate pins CrowdyJS commit
-`a6c8342a1c4f3e31b502f14d250ce3176eaf086f` (`crowdyjsParityTarget` in
+**15.7.0**. The gate pins CrowdyJS commit
+`0f493ddc0aa4bc417b3f07cd834af0e466167801` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -15,8 +15,8 @@ tier's commit. `check-parity-target-tier.mjs` refuses that now.
 
 The rule is **reachability from this tier's branch**, which is the same thing as
 "this commit has been promoted to me". Because promotions merge forward, one
-commit satisfies every tier once it has travelled the ladder: `243cfc3…` is
-`dev/v15.5.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
+commit satisfies every tier once it has travelled the ladder: `0f493dd…` is
+`dev/v15.7.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
 (promote CrowdyJS to a tier BEFORE promoting this pin there). So this line does
 not need to differ per tier and the value promotes forward like any other.
 

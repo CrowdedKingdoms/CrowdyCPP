@@ -1,11 +1,17 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.30.0 passes the strict portable-parity gate against CrowdyJS
-**15.5.0**. The gate pins CrowdyJS commit
-`243cfc31f6d9892bb4625893a4f7c5a8f6137638` (`crowdyjsParityTarget` in
+CrowdyCPP 0.31.0 passes the strict portable-parity gate against CrowdyJS
+**15.7.0**. The gate pins CrowdyJS commit
+`0f493ddc0aa4bc417b3f07cd834af0e466167801` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+Since 0.31.0, async app-token refresh can name the current replication server:
+`portal().refreshAsync(ip4, port)` sends `refreshAppToken(currentServer)` (the
+same document as the blocking overload). `CrowdyClient::refreshGameplayTokenAsync`
+uses that form when the quiesced connection still has an assignment. An empty
+`authorizedServer` on a successful outcome is not a failed `GraphQLOutcome`.
 
 **The pinned commit must be one this tier has actually been promoted.** Before
 2026-09-02 all three branches pinned `8937075…`, a merge commit created on
@@ -28,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.30.0 | CrowdyJS 15.5.0 | Required public API generation |
+| Surface | CrowdyCPP 0.31.0 | CrowdyJS 15.7.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |

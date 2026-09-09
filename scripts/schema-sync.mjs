@@ -195,9 +195,16 @@ if (args.check) {
   // quietly repoint the daily drift job at a URL that can never move, which is a check
   // that cannot fail wearing the costume of one that passed.
   const pkg = JSON.parse(readFileSync(PACKAGE, 'utf8'));
+  // Omit filesystem paths from the public provenance record. A sibling
+  // checkout on the builder is a private location; only HTTP(S) overrides
+  // of the published SDL URL are safe to write back into package.json.
+  const syncedFrom =
+    args.game !== DEFAULTS.game && /^https?:\/\//.test(args.game)
+      ? { syncedFrom: args.game }
+      : {};
   pkg.publishedSchemaSnapshot = {
     url: DEFAULTS.game,
-    ...(args.game === DEFAULTS.game ? {} : { syncedFrom: args.game }),
+    ...syncedFrom,
     sourceBlob: gitBlob(served),
     snapshotSha256: sha256(normalised),
     syncedAt: new Date().toISOString(),

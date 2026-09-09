@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 2fc91f3383d035780ab0df48f5c429b5134af047e1808a2c7d2ac0572478fe86
-// operations sha256: aace4a3e955d5e4a1f6af1852e917079f9c09b1ede47d90a495807e9f3850a71
+// schema.gql sha256: 4dd8f4fda0e19c11758a977249a3288e5efb901395327e1f4a4e2a09856b86b8
+// operations sha256: 70731f82774ce3619c1175c79977f55b476e0d07266e1d2aea169bad914dd784
 
 #pragma once
 
@@ -6985,6 +6985,23 @@ query NearbyGridPermissions($input: NearbyGridPermissionsInput!) {
   }
 }
 
+query NearbyGrids($input: NearbyGridsInput!) {
+  nearbyGrids(input: $input) {
+    appId
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+  }
+}
+
 query GridPermissionLimits($appId: BigInt!, $gridId: BigInt!) {
   gridPermissionLimits(appId: $appId, gridId: $gridId) {
     appId
@@ -7160,6 +7177,23 @@ inline constexpr std::string_view kNearbyGridPermissionsIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kNearbyGridPermissionsOperationName = "NearbyGridPermissions";
+inline constexpr std::string_view kNearbyGridsIsolatedDocument = R"gql(query NearbyGrids($input: NearbyGridsInput!) {
+  nearbyGrids(input: $input) {
+    appId
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+  }
+})gql";
+inline constexpr std::string_view kNearbyGridsOperationName = "NearbyGrids";
 inline constexpr std::string_view kGridPermissionLimitsIsolatedDocument = R"gql(query GridPermissionLimits($appId: BigInt!, $gridId: BigInt!) {
   gridPermissionLimits(appId: $appId, gridId: $gridId) {
     appId
@@ -7261,6 +7295,7 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "TransferGridOwnership") return kTransferGridOwnershipIsolatedDocument;
   if (operationName == "GridUserPermissions") return kGridUserPermissionsIsolatedDocument;
   if (operationName == "NearbyGridPermissions") return kNearbyGridPermissionsIsolatedDocument;
+  if (operationName == "NearbyGrids") return kNearbyGridsIsolatedDocument;
   if (operationName == "GridPermissionLimits") return kGridPermissionLimitsIsolatedDocument;
   if (operationName == "GridGroupGrants") return kGridGroupGrantsIsolatedDocument;
   if (operationName == "CreateGrid") return kCreateGridIsolatedDocument;
@@ -8909,6 +8944,7 @@ mutation GameModelUpsertContainerType($input: UpsertContainerTypeInput!) {
     description
     instantiableBy
     defaultPropertyVisibility
+    bindPolicyJson
     metadataJson
   }
 }
@@ -8989,6 +9025,7 @@ query GameModelContainerTypes($appId: BigInt!) {
     description
     instantiableBy
     defaultPropertyVisibility
+    bindPolicyJson
     metadataJson
   }
 }
@@ -9058,6 +9095,7 @@ inline constexpr std::string_view kGameModelUpsertContainerTypeIsolatedDocument 
     description
     instantiableBy
     defaultPropertyVisibility
+    bindPolicyJson
     metadataJson
   }
 })gql";
@@ -9260,6 +9298,7 @@ inline constexpr std::string_view kGameModelContainerTypesIsolatedDocument = R"g
     description
     instantiableBy
     defaultPropertyVisibility
+    bindPolicyJson
     metadataJson
   }
 })gql";

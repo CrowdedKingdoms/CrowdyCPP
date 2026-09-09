@@ -60,11 +60,17 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.32.0: nearbyGrids + bindPolicyJson, parity CrowdyJS 15.9.0.** Tracks
+ck-api `v1.93.0`. `gameApps().nearbyGrids` lists overlapping grids (id +
+bounds only). Studio ops select `bindPolicyJson` on container types
+(authoring surface; no live Titan Assault policy writes). Schema synced
+to that API; pin is CrowdyJS `15.9.0` at the `dev` merge of that release.
+
 **v0.31.0: async refresh can name the current server.** `portal().refreshAsync(ip4, port)`
 is the async twin of the server-aware blocking refresh: it sends
 `refreshAppToken(currentServer)` so a proactive refresh can keep the Buddy.
 `CrowdyClient::refreshGameplayTokenAsync` uses that overload when the quiesced
-connection still has an assignment. Parity stays CrowdyJS 15.7.0.
+connection still has an assignment. Parity was CrowdyJS 15.7.0.
 
 **v0.30.0: webcam video and the server-announced departure.** Tracks CrowdyJS 15.5.0
 (Buddy `v0.25.x`, Game API `v1.87.x`). `Connection::sendVideo` sends one fragment and

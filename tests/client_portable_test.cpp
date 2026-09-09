@@ -320,6 +320,17 @@ void testAsyncGameplayRefreshUsesPoll() {
   CHECK(result.ok());
   CHECK(result.reconnected);
   CHECK_EQ(client.getToken(), kFreshToken);
+
+  const graphql::HttpRequest* refresh = nullptr;
+  for (const auto& request : transport->requests) {
+    if (request.body.find("RefreshAppToken") != std::string::npos) {
+      refresh = &request;
+    }
+  }
+  CHECK(refresh);
+  CHECK(refresh->body.find(domains::kRefreshWithServer) != std::string::npos);
+  CHECK(refresh->body.find("127.0.0.1") != std::string::npos);
+  CHECK(refresh->body.find("39001") != std::string::npos);
 }
 
 void testAsyncRefreshFailureUsesPollAndRetainsOldToken() {
@@ -346,6 +357,28 @@ void testAsyncRefreshFailureUsesPollAndRetainsOldToken() {
   CHECK_EQ(result.errorCode, "UNAUTHENTICATED");
   CHECK_EQ(client.getToken(), kOldToken);
   CHECK_EQ(connection->state(), replication::ConnState::Closed);
+}
+
+void testAsyncGameplayRefreshWithoutAssignmentOmitsCurrentServer() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient client(portableConfig(transport));
+  client.setToken(kOldToken);
+
+  bool called = false;
+  client.refreshGameplayTokenAsync(
+      [&](GameplayTokenRefreshResult) { called = true; });
+  client.poll();
+  CHECK(called);
+
+  const graphql::HttpRequest* refresh = nullptr;
+  for (const auto& request : transport->requests) {
+    if (request.body.find("RefreshAppToken") != std::string::npos) {
+      refresh = &request;
+    }
+  }
+  CHECK(refresh);
+  CHECK(refresh->body.find(domains::kRefreshWithoutServer) != std::string::npos);
+  CHECK(refresh->body.find(domains::kRefreshWithServer) == std::string::npos);
 }
 
 void testOverflowingGameplayTokenIdIsRejectedWithoutNarrowing() {
@@ -375,6 +408,18 @@ void testNullableTokenAndProfileFieldsRemainDistinct() {
   CHECK(token.gameApiWsUrl.has_value());
   CHECK(token.gameApiWsUrl.empty());
   CHECK(!token.launchUrl.has_value());
+  CHECK(!token.hasAuthorizedServer());
+
+  const auto emptyAuthorized = domains::AppTokenResponse::fromJson(graphql::Json::parse(
+      R"({"token":"t","gameTokenId":"1","appId":"42","expiresAt":"2030-01-01T00:00:00Z","gameApiUrl":null,"gameApiWsUrl":"","launchUrl":null,"authorizedServer":null})"));
+  CHECK_EQ(emptyAuthorized.token, "t");
+  CHECK(!emptyAuthorized.hasAuthorizedServer());
+
+  const auto named = domains::AppTokenResponse::fromJson(graphql::Json::parse(
+      R"({"token":"t","gameTokenId":"1","appId":"42","expiresAt":"2030-01-01T00:00:00Z","gameApiUrl":null,"gameApiWsUrl":"","launchUrl":null,"authorizedServer":{"ip4":"203.0.113.4","clientPort":39001}})"));
+  CHECK(named.hasAuthorizedServer());
+  CHECK_EQ(named.authorizedServerIp4, "203.0.113.4");
+  CHECK_EQ(named.authorizedServerClientPort, 39001);
 
   const auto authJson = graphql::Json::parse(
       R"({"token":"identity","user":{"userId":"9223372036854775808","email":null,"gamertag":""}})");
@@ -505,6 +550,7 @@ int main() {
   testReconnectFailureRetainsFreshToken();
   testAsyncGameplayRefreshUsesPoll();
   testAsyncRefreshFailureUsesPollAndRetainsOldToken();
+  testAsyncGameplayRefreshWithoutAssignmentOmitsCurrentServer();
   testOverflowingGameplayTokenIdIsRejectedWithoutNarrowing();
   testNullableTokenAndProfileFieldsRemainDistinct();
   testDurableStoreObservability();

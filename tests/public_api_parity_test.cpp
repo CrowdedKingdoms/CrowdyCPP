@@ -1,5 +1,6 @@
 #include <concepts>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -103,6 +104,15 @@ static_assert(std::same_as<
 static_assert(requires(PortalAPI& api, std::string_view appId) {
   // One argument proves omitted scopes still use the server-side baseline.
   { api.authorizeApp(appId) } -> std::same_as<Json>;
+});
+
+static_assert(requires(const PortalAPI& api, std::string_view ip4,
+                       std::function<void(crowdy::graphql::GraphQLOutcome,
+                                          crowdy::domains::AppTokenResponse)> cb) {
+  api.refreshAsync(cb);
+  api.refreshAsync(cb, false);
+  api.refreshAsync(ip4, 39001, cb);
+  api.refreshAsync(ip4, 39001, cb, false);
 });
 
 }  // namespace

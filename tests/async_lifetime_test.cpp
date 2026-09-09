@@ -24,9 +24,12 @@ class UnusedSyncTransport final : public graphql::IHttpTransport {
 
 class DeferredTransport final : public graphql::IAsyncHttpTransport {
  public:
+  std::vector<graphql::HttpRequest> requests;
+
   void sendAsync(
-      const graphql::HttpRequest&,
+      const graphql::HttpRequest& request,
       std::function<void(graphql::HttpOutcome)> callback) override {
+    requests.push_back(request);
     pending_.push_back(std::move(callback));
   }
 
@@ -140,6 +143,124 @@ void testCloseSuppressesCompletionBeforeDestruction() {
   CHECK(!called);
 }
 
+bool requestUsesRefreshWithServer(const graphql::HttpRequest& request) {
+  return request.body.find(domains::kRefreshWithServer) != std::string::npos;
+}
+
+bool requestUsesRefreshWithoutServer(const graphql::HttpRequest& request) {
+  return request.body.find(domains::kRefreshWithoutServer) != std::string::npos;
+}
+
+graphql::HttpOutcome refreshSuccessEmptyAuthorizedServer() {
+  graphql::HttpOutcome outcome;
+  outcome.status = Errc::Ok;
+  outcome.response.status = 200;
+  outcome.response.body =
+      R"({"data":{"refreshAppToken":{"token":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","gameTokenId":"202","appId":"42","expiresAt":"2030-01-01T00:00:00.000Z","gameApiUrl":null,"gameApiWsUrl":"","launchUrl":null,"authorizedServer":null}}})";
+  return outcome;
+}
+
+graphql::HttpOutcome refreshGraphqlFailure() {
+  graphql::HttpOutcome outcome;
+  outcome.status = Errc::Ok;
+  outcome.response.status = 200;
+  outcome.response.body =
+      R"({"errors":[{"message":"refresh refused","extensions":{"code":"UNAUTHENTICATED"}}]})";
+  return outcome;
+}
+
+void testRefreshAsyncWithServerUsesRefreshWithServer() {
+  auto transport = std::make_shared<DeferredTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  auto auth = std::make_shared<graphql::AuthState>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"https://management.invalid/graphql", 100},
+      std::make_shared<UnusedSyncTransport>(), auth);
+  gql->setAsyncTransport(transport);
+  gql->setDispatcher(dispatcher);
+
+  domains::PortalAPI portal(gql, auth, core::unavailableCrypto());
+  bool called = false;
+  graphql::GraphQLOutcome outcome;
+  domains::AppTokenResponse token;
+  portal.refreshAsync(
+      "203.0.113.4", 39001,
+      [&](graphql::GraphQLOutcome value, domains::AppTokenResponse response) {
+        called = true;
+        outcome = std::move(value);
+        token = std::move(response);
+      });
+
+  CHECK_EQ(transport->requests.size(), std::size_t{1});
+  CHECK(requestUsesRefreshWithServer(transport->requests.front()));
+  CHECK(!requestUsesRefreshWithoutServer(transport->requests.front()));
+  CHECK(transport->requests.front().body.find("203.0.113.4") !=
+        std::string::npos);
+  CHECK(transport->requests.front().body.find("39001") != std::string::npos);
+
+  transport->complete(refreshSuccessEmptyAuthorizedServer());
+  CHECK_EQ(dispatcher->drain(), std::size_t{1});
+  CHECK(called);
+  CHECK(outcome.ok());
+  CHECK(!token.token.empty());
+  CHECK(!token.hasAuthorizedServer());
+  CHECK(auth->hasToken());
+}
+
+void testRefreshAsyncWithoutServerKeepsNoServerDocument() {
+  auto transport = std::make_shared<DeferredTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  auto auth = std::make_shared<graphql::AuthState>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"https://management.invalid/graphql", 100},
+      std::make_shared<UnusedSyncTransport>(), auth);
+  gql->setAsyncTransport(transport);
+  gql->setDispatcher(dispatcher);
+
+  domains::PortalAPI portal(gql, auth, core::unavailableCrypto());
+  portal.refreshAsync(
+      [&](graphql::GraphQLOutcome, domains::AppTokenResponse) {});
+
+  CHECK_EQ(transport->requests.size(), std::size_t{1});
+  CHECK(requestUsesRefreshWithoutServer(transport->requests.front()));
+  CHECK(!requestUsesRefreshWithServer(transport->requests.front()));
+}
+
+void testEmptyAuthorizedServerIsNotAFailedOutcome() {
+  auto transport = std::make_shared<DeferredTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  auto auth = std::make_shared<graphql::AuthState>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"https://management.invalid/graphql", 100},
+      std::make_shared<UnusedSyncTransport>(), auth);
+  gql->setAsyncTransport(transport);
+  gql->setDispatcher(dispatcher);
+
+  domains::PortalAPI portal(gql, auth, core::unavailableCrypto());
+  bool called = false;
+  graphql::GraphQLOutcome outcome;
+  domains::AppTokenResponse token;
+  portal.refreshAsync(
+      "203.0.113.4", 39001,
+      [&](graphql::GraphQLOutcome value, domains::AppTokenResponse response) {
+        called = true;
+        outcome = std::move(value);
+        token = std::move(response);
+      });
+  transport->complete(refreshGraphqlFailure());
+  CHECK_EQ(dispatcher->drain(), std::size_t{1});
+  CHECK(called);
+  CHECK(!outcome.ok());
+  CHECK(token.token.empty());
+  CHECK(!token.hasAuthorizedServer());
+
+  const auto emptyAuthorized = domains::AppTokenResponse::fromJson(
+      graphql::Json::parse(
+          R"({"token":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","gameTokenId":"202","appId":"42","expiresAt":"2030-01-01T00:00:00.000Z","gameApiUrl":null,"gameApiWsUrl":"","launchUrl":null,"authorizedServer":null})"));
+  CHECK(!emptyAuthorized.token.empty());
+  CHECK(!emptyAuthorized.hasAuthorizedServer());
+}
+
 void testFailedAsyncLogoutRetainsToken() {
   auto transport = std::make_shared<DeferredTransport>();
   CrowdyClient client(configFor(transport));
@@ -168,6 +289,9 @@ int main() {
   testDestroyedClientSuppressesPortalCompletion();
   testDestroyedClientSuppressesGameplayRefreshCompletion();
   testCloseSuppressesCompletionBeforeDestruction();
+  testRefreshAsyncWithServerUsesRefreshWithServer();
+  testRefreshAsyncWithoutServerKeepsNoServerDocument();
+  testEmptyAuthorizedServerIsNotAFailedOutcome();
   testFailedAsyncLogoutRetainsToken();
   std::puts("async_lifetime_test OK");
   return 0;

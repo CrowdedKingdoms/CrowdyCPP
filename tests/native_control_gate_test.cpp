@@ -887,9 +887,9 @@ void testSharedControlGateFixture() {
   CHECK(fixture["fixtureVersion"].asInt64() == 1);
   CHECK(fixture["contractVersion"].asStringView() ==
         "crowdy.player-control-gate/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.9.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.12.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "b926fda2c6605b2cd9fc8392a5039475bf7dd2fe");
+        "07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa");
   CHECK(fixture["construction"]["clearAgentIntentRequired"].asBool());
   testSharedControlGateDefaultsAndWindowFixture(fixture);
   testSharedControlGateRebindStopFixture(fixture);

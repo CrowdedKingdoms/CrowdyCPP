@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 4dd8f4fda0e19c11758a977249a3288e5efb901395327e1f4a4e2a09856b86b8
-// operations sha256: 70731f82774ce3619c1175c79977f55b476e0d07266e1d2aea169bad914dd784
+// schema.gql sha256: 929a86d97e2663100e4e3cc9b6cedd0b960e81c33ffa9274b5b86ef96b72a837
+// operations sha256: 493a4f16cafc6cad4f3ac8fa4f2f24211da7f71cf6cedfd3a1975d6aeef1cb25
 
 #pragma once
 
@@ -1305,31 +1305,6 @@ inline constexpr std::string_view toString(RateScope v) {
 inline std::optional<RateScope> rateScopeFromString(std::string_view s) {
   if (s == "SHARED") return RateScope::SHARED;
   if (s == "PLAYER") return RateScope::PLAYER;
-  return std::nullopt;
-}
-
-enum class SellerOnboardingStatus {
-  NONE,
-  PENDING,
-  COMPLETE,
-  BLOCKED,
-};
-
-inline constexpr std::string_view toString(SellerOnboardingStatus v) {
-  switch (v) {
-    case SellerOnboardingStatus::NONE: return "NONE";
-    case SellerOnboardingStatus::PENDING: return "PENDING";
-    case SellerOnboardingStatus::COMPLETE: return "COMPLETE";
-    case SellerOnboardingStatus::BLOCKED: return "BLOCKED";
-  }
-  return "";
-}
-
-inline std::optional<SellerOnboardingStatus> sellerOnboardingStatusFromString(std::string_view s) {
-  if (s == "NONE") return SellerOnboardingStatus::NONE;
-  if (s == "PENDING") return SellerOnboardingStatus::PENDING;
-  if (s == "COMPLETE") return SellerOnboardingStatus::COMPLETE;
-  if (s == "BLOCKED") return SellerOnboardingStatus::BLOCKED;
   return std::nullopt;
 }
 

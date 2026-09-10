@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check public content policy
         run: bash scripts/check-content-policy.sh
 
@@ -43,7 +43,7 @@ jobs:
       # remote and clone; it does not read this checkout's history, but the script
       # under test runs `git fetch`, and testing it in a shallow repository would
       # exercise a different path than the release workflow takes.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Release tier gate refuses a tag outside its branch
@@ -71,14 +71,14 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read pinned CrowdyJS parity target
         id: crowdyjs-target
         run: |
           echo "version=$(jq -r '.crowdyjsParityTarget.version' package.json)" >> "$GITHUB_OUTPUT"
           echo "commit=$(jq -r '.crowdyjsParityTarget.commit' package.json)" >> "$GITHUB_OUTPUT"
       - name: Check out pinned CrowdyJS parity target
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: CrowdedKingdoms/CrowdyJS
           ref: ${{ steps.crowdyjs-target.outputs.commit }}
@@ -87,7 +87,7 @@ jobs:
         run: |
           test "$(jq -r '.version' CrowdyJS/package.json)" = "${{ steps.crowdyjs-target.outputs.version }}"
           test "$(git -C CrowdyJS rev-parse HEAD)" = "${{ steps.crowdyjs-target.outputs.commit }}"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -172,7 +172,7 @@ jobs:
         default_transports: ['ON', 'OFF']
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
@@ -205,7 +205,7 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
       - name: Configure non-throwing GraphQL compatibility paths
@@ -253,7 +253,7 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install HTTP dependency
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Configure without OpenSSL
@@ -284,7 +284,7 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
       - name: Configure AddressSanitizer

@@ -50,7 +50,7 @@ jobs:
       # fetch-depth: 0 is required, not tidiness: the containment check is a
       # merge-base against the tier branch and a shallow clone has no merge-base,
       # so the gate would refuse every valid tag.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Resolve tier and refuse a tag outside its branch
@@ -78,7 +78,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
       - name: Configure
@@ -107,7 +107,7 @@ jobs:
     permissions:
       contents: write # creating a release writes to the repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # What a consumer will actually clone, read back from the TAG rather than from anything
       # this run believes. There is no registry here and no dist-tag to move, so the tag ref is
       # the artifact -- `git show <tag>:<path>` is the exact equivalent of unpacking a published

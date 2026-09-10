@@ -60,6 +60,13 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.33.0: paid commerce off the public schema, parity CrowdyJS 15.12.0.**
+`domains::Marketplace` drops `purchaseGrid`, `createGridListing`,
+`gridListings`, `setListingPricing`, renew/top-up/refund, seller
+onboarding/payouts, and the risk queue. Free publish / acquire / install /
+consent / claim stay. Schema synced from the ck-api that unregistered those
+fields.
+
 **v0.32.0: nearbyGrids + bindPolicyJson, parity CrowdyJS 15.9.0.** Tracks
 ck-api `v1.93.0`. `gameApps().nearbyGrids` lists overlapping grids (id +
 bounds only). Studio ops select `bindPolicyJson` on container types

@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 4dd8f4fda0e19c11758a977249a3288e5efb901395327e1f4a4e2a09856b86b8
-// operations sha256: 70731f82774ce3619c1175c79977f55b476e0d07266e1d2aea169bad914dd784
+// schema.gql sha256: 929a86d97e2663100e4e3cc9b6cedd0b960e81c33ffa9274b5b86ef96b72a837
+// operations sha256: 493a4f16cafc6cad4f3ac8fa4f2f24211da7f71cf6cedfd3a1975d6aeef1cb25
 
 #pragma once
 
@@ -9885,56 +9885,6 @@ mutation MarketplaceIssueGridClaimInvite(
     gridId: $gridId
     inviteeUserId: $inviteeUserId
   )
-}
-
-# ---- P4b: paid modes, grid commerce, seller payouts ---------------------------
-
-mutation MarketplaceRenewAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  renewPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
-    ...PlayerCodeAcquisitionFields
-  }
-}
-
-mutation MarketplaceTopUpAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  topUpPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
-    ...PlayerCodeAcquisitionFields
-  }
-}
-
-mutation MarketplaceRefundAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  refundPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId)
-}
-
-query MarketplaceGridListings($appId: BigInt!) {
-  gridListings(appId: $appId) {
-    gridListingId
-    appId
-    kind
-    name
-    description
-    priceCents
-    conferredPermissionKeys
-    resalePolicy
-  }
-}
-
-mutation MarketplacePurchaseGrid(
-  $appId: BigInt!
-  $gridListingId: String!
-  $chunkX: Int
-  $chunkY: Int
-  $chunkZ: Int
-) {
-  purchaseGrid(
-    appId: $appId
-    gridListingId: $gridListingId
-    chunkX: $chunkX
-    chunkY: $chunkY
-    chunkZ: $chunkZ
-  ) {
-    gridId
-    ownershipAssigned
-  }
 })gql";
 inline constexpr std::string_view kMarketplaceListingsIsolatedDocument = R"gql(query MarketplaceListings($appId: BigInt!) {
   playerCodeListings(appId: $appId) {
@@ -10269,72 +10219,6 @@ inline constexpr std::string_view kMarketplaceIssueGridClaimInviteIsolatedDocume
   )
 })gql";
 inline constexpr std::string_view kMarketplaceIssueGridClaimInviteOperationName = "MarketplaceIssueGridClaimInvite";
-inline constexpr std::string_view kMarketplaceRenewAcquisitionIsolatedDocument = R"gql(mutation MarketplaceRenewAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  renewPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
-    ...PlayerCodeAcquisitionFields
-  }
-}
-
-fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
-  acquisitionId
-  listingId
-  appId
-  mode
-  status
-  expiresAt
-  unitBudget
-  unitsConsumed
-  acquiredAt
-})gql";
-inline constexpr std::string_view kMarketplaceRenewAcquisitionOperationName = "MarketplaceRenewAcquisition";
-inline constexpr std::string_view kMarketplaceTopUpAcquisitionIsolatedDocument = R"gql(mutation MarketplaceTopUpAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  topUpPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId) {
-    ...PlayerCodeAcquisitionFields
-  }
-}
-
-fragment PlayerCodeAcquisitionFields on PlayerCodeAcquisition {
-  acquisitionId
-  listingId
-  appId
-  mode
-  status
-  expiresAt
-  unitBudget
-  unitsConsumed
-  acquiredAt
-})gql";
-inline constexpr std::string_view kMarketplaceTopUpAcquisitionOperationName = "MarketplaceTopUpAcquisition";
-inline constexpr std::string_view kMarketplaceRefundAcquisitionIsolatedDocument = R"gql(mutation MarketplaceRefundAcquisition($appId: BigInt!, $acquisitionId: String!) {
-  refundPlayerCodeAcquisition(appId: $appId, acquisitionId: $acquisitionId)
-})gql";
-inline constexpr std::string_view kMarketplaceRefundAcquisitionOperationName = "MarketplaceRefundAcquisition";
-inline constexpr std::string_view kMarketplaceGridListingsIsolatedDocument = R"gql(query MarketplaceGridListings($appId: BigInt!) {
-  gridListings(appId: $appId) {
-    gridListingId
-    appId
-    kind
-    name
-    description
-    priceCents
-    conferredPermissionKeys
-    resalePolicy
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceGridListingsOperationName = "MarketplaceGridListings";
-inline constexpr std::string_view kMarketplacePurchaseGridIsolatedDocument = R"gql(mutation MarketplacePurchaseGrid($appId: BigInt!, $gridListingId: String!, $chunkX: Int, $chunkY: Int, $chunkZ: Int) {
-  purchaseGrid(
-    appId: $appId
-    gridListingId: $gridListingId
-    chunkX: $chunkX
-    chunkY: $chunkY
-    chunkZ: $chunkZ
-  ) {
-    gridId
-    ownershipAssigned
-  }
-})gql";
-inline constexpr std::string_view kMarketplacePurchaseGridOperationName = "MarketplacePurchaseGrid";
 
 /// marketplace/MarketplaceAdmin.graphql
 inline constexpr std::string_view kMarketplaceAdminDocument = R"gql(fragment PlayerCodeListingAdminFields on PlayerCodeListing {
@@ -10435,104 +10319,6 @@ mutation MarketplaceSetGridClaimPolicy(
     policy: $policy
     approverUserIds: $approverUserIds
   )
-}
-
-mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
-  setListingPricing(input: $input)
-}
-
-mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
-  setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
-}
-
-mutation MarketplaceBeginSellerOnboarding($country: String!) {
-  beginSellerOnboarding(country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-}
-
-mutation MarketplaceCreateAccountSession($country: String!) {
-  createSellerAccountSession(country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-}
-
-mutation MarketplaceCreateOrgAccountSession($orgId: BigInt!, $country: String!) {
-  createOrgSellerAccountSession(orgId: $orgId, country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-}
-
-mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
-  beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-}
-
-query MarketplaceMySellerBalance {
-  mySellerPayoutBalance {
-    partyKind
-    partyRef
-    pendingCents
-    payableCents
-    reservedCents
-    onboardingStatus
-    payoutsFrozen
-  }
-}
-
-mutation MarketplaceRequestPayout {
-  requestSellerPayout
-}
-
-mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
-  spendPayoutBalanceToWallet(amountCents: $amountCents)
-}
-
-query MarketplaceCommerceRiskQueue($appId: BigInt!) {
-  commerceRiskQueue(appId: $appId) {
-    flagId
-    appId
-    kind
-    orderId
-    subjectKind
-    subjectRef
-    detail
-    status
-    createdAt
-  }
-}
-
-mutation MarketplaceDecideRiskFlag(
-  $appId: BigInt!
-  $flagId: String!
-  $release: Boolean!
-) {
-  decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
-}
-
-mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
-  createGridListing(input: $input) {
-    gridListingId
-    appId
-    kind
-    name
-    priceCents
-    resalePolicy
-    status
-  }
 })gql";
 inline constexpr std::string_view kMarketplaceAdmissionQueueIsolatedDocument = R"gql(query MarketplaceAdmissionQueue($appId: BigInt!) {
   appCodeAdmissionQueue(appId: $appId) {
@@ -10671,100 +10457,6 @@ inline constexpr std::string_view kMarketplaceSetGridClaimPolicyIsolatedDocument
   )
 })gql";
 inline constexpr std::string_view kMarketplaceSetGridClaimPolicyOperationName = "MarketplaceSetGridClaimPolicy";
-inline constexpr std::string_view kMarketplaceSetListingPricingIsolatedDocument = R"gql(mutation MarketplaceSetListingPricing($input: SetListingPricingInput!) {
-  setListingPricing(input: $input)
-})gql";
-inline constexpr std::string_view kMarketplaceSetListingPricingOperationName = "MarketplaceSetListingPricing";
-inline constexpr std::string_view kMarketplaceSetOrgShareIsolatedDocument = R"gql(mutation MarketplaceSetOrgShare($appId: BigInt!, $bps: Int!) {
-  setAppMarketplaceOrgShare(appId: $appId, bps: $bps)
-})gql";
-inline constexpr std::string_view kMarketplaceSetOrgShareOperationName = "MarketplaceSetOrgShare";
-inline constexpr std::string_view kMarketplaceBeginSellerOnboardingIsolatedDocument = R"gql(mutation MarketplaceBeginSellerOnboarding($country: String!) {
-  beginSellerOnboarding(country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceBeginSellerOnboardingOperationName = "MarketplaceBeginSellerOnboarding";
-inline constexpr std::string_view kMarketplaceCreateAccountSessionIsolatedDocument = R"gql(mutation MarketplaceCreateAccountSession($country: String!) {
-  createSellerAccountSession(country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceCreateAccountSessionOperationName = "MarketplaceCreateAccountSession";
-inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionIsolatedDocument = R"gql(mutation MarketplaceCreateOrgAccountSession($orgId: BigInt!, $country: String!) {
-  createOrgSellerAccountSession(orgId: $orgId, country: $country) {
-    clientSecret
-    publishableKey
-    accountRef
-    onboardingComplete
-    expiresAt
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceCreateOrgAccountSessionOperationName = "MarketplaceCreateOrgAccountSession";
-inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingIsolatedDocument = R"gql(mutation MarketplaceBeginOrgSellerOnboarding($orgId: BigInt!, $country: String!) {
-  beginOrgSellerOnboarding(orgId: $orgId, country: $country) {
-    status
-    onboardingUrl
-    unavailableReason
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceBeginOrgSellerOnboardingOperationName = "MarketplaceBeginOrgSellerOnboarding";
-inline constexpr std::string_view kMarketplaceMySellerBalanceIsolatedDocument = R"gql(query MarketplaceMySellerBalance {
-  mySellerPayoutBalance {
-    partyKind
-    partyRef
-    pendingCents
-    payableCents
-    reservedCents
-    onboardingStatus
-    payoutsFrozen
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceMySellerBalanceOperationName = "MarketplaceMySellerBalance";
-inline constexpr std::string_view kMarketplaceRequestPayoutIsolatedDocument = R"gql(mutation MarketplaceRequestPayout {
-  requestSellerPayout
-})gql";
-inline constexpr std::string_view kMarketplaceRequestPayoutOperationName = "MarketplaceRequestPayout";
-inline constexpr std::string_view kMarketplaceSpendPayoutToWalletIsolatedDocument = R"gql(mutation MarketplaceSpendPayoutToWallet($amountCents: Int!) {
-  spendPayoutBalanceToWallet(amountCents: $amountCents)
-})gql";
-inline constexpr std::string_view kMarketplaceSpendPayoutToWalletOperationName = "MarketplaceSpendPayoutToWallet";
-inline constexpr std::string_view kMarketplaceCommerceRiskQueueIsolatedDocument = R"gql(query MarketplaceCommerceRiskQueue($appId: BigInt!) {
-  commerceRiskQueue(appId: $appId) {
-    flagId
-    appId
-    kind
-    orderId
-    subjectKind
-    subjectRef
-    detail
-    status
-    createdAt
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceCommerceRiskQueueOperationName = "MarketplaceCommerceRiskQueue";
-inline constexpr std::string_view kMarketplaceDecideRiskFlagIsolatedDocument = R"gql(mutation MarketplaceDecideRiskFlag($appId: BigInt!, $flagId: String!, $release: Boolean!) {
-  decideCommerceRiskFlag(appId: $appId, flagId: $flagId, release: $release)
-})gql";
-inline constexpr std::string_view kMarketplaceDecideRiskFlagOperationName = "MarketplaceDecideRiskFlag";
-inline constexpr std::string_view kMarketplaceCreateGridListingIsolatedDocument = R"gql(mutation MarketplaceCreateGridListing($input: CreateGridListingInput!) {
-  createGridListing(input: $input) {
-    gridListingId
-    appId
-    kind
-    name
-    priceCents
-    resalePolicy
-    status
-  }
-})gql";
-inline constexpr std::string_view kMarketplaceCreateGridListingOperationName = "MarketplaceCreateGridListing";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceListings") return kMarketplaceListingsIsolatedDocument;
@@ -10787,11 +10479,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceReleaseClaimedGrid") return kMarketplaceReleaseClaimedGridIsolatedDocument;
   if (operationName == "MarketplaceDecideGridClaim") return kMarketplaceDecideGridClaimIsolatedDocument;
   if (operationName == "MarketplaceIssueGridClaimInvite") return kMarketplaceIssueGridClaimInviteIsolatedDocument;
-  if (operationName == "MarketplaceRenewAcquisition") return kMarketplaceRenewAcquisitionIsolatedDocument;
-  if (operationName == "MarketplaceTopUpAcquisition") return kMarketplaceTopUpAcquisitionIsolatedDocument;
-  if (operationName == "MarketplaceRefundAcquisition") return kMarketplaceRefundAcquisitionIsolatedDocument;
-  if (operationName == "MarketplaceGridListings") return kMarketplaceGridListingsIsolatedDocument;
-  if (operationName == "MarketplacePurchaseGrid") return kMarketplacePurchaseGridIsolatedDocument;
   if (operationName == "MarketplaceAdmissionQueue") return kMarketplaceAdmissionQueueIsolatedDocument;
   if (operationName == "MarketplaceAppListings") return kMarketplaceAppListingsIsolatedDocument;
   if (operationName == "MarketplaceAppListingVersions") return kMarketplaceAppListingVersionsIsolatedDocument;
@@ -10799,18 +10486,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceTransferListing") return kMarketplaceTransferListingIsolatedDocument;
   if (operationName == "MarketplaceSetListingStatus") return kMarketplaceSetListingStatusIsolatedDocument;
   if (operationName == "MarketplaceSetGridClaimPolicy") return kMarketplaceSetGridClaimPolicyIsolatedDocument;
-  if (operationName == "MarketplaceSetListingPricing") return kMarketplaceSetListingPricingIsolatedDocument;
-  if (operationName == "MarketplaceSetOrgShare") return kMarketplaceSetOrgShareIsolatedDocument;
-  if (operationName == "MarketplaceBeginSellerOnboarding") return kMarketplaceBeginSellerOnboardingIsolatedDocument;
-  if (operationName == "MarketplaceCreateAccountSession") return kMarketplaceCreateAccountSessionIsolatedDocument;
-  if (operationName == "MarketplaceCreateOrgAccountSession") return kMarketplaceCreateOrgAccountSessionIsolatedDocument;
-  if (operationName == "MarketplaceBeginOrgSellerOnboarding") return kMarketplaceBeginOrgSellerOnboardingIsolatedDocument;
-  if (operationName == "MarketplaceMySellerBalance") return kMarketplaceMySellerBalanceIsolatedDocument;
-  if (operationName == "MarketplaceRequestPayout") return kMarketplaceRequestPayoutIsolatedDocument;
-  if (operationName == "MarketplaceSpendPayoutToWallet") return kMarketplaceSpendPayoutToWalletIsolatedDocument;
-  if (operationName == "MarketplaceCommerceRiskQueue") return kMarketplaceCommerceRiskQueueIsolatedDocument;
-  if (operationName == "MarketplaceDecideRiskFlag") return kMarketplaceDecideRiskFlagIsolatedDocument;
-  if (operationName == "MarketplaceCreateGridListing") return kMarketplaceCreateGridListingIsolatedDocument;
   return {};
 }
 

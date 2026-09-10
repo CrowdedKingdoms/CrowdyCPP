@@ -2,8 +2,8 @@
   "fixtureVersion": 1,
   "contractVersion": "crowdy.studio-host-tools/1",
   "crowdyJs": {
-    "version": "15.9.0",
-    "commit": "b926fda2c6605b2cd9fc8392a5039475bf7dd2fe"
+    "version": "15.12.0",
+    "commit": "07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa"
   },
   "toolNames": [
     "studio.context.get",

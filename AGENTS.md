@@ -6,7 +6,10 @@ platform repositories. Schema and generated artifacts are committed.
 
 GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS —
 read `crowdyjsParityTarget` in `package.json` (source of truth CI checks out);
-do not hardcode the version number in this sentence. One GraphQL origin since 0.20.0 (`managementUrl` removed). Gameplay
+do not hardcode the version number in this sentence. One GraphQL origin since 0.20.0 (`managementUrl` removed). Paid
+player-code commerce and grid sales are off the public schema; do not
+re-add those Marketplace operations until ck-api flips
+`PAID_PLAYER_COMMERCE_ENABLED`. Gameplay
 is PostgreSQL + Citus, not galaxy. `cks-management-api` is not a running
 service (GitHub repo still exists, **archived**; not a schema source).
 

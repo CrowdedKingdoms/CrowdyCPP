@@ -163,6 +163,33 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native replication Connection exposes transport state directly',
   ),
+  // CrowdyJS 15.11.0 Studio GitHub repo loop. The settings-pane card and
+  // in-game embed live in the browser Studio; native CrowdyStudioController
+  // does not mount that card. Wrapping these on a game-client SDK would be
+  // methods no native player session calls.
+  ...classifyNames(
+    'Mutation',
+    [
+      'crowdyStudioGitHubBind',
+      'crowdyStudioGitHubConnectUrl',
+      'crowdyStudioGitHubPutFile',
+      'crowdyStudioGitHubSetAutosave',
+      'crowdyStudioGitHubUnbind',
+    ],
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane / embed; native host does not mount that card',
+  ),
+  ...classifyNames(
+    'Query',
+    [
+      'crowdyStudioGitHubFile',
+      'crowdyStudioGitHubRepos',
+      'crowdyStudioGitHubStatus',
+      'crowdyStudioGitHubTree',
+    ],
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane / embed; native host does not mount that card',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -173,6 +200,34 @@ const ROOT_CLASSIFICATIONS = {
 
 
 const METHOD_CLASSIFICATIONS = {
+  'CrowdyStudioController.bindGitHubRepo': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.connectGitHub': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.pullFromGitHub': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.pushToGitHub': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.refreshGitHubStatus': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.setGitHubAutosave': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
+  'CrowdyStudioController.unbindGitHub': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; native host does not mount that card',
+  ),
   // CrowdyJS added this wrapper in 15.4.0; CrowdyCPP has had the same mutation
   // since before the split, as `admin().setAppReservedThroughput`, named for the
   // schema field rather than shortened. Same mutation, same arguments, different

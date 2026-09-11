@@ -105,18 +105,6 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     add_test(NAME crowdy_studio_state_test COMMAND crowdy_studio_state_test)
   endif()
 
-  add_executable(agent_registry_test agent_registry_test.cpp)
-  target_link_libraries(agent_registry_test PRIVATE crowdy)
-  add_test(NAME agent_registry_test COMMAND agent_registry_test)
-
-  add_executable(agent_api_test agent_api_test.cpp)
-  target_link_libraries(agent_api_test PRIVATE crowdy)
-  add_test(NAME agent_api_test COMMAND agent_api_test)
-
-  add_executable(agent_controller_test agent_controller_test.cpp)
-  target_link_libraries(agent_controller_test PRIVATE crowdy)
-  add_test(NAME agent_controller_test COMMAND agent_controller_test)
-
   add_executable(player_host_test player_host_test.cpp)
   target_link_libraries(player_host_test PRIVATE crowdy)
   add_test(NAME player_host_test COMMAND player_host_test)
@@ -127,11 +115,6 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
   add_test(NAME studio_integration_test COMMAND studio_integration_test)
 
-  add_executable(native_control_gate_test native_control_gate_test.cpp)
-  target_link_libraries(native_control_gate_test PRIVATE crowdy)
-  target_compile_definitions(native_control_gate_test PRIVATE
-    CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
-  add_test(NAME native_control_gate_test COMMAND native_control_gate_test)
 endif()
 
 add_executable(codec_struct_test codec_struct_test.cpp)

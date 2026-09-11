@@ -1,25 +1,22 @@
 {
   "name": "crowdycpp-maintainer-tools",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",
   "crowdyjsParityTarget": {
-    "version": "15.12.0",
-    "commit": "07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa"
+    "version": "16.0.0",
+    "commit": "eee2625cb1804cfca361a26e6c2132eb6aed10e8"
   },
   "scripts": {
     "codegen": "node scripts/codegen.mjs",
-    "check:agent-fixtures": "node tools/parity/agent-fixtures.mjs",
-    "check:control-gate-fixtures": "node tools/parity/control-gate-fixtures.mjs",
-    "check:studio-host-fixtures": "node tools/parity/studio-host-fixtures.mjs",
     "check:studio-state-fixtures": "node tools/parity/studio-state-fixtures.mjs",
     "check:codegen": "node scripts/codegen.mjs --check",
     "check:schema": "node scripts/schema-sync.mjs --check --offline",
     "check:layout-fixtures": "node tools/parity/layout-fixtures.mjs",
     "check:operations": "node --test tests/parity/codegen-operation-isolation.test.mjs",
     "check:parity": "node tools/parity/parity.mjs --check docs/parity-matrix.md --strict",
-    "check:release": "npm run check:schema && npm run check:codegen && npm run check:parity && npm run check:agent-fixtures && npm run check:control-gate-fixtures && npm run check:studio-host-fixtures && npm run check:layout-fixtures && npm run check:studio-state-fixtures && npm test",
+    "check:release": "npm run check:schema && npm run check:codegen && npm run check:parity && npm run check:layout-fixtures && npm run check:studio-state-fixtures && npm test",
     "test": "node --test tests/parity/*.test.mjs",
     "parity:repin": "node tools/parity/repin.mjs",
     "schema:sync": "node scripts/schema-sync.mjs",
@@ -32,8 +29,8 @@
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
-    "sourceBlob": "f7b191f7f54c52f461304f9aff98440c543518f6",
-    "snapshotSha256": "929a86d97e2663100e4e3cc9b6cedd0b960e81c33ffa9274b5b86ef96b72a837",
-    "syncedAt": "2026-09-10T13:13:44.586Z"
+    "sourceBlob": "98c39c097e7ca28c5b2c28274aefc804cb3e783a",
+    "snapshotSha256": "ea6f3c05553c3922c3492a05dd071ce6cdb98943fdc7e68738519fcbca2041ea",
+    "syncedAt": "2026-09-11T15:48:35.746Z"
   }
 }

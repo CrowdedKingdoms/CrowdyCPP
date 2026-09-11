@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.33.0 passes the strict portable-parity gate against CrowdyJS
-**15.12.0**. The gate pins CrowdyJS commit
-`07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa` (`crowdyjsParityTarget` in
+CrowdyCPP 0.34.0 passes the strict portable-parity gate against CrowdyJS
+**16.0.0**. The gate pins CrowdyJS commit
+`eee2625cb1804cfca361a26e6c2132eb6aed10e8` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.33.0 | CrowdyJS 15.12.0 | Required public API generation |
+| Surface | CrowdyCPP 0.34.0 | CrowdyJS 16.0.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
@@ -46,9 +46,9 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | App listing-version administration | `marketplace().appListingVersions` | Typed listing-version methods | Management API 2026-07-24+ |
 | Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation | Browser/headless controller | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
-| Native Studio integration | Owned editor/layout/runtime/host/Agent/control assembly with explicit maintenance scheduling | Browser Studio composition | Project/runtime roots plus `crowdy.studio-agent/1` when Agent support is enabled |
-| Agentic Studio HTTP + event stream | Typed controller, GraphQL-WS replay/gap-fill | Typed controller and transport | `crowdy.studio-agent/1` |
-| Local Play/Studio tools | Native player-host + closed typed dispatcher | Browser dispatcher + player host | Agent descriptor contract v1 |
+| Native Studio integration | Owned editor/layout/runtime assembly with explicit maintenance scheduling | Browser Studio composition with the in-browser DSH agent pane | Project/runtime roots |
+| Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and admin writes | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |
+| Player-host observation | Typed `PlayerHostAdapterV1` + schemas (observe only) | `PlayerHostAdapterV1` observe for `game_observe` | `crowdy.player-host/1` |
 
 `schema.gql` is the committed snapshot of the published API SDL. Codegen
 isolates every operation with only its transitive fragments and validates it

@@ -19,8 +19,8 @@ const crowdyjs = resolveCrowdyJsPath(repo);
 
 test('pinned strict parity target and generated matrix pass', () => {
   assert.deepEqual(assertCrowdyJsParityTarget(repo, crowdyjs), {
-    version: '15.12.0',
-    commit: '07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa',
+    version: '16.0.0',
+    commit: 'eee2625cb1804cfca361a26e6c2132eb6aed10e8',
   });
   const result = runParity(
     '--check',
@@ -46,10 +46,13 @@ test('cross-cutting Studio exports stay explicitly audited', () => {
     matrix,
     /layout\.ts#StudioLayoutController` \| native equivalent/u,
   );
+  // CrowdyJS 16 replaced the agent dock and control gate with the in-browser
+  // DSH pane; it is a browser exclusion and the old native map must be gone.
   assert.match(
     matrix,
-    /control-gate\.ts#PlayerControlGate` \| native equivalent/u,
+    /pane\.ts#CrowdyStudioDshPane` \| browser exclusion/u,
   );
+  assert.doesNotMatch(matrix, /PlayerControlGate/u);
   assert.match(
     matrix,
     /editor\.ts#CrowdyStudioEditorAdapter` \| native equivalent/u,

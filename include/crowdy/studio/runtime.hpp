@@ -84,6 +84,11 @@ struct CrowdyStudioUsageSnapshot {
 };
 
 struct CrowdyStudioWalletSnapshot {
+  /// Micro-USD (1 USD = 1,000,000) as a decimal string; the unit of account
+  /// since the lossless ledger (ck-api 2026-09-11). Spendable = balance - holds.
+  std::string balanceMicrousd;
+  std::string holdsMicrousd;
+  /// Deprecated: balanceMicrousd / 10,000 truncated toward zero.
   std::string balanceCents;
   std::string currency;
 
@@ -199,9 +204,11 @@ class CrowdyStudioPlayerWalletProvider final
   CrowdyStudioWalletSnapshot balance() override {
     const graphql::Json value = playerWallet_->balance();
     CrowdyStudioWalletSnapshot snapshot;
+    snapshot.balanceMicrousd = scalarString(value["balanceMicrousd"]);
+    snapshot.holdsMicrousd = scalarString(value["holdsMicrousd"]);
     snapshot.balanceCents = scalarString(value["balanceCents"]);
     snapshot.currency = value["currency"].asString();
-    if (snapshot.balanceCents.empty() || snapshot.currency.empty()) {
+    if (snapshot.balanceMicrousd.empty() || snapshot.currency.empty()) {
       throw std::runtime_error(
           "Player wallet balance response is incomplete");
     }

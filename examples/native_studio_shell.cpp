@@ -156,7 +156,7 @@ int main() {
   auto studio =
       client.createCrowdyStudioIntegration(std::move(options));
   studio->layout().setVisible(
-      crowdy::studio::StudioPaneId::Agent, true);
+      crowdy::studio::StudioPaneId::Explorer, true);
 
   bool running = true;
   bool maintenanceDue = true;
@@ -170,11 +170,9 @@ int main() {
       maintenanceDue = false;
     }
 
-    // Forward existing engine input events; the gate observes takeover intent
-    // but never consumes, synthesizes, or injects an input event.
-    studio->controlGate().onHumanKeyboardInput();
-    studio->controlGate().onHumanPointerInput();
-    studio->controlGate().onHumanMovementInput();
+    // The player host is observation-only: the integration hands it back
+    // for the engine's own tooling and never dispatches to it.
+    (void)studio->playerHost();
     running = false;
   }
 

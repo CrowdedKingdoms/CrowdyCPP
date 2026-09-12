@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Verify the shared typed-diagnostic and runtime-sync projection fixtures
- * against the reviewed CrowdyJS checkout.
+ * Verify the shared typed-diagnostic fixture against the reviewed CrowdyJS
+ * checkout. (The runtime-sync projection fixture it also carried described
+ * the Crowdy Agent's `runtime.status.get` tool, which left with the
+ * orchestrator in CrowdyJS 16 / CrowdyCPP 0.34.0.)
  *
  * Usage:
  *   node tools/parity/studio-state-fixtures.mjs [--crowdyjs <checkout>] [--write]
@@ -26,12 +28,6 @@ const diagnosticsFixture = readFixture(
   target,
   options.write,
 );
-const runtimeFixture = readFixture(
-  join(fixtureDirectory, 'crowdy-studio-runtime-sync.v1.json'),
-  'crowdy.studio-runtime-sync-projection/1',
-  target,
-  options.write,
-);
 
 const diagnosticsModulePath = join(
   crowdyjs,
@@ -39,13 +35,7 @@ const diagnosticsModulePath = join(
   'crowdy-studio',
   'diagnostics.js',
 );
-const studioToolsModulePath = join(
-  crowdyjs,
-  'dist',
-  'crowdy-agent',
-  'studio-tools.js',
-);
-for (const path of [diagnosticsModulePath, studioToolsModulePath]) {
+for (const path of [diagnosticsModulePath]) {
   if (!existsSync(path)) {
     throw new Error(
       `required CrowdyJS Studio artifact is missing: ${path}. ` +
@@ -57,9 +47,6 @@ for (const path of [diagnosticsModulePath, studioToolsModulePath]) {
 const { parseRustcDiagnostics } = await import(
   pathToFileURL(diagnosticsModulePath).href
 );
-const { createCrowdyStudioAgentTools } = await import(
-  pathToFileURL(studioToolsModulePath).href
-);
 
 for (const fixtureCase of diagnosticsFixture.cases) {
   assert.deepEqual(
@@ -69,31 +56,9 @@ for (const fixtureCase of diagnosticsFixture.cases) {
   );
 }
 
-for (const fixtureCase of runtimeFixture.cases) {
-  const state = {
-    project: {
-      revision: { id: fixtureCase.projectRevisionId },
-    },
-    runtime: fixtureCase.runtime,
-    runtimeSync: fixtureCase.runtimeSync,
-  };
-  const controller = {
-    getState() {
-      return state;
-    },
-  };
-  const tools = createCrowdyStudioAgentTools(controller);
-  assert.deepEqual(
-    tools['runtime.status.get'](),
-    fixtureCase.expectedAgentRuntime,
-    `CrowdyJS runtime-sync fixture drift: ${fixtureCase.name}`,
-  );
-}
-
 console.log(
   `Studio state fixtures match CrowdyJS: ` +
-    `${diagnosticsFixture.cases.length} diagnostic cases, ` +
-    `${runtimeFixture.cases.length} runtime cases`,
+    `${diagnosticsFixture.cases.length} diagnostic cases`,
 );
 
 function parseArgs(raw) {

@@ -297,9 +297,9 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
   ),
-  'PlayerControlGate.start': classification(
+  'CrowdyStudioController.reloadProject': classification(
     CATEGORY.BROWSER,
-    'browser capture listeners translate DOM input, visibility, and offline events into native gate calls',
+    'the in-browser DSH agent edits project files out of band and the page reloads them into Monaco; a native editor owns its buffers',
   ),
 };
 
@@ -312,17 +312,9 @@ const CLASS_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'browser sessionStorage helper; native applications own verifier persistence',
   ),
-  CrowdyStudioAgentDomShell: classification(
-    CATEGORY.BROWSER,
-    'accessible agent dock is a DOM rendering shell over the portable controller',
-  ),
   CrowdyStudioDomShell: classification(
     CATEGORY.BROWSER,
     'Studio workspace shell owns DOM elements, browser events, and CSS layout',
-  ),
-  AgentControlBanner: classification(
-    CATEGORY.BROWSER,
-    'always-visible control banner is browser DOM chrome over the native lease gate',
   ),
   VirtualFileSystem: classification(
     CATEGORY.BROWSER,
@@ -372,7 +364,6 @@ const METHOD_ALIASES = {
   'StateAPI.delete': 'remove',
   'GameModelAPI.automations': 'automationsList',
   'GameModelAPI.getFunction': 'function',
-  'CrowdyAgentGraphQLTransport.toolResult': 'browserToolResult',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -403,11 +394,6 @@ const METHOD_ALIASES = {
   'RemoteActorLane.get': 'find',
   'RemoteActorStore.count': 'size',
   'RemoteActorStore.get': 'find',
-  'PlayerControlGate.death': 'onDeath',
-  'PlayerControlGate.contextChanged': 'onContextChanged',
-  'PlayerControlGate.permissionChanged': 'onPermissionChanged',
-  'PlayerControlGate.controlTargetChanged': 'onControlTargetChanged',
-  'PlayerControlGate.disconnected': 'onDisconnected',
 };
 
 const ASYNC_TWIN_WAIVERS = {
@@ -488,18 +474,12 @@ const CLASS_MAP = {
   RemoteActorLane: 'RemoteActorLane',
   CrowdyStudioAPI: 'CrowdyStudioAPI',
   CrowdyStudioController: 'CrowdyStudioController',
-  CrowdyStudioAgentController: 'CrowdyStudioAgentController',
-  CrowdyAgentGraphQLTransport: 'CrowdyStudioAgentGraphQLTransport',
-  CrowdyAgentToolRegistry: 'AgentToolRegistry',
-  AgentControlLeaseManager: 'AgentControlLeaseManager',
-  CrowdyAgentBrowserToolDispatcher: 'NativeBrowserToolDispatcherAdapter',
   StudioLayoutController: 'StudioLayoutController',
-  PlayerControlGate: 'NativePlayerControlGate',
 };
 
-const STRICT_CLASS_MAPS = Object.freeze({
-  PlayerControlGate: 'NativePlayerControlGate',
-});
+// The strict class map used to pin PlayerControlGate -> NativePlayerControlGate;
+// both went with the Crowdy Agent orchestrator (CrowdyJS 16 / CrowdyCPP 0.34.0).
+const STRICT_CLASS_MAPS = Object.freeze({});
 
 const CROSS_CUTTING_EXPORT_MODULES = {
   // The connection-machinery modules CrowdyJS 14 added. Listing them is the
@@ -588,23 +568,6 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     },
     'include/crowdy/studio/layout.hpp',
   ),
-  'src/player-host/control-gate.ts': exportModule(
-    [
-      'PlayerControlGate',
-      'PlayerControlGateAgentControl',
-      'PlayerControlGateOptions',
-      'PlayerControlGateSnapshot',
-    ],
-    CATEGORY.NATIVE,
-    'portable takeover contract maps to the no-DOM NativePlayerControlGate',
-    {
-      PlayerControlGate: 'NativePlayerControlGate',
-      PlayerControlGateAgentControl: 'INativePlayerControlGateController',
-      PlayerControlGateOptions: 'NativePlayerControlGateOptionsV1',
-      PlayerControlGateSnapshot: 'NativePlayerControlGateSnapshotV1',
-    },
-    'include/crowdy/player_host/control_gate.hpp',
-  ),
   'src/crowdy-studio/editor.ts': exportModule(
     [
       'CrowdyStudioEditorAdapter',
@@ -623,13 +586,13 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   'src/crowdy-studio/mount.ts': exportModule(
     [
       'CrowdyStudioHandle',
-      'MountCrowdyStudioAgentOptions',
+      'MountCrowdyStudioDshOptions',
       'MountCrowdyStudioOptions',
       'mountCrowdyStudio',
       'observeCrowdyStudioEditorLayout',
     ],
     CATEGORY.BROWSER,
-    'mount surface owns DOM hosts, ResizeObserver, Monaco, and textarea fallback',
+    'mount surface owns DOM hosts, ResizeObserver, Monaco, the textarea fallback and the in-browser DSH agent pane',
   ),
   'src/crowdy-studio/monaco-editor.ts': exportModule(
     [
@@ -640,15 +603,10 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'Monaco adapter and its VFS/LSP worker are browser editor infrastructure',
   ),
-  'src/crowdy-studio/agent-dom-shell.ts': exportModule(
-    ['CrowdyStudioAgentDomShell', 'CrowdyStudioAgentDomShellOptions'],
-    CATEGORY.BROWSER,
-    'agent dock is an accessible DOM shell over portable agent state',
-  ),
   'src/crowdy-studio/dom-shell.ts': exportModule(
-    ['CrowdyStudioDomShell'],
+    ['CrowdyStudioDomShell', 'CrowdyStudioDomShellOptions', 'StudioDockPane'],
     CATEGORY.BROWSER,
-    'workspace rendering, menus, panes, and browser events belong to the DOM shell',
+    'workspace rendering, menus, panes, the dock pane slot and browser events belong to the DOM shell',
   ),
   'src/crowdy-studio/splitter.ts': exportModule(
     [
@@ -696,16 +654,6 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'worker transport binds vscode-jsonrpc to browser Web Worker messaging',
   ),
-  'src/player-host/control-banner.ts': exportModule(
-    [
-      'AGENT_CONTROL_BANNER_STYLES',
-      'AgentControlBanner',
-      'AgentControlBannerController',
-      'ensureAgentControlBannerStyles',
-    ],
-    CATEGORY.BROWSER,
-    'control banner and styles are browser DOM safety chrome',
-  ),
   'src/crowdy-studio/embed/dock.ts': exportModule(
     [
       'CROWDY_STUDIO_EMBED_DEFAULT_DOCK_RATIO',
@@ -735,11 +683,63 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'HUD layer renders text-only player presentation into game-owned DOM',
   ),
+  // CrowdyJS 16: the Studio agent pane. Everything here is a same-origin
+  // iframe, a BroadcastChannel and DOM chrome around the in-browser DeepSeek
+  // Harness; a native engine has no counterpart (see docs/native-agent-api.md).
+  'src/crowdy-dsh/pane.ts': exportModule(
+    ['CROWDY_STUDIO_DSH_STYLES', 'CrowdyStudioDshPane', 'CrowdyStudioDshPaneOptions'],
+    CATEGORY.BROWSER,
+    'agent pane is an iframe hosting the harness web UI plus DOM chrome (notice, capture button, spend line)',
+  ),
+  'src/crowdy-dsh/bridge.ts': exportModule(
+    [
+      'CrowdyStudioDshHost',
+      'StudioDshBridge',
+      'StudioDshBridgeOptions',
+      'StudioDshBridgeStatus',
+      'renderSettingsYaml',
+    ],
+    CATEGORY.BROWSER,
+    'page half of the page/worker BroadcastChannel bridge; runs Studio actions for the harness with the player\'s browser authority',
+  ),
+  'src/crowdy-dsh/protocol.ts': exportModule(
+    [
+      'CROWDY_DSH_PROTOCOL_VERSION',
+      'DshBootMessage',
+      'DshBridgeFrame',
+      'DshBridgeMethod',
+      'DshBridgeRequestMap',
+      'DshBridgeSide',
+      'DshBuildResult',
+      'DshDiagnostic',
+      'DshFrameMessage',
+      'DshPageEventMap',
+      'DshProjectSummary',
+      'DshRuntimeStatus',
+      'DshScreenshotResult',
+      'DshWorkerEventMap',
+      'isDshBridgeFrame',
+      'isDshFrameMessage',
+    ],
+    CATEGORY.BROWSER,
+    'wire protocol between a browser page and a Web Worker; no native transport carries it',
+  ),
+  'src/crowdy-dsh/transport.ts': exportModule(
+    [
+      'CrowdyStudioDshTransport',
+      'CrowdyStudioModelCatalogEntry',
+      'CrowdyStudioModelUsage',
+      'CrowdyStudioModelUsageEntry',
+      'CrowdyStudioProviderConsent',
+    ],
+    CATEGORY.BROWSER,
+    'pane-side reads of consent, catalog and usage; the same GraphQL roots are on CrowdyStudioAgentAPI natively',
+  ),
   'src/crowdy-studio/embed/panel.ts': exportModule(
     [
       'CrowdyStudioEmbed',
-      'CrowdyStudioEmbedAgentSessionOptions',
       'CrowdyStudioEmbedContext',
+      'CrowdyStudioEmbedDshOptions',
       'CrowdyStudioEmbedDisplayMode',
       'CrowdyStudioEmbedHandle',
       'CrowdyStudioEmbedOptions',
@@ -756,7 +756,6 @@ const CROSS_CUTTING_EXPORT_MODULES = {
 const STRICT_NATIVE_EXPORT_MODULES = new Set([
   'src/crowdy-studio/editor.ts',
   'src/crowdy-studio/layout.ts',
-  'src/player-host/control-gate.ts',
 ]);
 
 const CROSS_CUTTING_BEHAVIORS = {
@@ -1741,27 +1740,9 @@ function collectTsClasses(crowdyjs) {
   mergeClasses(
     all,
     tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio'), [
-      'agent-dom-shell.ts',
       'controller.ts',
       'dom-shell.ts',
       'layout.ts',
-    ]),
-  );
-  mergeClasses(
-    all,
-    tsClassMethods(join(crowdyjs, 'src', 'crowdy-agent'), [
-      'browser-dispatcher.ts',
-      'controller.ts',
-      'graphql-transport.ts',
-      'registry.ts',
-    ]),
-  );
-  mergeClasses(
-    all,
-    tsClassMethods(join(crowdyjs, 'src', 'player-host'), [
-      'control-banner.ts',
-      'control-gate.ts',
-      'lease-manager.ts',
     ]),
   );
   mergeClasses(

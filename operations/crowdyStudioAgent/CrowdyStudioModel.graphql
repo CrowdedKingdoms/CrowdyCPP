@@ -1,0 +1,43 @@
+# The metered model endpoint's GraphQL companions. The endpoint itself is
+# REST (`GET /v1/model/models`, `POST /v1/model/chat/completions`, bearer =
+# app token) and is what the in-browser Studio agent spends tokens through;
+# these operations read what it recorded and gate whether it may run.
+
+query CrowdyStudioProviderConsent($appId: BigInt!) {
+  crowdyStudioProviderConsent(appId: $appId) {
+    appId
+    consented
+    consentedAt
+  }
+}
+
+mutation CrowdyStudioSetProviderConsent($input: SetCrowdyStudioProviderConsentInput!) {
+  crowdyStudioSetProviderConsent(input: $input) {
+    appId
+    consented
+    consentedAt
+  }
+}
+
+query CrowdyStudioModelUsage($appId: BigInt!, $limit: Int) {
+  crowdyStudioModelUsage(appId: $appId, limit: $limit) {
+    appId
+    payerKind
+    todayRequests
+    todayChargeMicrousd
+    dayLimitMicrousd
+    recent {
+      usageId
+      payerKind
+      status
+      requestedModel
+      resolvedModel
+      promptTokens
+      completionTokens
+      reasoningTokens
+      chargeMicrousd
+      occurredAt
+      client
+    }
+  }
+}

@@ -60,6 +60,19 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.34.0: the Crowdy Agent orchestrator is gone, parity CrowdyJS 16.0.0.**
+The Studio agent is now the in-browser DeepSeek Harness that CrowdyJS docks
+beside the web editor and that spends tokens through the metered REST
+`/v1/model` endpoint. The 21 `crowdyStudioAgent*` session/run/lease/tool
+roots left the API, and with them this SDK's `crowdy/agent/*`, the Studio host
+adapter and agent projection, the player-host lease manager and control gate,
+`createCrowdyStudioAgentController`, and the agent fields of
+`CrowdyStudioIntegrationOptions`. `CrowdyStudioAgentAPI` keeps policy, usage
+and operator controls and gains `providerConsent` / `setProviderConsent` /
+`modelUsage`. `player_host/` is observation-only. Breaking; see
+[MIGRATION.md](MIGRATION.md). Schema synced to the ck-api that carries the
+model endpoint; pin is CrowdyJS `16.0.0`.
+
 **v0.33.0: paid commerce off the public schema, parity CrowdyJS 15.12.0.**
 `domains::Marketplace` drops `purchaseGrid`, `createGridListing`,
 `gridListings`, `setListingPricing`, renew/top-up/refund, seller
@@ -206,8 +219,7 @@ include/crowdy/          public headers
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
   kit/                   Game Kit (blueprints + runtime helpers)
-  player_host/           typed Play capabilities, observations, leases, adapters
-  agent/                 native local-tool dispatcher (no model/server fallback)
+  player_host/           typed player observations and their schemas
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
 operations/              GraphQL operation documents (codegen input)
@@ -373,9 +385,9 @@ revision, and requery after a reconnect or revision gap. Both calls require an
 app-scoped token for the same app. The gauge counts active gameplay sessions,
 not distinct users or actors; an abandoned session can remain visible for
 roughly 120 seconds while inactivity is recognized.
-`client.createCrowdyStudioAgentController(...)` owns the durable Agentic Studio
-event adapter and replay/gap-fill lifecycle. The generic client remains for
-application-specific subscriptions. `crowdy::session::ContainerMirror` does
+The generic client remains for application-specific subscriptions (the
+`crowdyStudioAgentEvents` feed went with the Crowdy Agent orchestrator in
+0.34.0). `crowdy::session::ContainerMirror` does
 not subscribe automatically: it remains a pull cache. Call `refresh()` from a
 typed container-change callback, or continue feeding channel notifications to
 `notifyChannelPing()`, when that is the application's notify-to-pull contract.
@@ -405,7 +417,7 @@ app-scoped token):
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves, metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
-| `client.crowdyStudioAgent()` | Exact Agentic Studio sessions/history/descriptors/budgets/control operations on the unified API. Pair with `crowdy::agent::CrowdyStudioAgentController`; see [native agent integration](docs/native-agent-api.md). |
+| `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage and operator controls. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
@@ -488,60 +500,27 @@ CrowdyJS runtime projection while retaining native content-hash, module, and
 pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
 runtime-ownership notes.
 
-## Native player-host and local tool integration
+## Native player-host observation
 
-Native games can expose agent-addressable Play controls without browser APIs
-through the installed headers under `crowdy/player_host/` and
-`crowdy/agent/native_tool_dispatcher.hpp`.
+`crowdy/player_host/` is the typed observation contract a game can implement
+so tooling can read the controlled player and their surroundings:
+`PlayerHostAdapterV1`, `GameObservationV1`, the schemas that validate them and
+the closed preemption vocabulary. Since 0.34.0 it is observation only. The
+lease manager, control gate, native tool dispatchers and Studio host adapter
+that executed commands for the Crowdy Agent orchestrator went with that
+orchestrator: the Studio agent now runs in the player's browser, only
+observes, and has no native counterpart.
 
-- `PlayerHostAdapterV1` is the only gameplay execution boundary. Implement it
-  over the same movement, inventory, interaction, crafting, mount, combat,
-  chat, and travel intent services that human controls use. Do not hand an
-  adapter a generic `CrowdyClient`, transport, input-injection, or raw network
-  escape hatch.
-- `AgentControlLeaseManager` binds Play authority to the exact client epoch,
-  game context, controlled entity, capability revision, lease scopes, fresh
-  observation, heartbeat, and command rate. Call `tick()` from the game thread.
-  Human input, Escape, Stop, death, disconnect, and permission/admission/context
-  changes call the corresponding synchronous preemption method.
-- `NativePlayerControlGate` is the no-DOM/no-OS CrowdyJS 12.1 control-gate
-  equivalent. Engines report keyboard, pointer, movement, background, death,
-  permission, context, and controlled-entity transitions through imperative
-  hooks. Local intent clears before best-effort remote revoke/Pause/Stop,
-  Stop works offline, and snapshots retain the 150 ms human-input-active
-  window without a timer thread. Construction requires the fallback local
-  intent-clear callback.
-- `NativeToolDispatcherV1` is an execute-once callback router for the 14
-  mandatory `game.*` tools and the 11 native Studio/runtime tools. It validates
-  canonical v12 descriptor digests, typed input/output bounds, mode, deadline,
-  epoch, context, lease, and approval metadata; late or ambiguous effects are
-  never blindly retried. Server, model, and provider tools have no local
-  fallback.
-- `CrowdyStudioHostAdapter` connects local Studio/runtime tools to the same
-  headless Studio controller used by human actions. Engine adapters own thread
-  scheduling; callbacks may complete inline or later, and cancellation tokens
-  provide a cooperative stop signal while the dispatcher fences late results.
-- `CrowdyStudioControllerHostAdapter` is the concrete 11-tool controller
-  mapping. `ICrowdyStudioEditorAdapter` receives only selected/open files and
-  synchronized in-memory buffers, while `CrowdyStudioIntegration` owns the
-  controller/runtime/dispatcher/editor/optional-agent assembly plus the
-  concrete layout, lease-manager, and human-control gate. Engines inject
-  layout storage, the typed player host, and input/lifecycle events.
-- Integration `poll()` is a nonblocking platform + Agent callback/deadline
-  pump. Autosave, monitoring HTTP, compile polling/sleep, and scheduled
-  effectful Studio tools run only from the explicit serialized
-  `runStudioMaintenance()` lane (or an injected `studioHost.schedule` lane).
+`CrowdyStudioIntegration` owns the headless controller, layout controller and
+editor bridge. Integration `poll()` is a nonblocking platform pump; autosave,
+monitoring HTTP and compile polling run only from the explicit serialized
+`runStudioMaintenance()` lane, which also drains work queued with
+`schedule()`.
 
 World coordinates, distances, health values, fuel, revisions, and other
 contract values that may exceed a native or JSON number remain decimal
 strings. The typed schemas reject non-canonical forms before an adapter runs.
-
-`NativeBrowserToolDispatcherAdapter` is the narrow Agent Controller bridge. It
-validates canonical JSON, converts into closed native variants, forwards
-`NativeToolResultV1` output/error/timing/context, maps cancellation reasons,
-and pumps deadlines from the controller loop. Clear execute-once records only
-after the attached session is closed. See the
-[native player-host example](docs/native-player-host.md) and
+See the [native player-host notes](docs/native-player-host.md) and
 [native Studio integration guide](docs/native-studio-integration.md).
 
 ## The native replication client
@@ -913,9 +892,6 @@ npm run check:parity
 
 # CrowdyJS must be built first. Every fixture tool rejects tracked checkout
 # changes, a wrong package version, or a wrong commit.
-npm run check:agent-fixtures
-npm run check:control-gate-fixtures
-npm run check:studio-host-fixtures
 npm run check:layout-fixtures
 npm run check:studio-state-fixtures
 
@@ -991,7 +967,7 @@ None of these maintainer gates run during a normal external CMake build.
 - [Replication API (native UDP)](https://docs.crowdedkingdoms.com/replication-api/intro)
 - [Wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats) · [HMAC](https://docs.crowdedkingdoms.com/replication-api/hmac)
 - [Management API](https://docs.crowdedkingdoms.com/management-api/intro) · [Game API](https://docs.crowdedkingdoms.com/game-api/intro)
-- [Native Agentic Studio](docs/native-agent-api.md)
+- [Agentic Studio from a native client](docs/native-agent-api.md)
 - [Native Studio integration](docs/native-studio-integration.md) · [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
 - [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
 - [Release verification checklist](docs/release-checklist.md)

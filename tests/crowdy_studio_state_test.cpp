@@ -16,7 +16,6 @@
 #include "crowdy/core/crypto.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/graphql/json.hpp"
-#include "crowdy/studio/agent_projection.hpp"
 #include "crowdy/studio/controller.hpp"
 #include "crowdy/studio/diagnostics.hpp"
 #include "test_util.hpp"
@@ -101,9 +100,9 @@ void testSharedDiagnosticFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-diagnostics/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.12.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "16.0.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa");
+        "c257f7ade605731ba15610258d13319cdac194e5");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -379,23 +378,7 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   controller.setLocalDiagnostics(
       std::vector<CrowdyStudioDiagnostic>{typed});
   CHECK(controller.getState().localDiagnostics[0] == typed);
-  const auto agentDiagnostics =
-      crowdyStudioAgentLocalDiagnosticsV1(controller.getState());
-  CHECK(agentDiagnostics.diagnostics[0].severity ==
-        agent::StudioDiagnosticSeverityV1::Hint);
-  const agent::StudioStateV1 projectedState =
-      crowdyStudioAgentStateV1(controller.getState(),
-                               core::opensslCrypto());
-  CHECK(projectedState.project.has_value());
-  CHECK(projectedState.project->server_module_name ==
-        std::optional<std::string>{"state-server"});
-  CHECK(projectedState.project->pairing_preference ==
-        agent::StudioPairingPreferenceV1::None);
-  CHECK(projectedState.project->files[0].content_hash.rfind(
-            "sha256:", 0) == 0);
-  CHECK_EQ(projectedState.project->files[0].content_hash.size(),
-           std::size_t{71});
-  CHECK(projectedState.runtime.saved_revision == "17");
+  CHECK(controller.getState().project->revision.id == "17");
 
   runtime.compileStatus = "failed";
   runtime.compileLog =
@@ -539,20 +522,21 @@ void testCapabilitiesAndCheckpointBridge() {
   }
   CHECK(restoreUnavailable);
 
-  agent::AgentCheckpoint checkpoint;
-  checkpoint.checkpointId = "checkpoint-1";
-  checkpoint.projectRevision = "17";
-  checkpoint.contentHash =
+  // A checkpoint recorded server-side (the harness's pre-write snapshot)
+  // arrives as metadata only; the controller keeps it without content.
+  CrowdyStudioCheckpointEvent event;
+  event.scope = {"42", "500"};
+  event.projectId = "project-1";
+  event.checkpoint.checkpointId = "checkpoint-1";
+  event.checkpoint.projectRevisionId = "17";
+  event.checkpoint.contentHash =
       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  checkpoint.reason = "AGENT_WRITE";
-  checkpoint.files = {
-      {"SERVER", "src/lib.rs",
-       "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-       12}};
-  checkpoint.createdAt = "2026-07-24T00:00:00Z";
-  const CrowdyStudioCheckpointEvent event =
-      crowdyStudioCheckpointEventFromAgentV1(
-          checkpoint, {"42", "500"}, "project-1");
+  event.checkpoint.reason = CrowdyStudioCheckpointMetadata::Reason::AgentWrite;
+  event.checkpoint.files.push_back(CrowdyStudioCheckpointFile{
+      CrowdyStudioTarget::Server, "src/lib.rs",
+      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      12});
+  event.checkpoint.createdAt = "2026-07-24T00:00:00Z";
   controller.ingestCheckpointEvent(event);
   CHECK_EQ(controller.getState().checkpoints.size(), std::size_t{1});
   CHECK(controller.getState().checkpoints[0].reason ==
@@ -568,177 +552,6 @@ void testCapabilitiesAndCheckpointBridge() {
   }
   CHECK(scopeRejected);
 
-  checkpoint.files[0].target = "ADMIN";
-  bool malformedRejected = false;
-  try {
-    (void)crowdyStudioCheckpointEventFromAgentV1(
-        checkpoint, {"42", "500"}, "project-1");
-  } catch (const std::invalid_argument&) {
-    malformedRejected = true;
-  }
-  CHECK(malformedRejected);
-}
-
-CrowdyStudioPhase studioPhase(std::string_view value) {
-  if (value == "RUNNING") return CrowdyStudioPhase::Running;
-  if (value == "STOPPED") return CrowdyStudioPhase::Stopped;
-  if (value == "COMPILING") return CrowdyStudioPhase::Compiling;
-  return CrowdyStudioPhase::Idle;
-}
-
-CrowdyStudioRuntimeSyncState syncState(std::string_view value) {
-  if (value == "RUNNING_SAVED") {
-    return CrowdyStudioRuntimeSyncState::RunningSaved;
-  }
-  if (value == "RUNNING_STALE") {
-    return CrowdyStudioRuntimeSyncState::RunningStale;
-  }
-  if (value == "STOPPED") return CrowdyStudioRuntimeSyncState::Stopped;
-  return CrowdyStudioRuntimeSyncState::NeverRun;
-}
-
-agent::StudioRuntimePhaseV1 agentPhase(std::string_view value) {
-  if (value == "RUNNING") return agent::StudioRuntimePhaseV1::Running;
-  if (value == "STOPPED") return agent::StudioRuntimePhaseV1::Stopped;
-  if (value == "COMPILING") {
-    return agent::StudioRuntimePhaseV1::Compiling;
-  }
-  return agent::StudioRuntimePhaseV1::Idle;
-}
-
-agent::StudioRuntimeSyncV1 agentSync(std::string_view value) {
-  if (value == "RUNNING_SAVED") {
-    return agent::StudioRuntimeSyncV1::RunningSaved;
-  }
-  if (value == "RUNNING_STALE") {
-    return agent::StudioRuntimeSyncV1::RunningStale;
-  }
-  if (value == "STOPPED") return agent::StudioRuntimeSyncV1::Stopped;
-  return agent::StudioRuntimeSyncV1::NeverRun;
-}
-
-void testSharedRuntimeProjectionFixture() {
-  const graphql::Json fixture = graphql::Json::parse(
-      fixtureText("crowdy-studio-runtime-sync.v1.json"));
-  CHECK(fixture.ok());
-  CHECK(fixture["contractVersion"].asString() ==
-        "crowdy.studio-runtime-sync-projection/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "15.12.0");
-  CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "07cae3e0b054d0c1a26c8ebdbe9a7cb19f97a1fa");
-  fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
-    CrowdyStudioState state;
-    CrowdyStudioProject project;
-    project.revision.id =
-        fixtureCase["projectRevisionId"].asString();
-    state.project = project;
-    const graphql::Json runtime = fixtureCase["runtime"];
-    state.runtime.phase = studioPhase(runtime["phase"].asStringView());
-    if (runtime["target"].ok()) {
-      state.runtime.target =
-          studioTarget(runtime["target"].asStringView());
-    }
-    state.runtime.message = runtime["message"].asString();
-
-    const graphql::Json sync = fixtureCase["runtimeSync"];
-    state.runtimeSync.state =
-        syncState(sync["state"].asStringView());
-    if (sync["savedRevisionId"].ok()) {
-      state.runtimeSync.savedRevisionId =
-          sync["savedRevisionId"].asString();
-    }
-    if (sync["runningRevisionId"].ok()) {
-      state.runtimeSync.runningRevisionId =
-          sync["runningRevisionId"].asString();
-    }
-    if (sync["deployment"].ok()) {
-      state.runtimeSync.deployment =
-          sync["deployment"].asStringView() == "DRAFT"
-              ? CrowdyStudioDeployment::Draft
-              : CrowdyStudioDeployment::Live;
-    }
-    if (sync["startedAt"].ok()) {
-      state.runtimeSync.startedAt = sync["startedAt"].asString();
-    }
-    if (sync["runningProjectContentHash"].ok()) {
-      state.runtimeSync.runningProjectContentHash =
-          sync["runningProjectContentHash"].asString();
-    }
-    if (sync["runningServerModuleName"].ok()) {
-      state.runtimeSync.runningServerModuleName =
-          sync["runningServerModuleName"].asString();
-    }
-    if (sync["runningClientModuleName"].ok()) {
-      state.runtimeSync.runningClientModuleName =
-          sync["runningClientModuleName"].asString();
-    }
-    if (sync["runningPairingPreference"].ok()) {
-      const std::string pairingValue =
-          sync["runningPairingPreference"].asString();
-      state.runtimeSync.runningPairingPreference =
-          pairingValue == "REQUIRED"
-              ? CrowdyStudioPairingPreference::Required
-              : pairingValue == "OPTIONAL"
-                    ? CrowdyStudioPairingPreference::Optional
-                    : CrowdyStudioPairingPreference::None;
-    }
-    if (sync["startedAtEpochMs"].ok()) {
-      state.runtimeSync.startedAtEpochMs =
-          sync["startedAtEpochMs"].asInt64();
-    }
-
-    const agent::StudioRuntimeStatusV1 projected =
-        crowdyStudioAgentRuntimeV1(state);
-    const graphql::Json expected =
-        fixtureCase["expectedAgentRuntime"];
-    CHECK(projected.phase ==
-          agentPhase(expected["phase"].asStringView()));
-    CHECK(projected.saved_revision ==
-          expected["savedRevision"].asString());
-    CHECK(projected.sync ==
-          agentSync(expected["sync"].asStringView()));
-    if (expected["runningRevision"].ok()) {
-      CHECK(projected.running_revision ==
-            std::optional<std::string>{
-                expected["runningRevision"].asString()});
-    } else {
-      CHECK(!projected.running_revision);
-    }
-    if (expected["target"].ok()) {
-      CHECK(projected.target ==
-            std::optional<agent::StudioTargetV1>{
-                expected["target"].asStringView() == "SERVER"
-                    ? agent::StudioTargetV1::Server
-                    : agent::StudioTargetV1::Client});
-    } else {
-      CHECK(!projected.target);
-    }
-    if (expected["draft"].ok()) {
-      CHECK(projected.draft ==
-            std::optional<bool>{expected["draft"].asBool()});
-    } else {
-      CHECK(!projected.draft);
-    }
-    if (expected["message"].ok()) {
-      CHECK(projected.message ==
-            std::optional<std::string>{
-                expected["message"].asString()});
-    } else {
-      CHECK(!projected.message);
-    }
-
-    // Native-only bindings remain present after the common projection.
-    if (sync["runningProjectContentHash"].ok()) {
-      CHECK(state.runtimeSync.runningProjectContentHash ==
-            std::optional<std::string>{
-                sync["runningProjectContentHash"].asString()});
-    }
-    if (sync["startedAt"].ok()) {
-      CHECK(state.runtimeSync.startedAt ==
-            std::optional<std::string>{
-                sync["startedAt"].asString()});
-    }
-  });
 }
 
 }  // namespace
@@ -749,7 +562,6 @@ int main() {
   testControllerDiagnosticsCompatibilityAndWallet();
   testPlayerWalletAdapter();
   testCapabilitiesAndCheckpointBridge();
-  testSharedRuntimeProjectionFixture();
   std::printf("crowdy_studio_state_test passed\n");
   return 0;
 }

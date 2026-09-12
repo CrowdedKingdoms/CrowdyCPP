@@ -132,18 +132,6 @@ inline void printSubscriptionError(
   }
 }
 
-inline void printAgentError(const crowdy::agent::AgentError& error,
-                            const char* context = "Agent error") {
-  std::fprintf(
-      stderr,
-      "%s: code=%s retryable=%s message=%s remediation=%s field=%s scope=%s\n",
-      context, error.code.c_str(), error.retryable ? "true" : "false",
-      error.message.c_str(),
-      error.remediation ? error.remediation->c_str() : "",
-      error.field ? error.field->c_str() : "",
-      error.requiredScope ? error.requiredScope->c_str() : "");
-}
-
 struct E2eConfig {
   /// The origin identity and administration run against — the shared entry
   /// name in a real deployment. One API, so this differs from httpUrl only in

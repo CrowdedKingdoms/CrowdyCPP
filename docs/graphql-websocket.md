@@ -28,27 +28,6 @@ while (running) game.poll();
 // changes.cancel() is explicit; destruction also cancels.
 ```
 
-## Durable Agentic Studio events
-
-The lifetime-safe controller factory owns the generated HTTP transport and
-typed event adapter together:
-
-```cpp
-crowdy::agent::CrowdyStudioAgentControllerOptions options;
-options.sessionId = savedSessionId;
-options.onStateChange = renderAgentState;
-
-auto agent = game.createCrowdyStudioAgentController(std::move(options));
-agent->controller().initialize();
-while (running) agent->poll();
-```
-
-`CrowdyAgentGraphQLTransport::subscribeEvents` maps the committed
-`CrowdyStudioAgentEvents` operation into typed `AgentEvent` values. On a
-socket replacement it invokes the reconnect callback before replay, allowing
-the controller to query durable history and fill gaps. The returned handle is
-RAII-cancelled and suppresses already-queued callbacks after cancellation.
-
 ## Generic operations
 
 Use `client.subscriptions()` only for GraphQL subscriptions without a typed

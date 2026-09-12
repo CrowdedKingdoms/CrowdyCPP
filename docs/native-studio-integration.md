@@ -41,9 +41,12 @@ Callbacks retained after `dispose()` are fenced.
 ## Complete assembly
 
 `CrowdyClient::createCrowdyStudioIntegration` constructs owned project and
-PlayerCompute adapters, the Studio runtime/controller, editor bridge,
-controller-backed Studio host, native dispatcher, browser-dispatch bridge, and
-optional durable Agent controller in dependency-safe order.
+PlayerCompute adapters, the Studio runtime/controller, the editor bridge and
+the layout controller in dependency-safe order. Since 0.34.0 there is no agent
+in this assembly: the Studio agent is the in-browser DeepSeek Harness that
+CrowdyJS docks beside the web editor, and a native engine has nowhere to dock
+it. Its policy, consent and usage stay reachable through
+`client.crowdyStudioAgent()` (see [native agent API](native-agent-api.md)).
 
 ```cpp
 crowdy::studio::CrowdyStudioIntegrationOptions options;
@@ -51,36 +54,28 @@ options.studio = {.appId = appId, .gridId = gridId};
 options.editor = std::make_shared<EngineEditor>();
 options.clientRuntime = engineClientArtifactRuntime;
 options.layoutStorage = engineSettingsStore;
-options.playerHost = &enginePlayerHost;  // externally owned, outlives assembly
+options.playerHost = &enginePlayerHost;  // observation only; outlives assembly
 options.crypto = engineCryptoOwner;    // shared ownership
-
-crowdy::agent::CrowdyStudioAgentControllerOptions agent;
-agent.sessionId = savedSessionId;
-options.agent = std::move(agent);       // omit for manual Studio only
 
 auto studio =
     client.createCrowdyStudioIntegration(std::move(options));
 studio->initialize();
 
 while (running) {
-  studio->poll();  // nonblocking callbacks + Agent/native deadlines
+  studio->poll();  // nonblocking platform callbacks
   if (engineStudioMaintenancePhase) {
     studio->runStudioMaintenance();  // save/HTTP/compile polling may block
   }
 }
 ```
 
-`poll()` always pumps both the client/platform dispatcher and the optional
-Agent runtime. It never runs Studio autosave, monitor HTTP, compile polling, or
-sleep. `runStudioMaintenance()` is the explicit serialized maintenance lane.
-When Agent HTTP has no injected async transport, `CrowdyClient` installs a
-single worker-thread adapter around `IHttpTransport`; custom synchronous
-transports must therefore honor the interface's thread-safety requirement.
-Call it from a deliberately blocking engine phase, or from a worker only when
-all Studio controller access is serialized onto that worker; never run it
-concurrently with editor/controller access. Potentially blocking native Studio
-tools use the same lane by default; advanced hosts can inject
-`studioHost.schedule` to route them onto their own serial executor.
+`poll()` pumps the client/platform dispatcher and nothing else. It never runs
+Studio autosave, monitor HTTP, compile polling, or sleep.
+`runStudioMaintenance()` is the explicit serialized maintenance lane: it drains
+work queued with `schedule()` and then runs the controller's own maintenance
+tick. Call it from a deliberately blocking engine phase, or from a worker only
+when all Studio controller access is serialized onto that worker; never run it
+concurrently with editor/controller access.
 
 Keep `CrowdyClient` open while the assembly uses its shared HTTP/GraphQL
 dispatcher. Destroying the client first remains memory-safe but closes those
@@ -93,45 +88,25 @@ The existing direct constructors remain available.
 
 [`examples/native_studio_shell.cpp`](../examples/native_studio_shell.cpp) is a
 credential-free, engine-neutral wiring example. It uses an in-memory editor and
-layout store, a typed intent-only player host, explicit nonblocking and
-maintenance lanes, input forwarding through `NativePlayerControlGate`, and
-ordered disposal without granting DOM, filesystem, or raw GraphQL authority to
-an adapter.
+layout store, an observation-only player host, explicit nonblocking and
+maintenance lanes, and ordered disposal without granting DOM, filesystem, or
+raw GraphQL authority to an adapter.
 
-## Native Studio tools
+## Native Studio tools (removed in 0.34.0)
 
-`CrowdyStudioControllerHostAdapter` implements all 11 native Studio tools:
+The 11 native Studio tools (`studio.context.get` ... `runtime.stop`), their
+controller host adapter, the native tool dispatcher and the shared
+`crowdyjs-studio-host-tools.v1.json` fixture executed those tools for the
+Crowdy Agent orchestrator. They are gone with it. The in-browser agent asks the
+Studio page for draft tests, deploys (with a page-side player confirmation),
+screenshots and project switches over its own bridge; there is no native
+counterpart to implement.
 
-- `studio.context.get`, `studio.state.get`, `project.select`;
-- `workspace.tab.open`, `workspace.tab.close`, `diagnostics.local.get`;
-- `runtime.status.get`, `runtime.test_draft`, `runtime.deploy_live`;
-- `runtime.invoke`, `runtime.stop`.
+## Concrete layout and wallet ownership
 
-Session, epoch, context, lease, cancellation, and approval metadata are
-revalidated at the final host boundary. Draft/live plans use the controller's
-current complete plan; live deployment additionally binds the exact revision,
-target set, pairing preference, and project content hash. LIVE invoke requires
-an explicit final approval validator. Provider/gate failures before an external
-effect are `FAILED`. Only an operation that reached its exact effect boundary
-can become `OUTCOME_UNKNOWN`; draft submission, deploy, invoke, stop, and
-restore all use that fencing rule. Those results are never retried.
-
-`crowdyjs-studio-host-tools.v1.json` is generated by executing all 11 handlers
-from the exact pinned CrowdyJS build. The native fixture test replays every
-typed input and setup transition through the concrete controller host and
-compares canonical output/status projections, including required approval,
-pre-dispatch cancellation, and effectful outcome-unknown fencing.
-
-## Concrete layout, wallet, and control ownership
-
-The integration owns `StudioLayoutController`, its exact
-`AgentControlLeaseManager` on the `playerHost` path, and
-`NativePlayerControlGate`. Engines inject layout storage and the typed player
-host, then forward keyboard, pointer, movement, lifecycle, permission, and
-controlled-entity events through `controlGate()`. Use `layout()`,
-`layoutSnapshot()`, `leaseSnapshot()`, and `controlSnapshot()` for typed state.
-The gate is unbound and destroyed before the optional Agent controller; native
-dispatch is destroyed before the lease manager and Studio controller.
+The integration owns `StudioLayoutController`. Engines inject layout storage
+and use `layout()` / `layoutSnapshot()` for typed state. The `playerHost`
+pointer, when given, is handed back from `playerHost()` and never called.
 
 `CrowdyClient::createCrowdyStudioIntegration()` also installs the owned
 read-only PlayerWallet adapter when `observePlayerWallet` is true (the

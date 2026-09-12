@@ -1,5 +1,77 @@
 # CrowdyCPP migration notes
 
+## 0.34.0 the Crowdy Agent orchestrator is retired
+
+The Agentic Crowdy Studio agent no longer runs on the server. CrowdyJS 16 docks
+the DeepSeek Harness inside the browser Studio pane; it edits the player's
+project, runs draft tests and takes screenshots from the page, and spends model
+tokens through `POST /v1/model/chat/completions` with the player's own app
+token, billed to the player's wallet by default (or the app's org wallet).
+The 21 GraphQL roots this SDK drove (`crowdyStudioAgentCreateSession`,
+`...SendMessage`, `...Events`, leases, approvals, tool results, history,
+budget, ...) are gone from the API, so a 0.33 client loses that surface the
+moment the API deploys whether or not it upgrades. There is no native
+counterpart: an engine has no Studio pane to dock the harness in.
+
+### Removed
+
+- `crowdy/agent/*` (`CrowdyStudioAgentController`, `CrowdyStudioAgentGraphQLTransport`,
+  `AgentToolRegistry`, `NativeToolDispatcherV1`, `NativeBrowserToolDispatcherAdapter`,
+  `CrowdyStudioAgentControllerRuntime`, agent schema/types/errors).
+- `crowdy/studio/host_adapter.hpp` (`CrowdyStudioHostAdapter`,
+  `CrowdyStudioControllerHostAdapter`, the 11 native Studio tools) and
+  `crowdy/studio/agent_projection.hpp`.
+- `crowdy/player_host/lease_manager.hpp` (`AgentControlLeaseManager`) and
+  `crowdy/player_host/control_gate.hpp` (`NativePlayerControlGate`).
+- `CrowdyClient::createCrowdyStudioAgentController`.
+- `CrowdyStudioIntegrationOptions::{agent, nativeTools, studioHost, controlLeases,
+  controlGate, leaseManager, autoInitializeAgent}`;
+  `CrowdyStudioIntegration::{agentController, leaseManager, leaseSnapshot,
+  controlGate, controlSnapshot, nativeTools, initializeAgent}`;
+  `CrowdyStudioIntegration::create` no longer takes an agent runtime factory.
+- On `domains::CrowdyStudioAgentAPI`: `session`, `sessions`, `history`,
+  `toolDescriptors`, `budget`, `createSession`, `attachClient`, `setMode`,
+  `acknowledgeEvents`, `heartbeat`, `sendMessage`, `approveTool`, `rejectTool`,
+  `browserToolResult`, `grantLease`, `revokeLease`, `pause`, `resume`,
+  `cancelRun`, `closeSession` and their async twins.
+- The generated `gen::CrowdyStudioAgentPreemptionReason` enum.
+- Parity fixtures `crowdyjs-agent-tools`, `crowdyjs-descriptor-digests`,
+  `crowdyjs-preemption-reasons`, `crowdyjs-player-control-gate`,
+  `crowdyjs-studio-host-tools`, `crowdy-studio-runtime-sync` and their
+  generators; the `${CMAKE_INSTALL_DATADIR}/crowdy/agent` install tree.
+
+### Added
+
+- `CrowdyStudioAgentAPI::providerConsent(appId)`, `setProviderConsent(input)`,
+  `modelUsage(appId, limit?)` and async twins
+  (`operations/crowdyStudioAgent/CrowdyStudioModel.graphql`).
+- `player_host::PreemptionReasonV1` is now a contract-owned enum with the same
+  16 wire names in the same order, plus `preemptionReasonFromName`. It used to
+  be an alias of the removed generated enum; code that switched over it
+  compiles unchanged, code that called `gen::toString` on it should call
+  `preemptionReasonName`.
+- `CrowdyStudioIntegration::schedule(task)` queues work for the maintenance
+  lane (what the removed `studioHost.schedule` did), and `playerHost()` hands
+  back the observation-only adapter the engine passed in.
+
+### What to do in a game
+
+- Delete agent wiring. `CrowdyStudioIntegration` still owns the headless Studio
+  controller, layout controller and editor bridge; `poll()` pumps the platform
+  and `runStudioMaintenance()` is the blocking lane, unchanged.
+- Keep `PlayerHostAdapterV1` if your tooling reads observations from it;
+  nothing in this SDK dispatches to it any more. The interface keeps
+  `dispatch` and `clearAgentIntent` for source compatibility.
+- Read agent policy and usage with `client.crowdyStudioAgent()`; record the
+  player's provider-data consent with `setProviderConsent` if you drive the
+  REST model endpoint yourself.
+
+This is a breaking change in a 0.x line, so it is a minor bump (the same rule
+0.20.0 used for `managementUrl`). Requires the ck-api release that carries the
+metered model endpoint (first dev release after `v1.98.0`); tracks CrowdyJS
+`16.0.0`.
+
+
 ## 0.29.0 nothing runs for an app with no player in it
 
 The schema snapshot moves from 2026-08-28 to the current published SDL, which

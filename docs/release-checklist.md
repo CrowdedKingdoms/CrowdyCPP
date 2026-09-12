@@ -123,9 +123,6 @@ node tools/parity/parity.mjs \
   --crowdyjs "$CROWDYJS_PATH" \
   --check docs/parity-matrix.md \
   --strict
-node tools/parity/agent-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
-node tools/parity/control-gate-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
-node tools/parity/studio-host-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 node tools/parity/layout-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 node tools/parity/studio-state-fixtures.mjs --crowdyjs "$CROWDYJS_PATH"
 npm test

@@ -11,8 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "crowdy/agent/client_runtime.hpp"
-#include "crowdy/agent/transport.hpp"
 #include "crowdy/client.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
 #include "crowdy/graphql/websocket.hpp"
@@ -158,27 +156,6 @@ class FakeHttpTransport final : public IHttpTransport {
   HttpResponse send(const HttpRequest&) override {
     return HttpResponse{200, R"({"data":{"ok":true}})"};
   }
-};
-
-class TickingBrowserDispatcher final
-    : public agent::IAgentBrowserToolDispatcher {
- public:
-  void dispatch(
-      agent::AgentToolInvocation,
-      agent::AgentCallback<agent::AgentToolResult> callback) override {
-    callback(agent::AgentOutcome<agent::AgentToolResult>::failure(
-        agent::makeAgentError("AGENT_HOST_UNAVAILABLE",
-                              "test dispatcher has no tools")));
-  }
-  void cancelActive(agent::AgentPreemptionReason) override {
-    ++cancellations;
-  }
-  void clearClosedSession() override { ++clears; }
-  void tick() override { ++ticks; }
-
-  int ticks = 0;
-  int cancellations = 0;
-  int clears = 0;
 };
 
 template <typename Predicate>
@@ -955,84 +932,6 @@ void testTypedGameModelContainerChanged() {
   CHECK(handle.active());
 }
 
-void testTypedAgentGraphqlSubscription() {
-  auto webSocket = std::make_shared<FakeTransport>();
-  ClientConfig config;
-  config.httpUrl = "https://game.example.test";
-  config.transport = std::make_shared<FakeHttpTransport>();
-  config.webSocketTransport = webSocket;
-  CrowdyClient client(std::move(config));
-  agent::CrowdyStudioAgentGraphQLTransport transport(
-      client.crowdyStudioAgent(), client.subscriptions());
-
-  bool called = false;
-  bool failed = false;
-  agent::AgentEvent event;
-  auto handle = transport.subscribeEvents(
-      {"session-1", "0", "1"},
-      {[&](agent::AgentEvent value) {
-         called = true;
-         event = std::move(value);
-       },
-       [&](agent::AgentError) { failed = true; },
-       [] {},
-       [] {}});
-  const auto connection = webSocket->connection(0);
-  acknowledge(connection);
-  const Json subscribe = parseSentText(connection, 1);
-  CHECK(subscribe["payload"]["operationName"].asString() ==
-        "CrowdyStudioAgentEvents");
-  CHECK(subscribe["payload"]["variables"]["clientEpoch"].asString() == "1");
-
-  connection->emitText(
-      R"({"id":"1","type":"next","payload":{"data":{"crowdyStudioAgentEvents":{"__typename":"AgentLifecycleEvent","protocolVersion":"crowdy.agent-event/1","eventId":"event-1","sessionId":"session-1","seq":"1","type":"MODE_SELECTED","runId":null,"version":"crowdy.agent-event/1","createdAt":"2026-07-24T00:00:00.000Z","lifecycleMode":"ASK","lifecycleClientEpoch":null,"lifecycleReplayAfterSeq":null,"lifecycleReason":null,"lifecycleContextVersion":null}}}})");
-  CHECK(!called);
-  transport.poll();
-  CHECK(called);
-  CHECK(!failed);
-  CHECK(event.seq == "1");
-  CHECK(event.type == agent::AgentEventType::ModeSelected);
-
-  bool cancelledDelivery = false;
-  auto cancelled = transport.subscribeEvents(
-      {"session-1", "1", "1"},
-      {[&](agent::AgentEvent) { cancelledDelivery = true; },
-       [&](agent::AgentError) { cancelledDelivery = true; },
-       [&] { cancelledDelivery = true; },
-       [&] { cancelledDelivery = true; }});
-  connection->emitText(
-      R"({"id":"2","type":"next","payload":{"data":{"crowdyStudioAgentEvents":{"__typename":"AgentLifecycleEvent","protocolVersion":"crowdy.agent-event/1","eventId":"event-2","sessionId":"session-1","seq":"2","type":"MODE_SELECTED","runId":null,"version":"crowdy.agent-event/1","createdAt":"2026-07-24T00:00:00.000Z","lifecycleMode":"ASK","lifecycleClientEpoch":null,"lifecycleReplayAfterSeq":null,"lifecycleReason":null,"lifecycleContextVersion":null}}}})");
-  cancelled->close();
-  transport.poll();
-  CHECK(!cancelledDelivery);
-
-  handle->close();
-  client.poll();
-}
-
-void testControllerFactoryOwnsAdaptersAndPumpsTools() {
-  auto webSocket = std::make_shared<FakeTransport>();
-  ClientConfig config;
-  config.httpUrl = "https://game.example.test";
-  config.transport = std::make_shared<FakeHttpTransport>();
-  config.webSocketTransport = webSocket;
-  CrowdyClient client(std::move(config));
-
-  TickingBrowserDispatcher tools;
-  agent::CrowdyStudioAgentControllerOptions options;
-  options.sessionId = "session-1";
-  options.browserDispatcher = &tools;
-  auto runtime =
-      client.createCrowdyStudioAgentController(std::move(options));
-  CHECK(runtime);
-  CHECK(runtime->controller().state().connection ==
-        agent::AgentConnectionState::Disconnected);
-  CHECK_EQ(runtime->poll(), std::size_t{0});
-  CHECK_EQ(tools.ticks, 1);
-  runtime.reset();
-  CHECK_EQ(tools.cancellations, 1);
-}
-
 }  // namespace
 
 int main() {
@@ -1052,8 +951,6 @@ int main() {
   testCrowdyClientInjectionAndPoll();
   testTypedGameModelActivePlayerCountChanged();
   testTypedGameModelContainerChanged();
-  testTypedAgentGraphqlSubscription();
-  testControllerFactoryOwnsAdaptersAndPumpsTools();
   std::printf("graphql_subscription_test passed\n");
   return 0;
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrowdyCPP VERSION 0.33.0 LANGUAGES C CXX)
+project(CrowdyCPP VERSION 0.34.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -144,55 +144,16 @@ else()
     "injected IWebSocketTransport implementations remain available")
 endif()
 
-# Embed the committed canonical 28-tool fixture in the native registry. This
-# configure step is offline and does not require CrowdyJS or Node.
-#
 # configure_file only tracks its .in template, so the fixtures these read are
 # registered as configure dependencies too. Without that, refreshing a fixture
 # (a parity pin bump, say) leaves the embedded copy stale and the replay tests
 # fail against the file you just corrected until someone reconfigures by hand.
 set(CROWDY_EMBEDDED_FIXTURES
-  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-studio-layout.v1.json")
 set_property(DIRECTORY APPEND
   PROPERTY CMAKE_CONFIGURE_DEPENDS ${CROWDY_EMBEDDED_FIXTURES})
 
-file(READ
-  "${CMAKE_CURRENT_SOURCE_DIR}/tools/parity/fixtures/crowdyjs-agent-tools.v1.json"
-  CROWDY_AGENT_FIXTURE_JSON)
-
-# MSVC caps a single string literal at 65535 bytes (C2026) and this fixture is
-# nearly three times that, so it is emitted as a sequence of adjacent raw string
-# literals rather than one. Adjacent literals are concatenated by the compiler,
-# so the resulting constant is byte-identical on every toolchain. The fixture is
-# ASCII, so a chunk boundary cannot split a character.
-string(LENGTH "${CROWDY_AGENT_FIXTURE_JSON}" CROWDY_AGENT_FIXTURE_LENGTH)
-set(CROWDY_AGENT_FIXTURE_LITERALS "")
-set(CROWDY_AGENT_FIXTURE_OFFSET 0)
-while(CROWDY_AGENT_FIXTURE_OFFSET LESS CROWDY_AGENT_FIXTURE_LENGTH)
-  math(EXPR CROWDY_AGENT_FIXTURE_REMAINING
-    "${CROWDY_AGENT_FIXTURE_LENGTH} - ${CROWDY_AGENT_FIXTURE_OFFSET}")
-  set(CROWDY_AGENT_FIXTURE_TAKE 16384)
-  if(CROWDY_AGENT_FIXTURE_REMAINING LESS CROWDY_AGENT_FIXTURE_TAKE)
-    set(CROWDY_AGENT_FIXTURE_TAKE ${CROWDY_AGENT_FIXTURE_REMAINING})
-  endif()
-  string(SUBSTRING "${CROWDY_AGENT_FIXTURE_JSON}"
-    ${CROWDY_AGENT_FIXTURE_OFFSET} ${CROWDY_AGENT_FIXTURE_TAKE}
-    CROWDY_AGENT_FIXTURE_CHUNK)
-  string(APPEND CROWDY_AGENT_FIXTURE_LITERALS
-    "\n    R\"crowdyjson(${CROWDY_AGENT_FIXTURE_CHUNK})crowdyjson\"")
-  math(EXPR CROWDY_AGENT_FIXTURE_OFFSET
-    "${CROWDY_AGENT_FIXTURE_OFFSET} + ${CROWDY_AGENT_FIXTURE_TAKE}")
-endwhile()
-
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
-# NEWLINE_STYLE LF because the embedded constant must not vary by host: without
-# it configure_file writes CRLF on Windows, putting carriage returns inside the
-# raw literal that the committed fixture does not have.
-configure_file(
-  cmake/agent_fixture.hpp.in
-  "${CMAKE_CURRENT_BINARY_DIR}/generated/crowdy_agent_fixture.hpp"
-  @ONLY NEWLINE_STYLE LF)
 
 # Embed the pinned CrowdyJS layout fixture for native cross-SDK tests. The
 # generated header is build-local and remains fully offline.
@@ -317,17 +278,14 @@ if(CROWDY_NO_EXCEPTIONS)
   # Agent controllers and the native player-host adapter intentionally expose
   # exception-based validation APIs. They remain available in the normal
   # build; the strict no-exception facade omits those optional layers.
-  set(CROWDY_AGENT_SOURCES)
   set(CROWDY_PLAYER_HOST_SOURCES)
   set(CROWDY_STUDIO_SOURCES)
 else()
-  file(GLOB CROWDY_AGENT_SOURCES CONFIGURE_DEPENDS src/agent/*.cpp)
   file(GLOB CROWDY_PLAYER_HOST_SOURCES CONFIGURE_DEPENDS src/player_host/*.cpp)
   file(GLOB CROWDY_STUDIO_SOURCES CONFIGURE_DEPENDS src/studio/*.cpp)
 endif()
 add_library(crowdy STATIC
   src/client.cpp
-  ${CROWDY_AGENT_SOURCES}
   ${CROWDY_DOMAIN_SOURCES}
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}
@@ -396,13 +354,11 @@ if(CROWDY_NO_EXCEPTIONS)
   # validation contracts throw. Do not install headers that cannot be backed
   # by this package's reduced crowdy library.
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-          PATTERN "agent" EXCLUDE
           PATTERN "player_host" EXCLUDE
           PATTERN "studio" EXCLUDE
           PATTERN "kit" EXCLUDE
           PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE
-          PATTERN "agent_projection.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
           PATTERN "diagnostics.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE
@@ -413,13 +369,7 @@ if(CROWDY_NO_EXCEPTIONS)
 else()
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
   install(FILES
-          tools/parity/fixtures/crowdyjs-agent-tools.v1.json
-          tools/parity/fixtures/crowdyjs-descriptor-digests.v1.json
-          tools/parity/fixtures/crowdyjs-preemption-reasons.v1.json
-          DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/agent)
-  install(FILES
           tools/parity/fixtures/crowdy-studio-diagnostics.v1.json
-          tools/parity/fixtures/crowdy-studio-runtime-sync.v1.json
           DESTINATION ${CMAKE_INSTALL_DATADIR}/crowdy/studio)
 endif()
 install(EXPORT CrowdyCPPTargets

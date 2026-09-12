@@ -38,16 +38,14 @@ When the unified GraphQL surface changes:
 5. Compare the reviewed CrowdyJS checkout with
    `node tools/parity/parity.mjs --crowdyjs <path> --write
    docs/parity-matrix.md`, then run the same command with `--check`.
-6. If agent contracts changed, build CrowdyJS and run
-   `node tools/parity/agent-fixtures.mjs --crowdyjs <path>`. Use `--write`
-   only for an intentional coordinated fixture update.
-7. If portable Studio layout changed, build CrowdyJS and run
+6. If portable Studio layout changed, build CrowdyJS and run
    `node tools/parity/layout-fixtures.mjs --crowdyjs <path>`. Use `--write`
    only for an intentional coordinated fixture update.
-8. If player-control or native Studio host behavior changed, run
-   `control-gate-fixtures.mjs` and `studio-host-fixtures.mjs` the same way.
-   Both exact fixtures must be replayed by their focused C++ tests.
-9. Run the blueprint structural gate documented in `README.md`.
+7. If Studio diagnostics parsing changed, run `studio-state-fixtures.mjs` the
+   same way. (The agent, control-gate and Studio-host fixtures went with the
+   Crowdy Agent orchestrator in 0.34.0; the agent runs in the browser now and
+   this SDK only reads its policy, consent and usage.)
+8. Run the blueprint structural gate documented in `README.md`.
 
 ## Releasing
 

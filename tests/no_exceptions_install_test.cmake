@@ -27,11 +27,9 @@ if(NOT EXISTS "${_layout}")
 endif()
 
 set(_throwing_studio_headers
-    agent_projection.hpp
     controller.hpp
     diagnostics.hpp
     editor.hpp
-    host_adapter.hpp
     integration.hpp
     models.hpp
     runtime.hpp)

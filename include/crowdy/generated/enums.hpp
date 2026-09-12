@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 929a86d97e2663100e4e3cc9b6cedd0b960e81c33ffa9274b5b86ef96b72a837
-// operations sha256: 493a4f16cafc6cad4f3ac8fa4f2f24211da7f71cf6cedfd3a1975d6aeef1cb25
+// schema.gql sha256: 7e246b5a4d73c9cbdac994dd5e69606c185df7bd56c8252ebaa66a3e04f205e9
+// operations sha256: d38c35d8b6b8016c5170285bc2d4d79a5d25be87ddffb10ac4ea12dcb5a242a6
 
 #pragma once
 
@@ -449,67 +449,6 @@ inline std::optional<CrowdyStudioAgentPolicyKind> crowdyStudioAgentPolicyKindFro
   if (s == "PLATFORM") return CrowdyStudioAgentPolicyKind::PLATFORM;
   if (s == "APP") return CrowdyStudioAgentPolicyKind::APP;
   if (s == "EFFECTIVE") return CrowdyStudioAgentPolicyKind::EFFECTIVE;
-  return std::nullopt;
-}
-
-enum class CrowdyStudioAgentPreemptionReason {
-  HUMAN_INPUT,
-  HUMAN_EDIT,
-  HUMAN_STOP,
-  ESCAPE,
-  DEATH,
-  CONTEXT_CHANGED,
-  PERMISSION_CHANGED,
-  ADMISSION_CHANGED,
-  CONTROL_TARGET_CHANGED,
-  DISCONNECTED,
-  CLIENT_REATTACHED,
-  QUOTA_FAILURE,
-  BUDGET_FAILURE,
-  OPERATOR_KILL,
-  LEASE_EXPIRED,
-  SESSION_CLOSED,
-};
-
-inline constexpr std::string_view toString(CrowdyStudioAgentPreemptionReason v) {
-  switch (v) {
-    case CrowdyStudioAgentPreemptionReason::HUMAN_INPUT: return "HUMAN_INPUT";
-    case CrowdyStudioAgentPreemptionReason::HUMAN_EDIT: return "HUMAN_EDIT";
-    case CrowdyStudioAgentPreemptionReason::HUMAN_STOP: return "HUMAN_STOP";
-    case CrowdyStudioAgentPreemptionReason::ESCAPE: return "ESCAPE";
-    case CrowdyStudioAgentPreemptionReason::DEATH: return "DEATH";
-    case CrowdyStudioAgentPreemptionReason::CONTEXT_CHANGED: return "CONTEXT_CHANGED";
-    case CrowdyStudioAgentPreemptionReason::PERMISSION_CHANGED: return "PERMISSION_CHANGED";
-    case CrowdyStudioAgentPreemptionReason::ADMISSION_CHANGED: return "ADMISSION_CHANGED";
-    case CrowdyStudioAgentPreemptionReason::CONTROL_TARGET_CHANGED: return "CONTROL_TARGET_CHANGED";
-    case CrowdyStudioAgentPreemptionReason::DISCONNECTED: return "DISCONNECTED";
-    case CrowdyStudioAgentPreemptionReason::CLIENT_REATTACHED: return "CLIENT_REATTACHED";
-    case CrowdyStudioAgentPreemptionReason::QUOTA_FAILURE: return "QUOTA_FAILURE";
-    case CrowdyStudioAgentPreemptionReason::BUDGET_FAILURE: return "BUDGET_FAILURE";
-    case CrowdyStudioAgentPreemptionReason::OPERATOR_KILL: return "OPERATOR_KILL";
-    case CrowdyStudioAgentPreemptionReason::LEASE_EXPIRED: return "LEASE_EXPIRED";
-    case CrowdyStudioAgentPreemptionReason::SESSION_CLOSED: return "SESSION_CLOSED";
-  }
-  return "";
-}
-
-inline std::optional<CrowdyStudioAgentPreemptionReason> crowdyStudioAgentPreemptionReasonFromString(std::string_view s) {
-  if (s == "HUMAN_INPUT") return CrowdyStudioAgentPreemptionReason::HUMAN_INPUT;
-  if (s == "HUMAN_EDIT") return CrowdyStudioAgentPreemptionReason::HUMAN_EDIT;
-  if (s == "HUMAN_STOP") return CrowdyStudioAgentPreemptionReason::HUMAN_STOP;
-  if (s == "ESCAPE") return CrowdyStudioAgentPreemptionReason::ESCAPE;
-  if (s == "DEATH") return CrowdyStudioAgentPreemptionReason::DEATH;
-  if (s == "CONTEXT_CHANGED") return CrowdyStudioAgentPreemptionReason::CONTEXT_CHANGED;
-  if (s == "PERMISSION_CHANGED") return CrowdyStudioAgentPreemptionReason::PERMISSION_CHANGED;
-  if (s == "ADMISSION_CHANGED") return CrowdyStudioAgentPreemptionReason::ADMISSION_CHANGED;
-  if (s == "CONTROL_TARGET_CHANGED") return CrowdyStudioAgentPreemptionReason::CONTROL_TARGET_CHANGED;
-  if (s == "DISCONNECTED") return CrowdyStudioAgentPreemptionReason::DISCONNECTED;
-  if (s == "CLIENT_REATTACHED") return CrowdyStudioAgentPreemptionReason::CLIENT_REATTACHED;
-  if (s == "QUOTA_FAILURE") return CrowdyStudioAgentPreemptionReason::QUOTA_FAILURE;
-  if (s == "BUDGET_FAILURE") return CrowdyStudioAgentPreemptionReason::BUDGET_FAILURE;
-  if (s == "OPERATOR_KILL") return CrowdyStudioAgentPreemptionReason::OPERATOR_KILL;
-  if (s == "LEASE_EXPIRED") return CrowdyStudioAgentPreemptionReason::LEASE_EXPIRED;
-  if (s == "SESSION_CLOSED") return CrowdyStudioAgentPreemptionReason::SESSION_CLOSED;
   return std::nullopt;
 }
 

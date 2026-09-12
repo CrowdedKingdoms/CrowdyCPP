@@ -3,8 +3,8 @@
  * Move the CrowdyJS parity pin to a new commit and bring every derived
  * artifact along with it.
  *
- * Re-pinning by hand means editing package.json, running five fixture
- * generators with the right flags, restamping the two Studio-state fixtures,
+ * Re-pinning by hand means editing package.json, running the fixture
+ * generators with the right flags, restamping the Studio-state fixture,
  * and regenerating the matrix with the same gate mode CI checks. Missing any
  * one of those surfaces later as a confusing parity failure rather than as
  * "you forgot a step", so this does the whole set.
@@ -143,13 +143,10 @@ function discoverCppSuites() {
 
 // Regenerate everything the pin feeds. Order matters only in that the matrix
 // is written last, so it reports against the refreshed fixtures.
-const generators = [
-  'agent-fixtures.mjs',
-  'control-gate-fixtures.mjs',
-  'studio-host-fixtures.mjs',
-  'layout-fixtures.mjs',
-  'studio-state-fixtures.mjs',
-];
+// The agent, control-gate and Studio-host generators went with the Crowdy
+// Agent orchestrator (0.34.0): CrowdyJS 16 no longer ships the modules they
+// replayed against.
+const generators = ['layout-fixtures.mjs', 'studio-state-fixtures.mjs'];
 for (const generator of generators) {
   run(['tools/parity/' + generator, '--crowdyjs', crowdyjs, '--write']);
 }

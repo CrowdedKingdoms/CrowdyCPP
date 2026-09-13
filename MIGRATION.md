@@ -1,6 +1,6 @@
 # CrowdyCPP migration notes
 
-## 0.36.0 outbound sends are bundled by default
+## 0.37.0 outbound sends are bundled by default
 
 `replication::Connection` now packs the messages you send within a short window
 into one `MESSAGE_BUNDLE` datagram (`[2]{[u16 LE len][signed message]}...`), the
@@ -27,11 +27,13 @@ a complete, individually HMAC-signed message; only the datagram boundary moved.
   members). `messagesSent` advances when a message joins the bundle; the
   datagram/byte counters when the datagram is handed to the kernel. A
   `WouldBlock` on flush keeps the bundle pending for the next attempt and moves
-  `sendsDeferred`; a genuine fault drops it and moves `sendsFailed`.
+  `sendsDeferred`; a genuine fault drops it and moves `sendsFailed` (once, for
+  the datagram) and `Stats::messagesDropped` (once per member that was in it,
+  since `messagesSent` had already counted them).
 - **Server requirement.** The replication server must unpack client bundles
   (Buddy v0.27.0+). Against an older server, set `Config::bundleSends = false`;
   otherwise any two messages sent within a window are dropped together.
-- **Opt out.** `Config::bundleSends = false` is exactly the 0.35 behaviour: one
+- **Opt out.** `Config::bundleSends = false` is exactly the 0.36 behaviour: one
   datagram per message, transmitted synchronously from the calling thread.
 
 ### Also new

@@ -490,6 +490,50 @@ void runSendPath() {
     conn.disconnect();
   }
 
+  // --- With bundling on, the members of a bundle whose flush faults were
+  // already counted in messagesSent (they joined the bundle); the fault moves
+  // sendsFailed once for the datagram and messagesDropped once per member.
+  // Same platform caveat as above: the ICMP fault may never surface.
+  {
+    auto provider = std::make_shared<StubProvider>(unboundLoopbackPort());
+    Config cfg;
+    cfg.appId = 7;
+    cfg.token = TokenInfo{kToken, 42, 0};
+    cfg.manualPump = true;
+    cfg.sessionReadyWaitMs = 0;
+    cfg.bundleWindowMs = 1000;  // only flushSends() puts a bundle out
+    CHECK(cfg.bundleSends);
+    Connection conn(cfg, provider, core::opensslCrypto());
+    CHECK(conn.connect().ok());
+
+    Errc observed = Errc::Ok;
+    std::uint64_t rounds = 0;
+    for (int i = 0; i < 50 && observed == Errc::Ok; ++i) {
+      ++rounds;
+      CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+      CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+      const Status flushed = conn.flushSends();
+      if (!flushed.ok()) observed = flushed.code;
+      else ::usleep(2000);
+    }
+
+    const auto s = conn.stats();
+    CHECK_EQ(s.messagesSent, 2 * rounds);  // joining the bundle is what counts
+    if (observed == Errc::Ok) {
+      std::puts("  bundle drop: platform never surfaced a send fault; counter unexercised");
+      CHECK_EQ(s.messagesDropped, 0u);
+      CHECK_EQ(s.sendsFailed, 0u);
+    } else {
+      CHECK_EQ(observed, Errc::SocketError);
+      CHECK_EQ(s.sendsFailed, 1u);
+      CHECK_EQ(s.messagesDropped, 2u);
+      CHECK_EQ(s.datagramsSent + s.sendsFailed, rounds);
+    }
+    // The failed bundle was discarded: the next flush has nothing pending.
+    CHECK(conn.flushSends().ok());
+    conn.disconnect();
+  }
+
   // --- Optional live backpressure evidence.
   //
   // Loopback cannot produce it: the sender's buffer is released as the packet

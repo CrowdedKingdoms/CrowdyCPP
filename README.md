@@ -60,7 +60,7 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
-**v0.36.0: outbound message bundling.** `replication::Connection` packs the
+**v0.37.0: outbound message bundling.** `replication::Connection` packs the
 messages a client sends within a short window into one `MESSAGE_BUNDLE`
 datagram — the same framing the server has always used on the downlink, now
 accepted on the uplink by Buddy v0.27.0+. On by default (`Config::bundleSends`),
@@ -69,8 +69,15 @@ and at the end of every `WorldSession::tick()`. A lone message is sent
 unwrapped, so a client sending one message per window puts the same bytes on
 the wire as before. `Stats::datagramsSent` may now be less than
 `messagesSent`; `Stats::bundlesSent` counts the wrappers. `bundleSends = false`
-is the 0.35 behaviour. See [MIGRATION.md](MIGRATION.md). Parity pin unchanged
-(CrowdyJS 16.2.0).
+is the 0.36 behaviour. See [MIGRATION.md](MIGRATION.md). Parity CrowdyJS 17.1.0.
+
+**v0.36.0: schema synced to ck-api v2.0 (Crowdy Studio GitHub is optional; a
+bound repository is the working tree), parity CrowdyJS 17.0.1.** `CrowdyStudioProject`
+carries `source` / `githubOwner` / `githubRepo` / `githubBranch` / `githubSha`;
+`playerComputeDeploy` takes `projectId` (+ `commitSha`) and no longer accepts
+`sourceFilesJson`; `crowdyStudioGitHubLayout` / `Refresh` / `DeleteFile` are new
+and, like the whole GitHub card, browser exclusions here (no native host mounts
+it). `crowdyStudioGitHubSetAutosave` is gone. Schema sync and codegen only.
 
 **v0.35.0: micro-USD wallet fields, parity CrowdyJS 16.2.0.** Org and player
 wallets carry `balanceMicrousd` / `holdsMicrousd`, transactions `amountMicrousd`

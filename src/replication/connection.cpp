@@ -240,8 +240,14 @@ Status Connection::flushBundleLocked() {
     }
     bundle_.reset();
   } else if (st.code != Errc::WouldBlock) {
-    // A genuine fault: the messages are lost (sendsFailed moved); a new bundle
-    // starts clean rather than re-failing the same bytes forever.
+    // A genuine fault: the messages are lost (sendsFailed moved once for the
+    // datagram; messagesDropped once per member, since messagesSent already
+    // counted them when they joined). A new bundle starts clean rather than
+    // re-failing the same bytes forever.
+    {
+      std::lock_guard lock(statsMutex_);
+      stats_.messagesDropped += bundle_.count();
+    }
     bundle_.reset();
   }
   // WouldBlock: keep the bundle for the next flush attempt.

@@ -232,6 +232,12 @@ class Connection {
     /// Sends that failed for a genuine socket fault. Unlike sendsDeferred,
     /// this one rising is a problem.
     std::uint64_t sendsFailed = 0;
+    /// Messages that had joined a pending bundle (so messagesSent already
+    /// counted them) when the bundle's flush failed for a genuine fault. With
+    /// bundling off this stays 0: an unbundled send reports its fault to the
+    /// caller instead. sendsFailed moves once per datagram; this moves once per
+    /// message lost with it.
+    std::uint64_t messagesDropped = 0;
     std::uint64_t hmacFailures = 0;
     std::uint64_t malformed = 0;
     std::uint64_t ringDropped = 0;

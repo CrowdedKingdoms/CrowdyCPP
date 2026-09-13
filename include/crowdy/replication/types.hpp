@@ -102,7 +102,7 @@ struct Config {
   ///
   /// Requires a replication server that accepts client bundles (Buddy
   /// v0.27.0+). Set false to send every message as its own datagram, which is
-  /// what the SDK did before 0.36.0.
+  /// what the SDK did before 0.37.0.
   bool bundleSends = true;
 
   /// How long a pending bundle may wait for more messages before it is

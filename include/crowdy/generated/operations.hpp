@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 7e246b5a4d73c9cbdac994dd5e69606c185df7bd56c8252ebaa66a3e04f205e9
-// operations sha256: d38c35d8b6b8016c5170285bc2d4d79a5d25be87ddffb10ac4ea12dcb5a242a6
+// schema.gql sha256: f291f3104d1922c81473b2610816a411e024c69df53dfb9880e978f688c38cdc
+// operations sha256: 417b697d72e2f1864dd009ed6a7880b42f498ba77a2221531ddc7473bc6a4a68
 
 #pragma once
 
@@ -1652,6 +1652,8 @@ inline constexpr std::string_view kWalletBalanceDocument = R"gql(query WalletBal
   walletBalance(orgId: $orgId) {
     walletId
     orgId
+    balanceMicrousd
+    holdsMicrousd
     balanceCents
     currency
     createdAt
@@ -1662,6 +1664,8 @@ inline constexpr std::string_view kWalletBalanceIsolatedDocument = R"gql(query W
   walletBalance(orgId: $orgId) {
     walletId
     orgId
+    balanceMicrousd
+    holdsMicrousd
     balanceCents
     currency
     createdAt
@@ -1676,6 +1680,8 @@ inline constexpr std::string_view kWalletTransactionsDocument = R"gql(query Wall
     transactionId
     walletId
     orgId
+    amountMicrousd
+    balanceAfterMicrousd
     amountCents
     balanceAfter
     transactionType
@@ -1698,6 +1704,8 @@ query WalletTransactionsConnection(
         transactionId
         walletId
         orgId
+        amountMicrousd
+        balanceAfterMicrousd
         amountCents
         balanceAfter
         transactionType
@@ -1721,6 +1729,8 @@ inline constexpr std::string_view kWalletTransactionsIsolatedDocument = R"gql(qu
     transactionId
     walletId
     orgId
+    amountMicrousd
+    balanceAfterMicrousd
     amountCents
     balanceAfter
     transactionType
@@ -1739,6 +1749,8 @@ inline constexpr std::string_view kWalletTransactionsConnectionIsolatedDocument 
         transactionId
         walletId
         orgId
+        amountMicrousd
+        balanceAfterMicrousd
         amountCents
         balanceAfter
         transactionType
@@ -10548,6 +10560,8 @@ namespace playerWallet {
 inline constexpr std::string_view kPlayerWalletDocument = R"gql(fragment PlayerWalletFields on PlayerWallet {
   walletId
   userId
+  balanceMicrousd
+  holdsMicrousd
   balanceCents
   currency
   createdAt
@@ -10557,6 +10571,8 @@ fragment PlayerWalletTransactionFields on PlayerWalletTransaction {
   transactionId
   walletId
   userId
+  amountMicrousd
+  balanceAfterMicrousd
   amountCents
   balanceAfter
   transactionType
@@ -10738,12 +10754,17 @@ query AppPlayerUsage($appId: BigInt!, $hours: Int) {
     computeUnits
     automationUnits
     compileCount
+    chargedMicrousd
     chargedCents
   }
 }
 
 query AppPlayerMarkupAccrued($appId: BigInt!) {
   appPlayerMarkupAccrued(appId: $appId)
+}
+
+query AppPlayerMarkupAccruedMicrousd($appId: BigInt!) {
+  appPlayerMarkupAccruedMicrousd(appId: $appId)
 })gql";
 inline constexpr std::string_view kPlayerWalletBalanceIsolatedDocument = R"gql(query PlayerWalletBalance {
   playerWalletBalance {
@@ -10754,6 +10775,8 @@ inline constexpr std::string_view kPlayerWalletBalanceIsolatedDocument = R"gql(q
 fragment PlayerWalletFields on PlayerWallet {
   walletId
   userId
+  balanceMicrousd
+  holdsMicrousd
   balanceCents
   currency
   createdAt
@@ -10769,6 +10792,8 @@ fragment PlayerWalletTransactionFields on PlayerWalletTransaction {
   transactionId
   walletId
   userId
+  amountMicrousd
+  balanceAfterMicrousd
   amountCents
   balanceAfter
   transactionType
@@ -10968,6 +10993,7 @@ inline constexpr std::string_view kAppPlayerUsageIsolatedDocument = R"gql(query 
     computeUnits
     automationUnits
     compileCount
+    chargedMicrousd
     chargedCents
   }
 })gql";
@@ -10976,6 +11002,10 @@ inline constexpr std::string_view kAppPlayerMarkupAccruedIsolatedDocument = R"gq
   appPlayerMarkupAccrued(appId: $appId)
 })gql";
 inline constexpr std::string_view kAppPlayerMarkupAccruedOperationName = "AppPlayerMarkupAccrued";
+inline constexpr std::string_view kAppPlayerMarkupAccruedMicrousdIsolatedDocument = R"gql(query AppPlayerMarkupAccruedMicrousd($appId: BigInt!) {
+  appPlayerMarkupAccruedMicrousd(appId: $appId)
+})gql";
+inline constexpr std::string_view kAppPlayerMarkupAccruedMicrousdOperationName = "AppPlayerMarkupAccruedMicrousd";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "PlayerWalletBalance") return kPlayerWalletBalanceIsolatedDocument;
@@ -10994,6 +11024,7 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "SetPlayerRateMarkup") return kSetPlayerRateMarkupIsolatedDocument;
   if (operationName == "AppPlayerUsage") return kAppPlayerUsageIsolatedDocument;
   if (operationName == "AppPlayerMarkupAccrued") return kAppPlayerMarkupAccruedIsolatedDocument;
+  if (operationName == "AppPlayerMarkupAccruedMicrousd") return kAppPlayerMarkupAccruedMicrousdIsolatedDocument;
   return {};
 }
 

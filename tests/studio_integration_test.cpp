@@ -446,7 +446,7 @@ class FakeWallet final : public ICrowdyStudioWalletProvider {
   CrowdyStudioWalletSnapshot balance() override {
     ++reads;
     if (fail) throw std::runtime_error("wallet unavailable");
-    return {"1234", "USD"};
+    return {"12340000", "0", "1234", "USD"};
   }
 
   int reads = 0;
@@ -727,7 +727,7 @@ void testOwnedWalletProviderIsNonfatal() {
       CrowdyStudioPolledSurface::Usage, true);
   CHECK(integration->studio().getState().wallet ==
         std::optional<CrowdyStudioWalletSnapshot>(
-            CrowdyStudioWalletSnapshot{"1234", "USD"}));
+            CrowdyStudioWalletSnapshot{"12340000", "0", "1234", "USD"}));
   CHECK_EQ(walletWeak.lock()->reads, 1);
 
   walletWeak.lock()->fail = true;

@@ -102,6 +102,9 @@ void run() {
   cfg.token = TokenInfo{kToken, 42, 0};
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
+  // This flow reads each send off the wire as it happens; runTickFlushesBundle
+  // covers the default (bundled) send path at the session level.
+  cfg.bundleSends = false;
   auto conn = std::make_shared<Connection>(
       cfg, std::make_shared<StubProvider>(server.port),
       core::defaultCrypto());
@@ -427,6 +430,7 @@ void runHeartbeatNotSent() {
   cfg.token = TokenInfo{kToken, 42, 0};
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;  // the fault must surface on the send itself
   auto conn = std::make_shared<Connection>(
       cfg, std::make_shared<StubProvider>(unboundLoopbackPort()), core::defaultCrypto());
   CHECK(conn->connect().ok());
@@ -504,9 +508,71 @@ void runHeartbeatNotSent() {
 
 }  // namespace
 
+// --- With bundling on (the default), a tick is the frame boundary: the sends
+// a frame made leave together when tick() ends, in one datagram, without
+// waiting for the bundle window or a pump().
+void runTickFlushesBundle() {
+  FakeServer server;
+  server.start();
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleWindowMs = 1000;  // long, so only tick() can be what flushes
+  CHECK(cfg.bundleSends);
+  auto conn = std::make_shared<Connection>(
+      cfg, std::make_shared<StubProvider>(server.port), core::defaultCrypto());
+  CHECK(conn->connect().ok());
+
+  WorldSessionConfig sess;
+  sess.appId = "7";
+  sess.self.sendHz = 1000;
+  sess.self.heartbeatIntervalMs = 0;
+  sess.hostHeartbeatIntervalMs = 0;
+  WorldSession session(conn, nullptr, sess);
+
+  const std::uint8_t pose[] = {9, 9, 9, 9};
+  CHECK(session.join({0, 0, 0}, Bytes(pose, sizeof(pose))).ok());
+  // The game also sends something of its own this frame.
+  const std::uint8_t hi[] = {'h', 'i'};
+  CHECK(conn->sendChannelMessage(55, session.actorUuid(), Bytes(hi, sizeof(hi))).ok());
+  // Nothing has left yet.
+  {
+    std::uint8_t buf[2048];
+    CHECK(::recv(server.fd, buf, sizeof(buf), MSG_DONTWAIT) < 0);
+    CHECK_EQ(conn->stats().datagramsSent, 0u);
+    CHECK_EQ(conn->stats().messagesSent, 2u);
+  }
+  session.tick();
+  auto got = server.recvOne();
+  CHECK_EQ(got[0], 2u);  // one MESSAGE_BUNDLE ...
+  // ... carrying the join, the channel publish, and whatever presence send the
+  // tick itself made (a keyframe right after join), every member verifiable.
+  int members = 0, actorUpdates = 0, channelPublishes = 0;
+  CHECK(wire::forEachMessage(Bytes(got.data(), got.size()), [&](Bytes m) {
+          ++members;
+          if (m[0] == 128) {
+            ++actorUpdates;
+            CHECK(wire::verifyLongSpatial(core::opensslCrypto(), m, token64()).ok());
+          } else if (m[0] == 17) {
+            ++channelPublishes;
+          }
+        }).ok());
+  CHECK(members >= 2);
+  CHECK(actorUpdates >= 1);
+  CHECK_EQ(channelPublishes, 1);
+  CHECK_EQ(static_cast<std::uint64_t>(members), conn->stats().messagesSent);
+  CHECK_EQ(conn->stats().datagramsSent, 1u);
+  CHECK_EQ(conn->stats().bundlesSent, 1u);
+  session.dispose();
+  conn->disconnect();
+}
+
 int main() {
   run();
   runHeartbeatNotSent();
+  runTickFlushesBundle();
   std::puts("session_test OK");
   return 0;
 }

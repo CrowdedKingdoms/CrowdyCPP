@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.35.0 passes the strict portable-parity gate against CrowdyJS
-**16.2.0**. The gate pins CrowdyJS commit
-`c5040bce10f122df3e903019e636898296f81652` (`crowdyjsParityTarget` in
+CrowdyCPP 0.36.0 passes the strict portable-parity gate against CrowdyJS
+**17.0.1**. The gate pins CrowdyJS commit
+`423096982d20555ec6da6d18a955b388ae2525cf` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -21,8 +21,8 @@ tier's commit. `check-parity-target-tier.mjs` refuses that now.
 
 The rule is **reachability from this tier's branch**, which is the same thing as
 "this commit has been promoted to me". Because promotions merge forward, one
-commit satisfies every tier once it has travelled the ladder: `0f493dd…` is
-`dev/v15.7.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
+commit satisfies every tier once it has travelled the ladder: `243cfc3…` is
+`dev/v15.5.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
 (promote CrowdyJS to a tier BEFORE promoting this pin there). So this line does
 not need to differ per tier and the value promotes forward like any other.
 
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.35.0 | CrowdyJS 16.2.0 | Required public API generation |
+| Surface | CrowdyCPP 0.36.0 | CrowdyJS 17.0.1 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |

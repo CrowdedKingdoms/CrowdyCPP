@@ -15,6 +15,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {

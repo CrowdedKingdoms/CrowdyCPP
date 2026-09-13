@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: f291f3104d1922c81473b2610816a411e024c69df53dfb9880e978f688c38cdc
-// operations sha256: 417b697d72e2f1864dd009ed6a7880b42f498ba77a2221531ddc7473bc6a4a68
+// schema.gql sha256: 8af0b37413ccd19f75dfdc6a1688970f1cd9cad5d136e9b5a7d563936608eac4
+// operations sha256: 331d7386d4472958c60e238354b662e67d46abaf0af5429a123549c38bbd0ffb
 
 #pragma once
 
@@ -722,6 +722,25 @@ inline std::optional<CrowdyStudioFileProvenance> crowdyStudioFileProvenanceFromS
   return std::nullopt;
 }
 
+enum class CrowdyStudioGitHubBindInitial {
+  PUSH_PROJECT,
+  TAKE_REPOSITORY,
+};
+
+inline constexpr std::string_view toString(CrowdyStudioGitHubBindInitial v) {
+  switch (v) {
+    case CrowdyStudioGitHubBindInitial::PUSH_PROJECT: return "PUSH_PROJECT";
+    case CrowdyStudioGitHubBindInitial::TAKE_REPOSITORY: return "TAKE_REPOSITORY";
+  }
+  return "";
+}
+
+inline std::optional<CrowdyStudioGitHubBindInitial> crowdyStudioGitHubBindInitialFromString(std::string_view s) {
+  if (s == "PUSH_PROJECT") return CrowdyStudioGitHubBindInitial::PUSH_PROJECT;
+  if (s == "TAKE_REPOSITORY") return CrowdyStudioGitHubBindInitial::TAKE_REPOSITORY;
+  return std::nullopt;
+}
+
 enum class CrowdyStudioImportSource {
   LIBRARY,
   COMMON,
@@ -763,6 +782,25 @@ inline std::optional<CrowdyStudioPairingPreference> crowdyStudioPairingPreferenc
   if (s == "INDEPENDENT") return CrowdyStudioPairingPreference::INDEPENDENT;
   if (s == "SERVER_ONLY") return CrowdyStudioPairingPreference::SERVER_ONLY;
   if (s == "CLIENT_ONLY") return CrowdyStudioPairingPreference::CLIENT_ONLY;
+  return std::nullopt;
+}
+
+enum class CrowdyStudioProjectSource {
+  STUDIO,
+  GITHUB,
+};
+
+inline constexpr std::string_view toString(CrowdyStudioProjectSource v) {
+  switch (v) {
+    case CrowdyStudioProjectSource::STUDIO: return "STUDIO";
+    case CrowdyStudioProjectSource::GITHUB: return "GITHUB";
+  }
+  return "";
+}
+
+inline std::optional<CrowdyStudioProjectSource> crowdyStudioProjectSourceFromString(std::string_view s) {
+  if (s == "STUDIO") return CrowdyStudioProjectSource::STUDIO;
+  if (s == "GITHUB") return CrowdyStudioProjectSource::GITHUB;
   return std::nullopt;
 }
 

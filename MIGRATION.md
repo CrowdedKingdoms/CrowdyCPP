@@ -1,5 +1,51 @@
 # CrowdyCPP migration notes
 
+## 0.37.0 outbound sends are bundled by default
+
+`replication::Connection` now packs the messages you send within a short window
+into one `MESSAGE_BUNDLE` datagram (`[2]{[u16 LE len][signed message]}...`), the
+framing the server has always used for its notifications. Every member is still
+a complete, individually HMAC-signed message; only the datagram boundary moved.
+
+### What changes for you
+
+- **Nothing in the send API.** `sendActorUpdate` and friends return the sequence
+  number exactly as before. A send is now *accepted* rather than *transmitted*
+  when it returns: the datagram leaves when `Config::bundleWindowMs` (default
+  1 ms) has passed since the bundle opened, when the next message would not fit
+  in 1232 bytes, on `Connection::flushSends()`, at the end of
+  `WorldSession::tick()`, before any `*AndWait` starts waiting, and on
+  `disconnect()` / reassignment. A lone message is sent unwrapped, so a client
+  that sends one message per window puts the same bytes on the wire it always
+  did.
+- **Manual pump.** With `Config::manualPump` nothing flushes between your
+  `pump()` calls except capacity, `flushSends()` and `WorldSession::tick()`.
+  Call `flushSends()` at the end of your frame if you pump less often than you
+  want datagrams out.
+- **Stats.** `Stats::datagramsSent` can now be less than `Stats::messagesSent`;
+  `Stats::bundlesSent` counts datagrams that were wrappers (two or more
+  members). `messagesSent` advances when a message joins the bundle; the
+  datagram/byte counters when the datagram is handed to the kernel. A
+  `WouldBlock` on flush keeps the bundle pending for the next attempt and moves
+  `sendsDeferred`; a genuine fault drops it and moves `sendsFailed` (once, for
+  the datagram) and `Stats::messagesDropped` (once per member that was in it,
+  since `messagesSent` had already counted them).
+- **Server requirement.** The replication server must unpack client bundles
+  (Buddy v0.27.0+). Against an older server, set `Config::bundleSends = false`;
+  otherwise any two messages sent within a window are dropped together.
+- **Opt out.** `Config::bundleSends = false` is exactly the 0.36 behaviour: one
+  datagram per message, transmitted synchronously from the calling thread.
+
+### Also new
+
+- `wire::BundleWriter`, `wire::kBundleHeaderSize`, `wire::kBundleLengthPrefix`,
+  `wire::kMaxBundleMembers`, `wire::kMaxBundleMemberSize` (header-only, the
+  writer half of `wire::forEachMessage`).
+- `UdpSocket::wake()` / `canWake()`: a blocked receive on the net thread can be
+  interrupted so a bundle opened mid-wait still leaves within its window.
+  (POSIX only; on Windows the net thread bounds its receive wait to one window
+  instead.)
+
 ## 0.34.0 the Crowdy Agent orchestrator is retired
 
 The Agentic Crowdy Studio agent no longer runs on the server. CrowdyJS 16 docks

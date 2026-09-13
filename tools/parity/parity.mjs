@@ -187,17 +187,20 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native replication Connection exposes transport state directly',
   ),
-  // CrowdyJS 15.11.0 Studio GitHub repo loop. The settings-pane card and
-  // in-game embed live in the browser Studio; native CrowdyStudioController
-  // does not mount that card. Wrapping these on a game-client SDK would be
-  // methods no native player session calls.
+  // CrowdyJS 17 Studio GitHub working tree (ck-api v2.0.0). The card and the
+  // commit-on-save persistence live in the browser Studio (Monaco, the
+  // crowdy-dsh worker); native CrowdyStudioController does not mount that
+  // card. SetAutosave / Pull / Push left with 17.0.0; Layout, Refresh and
+  // DeleteFile arrived. Wrapping these on a game-client SDK would be methods
+  // no native player session calls.
   ...classifyNames(
     'Mutation',
     [
       'crowdyStudioGitHubBind',
       'crowdyStudioGitHubConnectUrl',
+      'crowdyStudioGitHubDeleteFile',
       'crowdyStudioGitHubPutFile',
-      'crowdyStudioGitHubSetAutosave',
+      'crowdyStudioGitHubRefresh',
       'crowdyStudioGitHubUnbind',
     ],
     CATEGORY.BROWSER,
@@ -207,6 +210,7 @@ const ROOT_CLASSIFICATIONS = {
     'Query',
     [
       'crowdyStudioGitHubFile',
+      'crowdyStudioGitHubLayout',
       'crowdyStudioGitHubRepos',
       'crowdyStudioGitHubStatus',
       'crowdyStudioGitHubTree',
@@ -232,19 +236,11 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'Studio GitHub settings-pane card; native host does not mount that card',
   ),
-  'CrowdyStudioController.pullFromGitHub': classification(
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane card; native host does not mount that card',
-  ),
-  'CrowdyStudioController.pushToGitHub': classification(
+  'CrowdyStudioController.refreshFromGitHub': classification(
     CATEGORY.BROWSER,
     'Studio GitHub settings-pane card; native host does not mount that card',
   ),
   'CrowdyStudioController.refreshGitHubStatus': classification(
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane card; native host does not mount that card',
-  ),
-  'CrowdyStudioController.setGitHubAutosave': classification(
     CATEGORY.BROWSER,
     'Studio GitHub settings-pane card; native host does not mount that card',
   ),
@@ -738,6 +734,7 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'DshDiagnostic',
       'DshFrameMessage',
       'DshPageEventMap',
+      'DshProjectSource',
       'DshProjectSummary',
       'DshRuntimeStatus',
       'DshScreenshotResult',

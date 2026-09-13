@@ -60,6 +60,11 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.35.0: micro-USD wallet fields, parity CrowdyJS 16.2.0.** Org and player
+wallets carry `balanceMicrousd` / `holdsMicrousd`, transactions `amountMicrousd`
+/ `balanceAfterMicrousd` (ck-api v1.100.x lossless billing ledger; the cents
+fields stay, deprecated). Schema sync and codegen only.
+
 **v0.34.0: the Crowdy Agent orchestrator is gone, parity CrowdyJS 16.0.0.**
 The Studio agent is now the in-browser DeepSeek Harness that CrowdyJS docks
 beside the web editor and that spends tokens through the metered REST

@@ -89,9 +89,8 @@ int main() {
   draft.scope = {cfg.appId, gridId};
   draft.target = studio::CrowdyStudioTarget::Server;
   draft.moduleName = module;
-  draft.files = project.files;
-  draft.sdkVersion = project.sdkVersion;
-  draft.abiVersion = project.abiVersion;
+  draft.projectId = project.projectId;
+  if (project.github && project.github->sha) draft.commitSha = project.github->sha;
   draft.deployment = studio::CrowdyStudioDeployment::Draft;
   const auto submitted = runtime.deploy(draft);
   E2E_CHECK(!submitted.versionId.empty());

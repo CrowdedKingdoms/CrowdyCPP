@@ -26,13 +26,18 @@ struct CrowdyStudioDeploymentPlan {
   std::optional<std::string> projectContentHash;
 };
 
+/// What a deploy names. The server resolves the source from the project
+/// itself — its saved files at the current revision, or the rust at
+/// `commitSha` for a project bound to GitHub — so no file bodies travel with a
+/// deploy (ck-api v2.0.0; CrowdyJS 17 does the same).
 struct CrowdyStudioDeployTargetInput {
   CrowdyStudioProjectScope scope;
   CrowdyStudioTarget target = CrowdyStudioTarget::Server;
   std::string moduleName;
-  std::vector<CrowdyStudioProjectFile> files;
-  std::string sdkVersion;
-  int abiVersion = 0;
+  std::string projectId;
+  /// The bound project's mirror commit (`project.github->sha`); empty for a
+  /// Studio project.
+  std::optional<std::string> commitSha;
   CrowdyStudioDeployment deployment = CrowdyStudioDeployment::Draft;
 };
 
@@ -244,23 +249,19 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
 
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
-    graphql::JObject sources;
-    for (const auto& file : input.files) {
-      if (file.target != input.target) {
-        throw std::invalid_argument(
-            "Crowdy Studio deploy input crossed target boundaries");
-      }
-      sources[normalizeCrowdyStudioPath(file.path)] = file.content;
+    if (input.projectId.empty()) {
+      throw std::invalid_argument(
+          "Crowdy Studio deploy input names no project");
     }
     graphql::JVal variables;
     variables["appId"] = input.scope.appId;
     variables["gridId"] = input.scope.gridId;
+    variables["projectId"] = input.projectId;
     variables["name"] = input.moduleName;
     variables["target"] = toString(input.target);
-    variables["sourceFilesJson"] =
-        graphql::JVal(std::move(sources)).dump();
-    variables["sdkVersion"] = input.sdkVersion;
-    variables["abiVersion"] = input.abiVersion;
+    if (input.commitSha && !input.commitSha->empty()) {
+      variables["commitSha"] = *input.commitSha;
+    }
     if (input.target == CrowdyStudioTarget::Server) {
       variables["tickHz"] = 1;
     }

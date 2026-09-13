@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: f291f3104d1922c81473b2610816a411e024c69df53dfb9880e978f688c38cdc
-// operations sha256: 417b697d72e2f1864dd009ed6a7880b42f498ba77a2221531ddc7473bc6a4a68
+// schema.gql sha256: 8af0b37413ccd19f75dfdc6a1688970f1cd9cad5d136e9b5a7d563936608eac4
+// operations sha256: 331d7386d4472958c60e238354b662e67d46abaf0af5429a123549c38bbd0ffb
 
 #pragma once
 
@@ -3741,6 +3741,11 @@ inline constexpr std::string_view kCrowdyStudioDocument = R"gql(fragment CrowdyS
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -3970,6 +3975,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4009,6 +4019,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4048,6 +4063,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4087,6 +4107,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4126,6 +4151,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4165,6 +4195,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4306,6 +4341,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -4371,6 +4411,11 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
   archivedAt
   fileCount
   totalBytes
+  source
+  githubOwner
+  githubRepo
+  githubBranch
+  githubSha
   createdAt
   updatedAt
   files {
@@ -9885,6 +9930,9 @@ fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
   compileStatus
   compileLog
   compiledSizeBytes
+  projectId
+  sourceRevision
+  githubCommitSha
   createdAt
 }
 
@@ -10099,6 +10147,9 @@ fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
   compileStatus
   compileLog
   compiledSizeBytes
+  projectId
+  sourceRevision
+  githubCommitSha
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerComputeDeployOperationName = "PlayerComputeDeploy";
@@ -10180,6 +10231,9 @@ fragment PlayerWasmModuleVersionFields on PlayerWasmModuleVersion {
   compileStatus
   compileLog
   compiledSizeBytes
+  projectId
+  sourceRevision
+  githubCommitSha
   createdAt
 })gql";
 inline constexpr std::string_view kPlayerComputeVersionsOperationName = "PlayerComputeVersions";

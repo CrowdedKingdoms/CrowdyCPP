@@ -44,7 +44,7 @@ void testGridOwnershipAndPlayerComputeUseTheOneOrigin() {
   input["gridId"] = "2";
   input["name"] = "weather";
   input["target"] = "SERVER";
-  input["sourceFilesJson"] = "{}";
+  input["projectId"] = "11111111-1111-4111-8111-111111111111";
   transport->response = {200, R"({"data":{"playerComputeDeploy":{"versionId":"v-1"}}})"};
   auto version = client.playerCompute().deploy(input);
   CHECK(version["versionId"].asString() == "v-1");

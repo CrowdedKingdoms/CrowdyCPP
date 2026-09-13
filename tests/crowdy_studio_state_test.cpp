@@ -100,9 +100,9 @@ void testSharedDiagnosticFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-diagnostics/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "16.0.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "16.2.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "c257f7ade605731ba15610258d13319cdac194e5");
+        "fe92967833b3673850d419664f6666f22f36dec9");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -323,7 +323,7 @@ class FakeWallet final : public ICrowdyStudioWalletProvider {
   CrowdyStudioWalletSnapshot balance() override {
     ++calls;
     if (fail) throw std::runtime_error("wallet unavailable");
-    return {"250", "USD"};
+    return {"2500000", "0", "250", "USD"};
   }
 };
 
@@ -408,7 +408,7 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   controller.setSurfaceVisible(CrowdyStudioPolledSurface::Usage, true);
   CHECK_EQ(wallet.calls, 1);
   const std::optional<CrowdyStudioWalletSnapshot> expectedWallet =
-      CrowdyStudioWalletSnapshot{"250", "USD"};
+      CrowdyStudioWalletSnapshot{"2500000", "0", "250", "USD"};
   CHECK(controller.getState().wallet == expectedWallet);
   CHECK(controller.getState().usage.has_value());
 
@@ -450,8 +450,8 @@ void testPlayerWalletAdapter() {
 
   transport->responses.push_back(
       {200,
-       R"({"data":{"playerWalletBalance":{"balanceCents":"250","currency":"USD"}}})"});
-  const CrowdyStudioWalletSnapshot expected{"250", "USD"};
+       R"({"data":{"playerWalletBalance":{"balanceMicrousd":"2500000","holdsMicrousd":"0","balanceCents":"250","currency":"USD"}}})"});
+  const CrowdyStudioWalletSnapshot expected{"2500000", "0", "250", "USD"};
   CHECK(provider.balance() == expected);
 
   transport->responses.push_back(

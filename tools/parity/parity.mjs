@@ -94,6 +94,30 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'operator-only billing reads; not a game-client surface',
   ),
+  // The lossless billing ledger's read-back surface (ck-api v1.100.x, picked up
+  // when the pin moved to CrowdyJS 16.1.0). `billingCharges` / `billingWriteOffs`
+  // require `view_billing` on the org -- a studio dashboard read for the org's
+  // admins, which no player's app-scoped token holds; the `cpBilling*` reads and
+  // `cpBillingCreditOverbill` are `is_operator`. Same reasoning as the rest of
+  // the billing surface above: deliberately unwrapped in a game-client SDK.
+  ...classifyNames(
+    'Query',
+    ['billingCharges', 'billingWriteOffs'],
+    CATEGORY.BROWSER,
+    'org-admin ledger reads (view_billing) for the studio dashboard; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Query',
+    ['cpBillingInvariantRuns', 'cpBillingReconciliations', 'cpBillingWriteOffs'],
+    CATEGORY.BROWSER,
+    'operator-only ledger reads; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Mutation',
+    ['cpBillingCreditOverbill'],
+    CATEGORY.BROWSER,
+    'operator-only ledger control (credit an over-billed charge); not a game-client surface',
+  ),
   // `meteredRateCard` is the one billing read that is PUBLIC -- it exists so a
   // visitor deciding whether to sign up can see prices without a login, which
   // API ToS 4.1 obliges us to publish. It is still not a game-client surface: a

@@ -60,6 +60,14 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.36.0: schema synced to ck-api v2.0 (Crowdy Studio GitHub is optional; a
+bound repository is the working tree), parity CrowdyJS 17.0.1.** `CrowdyStudioProject`
+carries `source` / `githubOwner` / `githubRepo` / `githubBranch` / `githubSha`;
+`playerComputeDeploy` takes `projectId` (+ `commitSha`) and no longer accepts
+`sourceFilesJson`; `crowdyStudioGitHubLayout` / `Refresh` / `DeleteFile` are new
+and, like the whole GitHub card, browser exclusions here (no native host mounts
+it). `crowdyStudioGitHubSetAutosave` is gone. Schema sync and codegen only.
+
 **v0.35.0: micro-USD wallet fields, parity CrowdyJS 16.2.0.** Org and player
 wallets carry `balanceMicrousd` / `holdsMicrousd`, transactions `amountMicrousd`
 / `balanceAfterMicrousd` (ck-api v1.100.x lossless billing ledger; the cents

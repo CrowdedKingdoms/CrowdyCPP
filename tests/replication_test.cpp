@@ -7,10 +7,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "crowdy/replication/connection.hpp"
@@ -115,6 +117,9 @@ void run() {
   cfg.token = TokenInfo{kToken, 42, 0};
   cfg.manualPump = true;
   cfg.sessionReadyWaitMs = 0;
+  // This flow reads each send straight off the wire, so it exercises the
+  // one-message-per-datagram opt-out; runBundling() covers the default.
+  cfg.bundleSends = false;
 
   {
     auto attemptProvider = std::make_shared<StubProvider>(server.port);
@@ -450,6 +455,7 @@ void runSendPath() {
     cfg.token = TokenInfo{kToken, 42, 0};
     cfg.manualPump = true;
     cfg.sessionReadyWaitMs = 0;
+    cfg.bundleSends = false;  // the fault must surface on the send itself
     Connection conn(cfg, provider, core::opensslCrypto());
     CHECK(conn.connect().ok());
 
@@ -602,8 +608,294 @@ void runRefreshKeepsServer(bool authorize, int expectedAssignCalls) {
   CHECK_EQ(provider->assignCalls, expectedAssignCalls);
 }
 
+// ---------------------------------------------------------------------------
+// Outbound bundling (Config::bundleSends, the default).
+// ---------------------------------------------------------------------------
+
+struct BundleClock final : core::IClock {
+  std::int64_t epoch = 1'700'000'000'000LL;
+  std::int64_t mono = 10'000;
+  std::int64_t epochMillis() const override { return epoch; }
+  std::int64_t monotonicMillis() const override { return mono; }
+};
+
+// Count members of whatever arrived (a bundle or a lone message) and verify
+// every long-spatial member against the client's token.
+int countVerifiedMembers(const std::vector<std::uint8_t>& datagram, std::uint8_t* types,
+                         int maxTypes) {
+  int count = 0;
+  auto st = wire::forEachMessage(Bytes(datagram.data(), datagram.size()), [&](Bytes m) {
+    if (count < maxTypes) types[count] = m[0];
+    ++count;
+    if (wire::isLongSpatialLayout(m[0])) {
+      CHECK(wire::verifyLongSpatial(core::opensslCrypto(), m, token64()).ok());
+    }
+  });
+  CHECK(st.ok());
+  return count;
+}
+
+void runBundling() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  BundleClock clock;
+
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  CHECK(cfg.bundleSends);        // on by default
+  CHECK_EQ(cfg.bundleWindowMs, 1);
+  cfg.bundleWindowMs = 5;
+
+  Connection conn(cfg, provider, core::opensslCrypto(), clock);
+  CHECK(conn.connect().ok());
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('a');
+  send.payload = Bytes(pose, sizeof(pose));
+
+  // --- Two sends inside the window: nothing on the wire until the window
+  // passes, then ONE type-2 datagram carrying both, each member verifiable.
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+  {
+    auto s = conn.stats();
+    CHECK_EQ(s.messagesSent, 2u);
+    CHECK_EQ(s.datagramsSent, 0u);
+    CHECK_EQ(s.messagesSentByType[128], 1u);
+    CHECK_EQ(s.messagesSentByType[26], 1u);
+  }
+  conn.pump(0);  // window not yet passed: still pending
+  CHECK_EQ(conn.stats().datagramsSent, 0u);
+  clock.mono += 5;
+  conn.pump(0);
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 2u);
+    std::uint8_t types[4] = {};
+    CHECK_EQ(countVerifiedMembers(got, types, 4), 2);
+    CHECK_EQ(types[0], 128u);
+    CHECK_EQ(types[1], 26u);
+    auto s = conn.stats();
+    CHECK_EQ(s.datagramsSent, 1u);
+    CHECK_EQ(s.bundlesSent, 1u);
+    CHECK_EQ(s.bytesSent, got.size());
+  }
+
+  // --- A lone message is flushed unwrapped after the window: same bytes as
+  // an unbundled send, no wrapper.
+  CHECK(conn.sendActorUpdate(send).ok());
+  clock.mono += 5;
+  conn.pump(0);
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 128u);
+    CHECK(wire::verifyLongSpatial(core::opensslCrypto(), Bytes(got.data(), got.size()),
+                                  token64())
+              .ok());
+    CHECK_EQ(conn.stats().datagramsSent, 2u);
+    CHECK_EQ(conn.stats().bundlesSent, 1u);  // unchanged: not a wrapper
+  }
+
+  // --- The sending thread itself flushes an expired bundle before appending:
+  // no pump needed for the old one to leave once the window has passed.
+  CHECK(conn.sendActorUpdate(send).ok());
+  clock.mono += 5;
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());  // flushes the actor update first
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 128u);
+    CHECK_EQ(conn.stats().datagramsSent, 3u);
+  }
+  // ... and the heartbeat is now the pending bundle; flushSends() forces it.
+  CHECK(conn.flushSends().ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+  CHECK_EQ(conn.stats().datagramsSent, 4u);
+  CHECK(conn.flushSends().ok());  // nothing pending: a no-op
+  CHECK_EQ(conn.stats().datagramsSent, 4u);
+
+  // --- Capacity: messages that would push the frame past 1232 bytes flush the
+  // pending bundle first and open a new one.
+  std::uint8_t big[600] = {};
+  SpatialSend large = send;
+  large.payload = Bytes(big, sizeof(big));
+  const std::size_t largeSize = wire::longSpatialSize(sizeof(big));  // 668 + 41 = 709
+  CHECK(largeSize > 600u);
+  CHECK(conn.sendActorUpdate(large).ok());
+  CHECK(conn.sendActorUpdate(large).ok());  // 2 * (2 + 709) + 1 > 1232: first goes out alone
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 128u);
+    CHECK_EQ(got.size(), largeSize);
+    CHECK_EQ(conn.stats().datagramsSent, 5u);
+  }
+  CHECK(conn.flushSends().ok());
+  CHECK_EQ(server.recvOne().size(), largeSize);
+
+  // --- Many small members: a signed heartbeat is 109 bytes, so eleven fit
+  // (1 + 11 * 111 = 1222) and the twelfth opens the next datagram. 33 sends
+  // therefore put two eleven-member bundles on the wire and leave eleven
+  // pending. (The 32-member cap is unreachable with signed messages; the
+  // codec test covers it with tiny ones.)
+  const std::size_t heartbeatSize = wire::longSpatialSize(0);
+  CHECK_EQ(heartbeatSize, 109u);
+  for (int i = 0; i < 33; ++i) CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+  for (int k = 0; k < 2; ++k) {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 2u);
+    CHECK_EQ(got.size(), 1 + 11 * (2 + heartbeatSize));
+    std::uint8_t types[16] = {};
+    CHECK_EQ(countVerifiedMembers(got, types, 16), 11);
+  }
+  CHECK(conn.flushSends().ok());
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 2u);
+    std::uint8_t types[16] = {};
+    CHECK_EQ(countVerifiedMembers(got, types, 16), 11);
+  }
+
+  // --- An oversize message (cannot fit inside any bundle) flushes what is
+  // pending and travels unwrapped.
+  std::uint8_t max[wire::kMaxLongSpatialPayload] = {};
+  SpatialSend huge = send;
+  huge.payload = Bytes(max, sizeof(max));
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+  CHECK(conn.sendActorUpdate(huge).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+  {
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 128u);
+    CHECK_EQ(got.size(), wire::kMaxDatagramSize);
+  }
+
+  // --- AndWait flushes before waiting, so the echo it waits for can exist.
+  conn.setHandlers({});
+  auto seqForWait = conn.sendActorUpdate(send);
+  CHECK(seqForWait.ok());
+  // Nothing has left yet (window not passed); waitForSequence must flush.
+  std::thread echoer([&] {
+    auto sent = server.recvOne();
+    CHECK_EQ(sent[0], 128u);
+    auto parsedSent = wire::parseLongSpatial(Bytes(sent.data(), sent.size()));
+    CHECK(parsedSent.ok());
+    auto echo = makeNotification(wire::MessageType::ActorUpdateNotification,
+                                 Bytes(pose, sizeof(pose)), 1700000001000LL,
+                                 parsedSent->sequence);
+    std::memcpy(echo.data() + wire::offsets::kUuid, send.uuid.data(), 32);
+    const std::size_t prefixLen = echo.size() - wire::kTailWithHmac;
+    CHECK(wire::spatialHmac(core::opensslCrypto(), Bytes(echo.data(), prefixLen), token64(),
+                            echo.data() + prefixLen));
+    server.sendToClient(echo.data(), echo.size());
+  });
+  auto outcome = conn.waitForSequence(seqForWait.value(), send.uuid, 2000);
+  echoer.join();
+  CHECK(outcome.acknowledged);
+
+  // --- disconnect() flushes what the last frame queued.
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+  conn.disconnect();
+  CHECK_EQ(server.recvOne()[0], 26u);
+
+  // --- Opt-out: every send is its own datagram, immediately, and bundlesSent
+  // stays at zero.
+  {
+    auto provider2 = std::make_shared<StubProvider>(server.port);
+    Config off = cfg;
+    off.bundleSends = false;
+    Connection plain(off, provider2, core::opensslCrypto(), clock);
+    CHECK(plain.connect().ok());
+    CHECK(plain.sendActorUpdate(send).ok());
+    CHECK(plain.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+    CHECK_EQ(server.recvOne()[0], 128u);
+    CHECK_EQ(server.recvOne()[0], 26u);
+    auto s = plain.stats();
+    CHECK_EQ(s.datagramsSent, 2u);
+    CHECK_EQ(s.messagesSent, 2u);
+    CHECK_EQ(s.bundlesSent, 0u);
+    CHECK(plain.flushSends().ok());
+    plain.disconnect();
+  }
+
+  // --- Window 0: flushed on the very next pump with no deliberate wait.
+  {
+    auto provider3 = std::make_shared<StubProvider>(server.port);
+    Config zero = cfg;
+    zero.bundleWindowMs = 0;
+    Connection quick(zero, provider3, core::opensslCrypto(), clock);
+    CHECK(quick.connect().ok());
+    CHECK(quick.sendActorUpdate(send).ok());
+    CHECK(quick.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+    quick.pump(0);
+    auto got = server.recvOne();
+    CHECK_EQ(got[0], 2u);
+    std::uint8_t types[4] = {};
+    CHECK_EQ(countVerifiedMembers(got, types, 4), 2);
+    quick.disconnect();
+  }
+}
+
+// --- The net thread honours the window without inbound traffic: a bundle
+// opened while the thread is blocked in receive still leaves within the
+// window, not at the end of the 20 ms receive timeout.
+void runBundlingNetThread() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleWindowMs = 2;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  ::usleep(30 * 1000);  // let the net thread settle into its 20 ms receive wait
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('a');
+  send.payload = Bytes(pose, sizeof(pose));
+
+  int lateFlushes = 0, splits = 0;
+  for (int round = 0; round < 20; ++round) {
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK(conn.sendActorUpdate(send).ok());
+    CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
+    auto got = server.recvOne();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - t0)
+                             .count();
+    std::uint8_t types[4] = {};
+    int members = countVerifiedMembers(got, types, 4);
+    if (members == 1) {
+      // The window happened to expire between the two sends (a millisecond
+      // boundary plus a preempted thread): both still arrive, as two
+      // datagrams. Legal, just not the common case.
+      ++splits;
+      members += countVerifiedMembers(server.recvOne(), types, 4);
+    }
+    CHECK_EQ(members, 2);
+    // Generous bound for a loaded CI box; what it rules out is the 20 ms
+    // receive timeout deciding when the bundle leaves.
+    if (elapsed > 12) ++lateFlushes;
+    ::usleep(25 * 1000);  // back into a long receive wait before the next round
+  }
+  CHECK(lateFlushes <= 2);
+  CHECK(splits <= 2);
+  CHECK_EQ(conn.stats().bundlesSent, static_cast<std::uint64_t>(20 - splits));
+  conn.disconnect();
+}
+
 int main() {
   run();
+  runBundling();
+  runBundlingNetThread();
   runSendPath();
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);

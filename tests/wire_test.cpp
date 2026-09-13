@@ -263,6 +263,80 @@ void testBundleIteration() {
   CHECK_EQ(count, 1);
 }
 
+void testBundleWriter() {
+  std::uint8_t buf[kMaxDatagramSize];
+  BundleWriter w(MutableBytes(buf, sizeof(buf)));
+  CHECK(w.empty());
+  CHECK_EQ(w.count(), 0u);
+  CHECK_EQ(w.size(), kBundleHeaderSize);
+  CHECK(w.datagram().empty());
+  CHECK_EQ(w.firstType(), 0u);
+  CHECK_EQ(kMaxBundleMemberSize, 1229u);
+
+  // A lone member goes out unwrapped: the same bytes the caller appended.
+  const std::uint8_t err[] = {3, 1, 7};
+  CHECK(w.append(Bytes(err, sizeof(err))));
+  CHECK_EQ(w.count(), 1u);
+  CHECK_EQ(w.firstType(), 3u);
+  Bytes one = w.datagram();
+  CHECK_EQ(one.size(), sizeof(err));
+  CHECK(std::memcmp(one.data(), err, sizeof(err)) == 0);
+
+  // Two members: the type-2 frame, and forEachMessage gives them back in order.
+  CHECK(w.append(Bytes(kGoldenSpatial, sizeof(kGoldenSpatial))));
+  CHECK_EQ(w.count(), 2u);
+  Bytes two = w.datagram();
+  CHECK_EQ(two[0], 2u);
+  CHECK_EQ(two.size(), kBundleHeaderSize + (kBundleLengthPrefix + sizeof(err)) +
+                           (kBundleLengthPrefix + sizeof(kGoldenSpatial)));
+  int count = 0;
+  std::size_t sizes[2] = {};
+  auto st = forEachMessage(two, [&](Bytes m) {
+    if (count < 2) sizes[count] = m.size();
+    ++count;
+  });
+  CHECK(st.ok());
+  CHECK_EQ(count, 2);
+  CHECK_EQ(sizes[0], sizeof(err));
+  CHECK_EQ(sizes[1], sizeof(kGoldenSpatial));
+  CHECK(std::memcmp(two.data() + 1 + 2 + sizeof(err) + 2, kGoldenSpatial,
+                    sizeof(kGoldenSpatial)) == 0);
+
+  // Zero-length members never fit; reset() empties and re-arms the type byte.
+  CHECK(!w.fits(0));
+  CHECK(!w.append(Bytes()));
+  w.reset();
+  CHECK(w.empty());
+  CHECK_EQ(buf[0], 2u);
+
+  // Byte capacity: exactly fill 1232, then one more byte is refused untouched.
+  const std::vector<std::uint8_t> big(kMaxBundleMemberSize, 0xAB);
+  CHECK(w.fits(big.size()));
+  CHECK(!w.fits(big.size() + 1));
+  CHECK(w.append(Bytes(big.data(), big.size())));
+  CHECK_EQ(w.size(), kMaxDatagramSize);
+  const std::uint8_t tiny = 9;
+  CHECK(!w.fits(1));
+  CHECK(!w.append(Bytes(&tiny, 1)));
+  CHECK_EQ(w.count(), 1u);
+  CHECK_EQ(w.size(), kMaxDatagramSize);
+  w.reset();
+
+  // Member cap: 32 tiny members fit, the 33rd is refused.
+  for (std::size_t i = 0; i < kMaxBundleMembers; ++i) {
+    const std::uint8_t m[] = {128, static_cast<std::uint8_t>(i)};
+    CHECK(w.append(Bytes(m, sizeof(m))));
+  }
+  CHECK_EQ(w.count(), kMaxBundleMembers);
+  CHECK(!w.fits(2));
+  const std::uint8_t extra[] = {128, 99};
+  CHECK(!w.append(Bytes(extra, sizeof(extra))));
+  count = 0;
+  st = forEachMessage(w.datagram(), [&](Bytes) { ++count; });
+  CHECK(st.ok());
+  CHECK_EQ(count, 32);
+}
+
 void testMalformedInputs() {
   // Empty and tiny datagrams never crash.
   CHECK(!parseLongSpatial(Bytes()).ok());
@@ -438,6 +512,7 @@ int main() {
   testChannelRoundTrip();
   testGenericError();
   testBundleIteration();
+  testBundleWriter();
   testMalformedInputs();
   testRoundTripAllTypes();
   testPreKeyedMacMatchesOneShot();

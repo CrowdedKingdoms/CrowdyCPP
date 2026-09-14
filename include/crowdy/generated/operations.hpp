@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: a14868047520263d096107b0ab193b2232fee56ae1c46d6d4e4b7158279e28ed
-// operations sha256: 9abdeb3797c5bcd2971fa505d6ef81f094df11c20c0ab834e5012598fe07d6aa
+// schema.gql sha256: c825ed8810d61e2760f04eea6de2fe6f28e25495b399a107f664536bdde70a8e
+// operations sha256: c8dcb13b2fe4668979cb2c8b101dc35a46a3beeae26d7cebd61fb7d7333d021d
 
 #pragma once
 
@@ -6785,6 +6785,36 @@ inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmS
   createdByUserId
   currentTurnUserId
   metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+}
+
+fragment GmSessionParticipantFields on GmSessionParticipant {
+  sessionId
+  userId
+  role
+  state
+  incarnation
+  actorUuid
+  joinedAt
+  leftAt
+  leftReason
+}
+
+fragment GmSessionEventFields on GmSessionEvent {
+  appId
+  sessionId
+  revision
+  kind
+  payloadJson
+  createdAt
 }
 
 fragment GmContainerFields on GmContainer {
@@ -6827,9 +6857,31 @@ mutation GameModelCreateSession($input: CreateSessionInput!) {
 
 mutation GameModelJoinSession($input: JoinSessionInput!) {
   gameModelJoinSession(input: $input) {
-    sessionId
-    userId
-    role
+    ...GmSessionParticipantFields
+  }
+}
+
+mutation GameModelLeaveSession($input: LeaveSessionInput!) {
+  gameModelLeaveSession(input: $input) {
+    ...GmSessionParticipantFields
+  }
+}
+
+mutation GameModelSetSessionAdmission($input: SetSessionAdmissionInput!) {
+  gameModelSetSessionAdmission(input: $input) {
+    ...GmSessionFields
+  }
+}
+
+mutation GameModelTransferSessionHost($input: TransferSessionHostInput!) {
+  gameModelTransferSessionHost(input: $input) {
+    ...GmSessionFields
+  }
+}
+
+mutation GameModelEndSession($input: EndSessionInput!) {
+  gameModelEndSession(input: $input) {
+    ...GmSessionFields
   }
 }
 
@@ -6956,9 +7008,81 @@ query GameModelSession($appId: BigInt!, $sessionId: String!) {
   }
 }
 
-query GameModelSessions($appId: BigInt!, $status: String) {
-  gameModelSessions(appId: $appId, status: $status) {
+query GameModelSessions(
+  $appId: BigInt!
+  $status: String
+  $admission: String
+  $hostUserId: BigInt
+  $limit: Int
+) {
+  gameModelSessions(
+    appId: $appId
+    status: $status
+    admission: $admission
+    hostUserId: $hostUserId
+    limit: $limit
+  ) {
     ...GmSessionFields
+  }
+}
+
+query GameModelSessionSnapshot($appId: BigInt!, $sessionId: String!) {
+  gameModelSessionSnapshot(appId: $appId, sessionId: $sessionId) {
+    revision
+    session {
+      ...GmSessionFields
+    }
+    participants {
+      ...GmSessionParticipantFields
+    }
+  }
+}
+
+query GameModelSessionEvents(
+  $appId: BigInt!
+  $sessionId: String!
+  $afterRevision: String!
+  $limit: Int
+) {
+  gameModelSessionEvents(
+    appId: $appId
+    sessionId: $sessionId
+    afterRevision: $afterRevision
+    limit: $limit
+  ) {
+    ...GmSessionEventFields
+  }
+}
+
+query GameModelSessionInspect($appId: BigInt!, $sessionId: String!) {
+  gameModelSessionInspect(appId: $appId, sessionId: $sessionId) {
+    session {
+      ...GmSessionFields
+    }
+    participants {
+      presence
+      presenceFrom
+      participant {
+        ...GmSessionParticipantFields
+      }
+    }
+    recentEvents {
+      ...GmSessionEventFields
+    }
+  }
+}
+
+subscription GameModelSessionChanged(
+  $appId: BigInt!
+  $sessionId: String!
+  $afterRevision: String
+) {
+  gameModelSessionChanged(
+    appId: $appId
+    sessionId: $sessionId
+    afterRevision: $afterRevision
+  ) {
+    ...GmSessionEventFields
   }
 }
 
@@ -7168,16 +7292,128 @@ fragment GmSessionFields on GmSession {
   createdByUserId
   currentTurnUserId
   metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
 inline constexpr std::string_view kGameModelJoinSessionIsolatedDocument = R"gql(mutation GameModelJoinSession($input: JoinSessionInput!) {
   gameModelJoinSession(input: $input) {
-    sessionId
-    userId
-    role
+    ...GmSessionParticipantFields
   }
+}
+
+fragment GmSessionParticipantFields on GmSessionParticipant {
+  sessionId
+  userId
+  role
+  state
+  incarnation
+  actorUuid
+  joinedAt
+  leftAt
+  leftReason
 })gql";
 inline constexpr std::string_view kGameModelJoinSessionOperationName = "GameModelJoinSession";
+inline constexpr std::string_view kGameModelLeaveSessionIsolatedDocument = R"gql(mutation GameModelLeaveSession($input: LeaveSessionInput!) {
+  gameModelLeaveSession(input: $input) {
+    ...GmSessionParticipantFields
+  }
+}
+
+fragment GmSessionParticipantFields on GmSessionParticipant {
+  sessionId
+  userId
+  role
+  state
+  incarnation
+  actorUuid
+  joinedAt
+  leftAt
+  leftReason
+})gql";
+inline constexpr std::string_view kGameModelLeaveSessionOperationName = "GameModelLeaveSession";
+inline constexpr std::string_view kGameModelSetSessionAdmissionIsolatedDocument = R"gql(mutation GameModelSetSessionAdmission($input: SetSessionAdmissionInput!) {
+  gameModelSetSessionAdmission(input: $input) {
+    ...GmSessionFields
+  }
+}
+
+fragment GmSessionFields on GmSession {
+  sessionId
+  appId
+  name
+  status
+  createdByUserId
+  currentTurnUserId
+  metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelSetSessionAdmissionOperationName = "GameModelSetSessionAdmission";
+inline constexpr std::string_view kGameModelTransferSessionHostIsolatedDocument = R"gql(mutation GameModelTransferSessionHost($input: TransferSessionHostInput!) {
+  gameModelTransferSessionHost(input: $input) {
+    ...GmSessionFields
+  }
+}
+
+fragment GmSessionFields on GmSession {
+  sessionId
+  appId
+  name
+  status
+  createdByUserId
+  currentTurnUserId
+  metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelTransferSessionHostOperationName = "GameModelTransferSessionHost";
+inline constexpr std::string_view kGameModelEndSessionIsolatedDocument = R"gql(mutation GameModelEndSession($input: EndSessionInput!) {
+  gameModelEndSession(input: $input) {
+    ...GmSessionFields
+  }
+}
+
+fragment GmSessionFields on GmSession {
+  sessionId
+  appId
+  name
+  status
+  createdByUserId
+  currentTurnUserId
+  metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelEndSessionOperationName = "GameModelEndSession";
 inline constexpr std::string_view kGameModelSetSessionTurnIsolatedDocument = R"gql(mutation GameModelSetSessionTurn($input: SetSessionTurnInput!) {
   gameModelSetSessionTurn(input: $input) {
     ...GmSessionFields
@@ -7192,6 +7428,15 @@ fragment GmSessionFields on GmSession {
   createdByUserId
   currentTurnUserId
   metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
 })gql";
 inline constexpr std::string_view kGameModelSetSessionTurnOperationName = "GameModelSetSessionTurn";
 inline constexpr std::string_view kGameModelCreateContainerIsolatedDocument = R"gql(mutation GameModelCreateContainer($input: CreateContainerInput!) {
@@ -7398,10 +7643,25 @@ fragment GmSessionFields on GmSession {
   createdByUserId
   currentTurnUserId
   metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
 })gql";
 inline constexpr std::string_view kGameModelSessionOperationName = "GameModelSession";
-inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String) {
-  gameModelSessions(appId: $appId, status: $status) {
+inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String, $admission: String, $hostUserId: BigInt, $limit: Int) {
+  gameModelSessions(
+    appId: $appId
+    status: $status
+    admission: $admission
+    hostUserId: $hostUserId
+    limit: $limit
+  ) {
     ...GmSessionFields
   }
 }
@@ -7414,8 +7674,157 @@ fragment GmSessionFields on GmSession {
   createdByUserId
   currentTurnUserId
   metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
 })gql";
 inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSessions";
+inline constexpr std::string_view kGameModelSessionSnapshotIsolatedDocument = R"gql(query GameModelSessionSnapshot($appId: BigInt!, $sessionId: String!) {
+  gameModelSessionSnapshot(appId: $appId, sessionId: $sessionId) {
+    revision
+    session {
+      ...GmSessionFields
+    }
+    participants {
+      ...GmSessionParticipantFields
+    }
+  }
+}
+
+fragment GmSessionFields on GmSession {
+  sessionId
+  appId
+  name
+  status
+  createdByUserId
+  currentTurnUserId
+  metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+}
+
+fragment GmSessionParticipantFields on GmSessionParticipant {
+  sessionId
+  userId
+  role
+  state
+  incarnation
+  actorUuid
+  joinedAt
+  leftAt
+  leftReason
+})gql";
+inline constexpr std::string_view kGameModelSessionSnapshotOperationName = "GameModelSessionSnapshot";
+inline constexpr std::string_view kGameModelSessionEventsIsolatedDocument = R"gql(query GameModelSessionEvents($appId: BigInt!, $sessionId: String!, $afterRevision: String!, $limit: Int) {
+  gameModelSessionEvents(
+    appId: $appId
+    sessionId: $sessionId
+    afterRevision: $afterRevision
+    limit: $limit
+  ) {
+    ...GmSessionEventFields
+  }
+}
+
+fragment GmSessionEventFields on GmSessionEvent {
+  appId
+  sessionId
+  revision
+  kind
+  payloadJson
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelSessionEventsOperationName = "GameModelSessionEvents";
+inline constexpr std::string_view kGameModelSessionInspectIsolatedDocument = R"gql(query GameModelSessionInspect($appId: BigInt!, $sessionId: String!) {
+  gameModelSessionInspect(appId: $appId, sessionId: $sessionId) {
+    session {
+      ...GmSessionFields
+    }
+    participants {
+      presence
+      presenceFrom
+      participant {
+        ...GmSessionParticipantFields
+      }
+    }
+    recentEvents {
+      ...GmSessionEventFields
+    }
+  }
+}
+
+fragment GmSessionFields on GmSession {
+  sessionId
+  appId
+  name
+  status
+  createdByUserId
+  currentTurnUserId
+  metadataJson
+  admission
+  maxParticipants
+  participantCount
+  hostUserId
+  hostTerm
+  revision
+  endedAt
+  endReason
+  createdAt
+}
+
+fragment GmSessionParticipantFields on GmSessionParticipant {
+  sessionId
+  userId
+  role
+  state
+  incarnation
+  actorUuid
+  joinedAt
+  leftAt
+  leftReason
+}
+
+fragment GmSessionEventFields on GmSessionEvent {
+  appId
+  sessionId
+  revision
+  kind
+  payloadJson
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelSessionInspectOperationName = "GameModelSessionInspect";
+inline constexpr std::string_view kGameModelSessionChangedIsolatedDocument = R"gql(subscription GameModelSessionChanged($appId: BigInt!, $sessionId: String!, $afterRevision: String) {
+  gameModelSessionChanged(
+    appId: $appId
+    sessionId: $sessionId
+    afterRevision: $afterRevision
+  ) {
+    ...GmSessionEventFields
+  }
+}
+
+fragment GmSessionEventFields on GmSessionEvent {
+  appId
+  sessionId
+  revision
+  kind
+  payloadJson
+  createdAt
+})gql";
+inline constexpr std::string_view kGameModelSessionChangedOperationName = "GameModelSessionChanged";
 inline constexpr std::string_view kGameModelEventsIsolatedDocument = R"gql(query GameModelEvents($appId: BigInt!, $sessionId: String, $selfContainerId: String, $functionName: String, $success: Boolean, $limit: Int, $offset: Int) {
   gameModelEvents(
     appId: $appId
@@ -8214,6 +8623,10 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyModelLint") return kCrowdyModelLintIsolatedDocument;
   if (operationName == "GameModelCreateSession") return kGameModelCreateSessionIsolatedDocument;
   if (operationName == "GameModelJoinSession") return kGameModelJoinSessionIsolatedDocument;
+  if (operationName == "GameModelLeaveSession") return kGameModelLeaveSessionIsolatedDocument;
+  if (operationName == "GameModelSetSessionAdmission") return kGameModelSetSessionAdmissionIsolatedDocument;
+  if (operationName == "GameModelTransferSessionHost") return kGameModelTransferSessionHostIsolatedDocument;
+  if (operationName == "GameModelEndSession") return kGameModelEndSessionIsolatedDocument;
   if (operationName == "GameModelSetSessionTurn") return kGameModelSetSessionTurnIsolatedDocument;
   if (operationName == "GameModelCreateContainer") return kGameModelCreateContainerIsolatedDocument;
   if (operationName == "GameModelEnsureContainer") return kGameModelEnsureContainerIsolatedDocument;
@@ -8228,6 +8641,10 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "GameModelTraverse") return kGameModelTraverseIsolatedDocument;
   if (operationName == "GameModelSession") return kGameModelSessionIsolatedDocument;
   if (operationName == "GameModelSessions") return kGameModelSessionsIsolatedDocument;
+  if (operationName == "GameModelSessionSnapshot") return kGameModelSessionSnapshotIsolatedDocument;
+  if (operationName == "GameModelSessionEvents") return kGameModelSessionEventsIsolatedDocument;
+  if (operationName == "GameModelSessionInspect") return kGameModelSessionInspectIsolatedDocument;
+  if (operationName == "GameModelSessionChanged") return kGameModelSessionChangedIsolatedDocument;
   if (operationName == "GameModelEvents") return kGameModelEventsIsolatedDocument;
   if (operationName == "GameModelEventsConnection") return kGameModelEventsConnectionIsolatedDocument;
   if (operationName == "GameModelActivePlayerCount") return kGameModelActivePlayerCountIsolatedDocument;

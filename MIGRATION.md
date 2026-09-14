@@ -1,5 +1,47 @@
 # CrowdyCPP migration notes
 
+## 0.38.0 a bound GitHub project saves as commits
+
+`CrowdyStudioAPI::saveProject` now follows CrowdyJS 17.0: a `STUDIO` project
+still writes through `crowdyStudioProjectSave`; a `GITHUB` project commits
+each changed file through `crowdyStudioGitHubPutFile` / `DeleteFile` under
+`github.sha` (`expectedCommitSha`) and sends metadata as a project save with
+no file bodies. A stale commit or a caller holding an older revision than
+the provider last returned is the same `CrowdyStudioRevisionConflictError`
+the editor already recovers from. The controller does not know which path
+ran.
+
+### What changes for you
+
+- **Nothing if your projects stay in Studio.** Unbound saves are unchanged.
+- **A bound project can no longer be saved as Studio file bodies.** Against
+  ck-api v2.0 those mutations refuse with `GITHUB_BOUND_USE_CONTENTS`. If you
+  were constructing `SaveCrowdyStudioProjectInput` yourself for a project
+  whose `source` is `GitHub`, keep doing that — `saveProject` now issues the
+  commits. Refresh a bound project that has no `github.sha` before saving.
+- **New surface.** `client.crowdyStudioGitHub()` is the typed transport
+  (`status`, `layout`, `tree`, `getFile`, `putFile`, `deleteFile`,
+  `refresh`, `bind`, `unbind`, `repos`, `connectUrl`). Status / layout /
+  tree / file / put / delete / refresh work with an app token; connect /
+  repos / bind / unbind need the identity session. Path arithmetic lives in
+  `crowdy/studio/github_layout.hpp` (`studioFileToRepoPath` and friends);
+  the SDK does not parse `crowdy.json`.
+- **Still browser-only.** The hosted Studio settings card
+  (`bindGitHubRepo`, `connectGitHub` opening a tab, card busy-state) is not
+  on the native controller. A native host that wants bind/unbind calls
+  `crowdyStudioGitHub()` itself.
+- **`saveProjectAsync` on a bound project is still blocking.** The STUDIO
+  path posts one save on the async transport and delivers the callback
+  from `poll()`. A GITHUB project runs the same commit loop as
+  `saveProject` on the caller's thread and fires the callback before
+  returning. The controller uses the sync save. A host that chose
+  `*Async` to keep a frame from stalling should treat a bound save like
+  `saveProject` until that path is itself async.
+- **Also.** `playerComputeSetSwitch` / `playerComputeSwitches` carry
+  `listingRef` (LISTING-scope kill), matching CrowdyJS 17.1.0.
+
+Tracks CrowdyJS `17.1.0` (the 17.0 bound-save contract plus 17.1 bundling).
+
 ## 0.37.0 outbound sends are bundled by default
 
 `replication::Connection` now packs the messages you send within a short window

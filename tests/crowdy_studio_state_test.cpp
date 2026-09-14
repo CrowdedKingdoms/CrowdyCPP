@@ -215,7 +215,14 @@ CrowdyStudioProjectSummary summary(const CrowdyStudioProject& project) {
           project.metadata.serverModuleName,
           project.metadata.clientModuleName,
           project.archived,
-          project.updatedAt};
+          project.updatedAt,
+          project.source,
+          project.github
+              ? std::optional<std::string>(project.github->owner + "/" +
+                                           project.github->repo + "@" +
+                                           project.github->branch)
+              : std::nullopt,
+          project.github ? project.github->sha : std::nullopt};
 }
 
 class FakeProjectProvider final : public ICrowdyStudioProjectProvider {

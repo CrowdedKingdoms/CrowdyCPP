@@ -187,37 +187,12 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native replication Connection exposes transport state directly',
   ),
-  // CrowdyJS 17 Studio GitHub working tree (ck-api v2.0.0). The card and the
-  // commit-on-save persistence live in the browser Studio (Monaco, the
-  // crowdy-dsh worker); native CrowdyStudioController does not mount that
-  // card. SetAutosave / Pull / Push left with 17.0.0; Layout, Refresh and
-  // DeleteFile arrived. Wrapping these on a game-client SDK would be methods
-  // no native player session calls.
-  ...classifyNames(
-    'Mutation',
-    [
-      'crowdyStudioGitHubBind',
-      'crowdyStudioGitHubConnectUrl',
-      'crowdyStudioGitHubDeleteFile',
-      'crowdyStudioGitHubPutFile',
-      'crowdyStudioGitHubRefresh',
-      'crowdyStudioGitHubUnbind',
-    ],
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane / embed; native host does not mount that card',
-  ),
-  ...classifyNames(
-    'Query',
-    [
-      'crowdyStudioGitHubFile',
-      'crowdyStudioGitHubLayout',
-      'crowdyStudioGitHubRepos',
-      'crowdyStudioGitHubStatus',
-      'crowdyStudioGitHubTree',
-    ],
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane / embed; native host does not mount that card',
-  ),
+  // CrowdyJS 17 Studio GitHub working tree (ck-api v2.0.0). The GraphQL
+  // transport and bound-project save path are portable (0.38.0). The
+  // controller methods that drive the hosted Studio settings card stay
+  // browser exclusions: a native host does not mount that card, and
+  // connectGitHub opens a browser tab. SetAutosave / Pull / Push left with
+  // 17.0.0.
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -493,6 +468,7 @@ const CLASS_MAP = {
   ErrorStore: 'ErrorStore',
   RemoteActorLane: 'RemoteActorLane',
   CrowdyStudioAPI: 'CrowdyStudioAPI',
+  CrowdyStudioGitHubTransport: 'CrowdyStudioGitHubAPI',
   CrowdyStudioController: 'CrowdyStudioController',
   StudioLayoutController: 'StudioLayoutController',
 };
@@ -587,6 +563,27 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       studioPaneSizeRange: 'studioPaneSizeRange',
     },
     'include/crowdy/studio/layout.hpp',
+  ),
+  'src/crowdy-studio/github/layout.ts': exportModule(
+    [
+      'trimSlash',
+      'joinRepo',
+      'underRoot',
+      'studioFileToRepoPath',
+      'repoPathToStudioFile',
+      'isRustAuthoringPath',
+    ],
+    CATEGORY.NATIVE,
+    'repository path arithmetic has an installed crowdy/studio/github_layout.hpp equivalent',
+    {
+      trimSlash: 'trimSlash',
+      joinRepo: 'joinRepo',
+      underRoot: 'underRoot',
+      studioFileToRepoPath: 'studioFileToRepoPath',
+      repoPathToStudioFile: 'repoPathToStudioFile',
+      isRustAuthoringPath: 'isRustAuthoringPath',
+    },
+    'include/crowdy/studio/github_layout.hpp',
   ),
   'src/crowdy-studio/editor.ts': exportModule(
     [
@@ -1764,6 +1761,12 @@ function collectTsClasses(crowdyjs) {
       'controller.ts',
       'dom-shell.ts',
       'layout.ts',
+    ]),
+  );
+  mergeClasses(
+    all,
+    tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio', 'github'), [
+      'transport.ts',
     ]),
   );
   mergeClasses(

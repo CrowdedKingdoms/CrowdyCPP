@@ -44,7 +44,10 @@ When the unified GraphQL surface changes:
 7. If Studio diagnostics parsing changed, run `studio-state-fixtures.mjs` the
    same way. (The agent, control-gate and Studio-host fixtures went with the
    Crowdy Agent orchestrator in 0.34.0; the agent runs in the browser now and
-   this SDK only reads its policy, consent and usage.)
+   this SDK only reads its policy, consent and usage.) Bound-project saves
+   are portable as of 0.38.0 (`saveProject` commits through
+   `crowdyStudioGitHubPutFile` / `DeleteFile`); the hosted GitHub settings
+   card on `CrowdyStudioController` stays a browser exclusion.
 8. Run the blueprint structural gate documented in `README.md`.
 
 ## Releasing

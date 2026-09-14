@@ -529,6 +529,13 @@ class MatchesKit {
     sessionInput["name"] = displayName.empty()
                                ? "match-" + std::string(mode.empty() ? "default" : mode)
                                : std::string(displayName);
+    // A kit match talks GraphQL and channel pings; its uuid is only the
+    // channel-message sender id and never a replicated actor. Under the default
+    // presence 'actor' the server would expire every player after the join
+    // grace window, so the roster is judged by nothing: players leave by
+    // leave(), the match ends by end(), an emptied session is abandoned by the
+    // empty timeout.
+    sessionInput["presence"] = "none";
     Json session = gameModel_.createSession(sessionInput);
     const std::string sessionId = session["sessionId"].asString();
 

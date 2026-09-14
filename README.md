@@ -66,8 +66,10 @@ headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to 
 `sessionChanged` GraphQL-WS stream; `GmSession` carries admission, capacity,
 host / host term, revision and end fields, and the join result is the roster row
 (`state`, `incarnation`, `actorUuid`, ...). `leaveSession` REQUIRES the
-incarnation the join returned, and presence is the player's Buddy actor — see
-`MIGRATION.md`. Schema synced to cks-game-api PR #319 on top of v2.3.0; parity
+incarnation the join returned, and presence is the player's Buddy actor — a
+session created with `presence = "none"` opts out, which is what
+`kit::MatchesKit` does — see `MIGRATION.md`. Schema synced to cks-game-api PR
+#319 on top of v2.3.0; parity
 pinned to CrowdyJS 17.3.0 with the session surface classified as covered until
 the pin moves to 17.4.0.
 

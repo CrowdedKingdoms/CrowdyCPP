@@ -275,6 +275,7 @@ int run() {
     E2E_CHECK(lobby["participantCount"].asInt64() == 1);
     E2E_CHECK(lobby["hostTerm"].asInt64() == 1);
     E2E_CHECK(lobby["revision"].asString() == "1");
+    E2E_CHECK(lobby["presence"].asString() == "actor");
     const std::string ownerId = sessionBigInt(lobby["hostUserId"]);
 
     // A takes the last seat; B is refused for capacity; A reconnects
@@ -348,6 +349,13 @@ int run() {
     graphql::Json handed = a.game->gameModel().transferSessionHost(transfer);
     E2E_CHECK(sessionBigInt(handed["hostUserId"]) == c.userId);
     E2E_CHECK(handed["hostTerm"].asInt64() == 3);
+    // Naming someone who never joined is about the TARGET, not the caller.
+    graphql::JVal toStranger;
+    toStranger["appId"] = cfg.appId;
+    toStranger["sessionId"] = sid;
+    toStranger["toUserId"] = b.userId;
+    refused([&] { c.game->gameModel().transferSessionHost(toStranger); },
+            "SESSION_TARGET_NOT_PARTICIPANT");
 
     // Snapshot, events and the gap-fill read agree; revisions are contiguous.
     graphql::Json snapshot = a.game->gameModel().sessionSnapshot(cfg.appId, sid);
@@ -401,6 +409,35 @@ int run() {
     std::string finalKind;
     after.forEach([&](graphql::Json event) { finalKind = event["kind"].asString(); });
     E2E_CHECK(finalKind == "ended");
+
+    // A presence 'none' session (what kit::MatchesKit creates): the mode is on
+    // the row, inspection reports every joined participant as 'none', and
+    // nobody is ever judged by actor presence.
+    graphql::JVal quietInput;
+    quietInput["appId"] = cfg.appId;
+    quietInput["name"] = "e2e-gm-turn-based-" + e2e::runSuffix();
+    quietInput["presence"] = "none";
+    graphql::Json quiet = og.gameModel().createSession(quietInput);
+    const std::string quietId = quiet["sessionId"].asString();
+    E2E_CHECK(quiet["presence"].asString() == "none");
+    graphql::JVal joinQuiet;
+    joinQuiet["appId"] = cfg.appId;
+    joinQuiet["sessionId"] = quietId;
+    a.game->gameModel().joinSession(joinQuiet);
+    graphql::Json quietInspection = og.gameModel().sessionInspect(cfg.appId, quietId);
+    E2E_CHECK(quietInspection["session"]["presence"].asString() == "none");
+    std::size_t quietRows = 0;
+    bool allNone = true;
+    quietInspection["participants"].forEach([&](graphql::Json row) {
+      quietRows += 1;
+      if (row["presence"].asString() != "none" || !row["presenceFrom"].isNull()) allNone = false;
+    });
+    E2E_CHECK(quietRows == 2);
+    E2E_CHECK(allNone);
+    graphql::JVal endQuiet;
+    endQuiet["appId"] = cfg.appId;
+    endQuiet["sessionId"] = quietId;
+    og.gameModel().endSession(endQuiet);
   }
 
   E2E_SUBTEST("traverse over an edge");

@@ -12,8 +12,8 @@ session.
   (`open | locked | closed`), `maxParticipants`, `participantCount`,
   `hostUserId`, `hostTerm`, `revision`, `endedAt`, `endReason`, `createdAt`.
   `createSession` accepts `maxParticipants`, `admission`, `emptyTimeoutSec`,
-  `idempotencyKey`; `sessions(appId, status, admission, hostUserId, limit)`
-  filters and limits.
+  `presence`, `idempotencyKey`; `sessions(appId, status, admission,
+  hostUserId, limit)` filters and limits.
 - **New methods (sync + `Async` twins):** `leaveSession`, `setSessionAdmission`,
   `transferSessionHost`, `endSession` (host or app admin; all accept
   `expectedHostTerm` and `idempotencyKey`), `sessionSnapshot`, `sessionEvents`,
@@ -36,13 +36,38 @@ session.
   `actorUuid` on join to bind presence to one specific actor -- your own, in
   Buddy's 32-hex form (`core::toString(WorldSession::actorUuid())`). Do not
   pass the matches kit's channel-ping uuid; it never spawns in Buddy.
+- **Opting out: `presence = "none"`.** A session created with
+  `sessionInput["presence"] = "none"` is never judged by actor presence
+  (`GmSession.presence` reports the mode; `sessionInspect` shows its rows as
+  `presence: "none"`). Its roster's only exits are `leaveSession`,
+  `endSession` and the empty timeout once everyone has left. Use it for
+  turn-based play that talks GraphQL and channel pings and never replicates an
+  actor. The mode is fixed at creation. A GraphQL-only session that does
+  **not** opt out empties after the grace window and is abandoned after the
+  timeout.
+- **The `sessionChanged` push is per datacenter; the events table is the
+  record.** A revision committed in one region wakes subscribers on that
+  region's API replicas; `sessionEvents(appId, sessionId, afterRevision)` (and
+  the replay the stream performs on connect) reads the durable rows, so a
+  subscriber reconnecting anywhere catches up from the revision it last saw.
 - **Error codes** (on `CrowdyGraphQLError::code()`): `SESSION_FULL`,
   `SESSION_LOCKED`, `SESSION_CLOSED`, `SESSION_ENDED`,
-  `SESSION_NOT_PARTICIPANT`, `SESSION_INCARNATION_STALE`,
-  `SESSION_HOST_TERM_STALE`.
-- `kit::MatchesKit` is unchanged in 0.39.0: it still keeps capacity in
-  `MatchMeta` and does not bind an actor on join. Moving it onto session
+  `SESSION_NOT_PARTICIPANT` (the caller is not joined),
+  `SESSION_TARGET_NOT_PARTICIPANT` (the user named to `transferSessionHost`
+  is not joined), `SESSION_INCARNATION_STALE`, `SESSION_HOST_TERM_STALE`.
+- **`kit::MatchesKit::create` creates its session with `presence = "none"`.**
+  A kit match is GraphQL plus channel pings; its uuid is only the
+  channel-message sender id and never spawns in Buddy, so under the default
+  mode every player would be expired after the grace window. Players leave a
+  match by `leave`, a match ends by `end`, an emptied session is abandoned by
+  the empty timeout. Otherwise the kit is unchanged: capacity still lives in
+  `MatchMeta` and join does not bind an actor. Moving it onto session
   capacity / admission / host is a later, separate change.
+- **Schema scope.** `schema.gql` is synced from the cks-game-api PR #319
+  branch with the third-party hosting surface (ck-api v2.1.0; CrowdyJS 17.2
+  `client.hosting`) filtered out: CrowdyCPP does not wrap hosting yet and this
+  release does not pretend to. The hosting port is its own release and will
+  re-sync the full SDL.
 
 No removals.
 

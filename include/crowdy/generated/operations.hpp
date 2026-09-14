@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: c825ed8810d61e2760f04eea6de2fe6f28e25495b399a107f664536bdde70a8e
-// operations sha256: c8dcb13b2fe4668979cb2c8b101dc35a46a3beeae26d7cebd61fb7d7333d021d
+// schema.gql sha256: 5c4aa129e7596c4bda3052ce10452b6544f794426796580ada3ecc0191464543
+// operations sha256: f60049098f31d65813ba729116151394ca3890e96599f572cb375c0b70db8c5f
 
 #pragma once
 
@@ -6794,6 +6794,7 @@ inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmS
   endedAt
   endReason
   createdAt
+  presence
 }
 
 fragment GmSessionParticipantFields on GmSessionParticipant {
@@ -7301,6 +7302,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
 inline constexpr std::string_view kGameModelJoinSessionIsolatedDocument = R"gql(mutation GameModelJoinSession($input: JoinSessionInput!) {
@@ -7362,6 +7364,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelSetSessionAdmissionOperationName = "GameModelSetSessionAdmission";
 inline constexpr std::string_view kGameModelTransferSessionHostIsolatedDocument = R"gql(mutation GameModelTransferSessionHost($input: TransferSessionHostInput!) {
@@ -7387,6 +7390,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelTransferSessionHostOperationName = "GameModelTransferSessionHost";
 inline constexpr std::string_view kGameModelEndSessionIsolatedDocument = R"gql(mutation GameModelEndSession($input: EndSessionInput!) {
@@ -7412,6 +7416,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelEndSessionOperationName = "GameModelEndSession";
 inline constexpr std::string_view kGameModelSetSessionTurnIsolatedDocument = R"gql(mutation GameModelSetSessionTurn($input: SetSessionTurnInput!) {
@@ -7437,6 +7442,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelSetSessionTurnOperationName = "GameModelSetSessionTurn";
 inline constexpr std::string_view kGameModelCreateContainerIsolatedDocument = R"gql(mutation GameModelCreateContainer($input: CreateContainerInput!) {
@@ -7652,6 +7658,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelSessionOperationName = "GameModelSession";
 inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String, $admission: String, $hostUserId: BigInt, $limit: Int) {
@@ -7683,6 +7690,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 })gql";
 inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSessions";
 inline constexpr std::string_view kGameModelSessionSnapshotIsolatedDocument = R"gql(query GameModelSessionSnapshot($appId: BigInt!, $sessionId: String!) {
@@ -7714,6 +7722,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 }
 
 fragment GmSessionParticipantFields on GmSessionParticipant {
@@ -7783,6 +7792,7 @@ fragment GmSessionFields on GmSession {
   endedAt
   endReason
   createdAt
+  presence
 }
 
 fragment GmSessionParticipantFields on GmSessionParticipant {

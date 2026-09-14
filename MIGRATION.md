@@ -55,19 +55,31 @@ session.
   `SESSION_NOT_PARTICIPANT` (the caller is not joined),
   `SESSION_TARGET_NOT_PARTICIPANT` (the user named to `transferSessionHost`
   is not joined), `SESSION_INCARNATION_STALE`, `SESSION_HOST_TERM_STALE`.
-- **`kit::MatchesKit::create` creates its session with `presence = "none"`.**
-  A kit match is GraphQL plus channel pings; its uuid is only the
-  channel-message sender id and never spawns in Buddy, so under the default
-  mode every player would be expired after the grace window. Players leave a
-  match by `leave`, a match ends by `end`, an emptied session is abandoned by
-  the empty timeout. Otherwise the kit is unchanged: capacity still lives in
-  `MatchMeta` and join does not bind an actor. Moving it onto session
-  capacity / admission / host is a later, separate change.
+- **`kit::MatchesKit` creates its session with `presence = "none"`, and now
+  leaves and ends it.** A kit match is GraphQL plus channel pings; its uuid is
+  only the channel-message sender id and never spawns in Buddy, so under the
+  default mode every player would be expired after the grace window. Because
+  nothing expires anybody, the kit owns the roster's exits: new
+  **`leave(match, incarnation = nullopt)`** calls `leaveSession` with the
+  incarnation the kit remembered from `create()` / `join()` on this instance
+  (or the one you pass; `std::invalid_argument` when neither is known) and
+  leaves the match channel; **`finish()` now ends the backing session**
+  (`endSession`, reason `completed`) after a successful `end_match`, so the
+  roster is cleared and the session's events become eligible for retention
+  (an already-ended session is tolerated; any other refusal propagates). An
+  emptied session that was never finished is abandoned by the empty timeout.
+  Otherwise the kit is unchanged: capacity still lives in `MatchMeta` and
+  join does not bind an actor. Moving it onto session capacity / admission /
+  host is a later, separate change.
 - **Schema scope.** `schema.gql` is synced from the cks-game-api PR #319
   branch with the third-party hosting surface (ck-api v2.1.0; CrowdyJS 17.2
   `client.hosting`) filtered out: CrowdyCPP does not wrap hosting yet and this
-  release does not pretend to. The hosting port is its own release and will
-  re-sync the full SDL.
+  release does not pretend to. **Whoever tags `dev/v0.39.0`:** the pre-tag
+  re-sync from the published SDL pulls the hosting surface back in, and
+  `check:parity --strict` will refuse until those items are classified --
+  either ported (the hosting release) or waived with a reviewed
+  `SCHEMA_BASELINE` entry. That decision is made at tag time, not deferred
+  past it.
 
 No removals.
 

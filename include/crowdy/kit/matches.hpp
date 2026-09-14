@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 #include "crowdy/core/uuid.hpp"
@@ -532,12 +533,13 @@ class MatchesKit {
     // A kit match talks GraphQL and channel pings; its uuid is only the
     // channel-message sender id and never a replicated actor. Under the default
     // presence 'actor' the server would expire every player after the join
-    // grace window, so the roster is judged by nothing: players leave by
-    // leave(), the match ends by end(), an emptied session is abandoned by the
-    // empty timeout.
+    // grace window, so the roster is judged by nothing: players leave with
+    // leave(), finish() ends the session, an emptied session is abandoned by
+    // the empty timeout.
     sessionInput["presence"] = "none";
     Json session = gameModel_.createSession(sessionInput);
     const std::string sessionId = session["sessionId"].asString();
+    incarnations_[sessionId] = 1;  // a creator's own row starts at 1
 
     JVal channelInput;
     channelInput["appId"] = appId_;
@@ -586,13 +588,50 @@ class MatchesKit {
   }
 
   /// Join a match: session participation + the notification channel.
+  /// Join a match: session participation + the notification channel. A rejoin
+  /// (you are already in) returns your row with incarnation + 1. The
+  /// incarnation is remembered on this kit instance for leave().
   Json join(const KitMatch& match) {
     JVal input;
     input["appId"] = appId_;
     input["sessionId"] = match.sessionId;
     Json participant = gameModel_.joinSession(input);
+    incarnations_[match.sessionId] = participant["incarnation"].asInt64();
     if (match.channelId != "0" && !match.channelId.empty()) {
       requireChannels().join(match.channelId);
+    }
+    return participant;
+  }
+
+  /// Leave a match: session departure + the notification channel. The server
+  /// requires the incarnation join() returned to THIS client, so a superseded
+  /// client can never remove the one that took over; pass it, or let the kit
+  /// use the one it remembered from create() / join() on this instance. A kit
+  /// session is presence 'none', so this and finish() are the roster's only
+  /// exits. Throws std::invalid_argument when no incarnation is known and none
+  /// was passed; CrowdyGraphQLError SESSION_INCARNATION_STALE /
+  /// SESSION_NOT_PARTICIPANT / NOT_FOUND from the server.
+  Json leave(const KitMatch& match, std::optional<std::int64_t> incarnation = std::nullopt) {
+    std::int64_t known = 0;
+    if (incarnation) {
+      known = *incarnation;
+    } else {
+      auto it = incarnations_.find(match.sessionId);
+      if (it == incarnations_.end()) {
+        throw std::invalid_argument(
+            "MatchesKit::leave needs the incarnation join() returned — pass it, or join "
+            "through this kit instance");
+      }
+      known = it->second;
+    }
+    JVal input;
+    input["appId"] = appId_;
+    input["sessionId"] = match.sessionId;
+    input["incarnation"] = known;
+    Json participant = gameModel_.leaveSession(input);
+    incarnations_.erase(match.sessionId);
+    if (match.channelId != "0" && !match.channelId.empty()) {
+      requireChannels().leave(match.channelId);
     }
     return participant;
   }
@@ -705,12 +744,31 @@ class MatchesKit {
   /// Finish the match and record the winner (creator or host). Also drops the
   /// pending turn deadline on a turnTimer match — end_match already strands it,
   /// so this just saves the pointless fire and channel ping.
+  ///
+  /// When end_match succeeds the backing session is ended too
+  /// (gameModelEndSession, reason "completed"): every participant is marked
+  /// left, admission closes, and the session's events become eligible for
+  /// retention. The game-authoritative step runs first; a session that is
+  /// already ended (a replayed finish) is left as it is. Any other refusal of
+  /// the session end propagates after the match itself has been finished.
   KitInvokeResult finish(const KitMatch& match, std::int64_t winnerUserId) {
     JVal params;
     params["winner_user_id"] = winnerUserId;
     KitInvokeResult result = kitInvoke(gameModel_, appId_, names_.endFn, match.metaId,
                                        params, match.sessionId);
     if (result.success && match.turnSeq) cancelTurnDeadline(match);
+    if (result.success) {
+      JVal endInput;
+      endInput["appId"] = appId_;
+      endInput["sessionId"] = match.sessionId;
+      endInput["reason"] = "completed";
+      try {
+        gameModel_.endSession(endInput);
+      } catch (const graphql::CrowdyGraphQLError& e) {
+        if (e.code() != "SESSION_ENDED") throw;
+      }
+      incarnations_.erase(match.sessionId);
+    }
     return result;
   }
 
@@ -796,6 +854,9 @@ class MatchesKit {
   std::string engineModuleName_;
   MatchesNames names_;
   core::ActorUuid actorUuid_;
+  /// This client's participant incarnation per session, from create() (1) and
+  /// join(), so leave() can send what the server requires.
+  std::unordered_map<std::string, std::int64_t> incarnations_;
 };
 
 }  // namespace crowdy::kit

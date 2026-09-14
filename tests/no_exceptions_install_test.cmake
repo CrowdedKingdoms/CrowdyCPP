@@ -30,6 +30,8 @@ set(_throwing_studio_headers
     controller.hpp
     diagnostics.hpp
     editor.hpp
+    github.hpp
+    github_layout.hpp
     integration.hpp
     models.hpp
     runtime.hpp)
@@ -39,6 +41,10 @@ foreach(_header IN LISTS _throwing_studio_headers)
             "installed no-exception package retained throwing ${_header}")
   endif()
 endforeach()
+if(EXISTS "${_prefix}/include/crowdy/domains/crowdy_studio_github.hpp")
+  message(FATAL_ERROR
+          "installed no-exception package retained throwing crowdy_studio_github.hpp")
+endif()
 
 file(MAKE_DIRECTORY "${_source}")
 set(_consumer_cmake [=[

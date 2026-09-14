@@ -359,6 +359,7 @@ if(CROWDY_NO_EXCEPTIONS)
           PATTERN "kit" EXCLUDE
           PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE
+          PATTERN "crowdy_studio_github.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
           PATTERN "diagnostics.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE

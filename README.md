@@ -60,6 +60,13 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.39.0: schema synced to ck-api v2.3 (Studio GitHub `repositorySelection`; Crowdy
+Games hosting roots), parity CrowdyJS 17.3.0.** The Crowdy Games hosting surface
+(CrowdyJS 17.2.0: `client.hosting`, `EmbeddedHost`, the `*HostedGame*` /
+`*GamePublish*` roots) and the Studio card's "Create repository on GitHub"
+(17.3.0) are browser exclusions — a native client has no browser bundle to
+publish and no tab to open. Schema sync and codegen only; no native API change.
+
 **v0.38.0: bound GitHub projects save as commits, parity CrowdyJS 17.1.0.**
 `CrowdyStudioAPI::saveProject` commits each changed file on a `GITHUB`
 project (`crowdyStudioGitHubPutFile` / `DeleteFile` under `expectedCommitSha`)

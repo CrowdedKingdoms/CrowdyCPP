@@ -73,6 +73,34 @@ const SCHEMA_BASELINE = {
 };
 
 const ROOT_CLASSIFICATIONS = {
+  // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games.
+  // A publish uploads a BROWSER game bundle (a Vite build served under the
+  // crowdy.games web host) with an identity session holding manage_apps; the
+  // catalog reads describe those hosted web games. A native client has no
+  // bundle to publish and nothing to browse for itself, so the surface is a
+  // browser exclusion here rather than a portable gap. Classified during the
+  // 17.3.0 re-pin (2026-09-14) because the hosting train left CrowdyCPP at
+  // 17.1.0; the hosting owner may overrule.
+  ...classifyNames(
+    'Mutation',
+    [
+      'abandonGamePublish',
+      'beginGamePublish',
+      'claimGameHosting',
+      'completeGamePublish',
+      'setHostedGameEnabled',
+      'setHostedGameListing',
+      'takeDownHostedGame',
+    ],
+    CATEGORY.BROWSER,
+    'publishes and administers browser game bundles on the Crowdy Games web host; a native client has no bundle to publish',
+  ),
+  ...classifyNames(
+    'Query',
+    ['allHostedGames', 'hostedGame', 'hostedGamePublishes', 'hostedGames', 'myHostedGames'],
+    CATEGORY.BROWSER,
+    'catalog of browser games hosted on Crowdy Games; a native client is not one of them',
+  ),
   // The operator-only billing surface, added to the API across cycles eighteen
   // to twenty and picked up here when the pin moved to CrowdyJS 15.0.0.
   //
@@ -203,6 +231,42 @@ const ROOT_CLASSIFICATIONS = {
 
 
 const METHOD_CLASSIFICATIONS = {
+  // CrowdyJS 17.2.0 hosting + shell bridge (see the root classifications).
+  ...classifyNames(
+    'HostingAPI',
+    [
+      'abandonPublish',
+      'all',
+      'beginPublish',
+      'claim',
+      'completePublish',
+      'game',
+      'listed',
+      'mine',
+      'publishes',
+      'setEnabled',
+      'setListing',
+      'takeDown',
+    ],
+    CATEGORY.BROWSER,
+    'wrapper over the Crowdy Games hosting roots (browser bundles); no native client publishes one',
+  ),
+  ...classifyNames(
+    'EmbeddedHost',
+    ['close', 'current', 'hello', 'isFramed', 'navigate'],
+    CATEGORY.BROWSER,
+    'iframe/postMessage bridge to the first-party shell page; there is no frame around a native client',
+  ),
+  'PortalAPI.embeddedHostInfo': classification(
+    CATEGORY.BROWSER,
+    'answers whether the page runs inside the Crowdy Games shell iframe; a native client never does',
+  ),
+  // CrowdyJS 17.3.0: the GitHub card's "Create repository on GitHub" opens a
+  // browser tab on github.com/new prefilled; same card, same exclusion.
+  'CrowdyStudioController.createGitHubRepository': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; opens a browser tab on GitHub, which no native host mounts',
+  ),
   'CrowdyStudioController.bindGitHubRepo': classification(
     CATEGORY.BROWSER,
     'Studio GitHub settings-pane card; native host does not mount that card',

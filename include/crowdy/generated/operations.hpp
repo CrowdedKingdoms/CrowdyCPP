@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: 8af0b37413ccd19f75dfdc6a1688970f1cd9cad5d136e9b5a7d563936608eac4
-// operations sha256: 331d7386d4472958c60e238354b662e67d46abaf0af5429a123549c38bbd0ffb
+// operations sha256: 9abdeb3797c5bcd2971fa505d6ef81f094df11c20c0ab834e5012598fe07d6aa
 
 #pragma once
 
@@ -3819,6 +3819,11 @@ query CrowdyStudioProjects(
     revision
     archived
     updatedAt
+    source
+    githubOwner
+    githubRepo
+    githubBranch
+    githubSha
   }
 }
 
@@ -3949,6 +3954,11 @@ inline constexpr std::string_view kCrowdyStudioProjectsIsolatedDocument = R"gql(
     revision
     archived
     updatedAt
+    source
+    githubOwner
+    githubRepo
+    githubBranch
+    githubSha
   }
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectsOperationName = "CrowdyStudioProjects";
@@ -4433,6 +4443,251 @@ fragment CrowdyStudioProjectFields on CrowdyStudioProject {
 })gql";
 inline constexpr std::string_view kCrowdyStudioProjectCreateFromModulesOperationName = "CrowdyStudioProjectCreateFromModules";
 
+/// crowdyStudio/CrowdyStudioGitHub.graphql
+inline constexpr std::string_view kCrowdyStudioGitHubDocument = R"gql(fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+}
+
+query CrowdyStudioGitHubStatus($appId: BigInt, $projectId: String) {
+  crowdyStudioGitHubStatus(appId: $appId, projectId: $projectId) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+mutation CrowdyStudioGitHubConnectUrl {
+  crowdyStudioGitHubConnectUrl {
+    connectUrl
+  }
+}
+
+query CrowdyStudioGitHubRepos {
+  crowdyStudioGitHubRepos {
+    owner
+    name
+    fullName
+    private
+    defaultBranch
+  }
+}
+
+mutation CrowdyStudioGitHubBind($input: BindCrowdyStudioGitHubInput!) {
+  crowdyStudioGitHubBind(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+mutation CrowdyStudioGitHubUnbind($input: CrowdyStudioGitHubProjectInput!) {
+  crowdyStudioGitHubUnbind(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+mutation CrowdyStudioGitHubRefresh($input: CrowdyStudioGitHubProjectInput!) {
+  crowdyStudioGitHubRefresh(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+query CrowdyStudioGitHubLayout($input: CrowdyStudioGitHubAtCommitInput!) {
+  crowdyStudioGitHubLayout(input: $input) {
+    commitSha
+    server
+    client
+    assets
+    fromFile
+  }
+}
+
+query CrowdyStudioGitHubTree($input: CrowdyStudioGitHubAtCommitInput!) {
+  crowdyStudioGitHubTree(input: $input) {
+    commitSha
+    entries {
+      path
+      type
+      sha
+      size
+    }
+  }
+}
+
+query CrowdyStudioGitHubFile($input: CrowdyStudioGitHubFileInput!) {
+  crowdyStudioGitHubFile(input: $input) {
+    path
+    content
+    sha
+    commitSha
+  }
+}
+
+mutation CrowdyStudioGitHubPutFile($input: CrowdyStudioGitHubPutFileInput!) {
+  crowdyStudioGitHubPutFile(input: $input) {
+    path
+    content
+    sha
+    commitSha
+  }
+}
+
+mutation CrowdyStudioGitHubDeleteFile($input: CrowdyStudioGitHubDeleteFileInput!) {
+  crowdyStudioGitHubDeleteFile(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubStatusIsolatedDocument = R"gql(query CrowdyStudioGitHubStatus($appId: BigInt, $projectId: String) {
+  crowdyStudioGitHubStatus(appId: $appId, projectId: $projectId) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubStatusOperationName = "CrowdyStudioGitHubStatus";
+inline constexpr std::string_view kCrowdyStudioGitHubConnectUrlIsolatedDocument = R"gql(mutation CrowdyStudioGitHubConnectUrl {
+  crowdyStudioGitHubConnectUrl {
+    connectUrl
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubConnectUrlOperationName = "CrowdyStudioGitHubConnectUrl";
+inline constexpr std::string_view kCrowdyStudioGitHubReposIsolatedDocument = R"gql(query CrowdyStudioGitHubRepos {
+  crowdyStudioGitHubRepos {
+    owner
+    name
+    fullName
+    private
+    defaultBranch
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubReposOperationName = "CrowdyStudioGitHubRepos";
+inline constexpr std::string_view kCrowdyStudioGitHubBindIsolatedDocument = R"gql(mutation CrowdyStudioGitHubBind($input: BindCrowdyStudioGitHubInput!) {
+  crowdyStudioGitHubBind(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubBindOperationName = "CrowdyStudioGitHubBind";
+inline constexpr std::string_view kCrowdyStudioGitHubUnbindIsolatedDocument = R"gql(mutation CrowdyStudioGitHubUnbind($input: CrowdyStudioGitHubProjectInput!) {
+  crowdyStudioGitHubUnbind(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubUnbindOperationName = "CrowdyStudioGitHubUnbind";
+inline constexpr std::string_view kCrowdyStudioGitHubRefreshIsolatedDocument = R"gql(mutation CrowdyStudioGitHubRefresh($input: CrowdyStudioGitHubProjectInput!) {
+  crowdyStudioGitHubRefresh(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubRefreshOperationName = "CrowdyStudioGitHubRefresh";
+inline constexpr std::string_view kCrowdyStudioGitHubLayoutIsolatedDocument = R"gql(query CrowdyStudioGitHubLayout($input: CrowdyStudioGitHubAtCommitInput!) {
+  crowdyStudioGitHubLayout(input: $input) {
+    commitSha
+    server
+    client
+    assets
+    fromFile
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubLayoutOperationName = "CrowdyStudioGitHubLayout";
+inline constexpr std::string_view kCrowdyStudioGitHubTreeIsolatedDocument = R"gql(query CrowdyStudioGitHubTree($input: CrowdyStudioGitHubAtCommitInput!) {
+  crowdyStudioGitHubTree(input: $input) {
+    commitSha
+    entries {
+      path
+      type
+      sha
+      size
+    }
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubTreeOperationName = "CrowdyStudioGitHubTree";
+inline constexpr std::string_view kCrowdyStudioGitHubFileIsolatedDocument = R"gql(query CrowdyStudioGitHubFile($input: CrowdyStudioGitHubFileInput!) {
+  crowdyStudioGitHubFile(input: $input) {
+    path
+    content
+    sha
+    commitSha
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubFileOperationName = "CrowdyStudioGitHubFile";
+inline constexpr std::string_view kCrowdyStudioGitHubPutFileIsolatedDocument = R"gql(mutation CrowdyStudioGitHubPutFile($input: CrowdyStudioGitHubPutFileInput!) {
+  crowdyStudioGitHubPutFile(input: $input) {
+    path
+    content
+    sha
+    commitSha
+  }
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubPutFileOperationName = "CrowdyStudioGitHubPutFile";
+inline constexpr std::string_view kCrowdyStudioGitHubDeleteFileIsolatedDocument = R"gql(mutation CrowdyStudioGitHubDeleteFile($input: CrowdyStudioGitHubDeleteFileInput!) {
+  crowdyStudioGitHubDeleteFile(input: $input) {
+    ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+fragment CrowdyStudioGitHubStatusFields on CrowdyStudioGitHubStatus {
+  configured
+  connected
+  accountLogin
+  accountType
+  owner
+  repo
+  branch
+  githubSha
+  installUrl
+})gql";
+inline constexpr std::string_view kCrowdyStudioGitHubDeleteFileOperationName = "CrowdyStudioGitHubDeleteFile";
+
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyStudioProjects") return kCrowdyStudioProjectsIsolatedDocument;
   if (operationName == "CrowdyStudioProject") return kCrowdyStudioProjectIsolatedDocument;
@@ -4448,6 +4703,17 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyStudioProjectImportFile") return kCrowdyStudioProjectImportFileIsolatedDocument;
   if (operationName == "CrowdyStudioCommonPublish") return kCrowdyStudioCommonPublishIsolatedDocument;
   if (operationName == "CrowdyStudioProjectCreateFromModules") return kCrowdyStudioProjectCreateFromModulesIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubStatus") return kCrowdyStudioGitHubStatusIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubConnectUrl") return kCrowdyStudioGitHubConnectUrlIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubRepos") return kCrowdyStudioGitHubReposIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubBind") return kCrowdyStudioGitHubBindIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubUnbind") return kCrowdyStudioGitHubUnbindIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubRefresh") return kCrowdyStudioGitHubRefreshIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubLayout") return kCrowdyStudioGitHubLayoutIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubTree") return kCrowdyStudioGitHubTreeIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubFile") return kCrowdyStudioGitHubFileIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubPutFile") return kCrowdyStudioGitHubPutFileIsolatedDocument;
+  if (operationName == "CrowdyStudioGitHubDeleteFile") return kCrowdyStudioGitHubDeleteFileIsolatedDocument;
   return {};
 }
 
@@ -10089,6 +10355,7 @@ mutation PlayerComputeSetSwitch(
   $disabled: Boolean!
   $scopeRef: BigInt
   $reason: String
+  $listingRef: String
 ) {
   playerComputeSetSwitch(
     appId: $appId
@@ -10096,6 +10363,7 @@ mutation PlayerComputeSetSwitch(
     disabled: $disabled
     scopeRef: $scopeRef
     reason: $reason
+    listingRef: $listingRef
   )
 }
 
@@ -10105,6 +10373,7 @@ query PlayerComputeSwitches($appId: BigInt!) {
     appId
     scope
     scopeRef
+    listingRef
     reason
     disabledAt
   }
@@ -10326,13 +10595,14 @@ fragment PlayerWasmModuleRunFields on PlayerWasmModuleRun {
   errorMessage
 })gql";
 inline constexpr std::string_view kPlayerComputeLogsOperationName = "PlayerComputeLogs";
-inline constexpr std::string_view kPlayerComputeSetSwitchIsolatedDocument = R"gql(mutation PlayerComputeSetSwitch($appId: BigInt!, $scope: String!, $disabled: Boolean!, $scopeRef: BigInt, $reason: String) {
+inline constexpr std::string_view kPlayerComputeSetSwitchIsolatedDocument = R"gql(mutation PlayerComputeSetSwitch($appId: BigInt!, $scope: String!, $disabled: Boolean!, $scopeRef: BigInt, $reason: String, $listingRef: String) {
   playerComputeSetSwitch(
     appId: $appId
     scope: $scope
     disabled: $disabled
     scopeRef: $scopeRef
     reason: $reason
+    listingRef: $listingRef
   )
 })gql";
 inline constexpr std::string_view kPlayerComputeSetSwitchOperationName = "PlayerComputeSetSwitch";
@@ -10342,6 +10612,7 @@ inline constexpr std::string_view kPlayerComputeSwitchesIsolatedDocument = R"gql
     appId
     scope
     scopeRef
+    listingRef
     reason
     disabledAt
   }

@@ -178,12 +178,15 @@ void testPlayerUsageAndSwitchesUseTheOneOrigin() {
   graphql::JVal opts;
   opts["scopeRef"] = "7";
   opts["reason"] = "drill";
+  opts["listingRef"] = "listing-1";
   transport->response = {200, R"({"data":{"playerComputeSetSwitch":true}})"};
-  auto thrown = client.playerCompute().setSwitch("1", "player", true, opts);
+  auto thrown = client.playerCompute().setSwitch("1", "listing", true, opts);
   CHECK(thrown.asBool());
   CHECK(transport->last.body.find("PlayerComputeSetSwitch") !=
         std::string::npos);
-  CHECK(transport->last.body.find(R"("scope":"player")") != std::string::npos);
+  CHECK(transport->last.body.find(R"("scope":"listing")") != std::string::npos);
+  CHECK(transport->last.body.find(R"("listingRef":"listing-1")") !=
+        std::string::npos);
 
   transport->response = {
       200,

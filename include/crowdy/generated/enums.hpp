@@ -2,7 +2,7 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 5c4aa129e7596c4bda3052ce10452b6544f794426796580ada3ecc0191464543
+// schema.gql sha256: 1312500c6e949e9bf3747431d1b48e646b2e66d58a2af9bde0c69a8b3ac11722
 // operations sha256: f60049098f31d65813ba729116151394ca3890e96599f572cb375c0b70db8c5f
 
 #pragma once
@@ -1029,6 +1029,56 @@ inline constexpr std::string_view toString(GridTenure v) {
 inline std::optional<GridTenure> gridTenureFromString(std::string_view s) {
   if (s == "OWNED") return GridTenure::OWNED;
   if (s == "RENTED") return GridTenure::RENTED;
+  return std::nullopt;
+}
+
+enum class HostedGamePublishState {
+  STAGING,
+  LIVE,
+  SUPERSEDED,
+  FAILED,
+  ABANDONED,
+};
+
+inline constexpr std::string_view toString(HostedGamePublishState v) {
+  switch (v) {
+    case HostedGamePublishState::STAGING: return "STAGING";
+    case HostedGamePublishState::LIVE: return "LIVE";
+    case HostedGamePublishState::SUPERSEDED: return "SUPERSEDED";
+    case HostedGamePublishState::FAILED: return "FAILED";
+    case HostedGamePublishState::ABANDONED: return "ABANDONED";
+  }
+  return "";
+}
+
+inline std::optional<HostedGamePublishState> hostedGamePublishStateFromString(std::string_view s) {
+  if (s == "STAGING") return HostedGamePublishState::STAGING;
+  if (s == "LIVE") return HostedGamePublishState::LIVE;
+  if (s == "SUPERSEDED") return HostedGamePublishState::SUPERSEDED;
+  if (s == "FAILED") return HostedGamePublishState::FAILED;
+  if (s == "ABANDONED") return HostedGamePublishState::ABANDONED;
+  return std::nullopt;
+}
+
+enum class HostedGameStatus {
+  LIVE,
+  DISABLED,
+  TAKEN_DOWN,
+};
+
+inline constexpr std::string_view toString(HostedGameStatus v) {
+  switch (v) {
+    case HostedGameStatus::LIVE: return "LIVE";
+    case HostedGameStatus::DISABLED: return "DISABLED";
+    case HostedGameStatus::TAKEN_DOWN: return "TAKEN_DOWN";
+  }
+  return "";
+}
+
+inline std::optional<HostedGameStatus> hostedGameStatusFromString(std::string_view s) {
+  if (s == "LIVE") return HostedGameStatus::LIVE;
+  if (s == "DISABLED") return HostedGameStatus::DISABLED;
+  if (s == "TAKEN_DOWN") return HostedGameStatus::TAKEN_DOWN;
   return std::nullopt;
 }
 

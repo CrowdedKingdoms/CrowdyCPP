@@ -437,6 +437,18 @@ inline bool turnExpired(const KitMatch& match) {
 }
 
 /// One row of the match standings.
+/// MatchesKit::finish's result: the end_match invoke result plus what happened
+/// to the backing session afterwards. `sessionEnd` is "ended" (the kit ended
+/// it), "already_ended" (a replayed finish; it was already ended), or
+/// "forbidden" (the caller passed end_match -- creator or the app's elected
+/// host -- but is neither the session host, the app's elected host nor an app
+/// admin: the creator who already left, typically; the match is finished, the
+/// session is still active, and an app admin can endSession it). Empty when
+/// end_match itself was refused (`success == false`).
+struct KitMatchFinishResult : KitInvokeResult {
+  std::string sessionEnd;
+};
+
 struct KitMatchScore {
   std::string containerId;
   std::string ownerUserId;  ///< empty when unowned
@@ -748,14 +760,19 @@ class MatchesKit {
   /// When end_match succeeds the backing session is ended too
   /// (gameModelEndSession, reason "completed"): every participant is marked
   /// left, admission closes, and the session's events become eligible for
-  /// retention. The game-authoritative step runs first; a session that is
-  /// already ended (a replayed finish) is left as it is. Any other refusal of
-  /// the session end propagates after the match itself has been finished.
-  KitInvokeResult finish(const KitMatch& match, std::int64_t winnerUserId) {
+  /// retention. The game-authoritative step runs first, so the match is
+  /// decided whatever happens next; `sessionEnd` on the result says what
+  /// happened to the session (see KitMatchFinishResult): "ended", or
+  /// "already_ended" for a replayed finish, or "forbidden" when the caller
+  /// passed end_match but is not admitted to the session end (the creator who
+  /// already left) -- the match is finished, the session is not, and nothing
+  /// is thrown. Any other refusal of the session end propagates.
+  KitMatchFinishResult finish(const KitMatch& match, std::int64_t winnerUserId) {
     JVal params;
     params["winner_user_id"] = winnerUserId;
-    KitInvokeResult result = kitInvoke(gameModel_, appId_, names_.endFn, match.metaId,
-                                       params, match.sessionId);
+    KitMatchFinishResult result;
+    static_cast<KitInvokeResult&>(result) = kitInvoke(
+        gameModel_, appId_, names_.endFn, match.metaId, params, match.sessionId);
     if (result.success && match.turnSeq) cancelTurnDeadline(match);
     if (result.success) {
       JVal endInput;
@@ -764,10 +781,17 @@ class MatchesKit {
       endInput["reason"] = "completed";
       try {
         gameModel_.endSession(endInput);
+        result.sessionEnd = "ended";
       } catch (const graphql::CrowdyGraphQLError& e) {
-        if (e.code() != "SESSION_ENDED") throw;
+        if (e.code() == "SESSION_ENDED") {
+          result.sessionEnd = "already_ended";
+        } else if (e.code() == "FORBIDDEN") {
+          result.sessionEnd = "forbidden";
+        } else {
+          throw;
+        }
       }
-      incarnations_.erase(match.sessionId);
+      if (result.sessionEnd != "forbidden") incarnations_.erase(match.sessionId);
     }
     return result;
   }

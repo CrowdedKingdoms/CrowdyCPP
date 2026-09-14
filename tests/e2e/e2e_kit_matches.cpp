@@ -223,6 +223,7 @@ int main() {
       auto quietFinished =
           kitA.matches().finish(quiet, std::strtoll(a.userId.c_str(), nullptr, 10));
       E2E_CHECK(quietFinished.success);
+      E2E_CHECK(quietFinished.sessionEnd == "ended");
       E2E_CHECK(kitA.matches().get(quiet.metaId).state == "finished");
       graphql::Json quietEnded = a.game->gameModel().session(cfg.appId, quiet.sessionId);
       E2E_CHECK(quietEnded["status"].asString() == "completed");

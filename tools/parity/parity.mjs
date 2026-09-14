@@ -71,13 +71,13 @@ const SCHEMA_BASELINE = {
   // the field a caller branches on. CrowdyJS's snapshot still documents it as
   // the engine's error text, so the signatures disagree in both directions.
 
-  // THE SESSION SYSTEM (CrowdyCPP 0.39.0, cks-game-api PR #319). This snapshot
-  // was synced from that API branch; the pinned CrowdyJS 17.1.0 predates the
-  // session system entirely. Every difference below is surface CrowdyCPP
+  // THE SESSION SYSTEM (CrowdyCPP 0.40.0, cks-game-api PR #319). This snapshot
+  // was synced from that API branch on top of v2.3.0; the pinned CrowdyJS
+  // 17.3.0 (schema v2.3.0) predates the session system entirely. Every difference below is surface CrowdyCPP
   // IMPLEMENTS (GameModelAPI::leaveSession / setSessionAdmission /
   // transferSessionHost / endSession / sessionSnapshot / sessionEvents /
   // sessionInspect / sessionChanged, and the widened GmSession / participant
-  // selections), so it is covered rather than waived. CrowdyJS 17.3.0 carries
+  // selections), so it is covered rather than waived. CrowdyJS 17.4.0 carries
   // the same operations; the moment the pin moves there every one of these
   // entries goes stale and the gate says so.
   ...classifySchema(
@@ -117,7 +117,7 @@ const SCHEMA_BASELINE = {
       'type:Subscription.gameModelSessionChanged',
     ],
     CATEGORY.COVERED,
-    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.1.0's snapshot predates it",
+    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.3.0's snapshot predates it",
     'member-only',
     'CrowdyCPP',
   ),
@@ -133,7 +133,7 @@ const SCHEMA_BASELINE = {
       'type:GmSessionSnapshot',
     ],
     CATEGORY.COVERED,
-    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.1.0's snapshot predates it",
+    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.3.0's snapshot predates it",
     'definition-only',
     'CrowdyCPP',
   ),
@@ -148,24 +148,7 @@ const SCHEMA_BASELINE = {
       'type:Query.gameModelSessions',
     ],
     CATEGORY.COVERED,
-    "the session system widened these (cks-game-api PR #319); CrowdyJS 17.1.0's snapshot predates it",
-    'member-signature',
-    'both',
-  ),
-  // Picked up by the same sync: ck-api PR #313 described the billing ledger's
-  // query/mutation arguments. Descriptions only; the surface is the
-  // operator-only ledger already waived in ROOT_CLASSIFICATIONS below.
-  ...classifySchema(
-    [
-      'type:Mutation.cpBillingCreditOverbill',
-      'type:Query.billingCharges',
-      'type:Query.billingWriteOffs',
-      'type:Query.cpBillingInvariantRuns',
-      'type:Query.cpBillingReconciliations',
-      'type:Query.cpBillingWriteOffs',
-    ],
-    CATEGORY.BROWSER,
-    "argument descriptions added by ck-api PR #313; operator-only ledger surface, not a game-client surface",
+    "the session system widened these (cks-game-api PR #319); CrowdyJS 17.3.0's snapshot predates it",
     'member-signature',
     'both',
   ),

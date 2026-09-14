@@ -1,10 +1,11 @@
 # CrowdyCPP migration notes
 
-## 0.39.0 the game-model session system
+## 0.40.0 the game-model session system
 
-Additive. Tracks cks-game-api PR #319. Every existing `GameModelAPI` session
-method keeps its signature; the SDK adds what the server now knows about a
-session.
+Additive. Tracks cks-game-api PR #319 on top of ck-api v2.3.0. Every existing
+`GameModelAPI` session method keeps its signature; the SDK adds what the server
+now knows about a session. Numbered 0.40.0 because #100 took 0.39.0 (schema
+sync to v2.3.0, parity CrowdyJS 17.3.0) while this was open.
 
 ### What is new
 
@@ -65,21 +66,23 @@ session.
   (or the one you pass; `std::invalid_argument` when neither is known) and
   leaves the match channel; **`finish()` now ends the backing session**
   (`endSession`, reason `completed`) after a successful `end_match`, so the
-  roster is cleared and the session's events become eligible for retention
-  (an already-ended session is tolerated; any other refusal propagates). An
-  emptied session that was never finished is abandoned by the empty timeout.
+  roster is cleared and the session's events become eligible for retention.
+  The result is a `KitMatchFinishResult` whose `sessionEnd` says what happened
+  to the session: `"ended"`, `"already_ended"` (a replayed finish), or
+  `"forbidden"` (`end_match` admitted the caller but the session did not -- the
+  creator who already left -- so the match is finished, the session is not,
+  and nothing is thrown); any other refusal propagates. Host actions on the
+  server now also admit the app's elected host, so a host who is not the
+  creator is not refused. An emptied session that was never finished is
+  abandoned by the empty timeout.
   Otherwise the kit is unchanged: capacity still lives in `MatchMeta` and
   join does not bind an actor. Moving it onto session capacity / admission /
   host is a later, separate change.
-- **Schema scope.** `schema.gql` is synced from the cks-game-api PR #319
-  branch with the third-party hosting surface (ck-api v2.1.0; CrowdyJS 17.2
-  `client.hosting`) filtered out: CrowdyCPP does not wrap hosting yet and this
-  release does not pretend to. **Whoever tags `dev/v0.39.0`:** the pre-tag
-  re-sync from the published SDL pulls the hosting surface back in, and
-  `check:parity --strict` will refuse until those items are classified --
-  either ported (the hosting release) or waived with a reviewed
-  `SCHEMA_BASELINE` entry. That decision is made at tag time, not deferred
-  past it.
+- **Schema and parity.** `schema.gql` is synced from the cks-game-api PR #319
+  branch rebased on `dev`: the v2.3.0 SDL plus the session delta. The parity
+  gate stays pinned to CrowdyJS 17.3.0 (as on `dev`); the session surface is
+  CrowdyCPP-ahead and classified `covered-extension` until the pin moves to
+  CrowdyJS 17.4.0, at which point those entries go stale and the gate says so.
 
 No removals.
 

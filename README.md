@@ -60,6 +60,17 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.40.0: the game-model session system.** `GameModelAPI` gains
+`leaveSession`, `setSessionAdmission`, `transferSessionHost`, `endSession`,
+`sessionSnapshot`, `sessionEvents`, `sessionInspect` and the typed
+`sessionChanged` GraphQL-WS stream; `GmSession` carries admission, capacity,
+host / host term, revision and end fields, and the join result is the roster row
+(`state`, `incarnation`, `actorUuid`, ...). `leaveSession` REQUIRES the
+incarnation the join returned, and presence is the player's Buddy actor — see
+`MIGRATION.md`. Schema synced to cks-game-api PR #319 on top of v2.3.0; parity
+pinned to CrowdyJS 17.3.0 with the session surface classified as covered until
+the pin moves to 17.4.0.
+
 **v0.39.0: schema synced to ck-api v2.3 (Studio GitHub `repositorySelection`; Crowdy
 Games hosting roots), parity CrowdyJS 17.3.0.** The Crowdy Games hosting surface
 (CrowdyJS 17.2.0: `client.hosting`, `EmbeddedHost`, the `*HostedGame*` /

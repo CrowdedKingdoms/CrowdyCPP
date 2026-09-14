@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -157,6 +158,14 @@ class CrowdyStudioAPI final : public DomainBase,
     }
   }
 
+  /// Non-throwing twin of saveProject. A STUDIO project posts one
+  /// CrowdyStudioProjectSave on the async transport and delivers the
+  /// callback from poll(). A GITHUB project still runs the commit loop
+  /// on the caller's thread (one HTTP round trip per changed file plus
+  /// metadata) and invokes the callback before this function returns —
+  /// the same blocking contract as saveProject. A host that picked the
+  /// Async variant to keep a frame from stalling should treat a bound
+  /// save like saveProject until that path is itself async.
   void saveProjectAsync(const studio::SaveCrowdyStudioProjectInput& input,
                         ProjectCallback callback) {
     if (!baselines_.contains(input.projectId)) {
@@ -598,8 +607,12 @@ class CrowdyStudioAPI final : public DomainBase,
     const auto cached = layouts_.find(key);
     if (cached != layouts_.end()) return cached->second;
     auto layout = github_.layout(scope, commitSha);
-    if (layouts_.size() > 64) layouts_.erase(layouts_.begin());
+    if (layouts_.size() > 64) {
+      layouts_.erase(layoutOrder_.front());
+      layoutOrder_.pop_front();
+    }
     layouts_[key] = layout;
+    layoutOrder_.push_back(key);
     return layout;
   }
 
@@ -671,6 +684,7 @@ class CrowdyStudioAPI final : public DomainBase,
 
   CrowdyStudioGitHubAPI github_;
   std::unordered_map<std::string, studio::CrowdyStudioGitHubLayout> layouts_;
+  std::deque<std::string> layoutOrder_;
 
   static graphql::JVal oneInput(graphql::JVal input) {
     graphql::JVal variables;

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/graphql/http.hpp"
 #include "crowdy/studio/github_layout.hpp"
 #include "test_util.hpp"
 
@@ -28,6 +29,18 @@ class NamedTransport final : public graphql::IHttpTransport {
     requests.push_back(request);
     if (!handler) throw std::runtime_error("NamedTransport has no handler");
     return handler(request);
+  }
+};
+
+/// Bound save must stay on the sync transport today. If saveProjectAsync
+/// starts posting CrowdyStudioGitHub* through the async path, this throws
+/// and the test that documents the blocking contract must be rewritten.
+class RefusingAsyncTransport final : public graphql::IAsyncHttpTransport {
+ public:
+  void sendAsync(const graphql::HttpRequest&,
+                 std::function<void(graphql::HttpOutcome)>) override {
+    throw std::runtime_error(
+        "bound saveProjectAsync must not use the async transport");
   }
 };
 
@@ -236,6 +249,7 @@ void testGitHubTransportOperations() {
 
 struct BoundHarness {
   std::shared_ptr<NamedTransport> transport;
+  std::shared_ptr<RefusingAsyncTransport> asyncTransport;
   std::unique_ptr<CrowdyClient> client;
   std::string remoteJson;
   std::string sha = SHA_A;
@@ -244,6 +258,7 @@ struct BoundHarness {
 
   BoundHarness() {
     transport = std::make_shared<NamedTransport>();
+    asyncTransport = std::make_shared<RefusingAsyncTransport>();
     remoteJson = boundProjectJson("1", SHA_A);
     transport->handler = [this](const graphql::HttpRequest& request) {
       const auto name = operationName(request.body);
@@ -297,6 +312,7 @@ struct BoundHarness {
     ClientConfig config;
     config.httpUrl = "https://game.invalid";
     config.transport = transport;
+    config.asyncTransport = asyncTransport;
     client = std::make_unique<CrowdyClient>(std::move(config));
   }
 
@@ -380,6 +396,60 @@ void testBoundSaveCommitsEachFile() {
   }
   CHECK(deletePath == "client/src/lib.rs");
   CHECK(deleteSha == SHA_C);
+  CHECK(saved.github && saved.github->sha == harness.sha);
+}
+
+void testBoundSaveAsyncStillBlocks() {
+  BoundHarness harness;
+  const CrowdyStudioProjectScope scope{"1", "2"};
+  const auto project = harness.client->crowdyStudio().getProject(
+      scope, "11111111-1111-4111-8111-111111111111");
+  CrowdyStudioProjectMetadata metadata = project.metadata;
+  metadata.name = "Tools renamed";
+  bool called = false;
+  graphql::GraphQLOutcome outcome;
+  CrowdyStudioProject saved;
+  harness.client->crowdyStudio().saveProjectAsync(
+      {
+          project.appId,
+          "2",
+          project.projectId,
+          project.revision.id,
+          metadata,
+          {
+              [] {
+                CrowdyStudioProjectFile file;
+                file.target = CrowdyStudioTarget::Server;
+                file.path = "src/lib.rs";
+                file.content = "fn server_v2() {}";
+                return file;
+              }(),
+              [] {
+                CrowdyStudioProjectFile file;
+                file.target = CrowdyStudioTarget::Server;
+                file.path = "src/extra.rs";
+                file.content = "fn extra() {}";
+                return file;
+              }(),
+          },
+          project.sdkVersion,
+          project.abiVersion,
+          std::nullopt,
+      },
+      [&](graphql::GraphQLOutcome got, CrowdyStudioProject value) {
+        called = true;
+        outcome = std::move(got);
+        saved = std::move(value);
+      });
+  CHECK(called);
+  CHECK(outcome.ok());
+  harness.client->poll();
+  const auto names = harness.names();
+  CHECK(names.size() == 7);
+  CHECK(names[1] == "CrowdyStudioProjectSave");
+  CHECK(names[2] == "CrowdyStudioGitHubLayout");
+  CHECK(names[3] == "CrowdyStudioGitHubPutFile");
+  CHECK(names[5] == "CrowdyStudioGitHubDeleteFile");
   CHECK(saved.github && saved.github->sha == harness.sha);
 }
 
@@ -497,6 +567,7 @@ int main() {
   testLayoutHelpers();
   testGitHubTransportOperations();
   testBoundSaveCommitsEachFile();
+  testBoundSaveAsyncStillBlocks();
   testBoundSaveNoChangesOnlyRereads();
   testBoundSaveStaleRevisionRefusesBeforeCommit();
   testBoundSaveStaleShaBecomesRevisionConflict();

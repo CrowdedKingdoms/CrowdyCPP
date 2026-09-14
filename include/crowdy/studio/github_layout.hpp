@@ -51,7 +51,7 @@ inline std::optional<std::string> underRoot(
 /// compiles.
 inline bool isRustAuthoringPath(std::string_view rel) {
   if (rel.empty() || rel.find("..") != std::string_view::npos ||
-      (!rel.empty() && rel.front() == '/')) {
+      rel.front() == '/') {
     return false;
   }
   if (rel == "Cargo.toml") return true;

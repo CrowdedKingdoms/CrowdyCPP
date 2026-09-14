@@ -30,6 +30,13 @@ ran.
   (`bindGitHubRepo`, `connectGitHub` opening a tab, card busy-state) is not
   on the native controller. A native host that wants bind/unbind calls
   `crowdyStudioGitHub()` itself.
+- **`saveProjectAsync` on a bound project is still blocking.** The STUDIO
+  path posts one save on the async transport and delivers the callback
+  from `poll()`. A GITHUB project runs the same commit loop as
+  `saveProject` on the caller's thread and fires the callback before
+  returning. The controller uses the sync save. A host that chose
+  `*Async` to keep a frame from stalling should treat a bound save like
+  `saveProject` until that path is itself async.
 - **Also.** `playerComputeSetSwitch` / `playerComputeSwitches` carry
   `listingRef` (LISTING-scope kill), matching CrowdyJS 17.1.0.
 

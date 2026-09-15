@@ -73,6 +73,34 @@ const SCHEMA_BASELINE = {
 };
 
 const ROOT_CLASSIFICATIONS = {
+  // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games.
+  // A publish uploads a BROWSER game bundle (a Vite build served under the
+  // crowdy.games web host) with an identity session holding manage_apps; the
+  // catalog reads describe those hosted web games. A native client has no
+  // bundle to publish and nothing to browse for itself, so the surface is a
+  // browser exclusion here rather than a portable gap. Classified during the
+  // 17.3.0 re-pin (2026-09-14) because the hosting train left CrowdyCPP at
+  // 17.1.0; the hosting owner may overrule.
+  ...classifyNames(
+    'Mutation',
+    [
+      'abandonGamePublish',
+      'beginGamePublish',
+      'claimGameHosting',
+      'completeGamePublish',
+      'setHostedGameEnabled',
+      'setHostedGameListing',
+      'takeDownHostedGame',
+    ],
+    CATEGORY.BROWSER,
+    'publishes and administers browser game bundles on the Crowdy Games web host; a native client has no bundle to publish',
+  ),
+  ...classifyNames(
+    'Query',
+    ['allHostedGames', 'hostedGame', 'hostedGamePublishes', 'hostedGames', 'myHostedGames'],
+    CATEGORY.BROWSER,
+    'catalog of browser games hosted on Crowdy Games; a native client is not one of them',
+  ),
   // The operator-only billing surface, added to the API across cycles eighteen
   // to twenty and picked up here when the pin moved to CrowdyJS 15.0.0.
   //
@@ -187,37 +215,12 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native replication Connection exposes transport state directly',
   ),
-  // CrowdyJS 17 Studio GitHub working tree (ck-api v2.0.0). The card and the
-  // commit-on-save persistence live in the browser Studio (Monaco, the
-  // crowdy-dsh worker); native CrowdyStudioController does not mount that
-  // card. SetAutosave / Pull / Push left with 17.0.0; Layout, Refresh and
-  // DeleteFile arrived. Wrapping these on a game-client SDK would be methods
-  // no native player session calls.
-  ...classifyNames(
-    'Mutation',
-    [
-      'crowdyStudioGitHubBind',
-      'crowdyStudioGitHubConnectUrl',
-      'crowdyStudioGitHubDeleteFile',
-      'crowdyStudioGitHubPutFile',
-      'crowdyStudioGitHubRefresh',
-      'crowdyStudioGitHubUnbind',
-    ],
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane / embed; native host does not mount that card',
-  ),
-  ...classifyNames(
-    'Query',
-    [
-      'crowdyStudioGitHubFile',
-      'crowdyStudioGitHubLayout',
-      'crowdyStudioGitHubRepos',
-      'crowdyStudioGitHubStatus',
-      'crowdyStudioGitHubTree',
-    ],
-    CATEGORY.BROWSER,
-    'Studio GitHub settings-pane / embed; native host does not mount that card',
-  ),
+  // CrowdyJS 17 Studio GitHub working tree (ck-api v2.0.0). The GraphQL
+  // transport and bound-project save path are portable (0.38.0). The
+  // controller methods that drive the hosted Studio settings card stay
+  // browser exclusions: a native host does not mount that card, and
+  // connectGitHub opens a browser tab. SetAutosave / Pull / Push left with
+  // 17.0.0.
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -228,6 +231,42 @@ const ROOT_CLASSIFICATIONS = {
 
 
 const METHOD_CLASSIFICATIONS = {
+  // CrowdyJS 17.2.0 hosting + shell bridge (see the root classifications).
+  ...classifyNames(
+    'HostingAPI',
+    [
+      'abandonPublish',
+      'all',
+      'beginPublish',
+      'claim',
+      'completePublish',
+      'game',
+      'listed',
+      'mine',
+      'publishes',
+      'setEnabled',
+      'setListing',
+      'takeDown',
+    ],
+    CATEGORY.BROWSER,
+    'wrapper over the Crowdy Games hosting roots (browser bundles); no native client publishes one',
+  ),
+  ...classifyNames(
+    'EmbeddedHost',
+    ['close', 'current', 'hello', 'isFramed', 'navigate'],
+    CATEGORY.BROWSER,
+    'iframe/postMessage bridge to the first-party shell page; there is no frame around a native client',
+  ),
+  'PortalAPI.embeddedHostInfo': classification(
+    CATEGORY.BROWSER,
+    'answers whether the page runs inside the Crowdy Games shell iframe; a native client never does',
+  ),
+  // CrowdyJS 17.3.0: the GitHub card's "Create repository on GitHub" opens a
+  // browser tab on github.com/new prefilled; same card, same exclusion.
+  'CrowdyStudioController.createGitHubRepository': classification(
+    CATEGORY.BROWSER,
+    'Studio GitHub settings-pane card; opens a browser tab on GitHub, which no native host mounts',
+  ),
   'CrowdyStudioController.bindGitHubRepo': classification(
     CATEGORY.BROWSER,
     'Studio GitHub settings-pane card; native host does not mount that card',
@@ -425,6 +464,8 @@ const ASYNC_TWIN_WAIVERS = {
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'GameModelAPI.activePlayerCountChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
+  'GameModelAPI.sessionChanged':
+    'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
 };
@@ -493,6 +534,7 @@ const CLASS_MAP = {
   ErrorStore: 'ErrorStore',
   RemoteActorLane: 'RemoteActorLane',
   CrowdyStudioAPI: 'CrowdyStudioAPI',
+  CrowdyStudioGitHubTransport: 'CrowdyStudioGitHubAPI',
   CrowdyStudioController: 'CrowdyStudioController',
   StudioLayoutController: 'StudioLayoutController',
 };
@@ -587,6 +629,27 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       studioPaneSizeRange: 'studioPaneSizeRange',
     },
     'include/crowdy/studio/layout.hpp',
+  ),
+  'src/crowdy-studio/github/layout.ts': exportModule(
+    [
+      'trimSlash',
+      'joinRepo',
+      'underRoot',
+      'studioFileToRepoPath',
+      'repoPathToStudioFile',
+      'isRustAuthoringPath',
+    ],
+    CATEGORY.NATIVE,
+    'repository path arithmetic has an installed crowdy/studio/github_layout.hpp equivalent',
+    {
+      trimSlash: 'trimSlash',
+      joinRepo: 'joinRepo',
+      underRoot: 'underRoot',
+      studioFileToRepoPath: 'studioFileToRepoPath',
+      repoPathToStudioFile: 'repoPathToStudioFile',
+      isRustAuthoringPath: 'isRustAuthoringPath',
+    },
+    'include/crowdy/studio/github_layout.hpp',
   ),
   'src/crowdy-studio/editor.ts': exportModule(
     [
@@ -1764,6 +1827,12 @@ function collectTsClasses(crowdyjs) {
       'controller.ts',
       'dom-shell.ts',
       'layout.ts',
+    ]),
+  );
+  mergeClasses(
+    all,
+    tsClassMethods(join(crowdyjs, 'src', 'crowdy-studio', 'github'), [
+      'transport.ts',
     ]),
   );
   mergeClasses(

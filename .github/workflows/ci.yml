@@ -223,6 +223,8 @@ jobs:
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/player_host/player_host.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/compute.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio_github.hpp"
+          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/github.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/controller.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/models.hpp"
           test -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/layout.hpp"

@@ -93,6 +93,11 @@ query CrowdyStudioProjects(
     revision
     archived
     updatedAt
+    source
+    githubOwner
+    githubRepo
+    githubBranch
+    githubSha
   }
 }
 

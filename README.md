@@ -60,6 +60,35 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.40.0: the game-model session system.** `GameModelAPI` gains
+`leaveSession`, `setSessionAdmission`, `transferSessionHost`, `endSession`,
+`sessionSnapshot`, `sessionEvents`, `sessionInspect` and the typed
+`sessionChanged` GraphQL-WS stream; `GmSession` carries admission, capacity,
+host / host term, revision and end fields, and the join result is the roster row
+(`state`, `incarnation`, `actorUuid`, ...). `leaveSession` REQUIRES the
+incarnation the join returned, and presence is the player's Buddy actor — a
+session created with `presence = "none"` opts out, which is what
+`kit::MatchesKit` does — see `MIGRATION.md`. Schema synced to cks-game-api PR
+#319 on top of v2.3.0; parity
+pinned to CrowdyJS 17.4.0 on `test` and `prod` (the tier's own CrowdyJS merge
+commit); `dev` was cut pinned to 17.3.0 with the session surface classified as
+covered until the pin moved.
+
+**v0.39.0: schema synced to ck-api v2.3 (Studio GitHub `repositorySelection`; Crowdy
+Games hosting roots), parity CrowdyJS 17.3.0.** The Crowdy Games hosting surface
+(CrowdyJS 17.2.0: `client.hosting`, `EmbeddedHost`, the `*HostedGame*` /
+`*GamePublish*` roots) and the Studio card's "Create repository on GitHub"
+(17.3.0) are browser exclusions — a native client has no browser bundle to
+publish and no tab to open. Schema sync and codegen only; no native API change.
+
+**v0.38.0: bound GitHub projects save as commits, parity CrowdyJS 17.1.0.**
+`CrowdyStudioAPI::saveProject` commits each changed file on a `GITHUB`
+project (`crowdyStudioGitHubPutFile` / `DeleteFile` under `expectedCommitSha`)
+and keeps `STUDIO` saves on the project revision. `client.crowdyStudioGitHub()`
+is the typed transport; `crowdy/studio/github_layout.hpp` maps Studio files
+onto the repository layout the API resolved. The hosted settings card stays
+a browser exclusion. See [MIGRATION.md](MIGRATION.md).
+
 **v0.37.0: outbound message bundling.** `replication::Connection` packs the
 messages a client sends within a short window into one `MESSAGE_BUNDLE`
 datagram — the same framing the server has always used on the downlink, now
@@ -76,8 +105,8 @@ bound repository is the working tree), parity CrowdyJS 17.0.1.** `CrowdyStudioPr
 carries `source` / `githubOwner` / `githubRepo` / `githubBranch` / `githubSha`;
 `playerComputeDeploy` takes `projectId` (+ `commitSha`) and no longer accepts
 `sourceFilesJson`; `crowdyStudioGitHubLayout` / `Refresh` / `DeleteFile` are new
-and, like the whole GitHub card, browser exclusions here (no native host mounts
-it). `crowdyStudioGitHubSetAutosave` is gone. Schema sync and codegen only.
+and were browser exclusions until 0.38.0 wrapped the transport and bound
+save. `crowdyStudioGitHubSetAutosave` is gone. Schema sync and codegen only.
 
 **v0.35.0: micro-USD wallet fields, parity CrowdyJS 16.2.0.** Org and player
 wallets carry `balanceMicrousd` / `holdsMicrousd`, transactions `amountMicrousd`
@@ -438,7 +467,8 @@ app-scoped token):
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
 | `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
-| `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves, metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
+| `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
+| `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage and operator controls. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
@@ -905,7 +935,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **15.5.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **17.1.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD

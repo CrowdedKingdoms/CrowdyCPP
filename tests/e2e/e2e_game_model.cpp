@@ -6,9 +6,16 @@
 // Reference: https://docs.crowdedkingdoms.com/game-api/game-models
 #include "e2e_util.hpp"
 
+#include <functional>
+#include <string>
+
 using namespace crowdy;
 
 namespace {
+
+std::string sessionBigInt(const graphql::Json& v) {
+  return v.isString() ? v.asString() : v.dump();
+}
 
 struct InvokeOutcome {
   bool success = false;
@@ -236,6 +243,201 @@ int run() {
     a.game->gameModel().setSessionTurn(turnInput);
     auto bOnTurn = invoke(b, cfg.appId, fnTurn, containerId, "{}", sessionId);
     E2E_CHECK(bOnTurn.success);
+  }
+
+  E2E_SUBTEST("session system: capacity, lock, incarnations, host terms, revisions, end");
+  {
+    // Refusals are read off extensions.code, never the message.
+    auto refused = [](const std::function<void()>& call, const char* code) {
+      try {
+        call();
+      } catch (const graphql::CrowdyGraphQLError& e) {
+        if (e.code() != code) {
+          std::fprintf(stderr, "expected %s, got %s: %s\n", code, e.code().c_str(),
+                       e.what());
+          E2E_CHECK(false);
+        }
+        return;
+      }
+      std::fprintf(stderr, "expected a %s refusal\n", code);
+      E2E_CHECK(false);
+    };
+    auto c = e2e::provisionPlayer(cfg, "gm-c");
+
+    graphql::JVal createInput;
+    createInput["appId"] = cfg.appId;
+    createInput["name"] = "e2e-gm-lobby-" + e2e::runSuffix();
+    createInput["maxParticipants"] = 2;
+    graphql::Json lobby = og.gameModel().createSession(createInput);
+    const std::string sid = lobby["sessionId"].asString();
+    E2E_CHECK(lobby["admission"].asString() == "open");
+    E2E_CHECK(lobby["maxParticipants"].asInt64() == 2);
+    E2E_CHECK(lobby["participantCount"].asInt64() == 1);
+    E2E_CHECK(lobby["hostTerm"].asInt64() == 1);
+    E2E_CHECK(lobby["revision"].asString() == "1");
+    E2E_CHECK(lobby["presence"].asString() == "actor");
+    const std::string ownerId = sessionBigInt(lobby["hostUserId"]);
+
+    // A takes the last seat; B is refused for capacity; A reconnects
+    // (incarnation 2) without needing a seat.
+    graphql::JVal joinA;
+    joinA["appId"] = cfg.appId;
+    joinA["sessionId"] = sid;
+    graphql::Json joinedA = a.game->gameModel().joinSession(joinA);
+    E2E_CHECK(joinedA["state"].asString() == "joined");
+    E2E_CHECK(joinedA["incarnation"].asInt64() == 1);
+    graphql::JVal joinB = joinA;
+    refused([&] { b.game->gameModel().joinSession(joinB); }, "SESSION_FULL");
+    graphql::Json rejoinedA = a.game->gameModel().joinSession(joinA);
+    E2E_CHECK(rejoinedA["incarnation"].asInt64() == 2);
+
+    // Lock with the right term: B still out, A may reconnect; a stale term
+    // and a non-host are refused.
+    graphql::JVal lockInput;
+    lockInput["appId"] = cfg.appId;
+    lockInput["sessionId"] = sid;
+    lockInput["admission"] = "locked";
+    lockInput["expectedHostTerm"] = 1;
+    graphql::Json locked = og.gameModel().setSessionAdmission(lockInput);
+    E2E_CHECK(locked["admission"].asString() == "locked");
+    refused([&] { b.game->gameModel().joinSession(joinB); }, "SESSION_LOCKED");
+    E2E_CHECK(a.game->gameModel().joinSession(joinA)["incarnation"].asInt64() == 3);
+    graphql::JVal staleLock = lockInput;
+    staleLock["admission"] = "open";
+    staleLock["expectedHostTerm"] = 9;
+    refused([&] { og.gameModel().setSessionAdmission(staleLock); },
+            "SESSION_HOST_TERM_STALE");
+    graphql::JVal unlockByA;
+    unlockByA["appId"] = cfg.appId;
+    unlockByA["sessionId"] = sid;
+    unlockByA["admission"] = "open";
+    refused([&] { a.game->gameModel().setSessionAdmission(unlockByA); }, "FORBIDDEN");
+
+    // A superseded client cannot leave for the live one; a stranger is not a
+    // participant.
+    graphql::JVal staleLeave;
+    staleLeave["appId"] = cfg.appId;
+    staleLeave["sessionId"] = sid;
+    staleLeave["incarnation"] = 1;
+    refused([&] { a.game->gameModel().leaveSession(staleLeave); },
+            "SESSION_INCARNATION_STALE");
+    refused([&] { b.game->gameModel().leaveSession(staleLeave); },
+            "SESSION_NOT_PARTICIPANT");
+
+    // The owner (host) leaves -> A succeeds, term 2; A hands the role to C
+    // after C is let in.
+    graphql::JVal ownerLeave = staleLeave;
+    graphql::Json ownerGone = og.gameModel().leaveSession(ownerLeave);
+    E2E_CHECK(ownerGone["state"].asString() == "left");
+    E2E_CHECK(ownerGone["leftReason"].asString() == "left");
+    graphql::Json afterLeave = og.gameModel().session(cfg.appId, sid);
+    E2E_CHECK(sessionBigInt(afterLeave["hostUserId"]) == a.userId);
+    E2E_CHECK(afterLeave["hostTerm"].asInt64() == 2);
+    graphql::JVal unlock = lockInput;
+    unlock["admission"] = "open";
+    unlock["expectedHostTerm"] = 2;
+    E2E_CHECK(a.game->gameModel().setSessionAdmission(unlock)["admission"].asString() ==
+              "open");
+    graphql::JVal joinC = joinA;
+    graphql::Json joinedC = c.game->gameModel().joinSession(joinC);
+    E2E_CHECK(joinedC["incarnation"].asInt64() == 1);
+    graphql::JVal transfer;
+    transfer["appId"] = cfg.appId;
+    transfer["sessionId"] = sid;
+    transfer["toUserId"] = c.userId;
+    transfer["expectedHostTerm"] = 2;
+    graphql::Json handed = a.game->gameModel().transferSessionHost(transfer);
+    E2E_CHECK(sessionBigInt(handed["hostUserId"]) == c.userId);
+    E2E_CHECK(handed["hostTerm"].asInt64() == 3);
+    // Naming someone who never joined is about the TARGET, not the caller.
+    graphql::JVal toStranger;
+    toStranger["appId"] = cfg.appId;
+    toStranger["sessionId"] = sid;
+    toStranger["toUserId"] = b.userId;
+    refused([&] { c.game->gameModel().transferSessionHost(toStranger); },
+            "SESSION_TARGET_NOT_PARTICIPANT");
+
+    // Snapshot, events and the gap-fill read agree; revisions are contiguous.
+    graphql::Json snapshot = a.game->gameModel().sessionSnapshot(cfg.appId, sid);
+    E2E_CHECK(snapshot["participants"].size() == 2);
+    E2E_CHECK(snapshot["session"]["revision"].asString() ==
+              snapshot["revision"].asString());
+    graphql::Json events = a.game->gameModel().sessionEvents(cfg.appId, sid, "0");
+    std::int64_t expected = 1;
+    bool contiguous = true;
+    std::string lastKind;
+    events.forEach([&](graphql::Json event) {
+      if (std::stoll(event["revision"].asString()) != expected++) contiguous = false;
+      lastKind = event["kind"].asString();
+    });
+    E2E_CHECK(contiguous);
+    E2E_CHECK(std::to_string(expected - 1) == snapshot["revision"].asString());
+    E2E_CHECK(lastKind == "host_changed");
+    graphql::Json tail = a.game->gameModel().sessionEvents(
+        cfg.appId, sid, std::to_string(expected - 3), 10);
+    E2E_CHECK(tail.size() == 2);
+    graphql::Json open = a.game->gameModel().sessions(cfg.appId, "active", "open");
+    bool listed = false;
+    open.forEach([&](graphql::Json row) {
+      if (row["sessionId"].asString() == sid) listed = true;
+    });
+    E2E_CHECK(listed);
+
+    // Operators inspect the whole roster; players may not.
+    graphql::Json inspection = og.gameModel().sessionInspect(cfg.appId, sid);
+    bool ownerLeft = false;
+    inspection["participants"].forEach([&](graphql::Json row) {
+      if (sessionBigInt(row["participant"]["userId"]) == ownerId) {
+        ownerLeft = row["presence"].asString() == "left";
+      }
+    });
+    E2E_CHECK(ownerLeft);
+    refused([&] { a.game->gameModel().sessionInspect(cfg.appId, sid); }, "FORBIDDEN");
+
+    // End as the host (C): roster cleared, admission closed, nobody rejoins.
+    graphql::JVal endInput;
+    endInput["appId"] = cfg.appId;
+    endInput["sessionId"] = sid;
+    endInput["expectedHostTerm"] = 3;
+    graphql::Json ended = c.game->gameModel().endSession(endInput);
+    E2E_CHECK(ended["status"].asString() == "completed");
+    E2E_CHECK(ended["admission"].asString() == "closed");
+    E2E_CHECK(ended["participantCount"].asInt64() == 0);
+    E2E_CHECK(ended["endReason"].asString() == "completed");
+    refused([&] { b.game->gameModel().joinSession(joinB); }, "SESSION_ENDED");
+    graphql::Json after = a.game->gameModel().sessionEvents(cfg.appId, sid, "0");
+    std::string finalKind;
+    after.forEach([&](graphql::Json event) { finalKind = event["kind"].asString(); });
+    E2E_CHECK(finalKind == "ended");
+
+    // A presence 'none' session (what kit::MatchesKit creates): the mode is on
+    // the row, inspection reports every joined participant as 'none', and
+    // nobody is ever judged by actor presence.
+    graphql::JVal quietInput;
+    quietInput["appId"] = cfg.appId;
+    quietInput["name"] = "e2e-gm-turn-based-" + e2e::runSuffix();
+    quietInput["presence"] = "none";
+    graphql::Json quiet = og.gameModel().createSession(quietInput);
+    const std::string quietId = quiet["sessionId"].asString();
+    E2E_CHECK(quiet["presence"].asString() == "none");
+    graphql::JVal joinQuiet;
+    joinQuiet["appId"] = cfg.appId;
+    joinQuiet["sessionId"] = quietId;
+    a.game->gameModel().joinSession(joinQuiet);
+    graphql::Json quietInspection = og.gameModel().sessionInspect(cfg.appId, quietId);
+    E2E_CHECK(quietInspection["session"]["presence"].asString() == "none");
+    std::size_t quietRows = 0;
+    bool allNone = true;
+    quietInspection["participants"].forEach([&](graphql::Json row) {
+      quietRows += 1;
+      if (row["presence"].asString() != "none" || !row["presenceFrom"].isNull()) allNone = false;
+    });
+    E2E_CHECK(quietRows == 2);
+    E2E_CHECK(allNone);
+    graphql::JVal endQuiet;
+    endQuiet["appId"] = cfg.appId;
+    endQuiet["sessionId"] = quietId;
+    og.gameModel().endSession(endQuiet);
   }
 
   E2E_SUBTEST("traverse over an edge");

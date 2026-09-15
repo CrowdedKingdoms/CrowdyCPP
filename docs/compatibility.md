@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.37.0 passes the strict portable-parity gate against CrowdyJS
-**17.1.0**. The gate pins CrowdyJS commit
-`57d2e235af4d53e4cae76a984b7be2b2714946fb` (`crowdyjsParityTarget` in
+CrowdyCPP 0.40.0 passes the strict portable-parity gate against CrowdyJS
+**17.4.0**. The gate pins CrowdyJS commit
+`31c360de884befc3be619e42f774804e07e6430d` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.37.0 | CrowdyJS 17.1.0 | Required public API generation |
+| Surface | CrowdyCPP 0.40.0 | CrowdyJS 17.4.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
@@ -45,7 +45,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | App-scoped player counts | Typed snapshot + change stream | Typed snapshot + change stream | Game API 2026-07-24+ |
 | Keyed container ensure/filter | `ensureContainer`, `bindingKey` filter | `ensureContainer`, `bindingKey` filter | Game API 2026-07-24+ |
 | App listing-version administration | `marketplace().appListingVersions` | Typed listing-version methods | Management API 2026-07-24+ |
-| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation | Browser/headless controller | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
+| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile` | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Native Studio integration | Owned editor/layout/runtime assembly with explicit maintenance scheduling | Browser Studio composition with the in-browser DSH agent pane | Project/runtime roots |
 | Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and admin writes | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |

@@ -317,6 +317,83 @@ void testTurnExpired() {
 
 // The turn deadline is deduped per match container and carries the sequence it
 // was armed for, which is what makes a late fire detectable.
+/// Answers each request with the next canned response, so a two-step kit call
+/// (invoke, then endSession) can be driven end to end offline.
+class SequenceTransport final : public graphql::IHttpTransport {
+ public:
+  std::vector<graphql::HttpResponse> responses;
+  std::vector<std::string> bodies;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& request) override {
+    bodies.push_back(request.body);
+    if (responses.empty()) return {500, "{}"};
+    graphql::HttpResponse next = responses.front();
+    responses.erase(responses.begin());
+    return next;
+  }
+};
+
+#ifndef CROWDY_NO_EXCEPTIONS
+// finish(): end_match first, then the session end, whose outcome is reported on
+// the result rather than thrown (the creator who already left passes end_match
+// but not endSession). Pins the third-review contract of cks-game-api #319.
+void testMatchesFinishSessionEnd() {
+  const std::string invokeOk =
+      R"({"data":{"gameModelInvoke":{"eventId":"event-1","functionName":"end_match","success":true,"returnValueJson":"\"finished\"","errorMessage":null,"mutationsApplied":[]}}})";
+  const std::string endOk =
+      R"({"data":{"gameModelEndSession":{"sessionId":"sid","appId":"7","name":null,"status":"completed","createdByUserId":"1","currentTurnUserId":null,"metadataJson":"{}","admission":"closed","maxParticipants":null,"participantCount":0,"hostUserId":null,"hostTerm":1,"revision":"5","endedAt":"2026-09-14T00:00:00.000Z","endReason":"completed","createdAt":"2026-09-14T00:00:00.000Z","presence":"none"}}})";
+  auto errorBody = [](const char* code) {
+    return std::string(R"({"errors":[{"message":"refused","extensions":{"code":")") + code +
+           R"("}}]})";
+  };
+  KitMatch match;
+  match.sessionId = "sid";
+  match.metaId = "meta-1";
+  match.channelId = "0";
+
+  auto run = [&](std::vector<graphql::HttpResponse> responses) {
+    auto transport = std::make_shared<SequenceTransport>();
+    transport->responses = std::move(responses);
+    ClientConfig config;
+    config.httpUrl = "https://game.invalid";
+    config.transport = transport;
+    CrowdyClient client(std::move(config));
+    MatchesKit kit("7", client.gameModel(), nullptr);
+    KitMatchFinishResult result = kit.finish(match, 42);
+    return std::make_pair(result, transport->bodies.size());
+  };
+
+  auto ended = run({{200, invokeOk}, {200, endOk}});
+  CHECK(ended.first.success);
+  CHECK_EQ(ended.first.sessionEnd, "ended");
+  CHECK_EQ(ended.second, 2u);
+
+  auto replayed = run({{200, invokeOk}, {200, errorBody("SESSION_ENDED")}});
+  CHECK(replayed.first.success);
+  CHECK_EQ(replayed.first.sessionEnd, "already_ended");
+
+  auto forbidden = run({{200, invokeOk}, {200, errorBody("FORBIDDEN")}});
+  CHECK(forbidden.first.success);
+  CHECK_EQ(forbidden.first.sessionEnd, "forbidden");
+  CHECK_EQ(forbidden.second, 2u);
+
+  // A refused end_match never touches the session.
+  auto denied = run({{200, R"({"data":{"gameModelInvoke":{"eventId":"event-2","functionName":"end_match","success":false,"returnValueJson":null,"errorMessage":"denied","mutationsApplied":[]}}})"}});
+  CHECK(!denied.first.success);
+  CHECK(denied.first.sessionEnd.empty());
+  CHECK_EQ(denied.second, 1u);
+
+  // Anything else still propagates, after the match itself was finished.
+  bool threw = false;
+  try {
+    run({{200, invokeOk}, {200, errorBody("INTERNAL_SERVER_ERROR")}});
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    threw = e.code() == "INTERNAL_SERVER_ERROR";
+  }
+  CHECK(threw);
+}
+#endif
+
 void testTurnTimerBlueprint() {
   MatchesBlueprintOptions options;
   options.turnTimer = MatchTurnTimer{30000};
@@ -372,6 +449,9 @@ int main() {
   testKitVerdictErrors();
   testTurnExpired();
   testTurnTimerBlueprint();
+#ifndef CROWDY_NO_EXCEPTIONS
+  testMatchesFinishSessionEnd();
+#endif
   std::puts("kit_test OK");
   return 0;
 }

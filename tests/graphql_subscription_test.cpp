@@ -932,6 +932,70 @@ void testTypedGameModelContainerChanged() {
   CHECK(handle.active());
 }
 
+void testTypedGameModelSessionChanged() {
+  auto webSocket = std::make_shared<FakeTransport>();
+  ClientConfig config;
+  config.httpUrl = "https://game.example.test";
+  config.transport = std::make_shared<FakeHttpTransport>();
+  config.webSocketTransport = webSocket;
+  CrowdyClient client(std::move(config));
+
+  std::vector<domains::GameModelSessionEvent> received;
+  std::size_t errors = 0;
+  GraphQLSubscriptionError receivedError;
+  domains::GameModelSessionChangedCallbacks callbacks;
+  callbacks.next = [&](domains::GameModelSessionEvent value) {
+    received.push_back(std::move(value));
+  };
+  callbacks.error = [&](GraphQLSubscriptionError error) {
+    ++errors;
+    receivedError = std::move(error);
+  };
+  auto handle = client.gameModel().sessionChanged(
+      "42", "d66c4190-c773-430e-b20d-fdd071c7dee3", "3", std::move(callbacks));
+  const auto connection = webSocket->connection(0);
+  acknowledge(connection);
+  const Json subscribe = parseSentText(connection, 1);
+  CHECK(subscribe["payload"]["operationName"].asString() ==
+        "GameModelSessionChanged");
+  CHECK(subscribe["payload"]["variables"]["appId"].asString() == "42");
+  CHECK(subscribe["payload"]["variables"]["sessionId"].asString() ==
+        "d66c4190-c773-430e-b20d-fdd071c7dee3");
+  CHECK(subscribe["payload"]["variables"]["afterRevision"].asString() == "3");
+
+  connection->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"gameModelSessionChanged":{"appId":"42","sessionId":"d66c4190-c773-430e-b20d-fdd071c7dee3","revision":"4","kind":"host_changed","payloadJson":"{\"hostUserId\":\"2\",\"hostTerm\":2}","createdAt":"2026-09-14T00:00:00.000Z"}}}})");
+  CHECK(received.empty());
+  client.poll();
+  CHECK_EQ(received.size(), std::size_t{1});
+  CHECK(received[0].appId == "42");
+  CHECK(received[0].revision == "4");
+  CHECK(received[0].kind == "host_changed");
+  CHECK(received[0].payloadJson == "{\"hostUserId\":\"2\",\"hostTerm\":2}");
+  CHECK(received[0].createdAt == "2026-09-14T00:00:00.000Z");
+
+  // A payload that is not an object is a protocol fault, reported and not
+  // delivered, and the subscription stays up.
+  connection->emitText(
+      R"({"id":"1","type":"next","payload":{"data":{"gameModelSessionChanged":null}}})");
+  client.poll();
+  CHECK_EQ(received.size(), std::size_t{1});
+  CHECK_EQ(errors, std::size_t{1});
+  CHECK(receivedError.code == "INVALID_SESSION_EVENT");
+  CHECK(receivedError.kind == GraphQLSubscriptionErrorKind::Protocol);
+  CHECK(handle.active());
+
+  // Without afterRevision the variable is omitted, so the server streams only
+  // what commits after the subscribe.
+  domains::GameModelSessionChangedCallbacks live;
+  live.next = [](domains::GameModelSessionEvent) {};
+  auto liveHandle = client.gameModel().sessionChanged("42", "s2", std::move(live));
+  const Json liveSubscribe = parseSentText(connection, 2);
+  CHECK(liveSubscribe["payload"]["variables"]["sessionId"].asString() == "s2");
+  CHECK(!liveSubscribe["payload"]["variables"]["afterRevision"].ok());
+  CHECK(liveHandle.active());
+}
+
 }  // namespace
 
 int main() {
@@ -951,6 +1015,7 @@ int main() {
   testCrowdyClientInjectionAndPoll();
   testTypedGameModelActivePlayerCountChanged();
   testTypedGameModelContainerChanged();
+  testTypedGameModelSessionChanged();
   std::printf("graphql_subscription_test passed\n");
   return 0;
 }

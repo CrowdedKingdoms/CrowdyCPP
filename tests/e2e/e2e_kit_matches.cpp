@@ -189,6 +189,55 @@ int main() {
                              graphql::JVal(), match.sessionId);
     E2E_CHECK(!probeA2.success);
 
+    E2E_SUBTEST("session exits: the kit leaves and ends the presence-'none' session it created");
+    {
+      // A second match, so the main flow above is untouched. The kit's session
+      // is presence 'none' -- the server never expires anybody -- so leave() and
+      // finish() are the roster's only exits, and they must actually work.
+      KitMatch quiet = kitA.matches().create(a.userId, "e2e-exits", 2);
+      graphql::Json quietSession = a.game->gameModel().session(cfg.appId, quiet.sessionId);
+      E2E_CHECK(quietSession["presence"].asString() == "none");
+      E2E_CHECK(quietSession["participantCount"].asInt64() == 1);
+
+      // Nothing remembered on B's kit yet for this match: the caller must say
+      // which client is leaving.
+      bool refusedWithoutIncarnation = false;
+      try {
+        kitB.matches().leave(quiet);
+      } catch (const std::invalid_argument&) {
+        refusedWithoutIncarnation = true;
+      }
+      E2E_CHECK(refusedWithoutIncarnation);
+
+      graphql::Json quietJoin = kitB.matches().join(quiet);
+      E2E_CHECK(quietJoin["incarnation"].asInt64() == 1);
+      E2E_CHECK(a.game->gameModel().session(cfg.appId, quiet.sessionId)["participantCount"]
+                    .asInt64() == 2);
+      graphql::Json quietLeft = kitB.matches().leave(quiet);
+      E2E_CHECK(quietLeft["state"].asString() == "left");
+      E2E_CHECK(a.game->gameModel().session(cfg.appId, quiet.sessionId)["participantCount"]
+                    .asInt64() == 1);
+
+      auto quietStarted = kitA.matches().start(quiet);
+      E2E_CHECK(quietStarted.success);
+      auto quietFinished =
+          kitA.matches().finish(quiet, std::strtoll(a.userId.c_str(), nullptr, 10));
+      E2E_CHECK(quietFinished.success);
+      E2E_CHECK(quietFinished.sessionEnd == "ended");
+      E2E_CHECK(kitA.matches().get(quiet.metaId).state == "finished");
+      graphql::Json quietEnded = a.game->gameModel().session(cfg.appId, quiet.sessionId);
+      E2E_CHECK(quietEnded["status"].asString() == "completed");
+      E2E_CHECK(quietEnded["endReason"].asString() == "completed");
+      E2E_CHECK(quietEnded["admission"].asString() == "closed");
+      E2E_CHECK(quietEnded["participantCount"].asInt64() == 0);
+      // A replayed finish is refused by the lifecycle function and never
+      // touches the (already ended) session.
+      auto quietAgain = kitA.matches().finish(quiet, std::strtoll(a.userId.c_str(), nullptr, 10));
+      E2E_CHECK(!quietAgain.success);
+      E2E_CHECK(a.game->gameModel().session(cfg.appId, quiet.sessionId)["status"].asString() ==
+                "completed");
+    }
+
     E2E_SUBTEST("scores: trusted (server) submits; plain player submit denied");
     graphql::Json scoreA = kitA.matches().ensureScore(match, a.userId);
     graphql::Json scoreB = kitB.matches().ensureScore(match, b.userId);

@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: a14868047520263d096107b0ab193b2232fee56ae1c46d6d4e4b7158279e28ed
-// operations sha256: 9abdeb3797c5bcd2971fa505d6ef81f094df11c20c0ab834e5012598fe07d6aa
+// schema.gql sha256: 45e42c0686e4c5520821c8287c7e6ab0245a69d33e23e9ec7dd2aabcc10939fa
+// operations sha256: f60049098f31d65813ba729116151394ca3890e96599f572cb375c0b70db8c5f
 
 #pragma once
 

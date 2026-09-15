@@ -70,11 +70,10 @@ sync to v2.3.0, parity CrowdyJS 17.3.0) while this was open.
   The result is a `KitMatchFinishResult` whose `sessionEnd` says what happened
   to the session: `"ended"`, `"already_ended"` (a replayed finish), or
   `"forbidden"` (`end_match` admitted the caller but the session did not -- the
-  creator who already left -- so the match is finished, the session is not,
-  and nothing is thrown); any other refusal propagates. Host actions on the
-  server now also admit the app's elected host, so a host who is not the
-  creator is not refused. An emptied session that was never finished is
-  abandoned by the empty timeout.
+  creator who already left, or the app's elected host who is not the session
+  host -- so the match is finished, the session is not, and nothing is thrown;
+  an app admin can `endSession` it); any other refusal propagates. An emptied
+  session that was never finished is abandoned by the empty timeout.
   Otherwise the kit is unchanged: capacity still lives in `MatchMeta` and
   join does not bind an actor. Moving it onto session capacity / admission /
   host is a later, separate change.

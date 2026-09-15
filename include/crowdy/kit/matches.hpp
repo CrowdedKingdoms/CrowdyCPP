@@ -441,9 +441,9 @@ inline bool turnExpired(const KitMatch& match) {
 /// to the backing session afterwards. `sessionEnd` is "ended" (the kit ended
 /// it), "already_ended" (a replayed finish; it was already ended), or
 /// "forbidden" (the caller passed end_match -- creator or the app's elected
-/// host -- but is neither the session host, the app's elected host nor an app
-/// admin: the creator who already left, typically; the match is finished, the
-/// session is still active, and an app admin can endSession it). Empty when
+/// host -- but is neither the session host nor an app admin; the match is
+/// finished, the session is still active, and an app admin can endSession
+/// it). Empty when
 /// end_match itself was refused (`success == false`).
 struct KitMatchFinishResult : KitInvokeResult {
   std::string sessionEnd;

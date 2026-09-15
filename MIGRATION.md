@@ -1,5 +1,134 @@
 # CrowdyCPP migration notes
 
+## 0.40.0 the game-model session system
+
+Additive. Tracks cks-game-api PR #319 on top of ck-api v2.3.0. Every existing
+`GameModelAPI` session method keeps its signature; the SDK adds what the server
+now knows about a session. Numbered 0.40.0 because #100 took 0.39.0 (schema
+sync to v2.3.0, parity CrowdyJS 17.3.0) while this was open.
+
+### What is new
+
+- **Roster, admission, capacity, host on `GmSession`:** `admission`
+  (`open | locked | closed`), `maxParticipants`, `participantCount`,
+  `hostUserId`, `hostTerm`, `revision`, `endedAt`, `endReason`, `createdAt`.
+  `createSession` accepts `maxParticipants`, `admission`, `emptyTimeoutSec`,
+  `presence`, `idempotencyKey`; `sessions(appId, status, admission,
+  hostUserId, limit)` filters and limits.
+- **New methods (sync + `Async` twins):** `leaveSession`, `setSessionAdmission`,
+  `transferSessionHost`, `endSession` (host or app admin; all accept
+  `expectedHostTerm` and `idempotencyKey`), `sessionSnapshot`, `sessionEvents`,
+  `sessionInspect` (`manage_apps`), and the typed GraphQL-WS stream
+  `sessionChanged(appId, sessionId, afterRevision, callbacks)` delivering
+  `GameModelSessionEvent` (`revision`, `kind`, `payloadJson`, ...) in the
+  `containerChanged` shape. The contract is the player-count feed's: pull the
+  snapshot, apply events above its revision, re-pull on a gap.
+- **Reconnection is a rejoin.** `joinSession` on a session you are in returns
+  your row with `incarnation + 1` and supersedes any older client of yours; the
+  join result is the full roster row. **`leaveSession` requires that
+  `incarnation`** -- there is no "leave regardless" -- so a stale client can
+  never remove the one that took over (`SESSION_INCARNATION_STALE`).
+- **Presence is your actor -- a behaviour change every consumer inherits from
+  the server.** A joined participant with no fresh Buddy actor in the app after
+  the join grace window (60 s by default) is marked `left` / `presence_expired`,
+  and a session nobody has been joined to for longer than its `emptyTimeoutSec`
+  (5 min by default; `0` disables) is ended as `abandoned`. A client that only
+  speaks GraphQL therefore drops out of a session it never replicates in. Pass
+  `actorUuid` on join to bind presence to one specific actor -- your own, in
+  Buddy's 32-hex form (`core::toString(WorldSession::actorUuid())`). Do not
+  pass the matches kit's channel-ping uuid; it never spawns in Buddy.
+- **Opting out: `presence = "none"`.** A session created with
+  `sessionInput["presence"] = "none"` is never judged by actor presence
+  (`GmSession.presence` reports the mode; `sessionInspect` shows its rows as
+  `presence: "none"`). Its roster's only exits are `leaveSession`,
+  `endSession` and the empty timeout once everyone has left. Use it for
+  turn-based play that talks GraphQL and channel pings and never replicates an
+  actor. The mode is fixed at creation. A GraphQL-only session that does
+  **not** opt out empties after the grace window and is abandoned after the
+  timeout.
+- **The `sessionChanged` push is per datacenter; the events table is the
+  record.** A revision committed in one region wakes subscribers on that
+  region's API replicas; `sessionEvents(appId, sessionId, afterRevision)` (and
+  the replay the stream performs on connect) reads the durable rows, so a
+  subscriber reconnecting anywhere catches up from the revision it last saw.
+- **Error codes** (on `CrowdyGraphQLError::code()`): `SESSION_FULL`,
+  `SESSION_LOCKED`, `SESSION_CLOSED`, `SESSION_ENDED`,
+  `SESSION_NOT_PARTICIPANT` (the caller is not joined),
+  `SESSION_TARGET_NOT_PARTICIPANT` (the user named to `transferSessionHost`
+  is not joined), `SESSION_INCARNATION_STALE`, `SESSION_HOST_TERM_STALE`.
+- **`kit::MatchesKit` creates its session with `presence = "none"`, and now
+  leaves and ends it.** A kit match is GraphQL plus channel pings; its uuid is
+  only the channel-message sender id and never spawns in Buddy, so under the
+  default mode every player would be expired after the grace window. Because
+  nothing expires anybody, the kit owns the roster's exits: new
+  **`leave(match, incarnation = nullopt)`** calls `leaveSession` with the
+  incarnation the kit remembered from `create()` / `join()` on this instance
+  (or the one you pass; `std::invalid_argument` when neither is known) and
+  leaves the match channel; **`finish()` now ends the backing session**
+  (`endSession`, reason `completed`) after a successful `end_match`, so the
+  roster is cleared and the session's events become eligible for retention.
+  The result is a `KitMatchFinishResult` whose `sessionEnd` says what happened
+  to the session: `"ended"`, `"already_ended"` (a replayed finish), or
+  `"forbidden"` (`end_match` admitted the caller but the session did not -- the
+  creator who already left, or the app's elected host who is not the session
+  host -- so the match is finished, the session is not, and nothing is thrown;
+  an app admin can `endSession` it); any other refusal propagates. An emptied
+  session that was never finished is abandoned by the empty timeout.
+  Otherwise the kit is unchanged: capacity still lives in `MatchMeta` and
+  join does not bind an actor. Moving it onto session capacity / admission /
+  host is a later, separate change.
+- **Schema and parity.** `schema.gql` is synced from the cks-game-api PR #319
+  branch rebased on `dev`: the v2.3.0 SDL plus the session delta. On `dev` the
+  parity gate was pinned to CrowdyJS 17.3.0 with the session surface
+  CrowdyCPP-ahead and classified `covered-extension`; the `test` / `prod`
+  promotions re-pin to that tier's CrowdyJS 17.4.0 merge commit, at which point
+  those entries went stale (as designed) and were removed, and
+  `sessionChanged` joined the async-twin waivers beside `containerChanged`.
+
+No removals.
+
+## 0.38.0 a bound GitHub project saves as commits
+
+`CrowdyStudioAPI::saveProject` now follows CrowdyJS 17.0: a `STUDIO` project
+still writes through `crowdyStudioProjectSave`; a `GITHUB` project commits
+each changed file through `crowdyStudioGitHubPutFile` / `DeleteFile` under
+`github.sha` (`expectedCommitSha`) and sends metadata as a project save with
+no file bodies. A stale commit or a caller holding an older revision than
+the provider last returned is the same `CrowdyStudioRevisionConflictError`
+the editor already recovers from. The controller does not know which path
+ran.
+
+### What changes for you
+
+- **Nothing if your projects stay in Studio.** Unbound saves are unchanged.
+- **A bound project can no longer be saved as Studio file bodies.** Against
+  ck-api v2.0 those mutations refuse with `GITHUB_BOUND_USE_CONTENTS`. If you
+  were constructing `SaveCrowdyStudioProjectInput` yourself for a project
+  whose `source` is `GitHub`, keep doing that — `saveProject` now issues the
+  commits. Refresh a bound project that has no `github.sha` before saving.
+- **New surface.** `client.crowdyStudioGitHub()` is the typed transport
+  (`status`, `layout`, `tree`, `getFile`, `putFile`, `deleteFile`,
+  `refresh`, `bind`, `unbind`, `repos`, `connectUrl`). Status / layout /
+  tree / file / put / delete / refresh work with an app token; connect /
+  repos / bind / unbind need the identity session. Path arithmetic lives in
+  `crowdy/studio/github_layout.hpp` (`studioFileToRepoPath` and friends);
+  the SDK does not parse `crowdy.json`.
+- **Still browser-only.** The hosted Studio settings card
+  (`bindGitHubRepo`, `connectGitHub` opening a tab, card busy-state) is not
+  on the native controller. A native host that wants bind/unbind calls
+  `crowdyStudioGitHub()` itself.
+- **`saveProjectAsync` on a bound project is still blocking.** The STUDIO
+  path posts one save on the async transport and delivers the callback
+  from `poll()`. A GITHUB project runs the same commit loop as
+  `saveProject` on the caller's thread and fires the callback before
+  returning. The controller uses the sync save. A host that chose
+  `*Async` to keep a frame from stalling should treat a bound save like
+  `saveProject` until that path is itself async.
+- **Also.** `playerComputeSetSwitch` / `playerComputeSwitches` carry
+  `listingRef` (LISTING-scope kill), matching CrowdyJS 17.1.0.
+
+Tracks CrowdyJS `17.1.0` (the 17.0 bound-save contract plus 17.1 bundling).
+
 ## 0.37.0 outbound sends are bundled by default
 
 `replication::Connection` now packs the messages you send within a short window

@@ -89,6 +89,15 @@ rg -l '<old-commit-prefix>' tests docs                 # literal assertions
 npm run check:release
 ```
 
+For a **promotion** (`dev` → `test` → `prod`) that whole sequence, plus the
+origin regen, the `docs/compatibility.md` pin and the schema resync from
+CrowdyJS at `origin/<to>`, is
+`infra-control-plane/scripts/ops/promote.mjs --repo CrowdyCPP --from <tier> --to <tier>` — it builds CrowdyJS at exactly
+`origin/<to>` in a temporary worktree, takes the source side of the pin-carrying
+files on conflict, re-pins, runs `check:release` with `CROWDYJS_PATH` at that
+worktree, and opens the PR. It refuses when CrowdyJS at `origin/<to>` is not the
+version this repo's pin names: promote CrowdyJS first.
+
 `parity:repin` rewrites the pin and reruns all five fixture generators plus the
 matrix; it prints the steps it cannot do for you. Four things reliably bite
 when this is done by hand:

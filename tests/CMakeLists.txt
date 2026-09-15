@@ -94,6 +94,10 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     target_link_libraries(crowdy_studio_test PRIVATE crowdy)
     add_test(NAME crowdy_studio_test COMMAND crowdy_studio_test)
 
+    add_executable(studio_github_test studio_github_test.cpp)
+    target_link_libraries(studio_github_test PRIVATE crowdy)
+    add_test(NAME studio_github_test COMMAND studio_github_test)
+
     add_executable(model_lint_test model_lint_test.cpp)
     target_link_libraries(model_lint_test PRIVATE crowdy)
     add_test(NAME model_lint_test COMMAND model_lint_test)

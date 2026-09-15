@@ -100,9 +100,9 @@ void testSharedDiagnosticFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-diagnostics/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "17.1.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "17.4.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "57d2e235af4d53e4cae76a984b7be2b2714946fb");
+        "31c360de884befc3be619e42f774804e07e6430d");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -215,7 +215,14 @@ CrowdyStudioProjectSummary summary(const CrowdyStudioProject& project) {
           project.metadata.serverModuleName,
           project.metadata.clientModuleName,
           project.archived,
-          project.updatedAt};
+          project.updatedAt,
+          project.source,
+          project.github
+              ? std::optional<std::string>(project.github->owner + "/" +
+                                           project.github->repo + "@" +
+                                           project.github->branch)
+              : std::nullopt,
+          project.github ? project.github->sha : std::nullopt};
 }
 
 class FakeProjectProvider final : public ICrowdyStudioProjectProvider {

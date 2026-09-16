@@ -428,6 +428,34 @@ void testCurrentPlatformContainerAndMarketplaceAdditions() {
       "2", "SharedDoor", "spawn:door");
   CHECK(single["containerId"].asString() == "container-1");
 
+  // The bulk state read (cks-game-api 2026-09-16): one document, the ids as a
+  // JSON array, the same selection as containerState, order as sent.
+  transport->response = {
+      200,
+      R"({"data":{"gameModelContainerStates":[{"containerId":"container-1","appId":"2","sessionId":null,"typeName":"SharedDoor","displayName":"Spawn door","ownerUserId":null,"propertiesJson":"{\"hp\":5}"},{"containerId":"container-2","appId":"2","sessionId":null,"typeName":"SharedDoor","displayName":"Back door","ownerUserId":null,"propertiesJson":"{}"}]}})"};
+  const auto states = client.gameModel().containerStates(
+      "2", std::vector<std::string>{"container-1", "container-2"});
+  CHECK_EQ(states.size(), std::size_t{2});
+  CHECK(states.at(0)["containerId"].asString() == "container-1");
+  CHECK(states.at(0)["propertiesJson"].asString() == "{\"hp\":5}");
+  CHECK(transport->last.body.find("GameModelContainerStates") !=
+        std::string::npos);
+  CHECK(transport->last.body.find(
+            R"("containerIds":["container-1","container-2"])") !=
+        std::string::npos);
+
+  bool statesAsync = false;
+  client.gameModel().containerStatesAsync(
+      "2", std::vector<std::string>{"container-1"},
+      [&](graphql::GraphQLOutcome outcome) {
+        statesAsync = true;
+        CHECK(outcome.ok());
+        CHECK_EQ(outcome.data.size(), std::size_t{2});
+      });
+  CHECK(!statesAsync);
+  client.poll();
+  CHECK(statesAsync);
+
   transport->response = {
       200,
       R"({"data":{"appPlayerCodeListingVersions":[{"versionId":"version-1","listingId":"listing-1","appId":"2","versionNo":1,"serverArtifactHashes":[],"clientArtifactHashes":[],"requirements":[],"capabilitySummaryJson":"{}","capabilityHash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","openSource":false,"licenseText":null,"createdAt":"2026-07-24T00:00:00.000Z"}]}})"};

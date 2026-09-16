@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.40.0 passes the strict portable-parity gate against CrowdyJS
-**17.4.0**. The gate pins CrowdyJS commit
-`31c360de884befc3be619e42f774804e07e6430d` (`crowdyjsParityTarget` in
+CrowdyCPP 0.41.0 passes the strict portable-parity gate against CrowdyJS
+**17.5.0**. The gate pins CrowdyJS commit
+`81eea4afa937b29c0395a1dfdb335fd8348908f5` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.40.0 | CrowdyJS 17.4.0 | Required public API generation |
+| Surface | CrowdyCPP 0.41.0 | CrowdyJS 17.5.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |

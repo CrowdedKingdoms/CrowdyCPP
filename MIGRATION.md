@@ -1,5 +1,31 @@
 # CrowdyCPP migration notes
 
+## 0.41.0 bulk containers
+
+Additive. Tracks cks-game-api v2.6.0 (PRs #346–#349) and CrowdyJS 17.5.0, which
+this release's parity gate pins. Every existing method keeps its signature.
+
+- New `GameModelAPI::containerStates(appId, containerIds)` and
+  `containerStatesAsync` — the bulk twin of `containerState`: same selection,
+  ids as a JSON array, up to 500 per call; ids the app does not hold are
+  omitted, duplicates once, input order kept.
+- `GmSessionFields` carries `seededContainerCount` (populated on the create
+  response only; null on every other read). Container-type selections read
+  `scope` (`session` | `app`).
+- Generated inputs carry `SeedContainerInput.bindingKey`,
+  `SeedContainerTypeInput.scope`, `UpsertContainerTypeInput.scope` and
+  `CreateSessionInput.seedFromApp { typeNames, initialState }`; `seed()`,
+  `upsertContainerType()` and `createSession()` accept them unchanged.
+- Server contract to know: `containers` returns 200 rows when `limit` is
+  omitted and refuses above 1,000 (`BAD_REQUEST`); a caller that relied on an
+  unbounded list must page. On an `app`-scoped type, `ensureContainer` /
+  `createContainer` with a `sessionId` refuse with `CONTAINER_TYPE_APP_SCOPED`.
+  Seeded copies of an ended session are dropped by the server after the tier's
+  retention window (7 days on every tier); hand-made rows are never purged.
+- Parity re-pinned to CrowdyJS 17.5.0 (`81eea4af`); the 45 "covered — CrowdyJS
+  17.3.0's snapshot predates it" waivers are gone. `GameModelAPI.sessionChanged`
+  joins the async-twin waivers (a subscription handle).
+
 ## 0.40.0 the game-model session system
 
 Additive. Tracks cks-game-api PR #319 on top of ck-api v2.3.0. Every existing

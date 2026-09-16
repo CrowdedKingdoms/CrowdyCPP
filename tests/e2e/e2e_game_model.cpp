@@ -6,8 +6,10 @@
 // Reference: https://docs.crowdedkingdoms.com/game-api/game-models
 #include "e2e_util.hpp"
 
+#include <cstdio>
 #include <functional>
 #include <string>
+#include <vector>
 
 using namespace crowdy;
 
@@ -470,6 +472,138 @@ int run() {
     });
     E2E_CHECK(reachedOther);
     E2E_CHECK(traversal["edges"].size() >= 1);
+  }
+
+  // Mirrors CrowdyJS test/e2e/game-model-bulk-containers.test.mjs: the bulk
+  // surface of cks-game-api 2026-09-16 through the SDK. Types and keys carry
+  // the run suffix so a shared app is not polluted between runs.
+  E2E_SUBTEST("bulk containers: keyed seed, paged identity, bulk state, session seed, app scope");
+  {
+    const std::string worldType = "E2eWorld_" + e2e::runSuffix();
+    const std::string landmarkType = "E2eLandmark_" + e2e::runSuffix();
+    constexpr std::int64_t kRows = 250;
+    auto keyFor = [&](std::int64_t i) {
+      char buf[40];
+      std::snprintf(buf, sizeof buf, "%s-%04lld", "w", static_cast<long long>(i));
+      return e2e::runSuffix() + "-" + buf;
+    };
+
+    graphql::JVal worldTypeDef;
+    worldTypeDef["typeName"] = worldType;
+    worldTypeDef["displayName"] = "World object";
+    worldTypeDef["instantiableBy"] = "admin";
+    graphql::JVal landmarkTypeDef;
+    landmarkTypeDef["typeName"] = landmarkType;
+    landmarkTypeDef["displayName"] = "Landmark";
+    landmarkTypeDef["instantiableBy"] = "admin";
+    landmarkTypeDef["scope"] = "app";
+    graphql::JVal hpDef;
+    hpDef["containerTypeName"] = worldType;
+    hpDef["key"] = "hp";
+    hpDef["valueType"] = "int";
+    hpDef["defaultValueJson"] = "0";
+
+    graphql::JArray rows;
+    for (std::int64_t i = 0; i < kRows; ++i) {
+      graphql::JVal hp;
+      hp["key"] = "hp";
+      hp["valueType"] = "int";
+      hp["valueJson"] = std::to_string(i);
+      graphql::JVal row;
+      row["tempId"] = "w" + std::to_string(i);
+      row["typeName"] = worldType;
+      row["displayName"] = "Obj " + std::to_string(i);
+      row["bindingKey"] = keyFor(i);
+      row["properties"] = graphql::JVal::array({hp});
+      rows.emplace_back(std::move(row));
+    }
+    graphql::JVal landmark;
+    landmark["tempId"] = "lm";
+    landmark["typeName"] = landmarkType;
+    landmark["displayName"] = "Old Tower";
+    landmark["bindingKey"] = e2e::runSuffix() + "-tower";
+    rows.emplace_back(std::move(landmark));
+
+    graphql::JVal seed;
+    seed["appId"] = cfg.appId;
+    seed["containerTypes"] = graphql::JVal::array({worldTypeDef, landmarkTypeDef});
+    seed["propertyDefinitions"] = graphql::JVal::array({hpDef});
+    seed["containers"] = graphql::JVal(std::move(rows));
+    graphql::Json seeded = og.gameModel().seed(seed);
+    E2E_CHECK(seeded["containersCreated"].asInt64() == kRows + 1);
+
+    // Paged identity: the default page is 200; the rest follows at offset 200.
+    graphql::Json page1 = og.gameModel().containers(cfg.appId, worldType, {}, {});
+    E2E_CHECK(page1.size() == 200);
+    graphql::Json page2 =
+        og.gameModel().containersWhere(cfg.appId, worldType, graphql::JVal(), 1000, 200);
+    E2E_CHECK(static_cast<std::int64_t>(page2.size()) == kRows - 200);
+
+    // Bulk state over the first page, hp equals the seeded index.
+    std::vector<std::string> ids;
+    page1.forEach([&](graphql::Json c) { ids.push_back(c["containerId"].asString()); });
+    graphql::Json states = og.gameModel().containerStates(cfg.appId, ids);
+    E2E_CHECK(states.size() == ids.size());
+    for (std::size_t i = 0; i < states.size(); ++i) {
+      graphql::Json s = states.at(i);
+      E2E_CHECK(s["containerId"].asString() == ids[i]);
+      const std::string name = s["displayName"].asString();
+      const std::int64_t idx = std::stoll(name.substr(std::string("Obj ").size()));
+      graphql::Json props = graphql::Json::parse(s["propertiesJson"].asStringView());
+      E2E_CHECK(props["hp"].asInt64() == idx);
+    }
+
+    // A session stamped from the template rows, with state; the key resolves
+    // inside the session; the count is on the create response only.
+    graphql::JVal seedFrom;
+    seedFrom["typeNames"] = graphql::JVal::array({graphql::JVal(worldType)});
+    seedFrom["initialState"] = "app";
+    graphql::JVal createInput;
+    createInput["appId"] = cfg.appId;
+    createInput["name"] = "e2e seeded match";
+    createInput["presence"] = "none";
+    createInput["seedFromApp"] = seedFrom;
+    graphql::Json session = og.gameModel().createSession(createInput);
+    E2E_CHECK(session["seededContainerCount"].asInt64() == kRows);
+    const std::string sid = session["sessionId"].asString();
+    graphql::Json copy = og.gameModel().containers(cfg.appId, worldType, sid, keyFor(42));
+    E2E_CHECK(copy.size() == 1);
+    E2E_CHECK(copy.at(0)["displayName"].asString() == "Obj 42");
+    graphql::Json copyState = og.gameModel().containerStates(
+        cfg.appId, std::vector<std::string>{copy.at(0)["containerId"].asString()});
+    E2E_CHECK(graphql::Json::parse(copyState.at(0)["propertiesJson"].asStringView())["hp"]
+                  .asInt64() == 42);
+    graphql::Json reread = og.gameModel().session(cfg.appId, sid);
+    E2E_CHECK(reread["seededContainerCount"].isNull());
+
+    // The app-scoped type reads back as such, and WorldObject cannot flip to
+    // app scope while a session holds its copies.
+    bool sawAppScope = false;
+    og.gameModel().containerTypes(cfg.appId).forEach([&](graphql::Json t) {
+      if (t["typeName"].asString() == landmarkType) {
+        sawAppScope = t["scope"].asString() == "app";
+      }
+    });
+    E2E_CHECK(sawAppScope);
+    graphql::JVal flip;
+    flip["appId"] = cfg.appId;
+    flip["typeName"] = worldType;
+    flip["displayName"] = "World object";
+    flip["instantiableBy"] = "admin";
+    flip["scope"] = "app";
+    bool flipRefused = false;
+    try {
+      og.gameModel().upsertContainerType(flip);
+    } catch (const std::exception& e) {
+      flipRefused = std::string(e.what()).find("session-scoped row") != std::string::npos;
+    }
+    E2E_CHECK(flipRefused);
+
+    graphql::JVal endInput;
+    endInput["appId"] = cfg.appId;
+    endInput["sessionId"] = sid;
+    endInput["reason"] = "completed";
+    og.gameModel().endSession(endInput);
   }
 
   std::puts("e2e_game_model OK");

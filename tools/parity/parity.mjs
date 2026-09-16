@@ -70,6 +70,12 @@ const SCHEMA_BASELINE = {
   // contents as a player-safe sentence carrying no engine detail, with fault as
   // the field a caller branches on. CrowdyJS's snapshot still documents it as
   // the engine's error text, so the signatures disagree in both directions.
+
+  // The session-system waivers that lived here (CrowdyCPP 0.40.0, cks-game-api
+  // PR #319) were removed with the 17.4.0 re-pin on 2026-09-16: that CrowdyJS
+  // carries the same operations, so every one of them went stale, exactly as
+  // the block said it would. A future server release that lands here before it
+  // lands in the pinned CrowdyJS gets a new, dated group in their place.
 };
 
 const ROOT_CLASSIFICATIONS = {
@@ -464,6 +470,8 @@ const ASYNC_TWIN_WAIVERS = {
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'GameModelAPI.activePlayerCountChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
+  // Same shape as the two above; it entered the matrix with the 17.4.0 re-pin
+  // (the 17.3.0 snapshot predated the session system).
   'GameModelAPI.sessionChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':

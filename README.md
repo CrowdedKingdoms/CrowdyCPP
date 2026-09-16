@@ -60,6 +60,16 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.41.0: bulk containers, parity CrowdyJS 17.5.0.** `GameModelAPI` gains
+`containerStates` / `containerStatesAsync(appId, containerIds)` (the bulk twin of
+`containerState`, up to 500 ids); `GmSessionFields` carries `seededContainerCount`
+and the container-type selections read `scope`; the generated inputs carry
+`SeedContainerInput.bindingKey`, `SeedContainerTypeInput.scope`,
+`UpsertContainerTypeInput.scope` and `CreateSessionInput.seedFromApp`, so
+`seed()`, `upsertContainerType()` and `createSession()` accept them as-is.
+`containersWhere` states the page contract (default 200, max 1,000). Tracks
+ck-api v2.6.0; schema re-synced; the 45 stale session waivers are gone.
+
 **v0.40.0: the game-model session system.** `GameModelAPI` gains
 `leaveSession`, `setSessionAdmission`, `transferSessionHost`, `endSession`,
 `sessionSnapshot`, `sessionEvents`, `sessionInspect` and the typed

@@ -1,12 +1,12 @@
 {
   "name": "crowdycpp-maintainer-tools",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",
   "crowdyjsParityTarget": {
-    "version": "17.4.0",
-    "commit": "37f34745c34158b36adfbe3ff9e6bd9cb3c697d6"
+    "version": "17.5.0",
+    "commit": "81eea4afa937b29c0395a1dfdb335fd8348908f5"
   },
   "scripts": {
     "codegen": "node scripts/codegen.mjs",

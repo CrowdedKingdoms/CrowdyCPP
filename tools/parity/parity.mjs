@@ -71,87 +71,11 @@ const SCHEMA_BASELINE = {
   // the field a caller branches on. CrowdyJS's snapshot still documents it as
   // the engine's error text, so the signatures disagree in both directions.
 
-  // THE SESSION SYSTEM (CrowdyCPP 0.40.0, cks-game-api PR #319). This snapshot
-  // was synced from that API branch on top of v2.3.0; the pinned CrowdyJS
-  // 17.3.0 (schema v2.3.0) predates the session system entirely. Every difference below is surface CrowdyCPP
-  // IMPLEMENTS (GameModelAPI::leaveSession / setSessionAdmission /
-  // transferSessionHost / endSession / sessionSnapshot / sessionEvents /
-  // sessionInspect / sessionChanged, and the widened GmSession / participant
-  // selections), so it is covered rather than waived. CrowdyJS 17.4.0 carries
-  // the same operations; the moment the pin moves there every one of these
-  // entries goes stale and the gate says so.
-  ...classifySchema(
-    [
-      'input:CreateSessionInput.admission',
-      'input:CreateSessionInput.emptyTimeoutSec',
-      'input:CreateSessionInput.idempotencyKey',
-      'input:CreateSessionInput.maxParticipants',
-      'input:CreateSessionInput.presence',
-      'input:JoinSessionInput.actorUuid',
-      'input:JoinSessionInput.idempotencyKey',
-      'input:SetSessionTurnInput.expectedHostTerm',
-      'input:SetSessionTurnInput.idempotencyKey',
-      'type:GmSession.admission',
-      'type:GmSession.createdAt',
-      'type:GmSession.endReason',
-      'type:GmSession.endedAt',
-      'type:GmSession.hostTerm',
-      'type:GmSession.hostUserId',
-      'type:GmSession.maxParticipants',
-      'type:GmSession.participantCount',
-      'type:GmSession.presence',
-      'type:GmSession.revision',
-      'type:GmSessionParticipant.actorUuid',
-      'type:GmSessionParticipant.incarnation',
-      'type:GmSessionParticipant.joinedAt',
-      'type:GmSessionParticipant.leftAt',
-      'type:GmSessionParticipant.leftReason',
-      'type:GmSessionParticipant.state',
-      'type:Mutation.gameModelEndSession',
-      'type:Mutation.gameModelLeaveSession',
-      'type:Mutation.gameModelSetSessionAdmission',
-      'type:Mutation.gameModelTransferSessionHost',
-      'type:Query.gameModelSessionEvents',
-      'type:Query.gameModelSessionInspect',
-      'type:Query.gameModelSessionSnapshot',
-      'type:Subscription.gameModelSessionChanged',
-    ],
-    CATEGORY.COVERED,
-    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.3.0's snapshot predates it",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    [
-      'input:EndSessionInput',
-      'input:LeaveSessionInput',
-      'input:SetSessionAdmissionInput',
-      'input:TransferSessionHostInput',
-      'type:GmSessionEvent',
-      'type:GmSessionInspection',
-      'type:GmSessionParticipantInspection',
-      'type:GmSessionSnapshot',
-    ],
-    CATEGORY.COVERED,
-    "the session system (cks-game-api PR #319), implemented in GameModelAPI; CrowdyJS 17.3.0's snapshot predates it",
-    'definition-only',
-    'CrowdyCPP',
-  ),
-  // The four session root fields both SDKs already wrapped changed signature
-  // with the session system: new optional input fields and, on
-  // gameModelSessions, new filter arguments. CrowdyCPP passes them through.
-  ...classifySchema(
-    [
-      'type:Mutation.gameModelCreateSession',
-      'type:Mutation.gameModelJoinSession',
-      'type:Mutation.gameModelSetSessionTurn',
-      'type:Query.gameModelSessions',
-    ],
-    CATEGORY.COVERED,
-    "the session system widened these (cks-game-api PR #319); CrowdyJS 17.3.0's snapshot predates it",
-    'member-signature',
-    'both',
-  ),
+  // The session-system waivers that lived here (CrowdyCPP 0.40.0, cks-game-api
+  // PR #319) were removed with the 17.4.0 re-pin on 2026-09-16: that CrowdyJS
+  // carries the same operations, so every one of them went stale, exactly as
+  // the block said it would. A future server release that lands here before it
+  // lands in the pinned CrowdyJS gets a new, dated group in their place.
 };
 
 const ROOT_CLASSIFICATIONS = {
@@ -545,6 +469,10 @@ const ASYNC_TWIN_WAIVERS = {
   'GameModelAPI.containerChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'GameModelAPI.activePlayerCountChanged':
+    'returns an asynchronous subscription handle rather than a one-shot callback',
+  // Same shape as the two above; it entered the matrix with the 17.4.0 re-pin
+  // (the 17.3.0 snapshot predated the session system).
+  'GameModelAPI.sessionChanged':
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',

@@ -60,6 +60,16 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.42.0: one HMAC per downlink bundle, parity CrowdyJS 17.6.0 (Buddy v0.30.0).**
+`Connection` sends `CLIENT_CAPABILITIES` (29, `wire::ClientCapability::kAll`) once the
+session is `Connected` and every `Config::advertiseIntervalMs` (15 s) after
+(`Config::advertiseCapabilities`, default on; `Connection::sendCapabilities()` for tests).
+A Buddy at v0.30.0+ then sends `MESSAGE_BUNDLE_SIGNED` (30): the bundle framing, members
+with `containsAuth = 0`, one trailing HMAC over the datagram. `wire::verifySignedBundle`
+checks it (always, one per datagram; a mismatch counts in `Stats::hmacFailures`),
+`wire::forEachMessage` walks past the tail, and `Stats::signedBundlesReceived` counts them.
+Older Buddies ignore 29 and keep the per-member form. Mirrors CrowdyJS 17.6.0.
+
 **v0.41.0: bulk containers, parity CrowdyJS 17.5.0.** `GameModelAPI` gains
 `containerStates` / `containerStatesAsync(appId, containerIds)` (the bulk twin of
 `containerState`, up to 500 ids); `GmSessionFields` carries `seededContainerCount`

@@ -500,6 +500,50 @@ void testPreKeyedMacMatchesOneShot() {
   }
 }
 
+
+// Buddy v0.30.0: a MESSAGE_BUNDLE_SIGNED verifies at the tail and walks like a bundle.
+void testSignedBundle() {
+  std::vector<std::uint8_t> dg = {static_cast<std::uint8_t>(MessageType::MessageBundleSigned)};
+  const std::uint8_t err[] = {3, 5, 7};
+  dg.push_back(3);
+  dg.push_back(0);
+  dg.insert(dg.end(), err, err + 3);
+  dg.push_back(static_cast<std::uint8_t>(sizeof(kGoldenSpatial) & 0xff));
+  dg.push_back(static_cast<std::uint8_t>(sizeof(kGoldenSpatial) >> 8));
+  dg.insert(dg.end(), kGoldenSpatial, kGoldenSpatial + sizeof(kGoldenSpatial));
+  std::uint8_t tag[kHmacTagSize];
+  CHECK(spatialHmac(crypto(), Bytes(dg.data(), dg.size()), testToken(), tag));
+  dg.insert(dg.end(), tag, tag + kHmacTagSize);
+
+  CHECK(verifySignedBundle(crypto(), Bytes(dg.data(), dg.size()), testToken()).ok());
+  auto other = *Token64::fromString(std::string(64, 'x'));
+  CHECK_EQ(static_cast<int>(verifySignedBundle(crypto(), Bytes(dg.data(), dg.size()), other).code),
+           static_cast<int>(Errc::HmacMismatch));
+  std::vector<std::uint8_t> tampered = dg;
+  tampered[4] ^= 1;
+  CHECK(!verifySignedBundle(crypto(), Bytes(tampered.data(), tampered.size()), testToken()).ok());
+  // A plain bundle is not a signed one.
+  CHECK(!verifySignedBundle(crypto(), Bytes(kGoldenSpatial, sizeof(kGoldenSpatial)), testToken()).ok());
+
+  // The walk yields the members and never the tail.
+  int count = 0;
+  std::uint8_t types[4] = {};
+  std::size_t lens[4] = {};
+  auto st = forEachMessage(Bytes(dg.data(), dg.size()), [&](Bytes m) {
+    if (count < 4) {
+      types[count] = m[0];
+      lens[count] = m.size();
+    }
+    ++count;
+  });
+  CHECK(st.ok());
+  CHECK_EQ(count, 2);
+  CHECK_EQ(types[0], 3u);
+  CHECK_EQ(lens[0], 3u);
+  CHECK_EQ(types[1], 140u);
+  CHECK_EQ(lens[1], sizeof(kGoldenSpatial));
+}
+
 }  // namespace
 
 int main() {
@@ -516,6 +560,7 @@ int main() {
   testMalformedInputs();
   testRoundTripAllTypes();
   testPreKeyedMacMatchesOneShot();
+  testSignedBundle();
   std::puts("wire_test OK");
   return 0;
 }

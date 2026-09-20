@@ -1,5 +1,18 @@
 # CrowdyCPP migration notes
 
+## 0.42.0 one HMAC per downlink bundle
+
+Additive. Tracks Buddy v0.30.0 and CrowdyJS 17.6.0 (parity pin). No signature changes.
+
+- `Connection` now sends `CLIENT_CAPABILITIES` (opcode 29) once the session is
+  `Connected` and every `Config::advertiseIntervalMs` (15 s). Set
+  `Config::advertiseCapabilities = false` to behave as 0.41.
+- A Buddy at v0.30.0+ answers with `MESSAGE_BUNDLE_SIGNED` (opcode 30): one HMAC over the
+  datagram, members without their own. `wire::verifySignedBundle` checks it (always;
+  mismatches count in `Stats::hmacFailures`), `wire::forEachMessage` walks past the tail,
+  `Stats::signedBundlesReceived` counts them. Applications that consume `Event`s see the
+  same spatial notifications as before, with `containsAuth = 0`.
+
 ## 0.41.0 bulk containers
 
 Additive. Tracks cks-game-api v2.6.0 (PRs #346–#349) and CrowdyJS 17.5.0, which

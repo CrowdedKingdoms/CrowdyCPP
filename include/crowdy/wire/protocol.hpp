@@ -34,6 +34,14 @@ enum class MessageType : std::uint8_t {
   /// Client -> server: keep-alive for the client's own actor. Reuses the long
   /// spatial layout; no fan-out.
   ClientActorHeartbeat = 26,
+  /// Client -> server (Buddy v0.30.0): what this client can read. Long-spatial
+  /// layout like the heartbeat; the app payload is a LE u32 of ClientCapability
+  /// flags. Bound to the router serving our flow; re-sent periodically.
+  ClientCapabilities = 29,
+  /// Server -> client (Buddy v0.30.0), only after we advertised BundleSigned:
+  /// the MessageBundle framing, members with containsAuth = 0, and ONE trailing
+  /// 32-byte HMAC(token, everything-before || token). See wire::verifySignedBundle.
+  MessageBundleSigned = 30,
 
   ActorUpdateRequest = 128,
   ActorUpdateNotification = 130,
@@ -98,6 +106,13 @@ inline constexpr bool isSpatialType(std::uint8_t t) noexcept {
 
 /// True for the long HMAC spatial layout: types 128-140, SingleActorMessage
 /// (142), the video pair and actor-left (143-145, v0.30.0), and the
+/// CLIENT_CAPABILITIES flags (Buddy v0.30.0).
+namespace ClientCapability {
+inline constexpr std::uint32_t kBundleSigned = 1u << 0;
+/// Everything this SDK build can read.
+inline constexpr std::uint32_t kAll = kBundleSigned;
+}  // namespace ClientCapability
+
 /// non-spatial ClientActorHeartbeat (26) which reuses it.
 inline constexpr bool isLongSpatialLayout(std::uint8_t t) noexcept {
   return (t >= 128 && t <= 140) || (t >= 142 && t <= 145) ||

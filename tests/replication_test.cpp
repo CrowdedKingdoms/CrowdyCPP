@@ -81,6 +81,22 @@ struct StubProvider final : ISessionProvider {
 
 wire::Token64 token64() { return *wire::Token64::fromString(kToken); }
 
+// CLIENT_CAPABILITIES (29) leaves once housekeeping sees Connected. 0.42.0
+// encoded nothing, so these reads used to see the next application datagram.
+void expectCapabilities(FakeServer& server) {
+  auto got = server.recvOne();
+  CHECK_EQ(got[0], static_cast<std::uint8_t>(wire::MessageType::ClientCapabilities));
+  auto parsed = wire::parseLongSpatial(Bytes(got.data(), got.size()));
+  CHECK(parsed.ok());
+  CHECK_EQ(parsed->payload.size(), 4u);
+  CHECK_EQ(parsed->payload[0], 0x01);
+  CHECK_EQ(parsed->payload[1], 0x00);
+  CHECK_EQ(parsed->payload[2], 0x00);
+  CHECK_EQ(parsed->payload[3], 0x00);
+  CHECK(wire::verifyLongSpatial(core::opensslCrypto(), Bytes(got.data(), got.size()), token64())
+            .ok());
+}
+
 core::ActorUuid uuid(char fill) {
   core::ActorUuid u;
   std::memset(u.data(), fill, 32);
@@ -252,6 +268,11 @@ void run() {
   CHECK(statusChanges >= 1);  // Connecting -> Connected observed
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
 
+  // The receive pumps above are what first reached Connected, so the
+  // advertisement is already queued. bundleSends is off: it is its own datagram.
+  expectCapabilities(server);
+  CHECK_EQ(conn.stats().messagesSentByType[29], 1u);
+
   // --- COMMAND_RECONNECT: verified command triggers reassignment.
   std::uint8_t rc[wire::kCommandReconnectSize];
   rc[0] = 22;
@@ -267,6 +288,12 @@ void run() {
   }
   CHECK_EQ(provider->assignCalls, 2);
   CHECK_EQ(conn.stats().reconnects, 1u);
+
+  // The pump that finished reassignment left the state Connecting and cleared
+  // the advertisement. One more pump reaches Connected and sends it again.
+  conn.pump(20);
+  expectCapabilities(server);
+  CHECK_EQ(conn.stats().messagesSentByType[29], 2u);
 
   // Sends still work after reassignment.
   CHECK(conn.sendActorUpdate(send).ok());
@@ -705,6 +732,8 @@ void runBundling() {
 
   // --- Two sends inside the window: nothing on the wire until the window
   // passes, then ONE type-2 datagram carrying both, each member verifiable.
+  // The first pump also reaches Connected and appends CLIENT_CAPABILITIES to
+  // that same open bundle, so the flush carries three members.
   CHECK(conn.sendActorUpdate(send).ok());
   CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('a')).ok());
   {
@@ -722,9 +751,10 @@ void runBundling() {
     auto got = server.recvOne();
     CHECK_EQ(got[0], 2u);
     std::uint8_t types[4] = {};
-    CHECK_EQ(countVerifiedMembers(got, types, 4), 2);
+    CHECK_EQ(countVerifiedMembers(got, types, 4), 3);
     CHECK_EQ(types[0], 128u);
     CHECK_EQ(types[1], 26u);
+    CHECK_EQ(types[2], static_cast<std::uint8_t>(wire::MessageType::ClientCapabilities));
     auto s = conn.stats();
     CHECK_EQ(s.datagramsSent, 1u);
     CHECK_EQ(s.bundlesSent, 1u);
@@ -899,6 +929,9 @@ void runBundlingNetThread() {
   Connection conn(cfg, provider, core::opensslCrypto());
   CHECK(conn.connect().ok());
   ::usleep(30 * 1000);  // let the net thread settle into its 20 ms receive wait
+  // Connected housekeeping advertises before any test send. A one-member
+  // bundle leaves unwrapped, so this datagram is opcode 29 on its own.
+  expectCapabilities(server);
 
   const std::uint8_t pose[] = {1, 2, 3, 4};
   SpatialSend send;

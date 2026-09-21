@@ -104,19 +104,19 @@ inline constexpr bool isSpatialType(std::uint8_t t) noexcept {
   return (t & kSpatialTypeBit) != 0;
 }
 
-/// True for the long HMAC spatial layout: types 128-140, SingleActorMessage
-/// (142), the video pair and actor-left (143-145, v0.30.0), and the
-/// CLIENT_CAPABILITIES flags (Buddy v0.30.0).
 namespace ClientCapability {
 inline constexpr std::uint32_t kBundleSigned = 1u << 0;
 /// Everything this SDK build can read.
 inline constexpr std::uint32_t kAll = kBundleSigned;
 }  // namespace ClientCapability
 
-/// non-spatial ClientActorHeartbeat (26) which reuses it.
+/// True for the long HMAC spatial layout: types 128-140, SingleActorMessage
+/// (142), the video pair and actor-left (143-145), plus the non-spatial
+/// ClientActorHeartbeat (26) and ClientCapabilities (29), which reuse it.
 inline constexpr bool isLongSpatialLayout(std::uint8_t t) noexcept {
   return (t >= 128 && t <= 140) || (t >= 142 && t <= 145) ||
-         t == static_cast<std::uint8_t>(MessageType::ClientActorHeartbeat);
+         t == static_cast<std::uint8_t>(MessageType::ClientActorHeartbeat) ||
+         t == static_cast<std::uint8_t>(MessageType::ClientCapabilities);
 }
 
 /// Server-only downlink opcodes a client never originates (Buddy drops them).

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <string>
 #include <thread>
 
 namespace crowdy::replication {
@@ -487,6 +488,10 @@ void Connection::handleDatagram(Bytes datagram) {
         return;
       }
       e.kind = Event::Kind::Channel;
+    } else if (type == static_cast<std::uint8_t>(MessageType::ClientCapabilities)) {
+      // Client-originated. Sharing the long-spatial layout must not enqueue a
+      // server echo as a spatial notification; a client never expects one back.
+      return;
     } else if (wire::isLongSpatialLayout(type)) {
       auto parsed = wire::parseLongSpatial(message);
       if (!parsed.ok()) {
@@ -568,7 +573,11 @@ void Connection::housekeeping() {
   if (config_.advertiseCapabilities && state() == ConnState::Connected &&
       (lastCapsMs_ == 0 || nowMono - lastCapsMs_ >= config_.advertiseIntervalMs)) {
     lastCapsMs_ = nowMono;
-    (void)sendCapabilities();
+    const auto sent = sendCapabilities();
+    if (!sent.ok() && logger_.enabled(core::LogLevel::Warn)) {
+      logger_.log(core::LogLevel::Warn,
+                  std::string("CLIENT_CAPABILITIES send failed: ") + errcName(sent.error()));
+    }
   }
 
   // Proactive token refresh.

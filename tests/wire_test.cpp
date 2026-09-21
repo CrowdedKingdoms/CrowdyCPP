@@ -58,6 +58,9 @@ void testLayoutConstants() {
   CHECK_EQ(offsets::kPayload, 68u);
   CHECK(isLongSpatialLayout(128) && isLongSpatialLayout(140) && isLongSpatialLayout(142));
   CHECK(isLongSpatialLayout(26));   // heartbeat reuses the layout
+  CHECK(isLongSpatialLayout(29));   // CLIENT_CAPABILITIES reuses the layout
+  CHECK_EQ(static_cast<int>(MessageType::ClientCapabilities), 29);
+  CHECK(!isServerOnlySpatialType(29));  // client-originated; Buddy accepts it
   CHECK(!isLongSpatialLayout(141)); // short spatial reserved
   // v0.30.0: the video pair and actor-left share the layout (Buddy v0.25.0).
   CHECK(isLongSpatialLayout(143) && isLongSpatialLayout(144) && isLongSpatialLayout(145));
@@ -93,6 +96,40 @@ void testGoldenEncode() {
   CHECK(n.ok());
   CHECK_EQ(n.value(), sizeof(kGoldenSpatial));
   CHECK(std::memcmp(buf, kGoldenSpatial, sizeof(kGoldenSpatial)) == 0);
+}
+
+// 0.42.0 built CLIENT_CAPABILITIES and then encodeLongSpatial refused opcode 29,
+// so the datagram never left. A 4-byte LE flags word of kBundleSigned must encode.
+void testEncodeClientCapabilities() {
+  LongSpatialParams p;
+  p.type = MessageType::ClientCapabilities;
+  p.appId = 7;
+  p.chunk = {};
+  p.distance = 0;
+  p.decay = DecayRate::None;
+  const std::uint8_t flags[] = {0x01, 0x00, 0x00, 0x00};
+  CHECK_EQ(ClientCapability::kBundleSigned, 1u);
+  p.payload = Bytes(flags, sizeof(flags));
+  p.gameTokenId = 123456789;
+  p.sequence = 1;
+
+  std::uint8_t buf[256];
+  auto n = encodeLongSpatial(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf)));
+  CHECK(n.ok());
+  CHECK_EQ(buf[offsets::kType], static_cast<std::uint8_t>(MessageType::ClientCapabilities));
+  CHECK_EQ(buf[offsets::kPayload + 0], 0x01);
+  CHECK_EQ(buf[offsets::kPayload + 1], 0x00);
+  CHECK_EQ(buf[offsets::kPayload + 2], 0x00);
+  CHECK_EQ(buf[offsets::kPayload + 3], 0x00);
+
+  auto v = parseLongSpatial(Bytes(buf, n.value()));
+  CHECK(v.ok());
+  CHECK_EQ(static_cast<int>(v->type), static_cast<int>(MessageType::ClientCapabilities));
+  CHECK_EQ(v->payload.size(), 4u);
+  CHECK_EQ(v->payload[0], 0x01);
+  CHECK_EQ(v->payload[1], 0x00);
+  CHECK_EQ(v->payload[2], 0x00);
+  CHECK_EQ(v->payload[3], 0x00);
 }
 
 void testGoldenParseAndVerify() {
@@ -549,6 +586,7 @@ void testSignedBundle() {
 int main() {
   testLayoutConstants();
   testGoldenEncode();
+  testEncodeClientCapabilities();
   testGoldenParseAndVerify();
   testCommandReconnect();
   testVoxelPayloadRoundTrip();

@@ -60,6 +60,11 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.42.1: CLIENT_CAPABILITIES actually leaves the client.** 0.42.0 built opcode 29
+and `encodeLongSpatial` refused it, so no datagram was sent and a Buddy never
+switched to `MESSAGE_BUNDLE_SIGNED`. 0.42.1 accepts 29 in `isLongSpatialLayout`
+and sends the advertisement. Same CrowdyJS 17.6.0 pin as 0.42.0.
+
 **v0.42.0: one HMAC per downlink bundle, parity CrowdyJS 17.6.0 (Buddy v0.30.0).**
 `Connection` sends `CLIENT_CAPABILITIES` (29, `wire::ClientCapability::kAll`) once the
 session is `Connected` and every `Config::advertiseIntervalMs` (15 s) after

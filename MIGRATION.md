@@ -1,5 +1,15 @@
 # CrowdyCPP migration notes
 
+## 0.42.1 CLIENT_CAPABILITIES is sent
+
+Bugfix. No signature changes. Same CrowdyJS 17.6.0 pin as 0.42.0.
+
+0.42.0 built `CLIENT_CAPABILITIES` (opcode 29) and then `encodeLongSpatial` rejected
+it, because `isLongSpatialLayout` did not list 29. The send returned before
+`transmit()`, `housekeeping()` discarded the error, and nothing reached the server,
+so `MESSAGE_BUNDLE_SIGNED` was never requested. 0.42.1 sends it. A failed advertise
+is logged at Warn; the next attempt is still one `advertiseIntervalMs` later.
+
 ## 0.42.0 one HMAC per downlink bundle
 
 Additive. Tracks Buddy v0.30.0 and CrowdyJS 17.6.0 (parity pin). No signature changes.

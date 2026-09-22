@@ -60,6 +60,11 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.43.0: grids.** `client.grids()` mints grid-scoped tokens and manages grid channels,
+and `gameModel().sessions(..., gridId)` lists the games hosted inside a grid (DN-10:
+grid scope is app scope intersected with grid confinement). Parity pinned to CrowdyJS
+17.7.0.
+
 **v0.42.1: CLIENT_CAPABILITIES actually leaves the client.** 0.42.0 built opcode 29
 and `encodeLongSpatial` refused it, so no datagram was sent and a Buddy never
 switched to `MESSAGE_BUNDLE_SIGNED`. 0.42.1 accepts 29 in `isLongSpatialLayout`

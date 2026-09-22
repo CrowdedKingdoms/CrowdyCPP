@@ -1,5 +1,23 @@
 # CrowdyCPP migration notes
 
+## 0.43.0 Grids (DN-10)
+
+Additive. Pinned to CrowdyJS 17.7.0.
+
+- `client.grids()`: `mintToken(appId, gridId, ttlSeconds)` (a grid-scoped
+  token: an app token narrowed to one grid, deny-by-default on the server and
+  refused by the binary relay), `createChannel(appId, gridId, name)` (a grid
+  channel; grid owner only) and `channels(appId, gridId)`, each with an
+  `...Async` twin.
+- `gameModel().sessions(..., gridId)`: only sessions hosted inside a grid.
+  Session JSON carries `gridId`.
+- `PlayerWasmPolicy` / `SetPlayerWasmPolicyInput` gain `channelEgress`,
+  `spatialMaxDistance`, `gridEventEgress` (schema only; set them through the
+  raw GraphQL client).
+- The browser-only CrowdyJS additions (`GridScope`, `grid-program`,
+  `startGridMod`, the crowdy-dsh bridge v4 grid requests) are classified
+  browser exclusions in `docs/parity-matrix.md`.
+
 ## 0.42.1 CLIENT_CAPABILITIES is sent
 
 Bugfix. No signature changes. Same CrowdyJS 17.6.0 pin as 0.42.0.

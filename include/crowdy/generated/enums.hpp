@@ -2,7 +2,7 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: fdc02fabbf0f6df8ee1d473cc0f835808770aabe81cbefcf2e231ac66131cbe9
+// schema.gql sha256: 992dc2a9616da38cef3e9f9bedbccd04ea522a0f70a95479322cc5270cb54406
 // operations sha256: 10854c57771bc89ffbefd653be055130039b1260e1a0b73b7748ab0878d22164
 
 #pragma once
@@ -1263,6 +1263,7 @@ enum class PlayerFaultCode {
   QUOTA_EXHAUSTED,
   WALLET_EMPTY,
   SPEND_CAP_REACHED,
+  CIRCUIT_OPEN,
   TEMPORARILY_DISABLED,
   INVALID_REQUEST,
   NOT_ALLOWED,
@@ -1284,6 +1285,7 @@ inline constexpr std::string_view toString(PlayerFaultCode v) {
     case PlayerFaultCode::QUOTA_EXHAUSTED: return "QUOTA_EXHAUSTED";
     case PlayerFaultCode::WALLET_EMPTY: return "WALLET_EMPTY";
     case PlayerFaultCode::SPEND_CAP_REACHED: return "SPEND_CAP_REACHED";
+    case PlayerFaultCode::CIRCUIT_OPEN: return "CIRCUIT_OPEN";
     case PlayerFaultCode::TEMPORARILY_DISABLED: return "TEMPORARILY_DISABLED";
     case PlayerFaultCode::INVALID_REQUEST: return "INVALID_REQUEST";
     case PlayerFaultCode::NOT_ALLOWED: return "NOT_ALLOWED";
@@ -1306,6 +1308,7 @@ inline std::optional<PlayerFaultCode> playerFaultCodeFromString(std::string_view
   if (s == "QUOTA_EXHAUSTED") return PlayerFaultCode::QUOTA_EXHAUSTED;
   if (s == "WALLET_EMPTY") return PlayerFaultCode::WALLET_EMPTY;
   if (s == "SPEND_CAP_REACHED") return PlayerFaultCode::SPEND_CAP_REACHED;
+  if (s == "CIRCUIT_OPEN") return PlayerFaultCode::CIRCUIT_OPEN;
   if (s == "TEMPORARILY_DISABLED") return PlayerFaultCode::TEMPORARILY_DISABLED;
   if (s == "INVALID_REQUEST") return PlayerFaultCode::INVALID_REQUEST;
   if (s == "NOT_ALLOWED") return PlayerFaultCode::NOT_ALLOWED;

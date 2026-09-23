@@ -1,5 +1,12 @@
 # CrowdyCPP migration notes
 
+## 0.43.1 Circuit open cause
+
+Additive. Pinned to CrowdyJS 17.8.0.
+
+- `GraphQLErrorDetail::cause` is filled from `extensions.cause`. `watchdog_timeout` means the circuit opened on watchdog kills.
+- `PlayerFaultCode::CIRCUIT_OPEN` is distinct from `TEMPORARILY_DISABLED`.
+
 ## 0.43.0 Grids (DN-10)
 
 Additive. Pinned to CrowdyJS 17.7.0.

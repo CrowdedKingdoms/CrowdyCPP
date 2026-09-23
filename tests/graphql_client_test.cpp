@@ -155,7 +155,7 @@ void testRetryAfterMsIsReadFromExtensions() {
   auto async = std::make_shared<FakeAsyncTransport>();
   async->outcome = httpOk(200,
                           R"({"errors":[{"message":"Too many calls","extensions":)"
-                          R"({"code":"RATE_LIMITED","blame":"BUDGET","retryAfterMs":4200}}]})");
+                          R"({"code":"RATE_LIMITED","blame":"BUDGET","retryAfterMs":4200,"cause":"watchdog_timeout"}}]})");
   auto client = makeClient(std::make_shared<FakeSyncTransport>());
   client->setAsyncTransport(async);
 
@@ -167,6 +167,7 @@ void testRetryAfterMsIsReadFromExtensions() {
   CHECK(got.errors[0].blame == "BUDGET");
   CHECK(got.errors[0].retryAfterMs.has_value());
   CHECK_EQ(*got.errors[0].retryAfterMs, std::int64_t{4200});
+  CHECK(got.errors[0].cause == "watchdog_timeout");
 }
 
 // "Retry immediately" and "the server said nothing" are different instructions,

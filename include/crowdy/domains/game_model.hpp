@@ -889,11 +889,14 @@ class GameModelAPI : public DomainBase {
   /// List sessions, newest first. `status`: active | completed | abandoned;
   /// `admission`: open | locked | closed (open lists joinable lobbies);
   /// `hostUserId` narrows to one host; `limit` defaults to 200 (max 1000).
+  /// `gridId` (DN-10): only sessions hosted inside that grid. A grid-scoped
+  /// token must pass its own grid.
   graphql::Json sessions(std::string_view appId, std::string_view status = {},
                          std::string_view admission = {},
-                         std::string_view hostUserId = {}, int limit = 0) const {
+                         std::string_view hostUserId = {}, int limit = 0,
+                         std::string_view gridId = {}) const {
     return execUnwrap(gen::gameModel::documentFor("GameModelSessions"),
-                      sessionsVars(appId, status, admission, hostUserId, limit),
+                      sessionsVars(appId, status, admission, hostUserId, limit, gridId),
                       "GameModelSessions");
   }
   void sessionsAsync(std::string_view appId, std::string_view status,
@@ -1310,13 +1313,15 @@ class GameModelAPI : public DomainBase {
   }
   static graphql::JVal sessionsVars(std::string_view appId, std::string_view status,
                                     std::string_view admission,
-                                    std::string_view hostUserId, int limit) {
+                                    std::string_view hostUserId, int limit,
+                                    std::string_view gridId = {}) {
     graphql::JVal vars;
     vars["appId"] = appId;
     if (!status.empty()) vars["status"] = status;
     if (!admission.empty()) vars["admission"] = admission;
     if (!hostUserId.empty()) vars["hostUserId"] = hostUserId;
     if (limit > 0) vars["limit"] = limit;
+    if (!gridId.empty()) vars["gridId"] = gridId;
     return vars;
   }
   static graphql::JVal sessionEventsVars(std::string_view appId, std::string_view sessionId,

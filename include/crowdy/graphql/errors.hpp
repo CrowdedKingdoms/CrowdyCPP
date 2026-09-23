@@ -96,6 +96,10 @@ struct GraphQLErrorDetail {
   /// number. Treat it as a deadline from receipt, not as an interval to
   /// reuse.
   std::optional<std::int64_t> retryAfterMs;
+  /// extensions.cause: why an open circuit opened, when the server knows.
+  /// `watchdog_timeout` means the failures were watchdog kills. Empty when
+  /// the key is absent.
+  std::string cause;
 };
 
 /// The server returned GraphQL errors. Preserves every error including

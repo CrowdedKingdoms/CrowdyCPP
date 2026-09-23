@@ -18,6 +18,7 @@
 #include "crowdy/domains/marketplace.hpp"
 #include "crowdy/domains/player_model.hpp"
 #include "crowdy/domains/groups.hpp"
+#include "crowdy/domains/grids.hpp"
 #include "crowdy/domains/portal.hpp"
 #include "crowdy/domains/server_status.hpp"
 #include "crowdy/domains/users.hpp"
@@ -218,6 +219,8 @@ class CrowdyClient {
   domains::TeleportAPI& teleport() { return *teleport_; }
   domains::TeamsAPI& teams() { return *teams_; }
   domains::ChannelsAPI& channels() { return *channels_; }
+  /// Grid tokens and grid channels (DN-10).
+  domains::GridsAPI& grids() { return *grids_; }
   domains::GameModelAPI& gameModel() { return *gameModel_; }
 #ifndef CROWDY_NO_EXCEPTIONS
   domains::ComputeAPI& compute() { return *compute_; }
@@ -386,6 +389,7 @@ class CrowdyClient {
   std::unique_ptr<domains::TeleportAPI> teleport_;
   std::unique_ptr<domains::TeamsAPI> teams_;
   std::unique_ptr<domains::ChannelsAPI> channels_;
+  std::unique_ptr<domains::GridsAPI> grids_;
   std::unique_ptr<domains::GameModelAPI> gameModel_;
 #ifndef CROWDY_NO_EXCEPTIONS
   std::unique_ptr<domains::ComputeAPI> compute_;

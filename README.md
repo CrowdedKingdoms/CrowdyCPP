@@ -60,6 +60,8 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.43.1: an open circuit says why.** `GraphQLErrorDetail::cause` is `watchdog_timeout` when a breaker opened on watchdog kills, and `PlayerFaultCode` includes `CIRCUIT_OPEN`. Parity pinned to CrowdyJS 17.8.0.
+
 **v0.43.0: grids.** `client.grids()` mints grid-scoped tokens and manages grid channels,
 and `gameModel().sessions(..., gridId)` lists the games hosted inside a grid (DN-10:
 grid scope is app scope intersected with grid confinement). Parity pinned to CrowdyJS

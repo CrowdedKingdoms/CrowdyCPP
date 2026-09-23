@@ -462,6 +462,7 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   teleport_ = std::make_unique<domains::TeleportAPI>(gql_);
   teams_ = std::make_unique<domains::TeamsAPI>(gql_);
   channels_ = std::make_unique<domains::ChannelsAPI>(gql_);
+  grids_ = std::make_unique<domains::GridsAPI>(gql_);
   gameModel_ = std::make_unique<domains::GameModelAPI>(gql_, subscriptions_);
 #ifndef CROWDY_NO_EXCEPTIONS
   compute_ = std::make_unique<domains::ComputeAPI>(gql_);
@@ -670,6 +671,7 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   teleport_ = std::move(other.teleport_);
   teams_ = std::move(other.teams_);
   channels_ = std::move(other.channels_);
+  grids_ = std::move(other.grids_);
   gameModel_ = std::move(other.gameModel_);
 #ifndef CROWDY_NO_EXCEPTIONS
   compute_ = std::move(other.compute_);

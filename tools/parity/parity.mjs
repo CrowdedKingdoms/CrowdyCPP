@@ -784,6 +784,7 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   ),
   'src/crowdy-dsh/bridge.ts': exportModule(
     [
+      'CrowdyStudioDshGridHost',
       'CrowdyStudioDshHost',
       'StudioDshBridge',
       'StudioDshBridgeOptions',
@@ -804,6 +805,8 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'DshBuildResult',
       'DshDiagnostic',
       'DshFrameMessage',
+      'DshGridContext',
+      'DshGridProgramStatus',
       'DshPageEventMap',
       'DshProjectSource',
       'DshProjectSummary',

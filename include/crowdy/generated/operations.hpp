@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 795da692ef10e301059c0fa8278e38f4da243de0c7e4325a2d95ecedb8131222
-// operations sha256: 3de1666fc61e46cf5effefa06d71f3d98844d8323a7e763fb6362f56159e0b4f
+// schema.gql sha256: fdc02fabbf0f6df8ee1d473cc0f835808770aabe81cbefcf2e231ac66131cbe9
+// operations sha256: 10854c57771bc89ffbefd653be055130039b1260e1a0b73b7748ab0878d22164
 
 #pragma once
 
@@ -6795,6 +6795,7 @@ inline constexpr std::string_view kGameModelRuntimeDocument = R"gql(fragment GmS
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 }
 
@@ -7028,6 +7029,7 @@ query GameModelSessions(
   $admission: String
   $hostUserId: BigInt
   $limit: Int
+  $gridId: BigInt
 ) {
   gameModelSessions(
     appId: $appId
@@ -7035,6 +7037,7 @@ query GameModelSessions(
     admission: $admission
     hostUserId: $hostUserId
     limit: $limit
+    gridId: $gridId
   ) {
     ...GmSessionFields
   }
@@ -7316,6 +7319,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelCreateSessionOperationName = "GameModelCreateSession";
@@ -7379,6 +7383,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelSetSessionAdmissionOperationName = "GameModelSetSessionAdmission";
@@ -7406,6 +7411,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelTransferSessionHostOperationName = "GameModelTransferSessionHost";
@@ -7433,6 +7439,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelEndSessionOperationName = "GameModelEndSession";
@@ -7460,6 +7467,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelSetSessionTurnOperationName = "GameModelSetSessionTurn";
@@ -7689,16 +7697,18 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelSessionOperationName = "GameModelSession";
-inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String, $admission: String, $hostUserId: BigInt, $limit: Int) {
+inline constexpr std::string_view kGameModelSessionsIsolatedDocument = R"gql(query GameModelSessions($appId: BigInt!, $status: String, $admission: String, $hostUserId: BigInt, $limit: Int, $gridId: BigInt) {
   gameModelSessions(
     appId: $appId
     status: $status
     admission: $admission
     hostUserId: $hostUserId
     limit: $limit
+    gridId: $gridId
   ) {
     ...GmSessionFields
   }
@@ -7722,6 +7732,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 })gql";
 inline constexpr std::string_view kGameModelSessionsOperationName = "GameModelSessions";
@@ -7755,6 +7766,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 }
 
@@ -7826,6 +7838,7 @@ fragment GmSessionFields on GmSession {
   endReason
   createdAt
   presence
+  gridId
   seededContainerCount
 }
 
@@ -8723,6 +8736,124 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 }
 
 }  // namespace gameModel
+
+namespace grids {
+
+/// grids/CreateGridChannel.graphql
+inline constexpr std::string_view kCreateGridChannelDocument = R"gql(mutation CreateGridChannel($input: CreateGridChannelInput!) {
+  createGridChannel(input: $input) {
+    groupId
+    appId
+    groupType
+    name
+    description
+    ownerUserId
+    membershipPolicy
+    status
+    defaultRoleId
+    gridId
+    createdAt
+  }
+})gql";
+inline constexpr std::string_view kCreateGridChannelIsolatedDocument = R"gql(mutation CreateGridChannel($input: CreateGridChannelInput!) {
+  createGridChannel(input: $input) {
+    groupId
+    appId
+    groupType
+    name
+    description
+    ownerUserId
+    membershipPolicy
+    status
+    defaultRoleId
+    gridId
+    createdAt
+  }
+})gql";
+inline constexpr std::string_view kCreateGridChannelOperationName = "CreateGridChannel";
+
+/// grids/GridChannels.graphql
+inline constexpr std::string_view kGridChannelsDocument = R"gql(query GridChannels($appId: BigInt!, $gridId: BigInt!) {
+  gridChannels(appId: $appId, gridId: $gridId) {
+    groupId
+    appId
+    groupType
+    name
+    description
+    ownerUserId
+    membershipPolicy
+    status
+    defaultRoleId
+    gridId
+    createdAt
+  }
+})gql";
+inline constexpr std::string_view kGridChannelsIsolatedDocument = R"gql(query GridChannels($appId: BigInt!, $gridId: BigInt!) {
+  gridChannels(appId: $appId, gridId: $gridId) {
+    groupId
+    appId
+    groupType
+    name
+    description
+    ownerUserId
+    membershipPolicy
+    status
+    defaultRoleId
+    gridId
+    createdAt
+  }
+})gql";
+inline constexpr std::string_view kGridChannelsOperationName = "GridChannels";
+
+/// grids/MintGridToken.graphql
+inline constexpr std::string_view kMintGridTokenDocument = R"gql(mutation MintGridToken($input: MintGridTokenInput!) {
+  mintGridToken(input: $input) {
+    token
+    gameTokenId
+    appId
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    expiresAt
+  }
+})gql";
+inline constexpr std::string_view kMintGridTokenIsolatedDocument = R"gql(mutation MintGridToken($input: MintGridTokenInput!) {
+  mintGridToken(input: $input) {
+    token
+    gameTokenId
+    appId
+    gridId
+    lowChunk {
+      x
+      y
+      z
+    }
+    highChunk {
+      x
+      y
+      z
+    }
+    expiresAt
+  }
+})gql";
+inline constexpr std::string_view kMintGridTokenOperationName = "MintGridToken";
+
+inline constexpr std::string_view documentFor(std::string_view operationName) {
+  if (operationName == "CreateGridChannel") return kCreateGridChannelIsolatedDocument;
+  if (operationName == "GridChannels") return kGridChannelsIsolatedDocument;
+  if (operationName == "MintGridToken") return kMintGridTokenIsolatedDocument;
+  return {};
+}
+
+}  // namespace grids
 
 namespace host {
 

@@ -60,6 +60,11 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.45.0: ck-exec operations (dev-tier preview).** `client.exec()` adds
+`connectAsDeveloper` (studio tools and admin endpoints, as `Caller::Developer`), guest `logs`,
+`instances`, `versions`, `status`, `activateVersion` (a rollback) and `setEnabled` (the kill
+switch). Parity pinned to CrowdyJS 17.10.0.
+
 **v0.44.0: ck-exec (dev-tier preview).** `client.exec().connect(appId, {.nodeType, .key})`
 asks the Game API for an execution host and opens a WebSocket to its gateway; the
 `ExecConnection` it returns calls hubs and spokes (`call`, `callRaw`), subscribes to their

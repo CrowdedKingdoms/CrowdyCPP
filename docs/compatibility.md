@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.44.0 passes the strict portable-parity gate against CrowdyJS
-**17.9.0**. The gate pins CrowdyJS commit
-`2c4c1d4335a950a7ce272ad6647fd191cb5f6214` (`crowdyjsParityTarget` in
+CrowdyCPP 0.45.0 passes the strict portable-parity gate against CrowdyJS
+**17.10.0**. The gate pins CrowdyJS commit
+`a55829254e47c13cfa5b7d935ac55a4a342dcf03` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,10 +34,10 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.44.0 | CrowdyJS 17.9.0 | Required public API generation |
+| Surface | CrowdyCPP 0.45.0 | CrowdyJS 17.10.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
-| ck-exec (dev-tier preview) | `exec().connect` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack` | `exec.connect` / `ExecConnection`, `@msgpack/msgpack` | Game API dev `execConnect` / `execDeploy`; ck-exec v0.2 client protocol |
+| ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs`, `instances`, `versions`, `status`, `activateVersion`, `setEnabled` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy` and the operations (ck-api `v2.17.0`); ck-exec v0.2 client protocol |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |

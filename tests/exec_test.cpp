@@ -8,6 +8,9 @@
 #include <vector>
 
 #include "crowdy/domains/exec.hpp"
+#include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/graphql/http.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/json.hpp"
 #include "test_util.hpp"
@@ -376,11 +379,78 @@ void testCallTimesOut() {
 
 }  // namespace
 
+// ---- operations, on a fake GraphQL endpoint ----
+
+// Answers each operation by name and keeps every request body.
+class RecordingHttp final : public graphql::IHttpTransport {
+ public:
+  std::vector<graphql::Json> requests;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& r) override {
+    auto body = graphql::Json::parse(r.body);
+    requests.push_back(body);
+    const auto op = body["operationName"].asString();
+    const std::string status = R"({"activeVersion":2,"disabled":false,"disabledTypes":["bare"],"budgetPaused":false})";
+    if (op == "ExecLogs")
+      return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi"}]}})"};
+    if (op == "ExecSetEnabled") return {200, R"({"data":{"execSetEnabled":)" + status + "}}"};
+    if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
+    if (op == "ExecConnectAsDeveloper")
+      return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":"wss://gw","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
+    return {200, R"({"data":{}})"};
+  }
+
+#ifdef CROWDY_NO_EXCEPTIONS
+  graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& r) noexcept override {
+    return {Errc::Ok, send(r), {}};
+  }
+#endif
+};
+
+void testOperations() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      std::make_shared<graphql::AuthState>());
+  ExecAPI exec(gql, std::make_shared<FakeTransport>());
+
+  ExecLogsQuery q;
+  q.nodeType = "arena";
+  q.maxLevel = 1;
+  q.limit = 10;
+  auto lines = exec.logs("77", q);
+  CHECK_EQ(lines.size(), 1u);
+  CHECK_EQ(lines.at(0)["text"].asString(), std::string("hi"));
+  auto vars = http->requests.back()["variables"];
+  CHECK_EQ(vars["appId"].asString(), std::string("77"));
+  CHECK_EQ(vars["nodeType"].asString(), std::string("arena"));
+  CHECK_EQ(vars["maxLevel"].asInt64(), 1);
+  CHECK_EQ(vars["limit"].asInt64(), 10);
+  CHECK(vars["key"].isNull());
+  CHECK(vars["before"].isNull());
+
+  auto s = exec.setEnabled("77", false, "bare");
+  CHECK_EQ(s["disabledTypes"].at(0).asString(), std::string("bare"));
+  vars = http->requests.back()["variables"];
+  CHECK(vars["enabled"].isBool() && !vars["enabled"].asBool());
+  CHECK_EQ(vars["nodeType"].asString(), std::string("bare"));
+
+  auto a = exec.activateVersion("77", 2);
+  CHECK_EQ(a["activeVersion"].asInt64(), 2);
+  CHECK_EQ(http->requests.back()["variables"]["version"].asInt64(), 2);
+
+  auto dev = exec.developerEndpoint("77", "bare", "k");
+  CHECK(dev.ok());
+  CHECK_EQ(dev.value().token, std::string("dev-1"));
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsDeveloper"));
+  CHECK_EQ(http->requests.back()["variables"]["key"].asString(), std::string("k"));
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
   testConnection();
   testCallTimesOut();
+  testOperations();
   std::puts("exec_test OK");
   return 0;
 }

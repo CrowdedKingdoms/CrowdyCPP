@@ -1,5 +1,16 @@
 # CrowdyCPP migration notes
 
+## 0.45.0 ck-exec operations (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.10.0.
+
+- `client.exec()`: `connectAsDeveloper(appId, ExecConnectOptions)` / `connectAsDeveloperAsync`
+  and `developerEndpoint` / `developerEndpointAsync` (`execConnectAsDeveloper`: your own session
+  with the org's `manage_compute`; the session calls any node type as `Caller::Developer`).
+- `logs(appId, ExecLogsQuery)`, `instances`, `versions`, `status` (`view_compute_diagnostics`),
+  and `activateVersion(appId, version)` and `setEnabled(appId, enabled, nodeType)`
+  (`manage_compute`), each with an `…Async` twin. They return the GraphQL JSON.
+
 ## 0.44.0 ck-exec (dev-tier preview)
 
 Additive. Pinned to CrowdyJS 17.9.0.

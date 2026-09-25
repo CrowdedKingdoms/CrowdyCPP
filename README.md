@@ -60,6 +60,10 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.46.0: ck-exec builds (dev-tier preview).** `client.exec()` adds `starters`, `build`,
+`buildStatus` and `waitForBuild`, so a game builds its hubs on the platform, and `deploy` takes
+the build's id with types naming their `crate`. Parity pinned to CrowdyJS 17.11.0.
+
 **v0.45.0: ck-exec operations (dev-tier preview).** `client.exec()` adds
 `connectAsDeveloper` (studio tools and admin endpoints, as `Caller::Developer`), guest `logs`,
 `instances`, `versions`, `status`, `activateVersion` (a rollback) and `setEnabled` (the kill

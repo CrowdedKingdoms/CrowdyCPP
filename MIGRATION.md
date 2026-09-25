@@ -1,5 +1,17 @@
 # CrowdyCPP migration notes
 
+## 0.46.0 ck-exec builds (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.11.0.
+
+- `client.exec()`: `starters(appId)` (`execStarters`: the four starter crates and a manifest),
+  `build(appId, std::vector<ExecCrate>)` (`execBuild`, returns the build queued) and
+  `buildStatus(appId, buildId)` (`execBuildStatus`), each with an `…Async` twin, and
+  `waitForBuild(appId, buildId, intervalMs, timeoutMs)`, which polls `buildStatus` blocking and
+  has no twin (poll `buildStatusAsync` from an event loop).
+- `deploy(appId, root, types, buildId)`: with a build's id, an `ExecNodeType` may leave `wasm`
+  empty and set `crate`. The `deployAsync` overload without a build id is unchanged.
+
 ## 0.45.0 ck-exec operations (dev-tier preview)
 
 Additive. Pinned to CrowdyJS 17.10.0.

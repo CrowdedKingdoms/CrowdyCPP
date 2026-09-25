@@ -476,6 +476,8 @@ const ASYNC_TWIN_WAIVERS = {
     'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
+  'ExecAPI.waitForBuild':
+    'a blocking poll over buildStatus; an event loop polls buildStatusAsync on its own timer',
 };
 
 const CLASS_MAP = {

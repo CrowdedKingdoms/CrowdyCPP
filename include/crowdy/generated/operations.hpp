@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 53edbbdd20b7484820baf869d0ec2e0758e5ef0f2c1db60cae48d5d91a4b724d
-// operations sha256: f379806f24dbeccbb0dae60e41af77718b4a81a815e0a8cfc7cbb38666deb255
+// schema.gql sha256: 8125ad1112a5a95d7facb289fbee0f68f70199920864ca053a8e8a56c4d23ef3
+// operations sha256: 046b61467e9511aae40c72f1634d33c9c51939e1f79c78ace437c1e258de1858
 
 #pragma once
 
@@ -5751,6 +5751,47 @@ mutation ExecSetEnabled($appId: BigInt!, $enabled: Boolean!, $nodeType: String) 
   execSetEnabled(appId: $appId, enabled: $enabled, nodeType: $nodeType) {
     ...ExecAppStatusFields
   }
+}
+
+query ExecStarters($appId: BigInt!) {
+  execStarters(appId: $appId) {
+    manifestJson
+    starters {
+      crate
+      nodeType
+      description
+      files {
+        path
+        content
+      }
+    }
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+  }
+}
+
+mutation ExecBuild($input: ExecBuildInput!) {
+  execBuild(input: $input) {
+    ...ExecBuildFields
+  }
+}
+
+query ExecBuildStatus($appId: BigInt!, $buildId: String!) {
+  execBuildStatus(appId: $appId, buildId: $buildId) {
+    ...ExecBuildFields
+  }
 })gql";
 inline constexpr std::string_view kExecConnectIsolatedDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
   execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
@@ -5858,6 +5899,61 @@ fragment ExecAppStatusFields on ExecAppStatus {
   budgetPaused
 })gql";
 inline constexpr std::string_view kExecSetEnabledOperationName = "ExecSetEnabled";
+inline constexpr std::string_view kExecStartersIsolatedDocument = R"gql(query ExecStarters($appId: BigInt!) {
+  execStarters(appId: $appId) {
+    manifestJson
+    starters {
+      crate
+      nodeType
+      description
+      files {
+        path
+        content
+      }
+    }
+  }
+})gql";
+inline constexpr std::string_view kExecStartersOperationName = "ExecStarters";
+inline constexpr std::string_view kExecBuildIsolatedDocument = R"gql(mutation ExecBuild($input: ExecBuildInput!) {
+  execBuild(input: $input) {
+    ...ExecBuildFields
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+  }
+})gql";
+inline constexpr std::string_view kExecBuildOperationName = "ExecBuild";
+inline constexpr std::string_view kExecBuildStatusIsolatedDocument = R"gql(query ExecBuildStatus($appId: BigInt!, $buildId: String!) {
+  execBuildStatus(appId: $appId, buildId: $buildId) {
+    ...ExecBuildFields
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+  }
+})gql";
+inline constexpr std::string_view kExecBuildStatusOperationName = "ExecBuildStatus";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecConnect") return kExecConnectIsolatedDocument;
@@ -5869,6 +5965,9 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecAppStatus") return kExecAppStatusIsolatedDocument;
   if (operationName == "ExecActivateVersion") return kExecActivateVersionIsolatedDocument;
   if (operationName == "ExecSetEnabled") return kExecSetEnabledIsolatedDocument;
+  if (operationName == "ExecStarters") return kExecStartersIsolatedDocument;
+  if (operationName == "ExecBuild") return kExecBuildIsolatedDocument;
+  if (operationName == "ExecBuildStatus") return kExecBuildStatusIsolatedDocument;
   return {};
 }
 

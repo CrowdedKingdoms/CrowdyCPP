@@ -397,8 +397,21 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
     if (op == "ExecConnectAsDeveloper")
       return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":"wss://gw","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
+    if (op == "ExecStarters")
+      return {200, R"({"data":{"execStarters":{"manifestJson":"{\"root\":\"world\"}","starters":[{"crate":"world-tick","nodeType":"world","description":"d","files":[{"path":"Cargo.toml","content":"c"}]}]}}})"};
+    const std::string build = R"({"buildId":"b1","log":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
+    if (op == "ExecBuild") return {200, R"({"data":{"execBuild":)" + build + R"(],"status":"queued"}}})"};
+    if (op == "ExecBuildStatus") {
+      const bool done = ++statusCalls >= 2;
+      return {200, R"({"data":{"execBuildStatus":)" + build +
+                       (done ? R"({"crate":"world-tick","digest":"ab","sizeBytes":9}],"status":"succeeded"}}})"
+                             : R"(],"status":"building"}}})")};
+    }
+    if (op == "ExecDeploy") return {200, R"({"data":{"execDeploy":{"version":5}}})"};
     return {200, R"({"data":{}})"};
   }
+
+  int statusCalls = 0;
 
 #ifdef CROWDY_NO_EXCEPTIONS
   graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& r) noexcept override {
@@ -445,12 +458,58 @@ void testOperations() {
   CHECK_EQ(http->requests.back()["variables"]["key"].asString(), std::string("k"));
 }
 
+void testBuilds() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      std::make_shared<graphql::AuthState>());
+  ExecAPI exec(gql, std::make_shared<FakeTransport>());
+
+  auto pack = exec.starters("77");
+  CHECK_EQ(pack["starters"].at(0)["crate"].asString(), std::string("world-tick"));
+  CHECK_EQ(pack["manifestJson"].asString(), std::string("{\"root\":\"world\"}"));
+
+  auto queued = exec.build("77", {ExecCrate{"world-tick", {{"Cargo.toml", "c"}, {"src/lib.rs", "l"}}}});
+  CHECK_EQ(queued["status"].asString(), std::string("queued"));
+  auto input = http->requests.back()["variables"]["input"];
+  CHECK_EQ(input["appId"].asString(), std::string("77"));
+  CHECK_EQ(input["crates"].at(0)["name"].asString(), std::string("world-tick"));
+  CHECK_EQ(input["crates"].at(0)["files"].at(1)["path"].asString(), std::string("src/lib.rs"));
+
+  auto done = exec.waitForBuild("77", "b1", 1, 10000);
+  CHECK_EQ(done["status"].asString(), std::string("succeeded"));
+  CHECK_EQ(done["artifacts"].at(0)["crate"].asString(), std::string("world-tick"));
+  CHECK_EQ(http->statusCalls, 2);
+  CHECK_EQ(http->requests.back()["variables"]["buildId"].asString(), std::string("b1"));
+
+  // A deploy of the build: the crate-named type uploads nothing, the one with bytes does.
+  ExecNodeType world;
+  world.name = "world";
+  world.kind = "hub";
+  world.crate = "world-tick";
+  world.client = true;
+  ExecNodeType extra;
+  extra.name = "extra";
+  extra.kind = "spoke";
+  extra.parent = "world";
+  extra.wasm = std::string("\0asm\1\0\0\0", 8);
+  auto v = exec.deploy("77", "world", {world, extra}, "b1");
+  CHECK_EQ(v["version"].asInt64(), 5);
+  input = http->requests.back()["variables"]["input"];
+  CHECK_EQ(input["buildId"].asString(), std::string("b1"));
+  auto manifest = graphql::Json::parse(input["manifestJson"].asString());
+  CHECK_EQ(manifest["types"]["world"]["crate"].asString(), std::string("world-tick"));
+  CHECK(manifest["types"]["world"]["digest"].isNull());
+  CHECK_EQ(manifest["types"]["extra"]["digest"].asString().size(), 64u);
+  CHECK_EQ(input["artifacts"].size(), 1u);
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
   testConnection();
   testCallTimesOut();
   testOperations();
+  testBuilds();
   std::puts("exec_test OK");
   return 0;
 }

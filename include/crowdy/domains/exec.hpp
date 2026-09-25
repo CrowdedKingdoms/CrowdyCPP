@@ -201,8 +201,11 @@ struct ExecNodeType {
   std::string name;
   /// "hub" or "spoke".
   std::string kind;
-  /// The compiled module (`wasm32-unknown-unknown`, built with ckx-sdk).
+  /// The compiled module (`wasm32-unknown-unknown`, built with ckx-sdk). Leave it empty
+  /// and set `crate` to name a module of the deploy's `buildId` instead.
   std::string wasm;
+  /// A crate of the deploy's `buildId`, when `wasm` is empty.
+  std::string crate;
   /// The type that owns this one; empty for the root.
   std::string parent;
   bool client = false;
@@ -210,6 +213,13 @@ struct ExecNodeType {
   std::vector<std::string> calls;
   /// Any other manifest fields (`persist_every_ms`, `replicas`, `seed_b64`, ...).
   graphql::JVal extra;
+};
+
+/// One crate for `ExecAPI::build`: its files as (path, content), e.g. `Cargo.toml` and
+/// `src/lib.rs`.
+struct ExecCrate {
+  std::string name;
+  std::vector<std::pair<std::string, std::string>> files;
 };
 
 class ExecAPI : public DomainBase {
@@ -233,9 +243,38 @@ class ExecAPI : public DomainBase {
   /// Deploy a new version of the app's nodes and make it active (`execDeploy`),
   /// blocking: the manifest with each module's SHA-256, and each distinct module
   /// once. Returns `{ version }`. Requires the org `manage_compute` permission.
-  graphql::Json deploy(std::string appId, std::string root, const std::vector<ExecNodeType>& types) const;
+  /// With `buildId`, a type may leave `wasm` empty and name a `crate` of that build.
+  graphql::Json deploy(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                       std::string buildId = {}) const;
   void deployAsync(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
                    graphql::GraphQLCallback done) const;
+  void deployAsync(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                   std::string buildId, graphql::GraphQLCallback done) const;
+
+  // ---- builds (dev-tier preview) ----
+
+  /// The starter packs (`execStarters`), which replace the compute templates:
+  /// `{ manifestJson, starters: [{ crate, nodeType, description, files: [{ path, content }] }] }`.
+  /// `manifestJson`'s types name their crate, for `deploy` with the build's id. Requires
+  /// `manage_compute`.
+  graphql::Json starters(std::string appId) const;
+  void startersAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// Build crates into modules on the platform (`execBuild`), so you need no Rust
+  /// toolchain. Returns the build at once, queued: `{ buildId, status, log, createdAt,
+  /// startedAt, finishedAt, artifacts: [{ crate, digest, sizeBytes }] }`. Requires
+  /// `manage_compute`.
+  graphql::Json build(std::string appId, const std::vector<ExecCrate>& crates) const;
+  void buildAsync(std::string appId, const std::vector<ExecCrate>& crates, graphql::GraphQLCallback done) const;
+  /// A build's status, log and modules (`execBuildStatus`), or null. Requires
+  /// `view_compute_diagnostics`.
+  graphql::Json buildStatus(std::string appId, std::string buildId) const;
+  void buildStatusAsync(std::string appId, std::string buildId, graphql::GraphQLCallback done) const;
+  /// Polls `buildStatus` every `intervalMs`, blocking, until the build succeeds or fails, and
+  /// returns it; a failed build's `log` says why. After `timeoutMs` it returns the last
+  /// status, still `queued` or `building`; null when the app has no such build. From an
+  /// event loop, poll `buildStatusAsync` on your own timer instead.
+  graphql::Json waitForBuild(std::string appId, std::string buildId, int intervalMs = 2000,
+                             int timeoutMs = 600000) const;
 
   // ---- operations (dev-tier preview) ----
 
@@ -279,7 +318,8 @@ class ExecAPI : public DomainBase {
 
  private:
   ExecDial dialer(std::string appId, std::string nodeType, std::string key, bool developer = false) const;
-  static graphql::JVal deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types);
+  static graphql::JVal deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                                       const std::string& buildId);
 
   std::shared_ptr<graphql::IWebSocketTransport> transport_;
 };

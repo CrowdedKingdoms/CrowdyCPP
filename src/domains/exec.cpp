@@ -990,19 +990,93 @@ void ExecAPI::setEnabledAsync(std::string appId, bool enabled, std::string nodeT
             gen::exec::kExecSetEnabledOperationName, std::move(done));
 }
 
-graphql::Json ExecAPI::deploy(std::string appId, std::string root, const std::vector<ExecNodeType>& types) const {
+graphql::Json ExecAPI::deploy(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                             std::string buildId) const {
   return exec(gen::exec::kExecDeployIsolatedDocument, "execDeploy",
-              deployVariables(std::move(appId), std::move(root), types), gen::exec::kExecDeployOperationName);
+              deployVariables(std::move(appId), std::move(root), types, buildId), gen::exec::kExecDeployOperationName);
 }
 
 void ExecAPI::deployAsync(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
                           graphql::GraphQLCallback done) const {
+  deployAsync(std::move(appId), std::move(root), types, {}, std::move(done));
+}
+
+void ExecAPI::deployAsync(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                          std::string buildId, graphql::GraphQLCallback done) const {
   execAsync(gen::exec::kExecDeployIsolatedDocument, "execDeploy",
-            deployVariables(std::move(appId), std::move(root), types), gen::exec::kExecDeployOperationName,
+            deployVariables(std::move(appId), std::move(root), types, buildId), gen::exec::kExecDeployOperationName,
             std::move(done));
 }
 
-graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types) {
+namespace {
+
+graphql::JVal buildVariables(const std::string& appId, const std::vector<ExecCrate>& crates) {
+  graphql::JArray list;
+  for (const auto& c : crates) {
+    graphql::JArray files;
+    for (const auto& [path, content] : c.files) {
+      files.push_back(graphql::JVal::object({{"path", graphql::JVal(path)}, {"content", graphql::JVal(content)}}));
+    }
+    list.push_back(graphql::JVal::object({{"name", graphql::JVal(c.name)}, {"files", graphql::JVal(std::move(files))}}));
+  }
+  graphql::JVal vars;
+  vars["input"]["appId"] = graphql::JVal(appId);
+  vars["input"]["crates"] = graphql::JVal(std::move(list));
+  return vars;
+}
+
+graphql::JVal buildStatusVariables(const std::string& appId, const std::string& buildId) {
+  graphql::JVal vars = appVariables(appId);
+  vars["buildId"] = graphql::JVal(buildId);
+  return vars;
+}
+
+}  // namespace
+
+graphql::Json ExecAPI::starters(std::string appId) const {
+  return exec(gen::exec::kExecStartersIsolatedDocument, "execStarters", appVariables(appId),
+              gen::exec::kExecStartersOperationName);
+}
+
+void ExecAPI::startersAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecStartersIsolatedDocument, "execStarters", appVariables(appId),
+            gen::exec::kExecStartersOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::build(std::string appId, const std::vector<ExecCrate>& crates) const {
+  return exec(gen::exec::kExecBuildIsolatedDocument, "execBuild", buildVariables(appId, crates),
+              gen::exec::kExecBuildOperationName);
+}
+
+void ExecAPI::buildAsync(std::string appId, const std::vector<ExecCrate>& crates,
+                         graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecBuildIsolatedDocument, "execBuild", buildVariables(appId, crates),
+            gen::exec::kExecBuildOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::buildStatus(std::string appId, std::string buildId) const {
+  return exec(gen::exec::kExecBuildStatusIsolatedDocument, "execBuildStatus", buildStatusVariables(appId, buildId),
+              gen::exec::kExecBuildStatusOperationName);
+}
+
+void ExecAPI::buildStatusAsync(std::string appId, std::string buildId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecBuildStatusIsolatedDocument, "execBuildStatus", buildStatusVariables(appId, buildId),
+            gen::exec::kExecBuildStatusOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::waitForBuild(std::string appId, std::string buildId, int intervalMs, int timeoutMs) const {
+  const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  for (;;) {
+    auto b = buildStatus(appId, buildId);
+    if (!b.isObject()) return b;
+    const auto status = b["status"].asString();
+    if (status == "succeeded" || status == "failed" || std::chrono::steady_clock::now() >= until) return b;
+    std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+  }
+}
+
+graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
+                                       const std::string& buildId) {
   graphql::JVal manifest;
   manifest["root"] = graphql::JVal(root);
   graphql::JObject typeMap;
@@ -1010,9 +1084,7 @@ graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, cons
   std::set<std::string> seen;
   for (const auto& t : types) {
     graphql::JVal spec = t.extra.isObject() ? t.extra : graphql::JVal(graphql::JObject{});
-    const std::string digest = execSha256Hex(t.wasm);
     spec["kind"] = graphql::JVal(t.kind);
-    spec["digest"] = graphql::JVal(digest);
     if (!t.parent.empty()) spec["parent"] = graphql::JVal(t.parent);
     if (t.client) spec["client"] = graphql::JVal(true);
     if (!t.calls.empty()) {
@@ -1020,6 +1092,14 @@ graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, cons
       for (const auto& c : t.calls) calls.emplace_back(c);
       spec["calls"] = graphql::JVal(std::move(calls));
     }
+    // A module of the build: the platform holds it, and fills in its digest.
+    if (t.wasm.empty() && !t.crate.empty()) {
+      spec["crate"] = graphql::JVal(t.crate);
+      typeMap.emplace(t.name, std::move(spec));
+      continue;
+    }
+    const std::string digest = execSha256Hex(t.wasm);
+    spec["digest"] = graphql::JVal(digest);
     typeMap.emplace(t.name, std::move(spec));
     if (seen.insert(digest).second) {
       const auto* bytes = reinterpret_cast<const std::uint8_t*>(t.wasm.data());
@@ -1033,6 +1113,7 @@ graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, cons
   vars["input"]["appId"] = graphql::JVal(appId);
   vars["input"]["manifestJson"] = graphql::JVal(manifest.dump());
   vars["input"]["artifacts"] = graphql::JVal(std::move(artifacts));
+  if (!buildId.empty()) vars["input"]["buildId"] = graphql::JVal(buildId);
   return vars;
 }
 

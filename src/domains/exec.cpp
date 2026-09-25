@@ -830,16 +830,19 @@ void ExecAPI::endpointAsync(std::string appId, std::string nodeType, std::string
             });
 }
 
-ExecDial ExecAPI::dialer(std::string appId, std::string nodeType, std::string key) const {
+ExecDial ExecAPI::dialer(std::string appId, std::string nodeType, std::string key, bool developer) const {
   // Everything the dialer needs is copied in, so a connection may reconnect long
   // after the call that made it returned.
   auto gql = gql_;
-  return [gql, appId = std::move(appId), nodeType = std::move(nodeType),
-          key = std::move(key)](std::function<void(Result<ExecEndpoint>)> found) {
-    gql->requestAsync(gen::exec::kExecConnectIsolatedDocument, connectVariables(appId, nodeType, key),
-                      gen::exec::kExecConnectOperationName, [found = std::move(found)](graphql::GraphQLOutcome out) {
+  return [gql, appId = std::move(appId), nodeType = std::move(nodeType), key = std::move(key),
+          developer](std::function<void(Result<ExecEndpoint>)> found) {
+    const auto doc = developer ? gen::exec::kExecConnectAsDeveloperIsolatedDocument : gen::exec::kExecConnectIsolatedDocument;
+    const auto op = developer ? gen::exec::kExecConnectAsDeveloperOperationName : gen::exec::kExecConnectOperationName;
+    const char* field = developer ? "execConnectAsDeveloper" : "execConnect";
+    gql->requestAsync(doc, connectVariables(appId, nodeType, key), op,
+                      [found = std::move(found), field](graphql::GraphQLOutcome out) {
                         if (!out.ok()) return found(out.status.ok() ? Errc::Rejected : out.status.code);
-                        found(endpointFrom(out.data["execConnect"]));
+                        found(endpointFrom(out.data[field]));
                       });
   };
 }
@@ -859,6 +862,132 @@ void ExecAPI::connectAsync(std::string appId, ExecConnectOptions options,
     if (!s.ok()) return done(s.code);
     done(conn);
   });
+}
+
+Result<ExecEndpoint> ExecAPI::developerEndpoint(std::string appId, std::string nodeType, std::string key) const {
+  return endpointFrom(exec(gen::exec::kExecConnectAsDeveloperIsolatedDocument, "execConnectAsDeveloper",
+                           connectVariables(appId, nodeType, key), gen::exec::kExecConnectAsDeveloperOperationName));
+}
+
+void ExecAPI::developerEndpointAsync(std::string appId, std::string nodeType, std::string key,
+                                     std::function<void(Result<ExecEndpoint>)> done) const {
+  execAsync(gen::exec::kExecConnectAsDeveloperIsolatedDocument, "execConnectAsDeveloper",
+            connectVariables(appId, nodeType, key), gen::exec::kExecConnectAsDeveloperOperationName,
+            [done = std::move(done)](graphql::GraphQLOutcome out) {
+              if (!out.ok()) return done(out.status.ok() ? Errc::Rejected : out.status.code);
+              done(endpointFrom(out.data));
+            });
+}
+
+std::shared_ptr<ExecConnection> ExecAPI::connectAsDeveloper(std::string appId, ExecConnectOptions options) const {
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, true);
+  auto conn = std::make_shared<ExecConnection>(transport_, gql_->dispatcher(), std::move(dial), std::move(options));
+  conn->connect();
+  return conn;
+}
+
+void ExecAPI::connectAsDeveloperAsync(std::string appId, ExecConnectOptions options,
+                                      std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const {
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, true);
+  auto conn = std::make_shared<ExecConnection>(transport_, gql_->dispatcher(), std::move(dial), std::move(options));
+  conn->connect([conn, done = std::move(done)](Status s) {
+    if (!s.ok()) return done(s.code);
+    done(conn);
+  });
+}
+
+namespace {
+
+graphql::JVal appVariables(const std::string& appId) {
+  graphql::JVal vars;
+  vars["appId"] = graphql::JVal(appId);
+  return vars;
+}
+
+graphql::JVal logsVariables(const std::string& appId, const ExecLogsQuery& q) {
+  graphql::JVal vars = appVariables(appId);
+  if (!q.nodeType.empty()) vars["nodeType"] = graphql::JVal(q.nodeType);
+  if (!q.key.empty()) vars["key"] = graphql::JVal(q.key);
+  if (q.maxLevel >= 0) vars["maxLevel"] = graphql::JVal(q.maxLevel);
+  if (!q.before.empty()) vars["before"] = graphql::JVal(q.before);
+  if (q.limit >= 0) vars["limit"] = graphql::JVal(q.limit);
+  return vars;
+}
+
+graphql::JVal activateVariables(const std::string& appId, int version) {
+  graphql::JVal vars = appVariables(appId);
+  vars["version"] = graphql::JVal(version);
+  return vars;
+}
+
+graphql::JVal enabledVariables(const std::string& appId, bool enabled, const std::string& nodeType) {
+  graphql::JVal vars = appVariables(appId);
+  vars["enabled"] = graphql::JVal(enabled);
+  if (!nodeType.empty()) vars["nodeType"] = graphql::JVal(nodeType);
+  return vars;
+}
+
+}  // namespace
+
+graphql::Json ExecAPI::logs(std::string appId, const ExecLogsQuery& query) const {
+  return exec(gen::exec::kExecLogsIsolatedDocument, "execLogs", logsVariables(appId, query),
+              gen::exec::kExecLogsOperationName);
+}
+
+void ExecAPI::logsAsync(std::string appId, const ExecLogsQuery& query, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecLogsIsolatedDocument, "execLogs", logsVariables(appId, query),
+            gen::exec::kExecLogsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::instances(std::string appId) const {
+  return exec(gen::exec::kExecInstancesIsolatedDocument, "execInstances", appVariables(appId),
+              gen::exec::kExecInstancesOperationName);
+}
+
+void ExecAPI::instancesAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecInstancesIsolatedDocument, "execInstances", appVariables(appId),
+            gen::exec::kExecInstancesOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::versions(std::string appId) const {
+  return exec(gen::exec::kExecVersionsIsolatedDocument, "execVersions", appVariables(appId),
+              gen::exec::kExecVersionsOperationName);
+}
+
+void ExecAPI::versionsAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecVersionsIsolatedDocument, "execVersions", appVariables(appId),
+            gen::exec::kExecVersionsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::status(std::string appId) const {
+  return exec(gen::exec::kExecAppStatusIsolatedDocument, "execAppStatus", appVariables(appId),
+              gen::exec::kExecAppStatusOperationName);
+}
+
+void ExecAPI::statusAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecAppStatusIsolatedDocument, "execAppStatus", appVariables(appId),
+            gen::exec::kExecAppStatusOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::activateVersion(std::string appId, int version) const {
+  return exec(gen::exec::kExecActivateVersionIsolatedDocument, "execActivateVersion",
+              activateVariables(appId, version), gen::exec::kExecActivateVersionOperationName);
+}
+
+void ExecAPI::activateVersionAsync(std::string appId, int version, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecActivateVersionIsolatedDocument, "execActivateVersion",
+            activateVariables(appId, version), gen::exec::kExecActivateVersionOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::setEnabled(std::string appId, bool enabled, std::string nodeType) const {
+  return exec(gen::exec::kExecSetEnabledIsolatedDocument, "execSetEnabled",
+              enabledVariables(appId, enabled, nodeType), gen::exec::kExecSetEnabledOperationName);
+}
+
+void ExecAPI::setEnabledAsync(std::string appId, bool enabled, std::string nodeType,
+                              graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecSetEnabledIsolatedDocument, "execSetEnabled", enabledVariables(appId, enabled, nodeType),
+            gen::exec::kExecSetEnabledOperationName, std::move(done));
 }
 
 graphql::Json ExecAPI::deploy(std::string appId, std::string root, const std::vector<ExecNodeType>& types) const {

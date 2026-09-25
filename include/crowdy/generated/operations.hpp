@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: f35ebb6ae1fa1f503774b1606b630bf151640dd6b77e7110ac92f3440fa4700e
-// operations sha256: 28456343144992256b54c0708d6d273a7b49abcb585b822a0a7dc31c37520d98
+// schema.gql sha256: 53edbbdd20b7484820baf869d0ec2e0758e5ef0f2c1db60cae48d5d91a4b724d
+// operations sha256: f379806f24dbeccbb0dae60e41af77718b4a81a815e0a8cfc7cbb38666deb255
 
 #pragma once
 
@@ -5667,6 +5667,90 @@ mutation ExecDeploy($input: ExecDeployInput!) {
   execDeploy(input: $input) {
     version
   }
+}
+
+mutation ExecConnectAsDeveloper($appId: BigInt!, $nodeType: String, $key: String) {
+  execConnectAsDeveloper(appId: $appId, nodeType: $nodeType, key: $key) {
+    gatewayUrl
+    token
+    host
+    expiresAt
+  }
+}
+
+query ExecLogs(
+  $appId: BigInt!
+  $nodeType: String
+  $key: String
+  $maxLevel: Int
+  $before: String
+  $limit: Int
+) {
+  execLogs(
+    appId: $appId
+    nodeType: $nodeType
+    key: $key
+    maxLevel: $maxLevel
+    before: $before
+    limit: $limit
+  ) {
+    id
+    nodeType
+    key
+    level
+    host
+    at
+    text
+  }
+}
+
+query ExecInstances($appId: BigInt!) {
+  execInstances(appId: $appId) {
+    instanceId
+    nodeType
+    key
+    kind
+    phase
+    host
+    epoch
+    sinceMs
+    heldBack
+  }
+}
+
+query ExecVersions($appId: BigInt!) {
+  execVersions(appId: $appId) {
+    version
+    createdBy
+    createdAt
+    types
+    active
+  }
+}
+
+fragment ExecAppStatusFields on ExecAppStatus {
+  activeVersion
+  disabled
+  disabledTypes
+  budgetPaused
+}
+
+query ExecAppStatus($appId: BigInt!) {
+  execAppStatus(appId: $appId) {
+    ...ExecAppStatusFields
+  }
+}
+
+mutation ExecActivateVersion($appId: BigInt!, $version: Int!) {
+  execActivateVersion(appId: $appId, version: $version) {
+    ...ExecAppStatusFields
+  }
+}
+
+mutation ExecSetEnabled($appId: BigInt!, $enabled: Boolean!, $nodeType: String) {
+  execSetEnabled(appId: $appId, enabled: $enabled, nodeType: $nodeType) {
+    ...ExecAppStatusFields
+  }
 })gql";
 inline constexpr std::string_view kExecConnectIsolatedDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
   execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
@@ -5683,10 +5767,108 @@ inline constexpr std::string_view kExecDeployIsolatedDocument = R"gql(mutation E
   }
 })gql";
 inline constexpr std::string_view kExecDeployOperationName = "ExecDeploy";
+inline constexpr std::string_view kExecConnectAsDeveloperIsolatedDocument = R"gql(mutation ExecConnectAsDeveloper($appId: BigInt!, $nodeType: String, $key: String) {
+  execConnectAsDeveloper(appId: $appId, nodeType: $nodeType, key: $key) {
+    gatewayUrl
+    token
+    host
+    expiresAt
+  }
+})gql";
+inline constexpr std::string_view kExecConnectAsDeveloperOperationName = "ExecConnectAsDeveloper";
+inline constexpr std::string_view kExecLogsIsolatedDocument = R"gql(query ExecLogs($appId: BigInt!, $nodeType: String, $key: String, $maxLevel: Int, $before: String, $limit: Int) {
+  execLogs(
+    appId: $appId
+    nodeType: $nodeType
+    key: $key
+    maxLevel: $maxLevel
+    before: $before
+    limit: $limit
+  ) {
+    id
+    nodeType
+    key
+    level
+    host
+    at
+    text
+  }
+})gql";
+inline constexpr std::string_view kExecLogsOperationName = "ExecLogs";
+inline constexpr std::string_view kExecInstancesIsolatedDocument = R"gql(query ExecInstances($appId: BigInt!) {
+  execInstances(appId: $appId) {
+    instanceId
+    nodeType
+    key
+    kind
+    phase
+    host
+    epoch
+    sinceMs
+    heldBack
+  }
+})gql";
+inline constexpr std::string_view kExecInstancesOperationName = "ExecInstances";
+inline constexpr std::string_view kExecVersionsIsolatedDocument = R"gql(query ExecVersions($appId: BigInt!) {
+  execVersions(appId: $appId) {
+    version
+    createdBy
+    createdAt
+    types
+    active
+  }
+})gql";
+inline constexpr std::string_view kExecVersionsOperationName = "ExecVersions";
+inline constexpr std::string_view kExecAppStatusIsolatedDocument = R"gql(query ExecAppStatus($appId: BigInt!) {
+  execAppStatus(appId: $appId) {
+    ...ExecAppStatusFields
+  }
+}
+
+fragment ExecAppStatusFields on ExecAppStatus {
+  activeVersion
+  disabled
+  disabledTypes
+  budgetPaused
+})gql";
+inline constexpr std::string_view kExecAppStatusOperationName = "ExecAppStatus";
+inline constexpr std::string_view kExecActivateVersionIsolatedDocument = R"gql(mutation ExecActivateVersion($appId: BigInt!, $version: Int!) {
+  execActivateVersion(appId: $appId, version: $version) {
+    ...ExecAppStatusFields
+  }
+}
+
+fragment ExecAppStatusFields on ExecAppStatus {
+  activeVersion
+  disabled
+  disabledTypes
+  budgetPaused
+})gql";
+inline constexpr std::string_view kExecActivateVersionOperationName = "ExecActivateVersion";
+inline constexpr std::string_view kExecSetEnabledIsolatedDocument = R"gql(mutation ExecSetEnabled($appId: BigInt!, $enabled: Boolean!, $nodeType: String) {
+  execSetEnabled(appId: $appId, enabled: $enabled, nodeType: $nodeType) {
+    ...ExecAppStatusFields
+  }
+}
+
+fragment ExecAppStatusFields on ExecAppStatus {
+  activeVersion
+  disabled
+  disabledTypes
+  budgetPaused
+})gql";
+inline constexpr std::string_view kExecSetEnabledOperationName = "ExecSetEnabled";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecConnect") return kExecConnectIsolatedDocument;
   if (operationName == "ExecDeploy") return kExecDeployIsolatedDocument;
+  if (operationName == "ExecConnectAsDeveloper") return kExecConnectAsDeveloperIsolatedDocument;
+  if (operationName == "ExecLogs") return kExecLogsIsolatedDocument;
+  if (operationName == "ExecInstances") return kExecInstancesIsolatedDocument;
+  if (operationName == "ExecVersions") return kExecVersionsIsolatedDocument;
+  if (operationName == "ExecAppStatus") return kExecAppStatusIsolatedDocument;
+  if (operationName == "ExecActivateVersion") return kExecActivateVersionIsolatedDocument;
+  if (operationName == "ExecSetEnabled") return kExecSetEnabledIsolatedDocument;
   return {};
 }
 

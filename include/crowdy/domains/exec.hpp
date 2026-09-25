@@ -133,6 +133,18 @@ struct ExecConnectOptions {
   long maxReconnectDelayMs = 5000;
 };
 
+/// Filters for `ExecAPI::logs`. Empty strings and negative numbers mean "not set".
+struct ExecLogsQuery {
+  std::string nodeType;
+  std::string key;
+  /// The least severe level included: 0 errors only ... 3 everything (the default).
+  int maxLevel = -1;
+  /// Only lines older than this line id, to page back.
+  std::string before;
+  /// At most this many lines (default 100, at most 500).
+  int limit = -1;
+};
+
 /// One player's connection to a ck-exec host. Thread-safe. Every callback runs
 /// through the dispatcher (CrowdyClient::poll()); without one, on the
 /// transport's thread.
@@ -225,8 +237,48 @@ class ExecAPI : public DomainBase {
   void deployAsync(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
                    graphql::GraphQLCallback done) const;
 
+  // ---- operations (dev-tier preview) ----
+
+  /// A host and a developer connect token for `appId` (`execConnectAsDeveloper`),
+  /// blocking. The session's calls arrive as `Caller::Developer` with your user id and
+  /// may reach any node type, not only `client` ones. Requires the org
+  /// `manage_compute` permission and your own session token, not an app token.
+  Result<ExecEndpoint> developerEndpoint(std::string appId, std::string nodeType = {}, std::string key = {}) const;
+  void developerEndpointAsync(std::string appId, std::string nodeType, std::string key,
+                              std::function<void(Result<ExecEndpoint>)> done) const;
+  /// Connect as one of the app's developers (studio tools, manual runs, admin
+  /// endpoints). The same connection as `connect`, reconnecting with a fresh
+  /// developer token.
+  std::shared_ptr<ExecConnection> connectAsDeveloper(std::string appId, ExecConnectOptions options = {}) const;
+  void connectAsDeveloperAsync(std::string appId, ExecConnectOptions options,
+                               std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const;
+
+  /// Guest log lines (`execLogs`), newest first, kept for 24 hours: an array of
+  /// `{ id, nodeType, key, level, host, at, text }`. Requires `view_compute_diagnostics`.
+  graphql::Json logs(std::string appId, const ExecLogsQuery& query = {}) const;
+  void logsAsync(std::string appId, const ExecLogsQuery& query, graphql::GraphQLCallback done) const;
+  /// What the manager has placed (`execInstances`). Requires `view_compute_diagnostics`.
+  graphql::Json instances(std::string appId) const;
+  void instancesAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// The app's versions, newest first (`execVersions`). Requires `view_compute_diagnostics`.
+  graphql::Json versions(std::string appId) const;
+  void versionsAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// `{ activeVersion, disabled, disabledTypes, budgetPaused }` (`execAppStatus`).
+  /// Requires `view_compute_diagnostics`.
+  graphql::Json status(std::string appId) const;
+  void statusAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// Make an earlier version active again, a rollback (`execActivateVersion`);
+  /// instances pick it up when they next start. Requires `manage_compute`.
+  graphql::Json activateVersion(std::string appId, int version) const;
+  void activateVersionAsync(std::string appId, int version, graphql::GraphQLCallback done) const;
+  /// The kill switch, for the whole app or one node type (`execSetEnabled`). Off:
+  /// nothing of it is placed, what runs is persisted and stopped, calls are refused
+  /// with `Denied`. Requires `manage_compute`.
+  graphql::Json setEnabled(std::string appId, bool enabled, std::string nodeType = {}) const;
+  void setEnabledAsync(std::string appId, bool enabled, std::string nodeType, graphql::GraphQLCallback done) const;
+
  private:
-  ExecDial dialer(std::string appId, std::string nodeType, std::string key) const;
+  ExecDial dialer(std::string appId, std::string nodeType, std::string key, bool developer = false) const;
   static graphql::JVal deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types);
 
   std::shared_ptr<graphql::IWebSocketTransport> transport_;

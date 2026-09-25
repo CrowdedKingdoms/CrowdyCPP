@@ -1,5 +1,21 @@
 # CrowdyCPP migration notes
 
+## 0.44.0 ck-exec (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.9.0.
+
+- `client.exec()`: `connect(appId, ExecConnectOptions)` / `connectAsync`, `endpoint` /
+  `endpointAsync` (`execConnect`), `deploy` / `deployAsync` (`execDeploy`, digests computed).
+- `ExecConnection`: `call` (JVal args as MessagePack), `callRaw`, `subscribe` / `unsubscribe`,
+  `ping`, `onReconnect`, `host`, `connected`, `close`; `ExecConnection::open(transport,
+  dispatcher, endpoint)` for a known gateway and token. Replies are `ExecReply` (`status`,
+  `value()`, `message()`), pushes `ExecPush`.
+- `crowdy::domains::exec_wire` encodes and decodes the client protocol (golden frames in
+  `tools/parity/fixtures/exec-client-frames.json`, a copy of ck-exec's).
+- `graphql::Json::toMsgpack()` and `Json::fromMsgpack()`.
+- The curl WebSocket transport sends no `Sec-WebSocket-Protocol` header when no subprotocol is
+  requested (the ck-exec gateway speaks none).
+
 ## 0.43.1 Circuit open cause
 
 Additive. Pinned to CrowdyJS 17.8.0.

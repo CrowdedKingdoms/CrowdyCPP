@@ -60,6 +60,14 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.44.0: ck-exec (dev-tier preview).** `client.exec().connect(appId, {.nodeType, .key})`
+asks the Game API for an execution host and opens a WebSocket to its gateway; the
+`ExecConnection` it returns calls hubs and spokes (`call`, `callRaw`), subscribes to their
+topics, pings, and reconnects with subscriptions renewed when the host goes away or a call
+is answered `Moved`. Payloads are MessagePack: `graphql::Json::toMsgpack` /
+`Json::fromMsgpack`. `exec().deploy(...)` deploys an app's nodes. Callbacks run on
+`poll()`. Parity pinned to CrowdyJS 17.9.0.
+
 **v0.43.1: an open circuit says why.** `GraphQLErrorDetail::cause` is `watchdog_timeout` when a breaker opened on watchdog kills, and `PlayerFaultCode` includes `CIRCUIT_OPEN`. Parity pinned to CrowdyJS 17.8.0.
 
 **v0.43.0: grids.** `client.grids()` mints grid-scoped tokens and manages grid channels,

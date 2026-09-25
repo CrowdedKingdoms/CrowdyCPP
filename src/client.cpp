@@ -467,6 +467,7 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
 #ifndef CROWDY_NO_EXCEPTIONS
   compute_ = std::make_unique<domains::ComputeAPI>(gql_);
 #endif
+  exec_ = std::make_unique<domains::ExecAPI>(gql_, webSocketTransport_);
   playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gql_);
   playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(gql_);
   marketplace_ = std::make_unique<domains::MarketplaceAPI>(gql_);
@@ -676,6 +677,7 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
 #ifndef CROWDY_NO_EXCEPTIONS
   compute_ = std::move(other.compute_);
 #endif
+  exec_ = std::move(other.exec_);
   playerCompute_ = std::move(other.playerCompute_);
   playerWallet_ = std::move(other.playerWallet_);
   marketplace_ = std::move(other.marketplace_);

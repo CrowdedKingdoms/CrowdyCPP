@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 992dc2a9616da38cef3e9f9bedbccd04ea522a0f70a95479322cc5270cb54406
-// operations sha256: 10854c57771bc89ffbefd653be055130039b1260e1a0b73b7748ab0878d22164
+// schema.gql sha256: f35ebb6ae1fa1f503774b1606b630bf151640dd6b77e7110ac92f3440fa4700e
+// operations sha256: 28456343144992256b54c0708d6d273a7b49abcb585b822a0a7dc31c37520d98
 
 #pragma once
 
@@ -5650,6 +5650,47 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 }
 
 }  // namespace crowdyStudioAgent
+
+namespace exec {
+
+/// exec/Exec.graphql
+inline constexpr std::string_view kExecDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
+  execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
+    gatewayUrl
+    token
+    host
+    expiresAt
+  }
+}
+
+mutation ExecDeploy($input: ExecDeployInput!) {
+  execDeploy(input: $input) {
+    version
+  }
+})gql";
+inline constexpr std::string_view kExecConnectIsolatedDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
+  execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
+    gatewayUrl
+    token
+    host
+    expiresAt
+  }
+})gql";
+inline constexpr std::string_view kExecConnectOperationName = "ExecConnect";
+inline constexpr std::string_view kExecDeployIsolatedDocument = R"gql(mutation ExecDeploy($input: ExecDeployInput!) {
+  execDeploy(input: $input) {
+    version
+  }
+})gql";
+inline constexpr std::string_view kExecDeployOperationName = "ExecDeploy";
+
+inline constexpr std::string_view documentFor(std::string_view operationName) {
+  if (operationName == "ExecConnect") return kExecConnectIsolatedDocument;
+  if (operationName == "ExecDeploy") return kExecDeployIsolatedDocument;
+  return {};
+}
+
+}  // namespace exec
 
 namespace gameApps {
 

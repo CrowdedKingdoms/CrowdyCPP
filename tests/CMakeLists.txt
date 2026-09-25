@@ -17,6 +17,16 @@ add_executable(json_test json_test.cpp)
 target_link_libraries(json_test PRIVATE crowdy_graphql)
 add_test(NAME json_test COMMAND json_test)
 
+add_executable(msgpack_test msgpack_test.cpp)
+target_link_libraries(msgpack_test PRIVATE crowdy_graphql)
+add_test(NAME msgpack_test COMMAND msgpack_test)
+
+add_executable(exec_test exec_test.cpp)
+target_link_libraries(exec_test PRIVATE crowdy Threads::Threads)
+target_compile_definitions(exec_test PRIVATE
+  CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+add_test(NAME exec_test COMMAND exec_test)
+
 add_executable(datacenter_redirect_test datacenter_redirect_test.cpp)
 target_link_libraries(datacenter_redirect_test PRIVATE crowdy_graphql)
 add_test(NAME datacenter_redirect_test COMMAND datacenter_redirect_test)

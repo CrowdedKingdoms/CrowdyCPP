@@ -28,6 +28,7 @@
 #include "crowdy/graphql/rediscover.hpp"
 #include "crowdy/replication/types.hpp"
 #include "crowdy/graphql/subscription_client.hpp"
+#include "crowdy/domains/exec.hpp"
 
 #ifndef CROWDY_NO_EXCEPTIONS
 #include "crowdy/domains/compute.hpp"
@@ -225,6 +226,8 @@ class CrowdyClient {
 #ifndef CROWDY_NO_EXCEPTIONS
   domains::ComputeAPI& compute() { return *compute_; }
 #endif
+  /// ck-exec (dev-tier preview): connect players to an app's hubs and spokes.
+  domains::ExecAPI& exec() { return *exec_; }
   domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
   domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
   domains::MarketplaceAPI& marketplace() { return *marketplace_; }
@@ -394,6 +397,7 @@ class CrowdyClient {
 #ifndef CROWDY_NO_EXCEPTIONS
   std::unique_ptr<domains::ComputeAPI> compute_;
 #endif
+  std::unique_ptr<domains::ExecAPI> exec_;
   std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
   std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
   std::unique_ptr<domains::MarketplaceAPI> marketplace_;

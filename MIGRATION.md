@@ -1,5 +1,22 @@
 # CrowdyCPP migration notes
 
+## 0.48.0 ck-exec observability (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.13.0 (ck-api `v2.22.0`).
+
+- `client.exec()`: `endpointStats(appId, nodeType, sinceMinutes)` / `endpointStatsAsync`
+  (`execEndpointStats`): per endpoint `{ nodeType, method, calls, appErrors, busy, denied,
+  deadlineExceeded, otherErrors, timedCalls, latencyMsAvg, latencyMsMax, firstMinute,
+  lastMinute }` over the last `sinceMinutes` (default 60, at most 10080).
+- `ExecLogsQuery::flow` keeps one flow's lines (`logs` only; mod logs take none), and every
+  log line, also from `modLogs`, has `flow`: 32 lowercase hex digits, null outside a call.
+- `versions` lines carry `manifestJson`, the deployed manifest (a spawn seed shown as
+  `seed_bytes`), null when the version's row is gone.
+- `ExecReply::rateLimited()` and `retryAfterMs()`. A call over a player's limit (120 per 10 s
+  per app and host) is answered `Busy` with a message starting "rate limited" and ending
+  "retry in N ms"; wait that long before calling again. The SDK retries only a lost connection
+  and `Moved`, never `Busy`.
+
 ## 0.47.0 ck-exec mods (dev-tier preview)
 
 Additive. Pinned to CrowdyJS 17.12.0.

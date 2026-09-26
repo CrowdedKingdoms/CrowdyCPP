@@ -727,8 +727,8 @@ CrowdyClient::createCrowdyStudioIntegration(
   auto runtime =
       std::make_shared<studio::CrowdyStudioModRuntime>(
           exec, playerCompute, options.clientRuntime,
-          [dispatcher = dispatcher_]() -> std::size_t {
-            return dispatcher ? dispatcher->drain() : 0;
+          [dispatcher = dispatcher_] {
+            if (dispatcher) dispatcher->drain();
           });
   if (options.observePlayerWallet && !options.walletProvider) {
     auto playerWallet =

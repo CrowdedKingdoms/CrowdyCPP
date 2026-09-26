@@ -581,7 +581,7 @@ void testStudioModRuntime() {
   auto transport = std::make_shared<FakeTransport>();
   ExecAPI exec(gql, transport);
   PlayerComputeAPI playerCompute(gql);
-  studio::CrowdyStudioModRuntime runtime(exec, playerCompute, nullptr, [dispatcher] { return dispatcher->drain(); });
+  studio::CrowdyStudioModRuntime runtime(exec, playerCompute, nullptr, [dispatcher] { dispatcher->drain(); });
   const studio::CrowdyStudioProjectScope scope{"77", "5"};
 
   // The mod build takes only the crate's files, under a crate name a build accepts.

@@ -245,7 +245,7 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
   CrowdyStudioModRuntime(domains::ExecAPI& exec,
                          domains::PlayerComputeAPI& playerCompute,
                          ICrowdyStudioClientRuntime* clientRuntime = nullptr,
-                         std::function<std::size_t()> pump = {})
+                         std::function<void()> pump = {})
       : exec_(exec),
         playerCompute_(playerCompute),
         clientRuntime_(clientRuntime),
@@ -254,7 +254,7 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
   CrowdyStudioModRuntime(std::shared_ptr<domains::ExecAPI> exec,
                          std::shared_ptr<domains::PlayerComputeAPI> playerCompute,
                          std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntime = {},
-                         std::function<std::size_t()> pump = {})
+                         std::function<void()> pump = {})
       : execOwner_(std::move(exec)),
         playerComputeOwner_(std::move(playerCompute)),
         clientRuntimeOwner_(std::move(clientRuntime)),
@@ -526,7 +526,7 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
   domains::ExecAPI& exec_;
   domains::PlayerComputeAPI& playerCompute_;
   ICrowdyStudioClientRuntime* clientRuntime_;
-  std::function<std::size_t()> pump_;
+  std::function<void()> pump_;
   std::map<std::string, ModBuild> modBuilds_;
   std::map<std::string, std::shared_ptr<domains::ExecConnection>> connections_;
 };

@@ -48,7 +48,6 @@ When the unified GraphQL surface changes:
    are portable as of 0.38.0 (`saveProject` commits through
    `crowdyStudioGitHubPutFile` / `DeleteFile`); the hosted GitHub settings
    card on `CrowdyStudioController` stays a browser exclusion.
-8. Run the blueprint structural gate documented in `README.md`.
 
 ## Releasing
 
@@ -124,31 +123,29 @@ Parity classifications are strict:
   removed as work lands;
 - `native equivalent` is allowed only when CrowdyCPP provides the same contract
   through its native architecture;
-- `browser exclusion` is allowed only for browser/UI/worker-specific behavior.
+- `browser exclusion` is allowed only for browser/UI/worker-specific behavior;
+- `held removal` (0.48.0) is only for the legacy engines' root fields (Studio
+  compute, the game model and its automations, player compute's server side,
+  the player model), which `schema.gql` keeps until the SDL sync after the Game
+  API deletes them at ck-exec P4. That sync makes the entries stale; delete
+  them then, with `LEGACY_ENGINE_REASON` in `tools/parity/parity.mjs`.
 
 Do not label planned native WebSockets, Crowdy Studio, agent control, leases, or
 player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
 strict portable parity complete.
 
-## Game Kit blueprints
+## The legacy engines (removed in 0.48.0)
 
-Kit blueprint builders must emit byte-identical JSON to CrowdyJS's, which the
-structural gate in `README.md` enforces by diffing dumps of a variant matrix.
-Both matrices (`tools/parity/dump-blueprints.mjs` and
-`tools/parity/dump_blueprints.cpp`) must list the same variants, so adding a
-builder option means adding a variant to both or the gate never covers it.
-
-Two things about blueprint content, both learned from live deploys rather than
-from the gate, which only compares the two SDKs to each other:
-
-- **Declare a function before anything references it.** `gameModelSeed`
-  processes functions in array order, so a `timers` effect naming a function
-  defined later in the array warns about an unresolved target.
-- **Expressions have no conditional and no `now()`.** Guards have to be
-  arithmetic — `matchesBlueprint`'s turn deadline keeps a monotonic sequence
-  and compares it rather than branching, which is what makes a timer that
-  fires after its turn ended harmless.
+The game model and its automations, Studio compute, player compute's server
+side and the player model are gone: ck-exec (`client.exec()`) replaced them. The
+Game Kit keeps `social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's
+SERVER target is a mod (`CrowdyStudioModRuntime`), its CLIENT target still
+compiles on player compute. Do not re-add a wrapper for a `gameModel*`,
+`compute*`, `playerModel*` or SERVER `playerCompute*` field. The Game API keeps
+tier features (`admin().appAccess()`), grid claims, the studio moderation
+fields, compute budgets (`gen::computeUnits`), user-code faults
+(`gen::userCodeFaults`) and `gameModelFunctionCircuits` (`gen::runAdmission`).
 
 ## Writing tests against `graphql::Json`
 

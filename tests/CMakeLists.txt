@@ -108,9 +108,6 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     target_link_libraries(studio_github_test PRIVATE crowdy)
     add_test(NAME studio_github_test COMMAND studio_github_test)
 
-    add_executable(model_lint_test model_lint_test.cpp)
-    target_link_libraries(model_lint_test PRIVATE crowdy)
-    add_test(NAME model_lint_test COMMAND model_lint_test)
 
     add_executable(crowdy_studio_state_test crowdy_studio_state_test.cpp)
     target_link_libraries(crowdy_studio_state_test PRIVATE crowdy)
@@ -145,9 +142,6 @@ target_include_directories(socket_send_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
 add_test(NAME socket_send_test COMMAND socket_send_test)
 
 if(NOT CROWDY_NO_EXCEPTIONS)
-  add_executable(kit_test kit_test.cpp)
-  target_link_libraries(kit_test PRIVATE crowdy)
-  add_test(NAME kit_test COMMAND kit_test)
 
   add_executable(kit_wire_test kit_wire_test.cpp)
   target_link_libraries(kit_wire_test PRIVATE crowdy)

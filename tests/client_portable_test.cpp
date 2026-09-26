@@ -504,15 +504,13 @@ void testAMovedClientIsFullyUsable() {
   (void)client.teleport();
   (void)client.teams();
   (void)client.channels();
-  (void)client.gameModel();
+  (void)client.exec();
 #ifndef CROWDY_NO_EXCEPTIONS
-  (void)client.compute();
   (void)client.crowdyStudio();
 #endif
   (void)client.playerCompute();
   (void)client.playerWallet();
   (void)client.marketplace();
-  (void)client.playerModel();
   (void)client.gameApps();
   (void)client.platform();
   (void)client.crowdyStudioAgent();

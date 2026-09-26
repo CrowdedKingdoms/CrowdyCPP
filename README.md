@@ -60,6 +60,13 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.47.0: ck-exec mods (dev-tier preview).** `client.exec()` adds players' code on grids they
+own: `modStarter`, `modBuild` / `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`,
+`mods`, `myMods`, `modLogs`, the marketplace without payments (`modPublish`, `modListings`,
+`modUnpublish`, `modInstall`), and for developers `appMods`, `modSwitches` and the kill ladder
+`modSetSwitch`. A mod is the node type `execModType(name)` keyed by the grid id. Parity pinned to
+CrowdyJS 17.12.0.
+
 **v0.46.0: ck-exec builds (dev-tier preview).** `client.exec()` adds `starters`, `build`,
 `buildStatus` and `waitForBuild`, so a game builds its hubs on the platform, and `deploy` takes
 the build's id with types naming their `crate`. Parity pinned to CrowdyJS 17.11.0.

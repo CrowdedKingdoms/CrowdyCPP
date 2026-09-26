@@ -1,5 +1,17 @@
 # CrowdyCPP migration notes
 
+## 0.47.0 ck-exec mods (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.12.0.
+
+- `client.exec()`: mods, players' code on grids they own, each call with an `…Async` twin:
+  `modStarter`, `modBuild(appId, ExecCrate)`, `modBuildStatus`, `modDeploy(appId, gridId, name,
+  buildId)`, `modSetEnabled`, `modDelete`, `mods(appId, gridId)`, `myMods`, `modLogs`,
+  `modPublish`, `modListings`, `modUnpublish`, `modInstall`, `appMods`, `modSwitches` and
+  `modSetSwitch(appId, gen::ExecModScope, off, target, reason)`. `waitForModBuild` polls
+  `modBuildStatus` blocking and has no twin, like `waitForBuild`.
+- `execModType(name)`: the node type players call a mod by (`mod:<name>`), keyed by its grid id.
+
 ## 0.46.0 ck-exec builds (dev-tier preview)
 
 Additive. Pinned to CrowdyJS 17.11.0.

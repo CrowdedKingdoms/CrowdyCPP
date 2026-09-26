@@ -408,10 +408,24 @@ class RecordingHttp final : public graphql::IHttpTransport {
                              : R"(],"status":"building"}}})")};
     }
     if (op == "ExecDeploy") return {200, R"({"data":{"execDeploy":{"version":5}}})"};
+    if (op == "ExecModBuild") return {200, R"({"data":{"execModBuild":)" + build + R"(],"status":"queued"}}})"};
+    if (op == "ExecModBuildStatus") {
+      const bool done = ++modStatusCalls >= 2;
+      return {200, R"({"data":{"execModBuildStatus":)" + build +
+                       (done ? R"({"crate":"grid-mod","digest":"cd","sizeBytes":7}],"status":"succeeded"}}})"
+                             : R"(],"status":"building"}}})")};
+    }
+    const std::string mod =
+        R"({"modId":"900","gridId":"5","name":"turret","ownerId":"42","version":1,"digest":"ab","enabled":false,"listingId":null,"blocked":null,"running":false,"updatedAt":"t"})";
+    if (op == "ExecModDeploy") return {200, R"({"data":{"execModDeploy":)" + mod + "}}"};
+    if (op == "ExecModSetEnabled") return {200, R"({"data":{"execModSetEnabled":)" + mod + "}}"};
+    if (op == "ExecModSetSwitch")
+      return {200, R"({"data":{"execModSetSwitch":[{"scope":"GRID","target":"5","reason":"r","createdBy":"user:1","createdAt":"t"}]}})"};
     return {200, R"({"data":{}})"};
   }
 
   int statusCalls = 0;
+  int modStatusCalls = 0;
 
 #ifdef CROWDY_NO_EXCEPTIONS
   graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& r) noexcept override {
@@ -503,6 +517,43 @@ void testBuilds() {
   CHECK_EQ(input["artifacts"].size(), 1u);
 }
 
+void testMods() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      std::make_shared<graphql::AuthState>());
+  ExecAPI exec(gql, std::make_shared<FakeTransport>());
+
+  auto queued = exec.modBuild("77", ExecCrate{"grid-mod", {{"Cargo.toml", "c"}, {"src/lib.rs", "l"}}});
+  CHECK_EQ(queued["status"].asString(), std::string("queued"));
+  auto vars = http->requests.back()["variables"];
+  CHECK_EQ(vars["appId"].asString(), std::string("77"));
+  CHECK_EQ(vars["crate"]["name"].asString(), std::string("grid-mod"));
+  CHECK_EQ(vars["crate"]["files"].at(1)["path"].asString(), std::string("src/lib.rs"));
+  auto done = exec.waitForModBuild("77", "b1", 1, 10000);
+  CHECK_EQ(done["status"].asString(), std::string("succeeded"));
+  CHECK_EQ(http->modStatusCalls, 2);
+
+  auto m = exec.modDeploy("77", "5", "turret", "b1");
+  CHECK_EQ(m["ownerId"].asString(), std::string("42"));
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(vars["gridId"].asString(), std::string("5"));
+  CHECK_EQ(vars["name"].asString(), std::string("turret"));
+  CHECK_EQ(vars["buildId"].asString(), std::string("b1"));
+  exec.modSetEnabled("77", "5", "turret", true);
+  CHECK(http->requests.back()["variables"]["enabled"].asBool());
+
+  auto off = exec.modSetSwitch("77", gen::ExecModScope::GRID, true, "5", "r");
+  CHECK_EQ(off.at(0)["scope"].asString(), std::string("GRID"));
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(vars["scope"].asString(), std::string("GRID"));
+  CHECK_EQ(vars["target"].asString(), std::string("5"));
+  CHECK(vars["off"].asBool());
+  exec.modSetSwitch("77", gen::ExecModScope::ALL, false);
+  CHECK(http->requests.back()["variables"]["target"].isNull());
+
+  CHECK_EQ(execModType("turret"), std::string("mod:turret"));
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
@@ -510,6 +561,7 @@ int main() {
   testCallTimesOut();
   testOperations();
   testBuilds();
+  testMods();
   std::puts("exec_test OK");
   return 0;
 }

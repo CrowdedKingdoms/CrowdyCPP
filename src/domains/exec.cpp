@@ -1075,6 +1075,271 @@ graphql::Json ExecAPI::waitForBuild(std::string appId, std::string buildId, int 
   }
 }
 
+// ---- mods ----
+
+namespace {
+
+graphql::JVal modVariables(const std::string& appId, const std::string& gridId, const std::string& name) {
+  graphql::JVal vars = appVariables(appId);
+  vars["gridId"] = graphql::JVal(gridId);
+  vars["name"] = graphql::JVal(name);
+  return vars;
+}
+
+graphql::JVal modBuildVariables(const std::string& appId, const ExecCrate& c) {
+  graphql::JArray files;
+  for (const auto& [path, content] : c.files) {
+    files.push_back(graphql::JVal::object({{"path", graphql::JVal(path)}, {"content", graphql::JVal(content)}}));
+  }
+  graphql::JVal vars = appVariables(appId);
+  vars["crate"] = graphql::JVal::object({{"name", graphql::JVal(c.name)}, {"files", graphql::JVal(std::move(files))}});
+  return vars;
+}
+
+graphql::JVal modLogsVariables(const std::string& appId, const std::string& gridId, const std::string& name,
+                               const ExecLogsQuery& q) {
+  graphql::JVal vars = modVariables(appId, gridId, name);
+  if (q.maxLevel >= 0) vars["maxLevel"] = graphql::JVal(q.maxLevel);
+  if (!q.before.empty()) vars["before"] = graphql::JVal(q.before);
+  if (q.limit >= 0) vars["limit"] = graphql::JVal(q.limit);
+  return vars;
+}
+
+graphql::JVal modPublishVariables(const std::string& appId, const std::string& gridId, const std::string& name,
+                                  const std::string& title, const std::string& description) {
+  graphql::JVal vars = modVariables(appId, gridId, name);
+  vars["title"] = graphql::JVal(title);
+  if (!description.empty()) vars["description"] = graphql::JVal(description);
+  return vars;
+}
+
+graphql::JVal modListingVariables(const std::string& appId, const std::string& listingId) {
+  graphql::JVal vars = appVariables(appId);
+  vars["listingId"] = graphql::JVal(listingId);
+  return vars;
+}
+
+graphql::JVal appModsVariables(const std::string& appId, const std::string& gridId, const std::string& ownerId) {
+  graphql::JVal vars = appVariables(appId);
+  if (!gridId.empty()) vars["gridId"] = graphql::JVal(gridId);
+  if (!ownerId.empty()) vars["ownerId"] = graphql::JVal(ownerId);
+  return vars;
+}
+
+graphql::JVal modSwitchVariables(const std::string& appId, gen::ExecModScope scope, bool off, const std::string& target,
+                                 const std::string& reason) {
+  graphql::JVal vars = appVariables(appId);
+  vars["scope"] = graphql::JVal(std::string(gen::toString(scope)));
+  vars["off"] = graphql::JVal(off);
+  if (!target.empty()) vars["target"] = graphql::JVal(target);
+  if (!reason.empty()) vars["reason"] = graphql::JVal(reason);
+  return vars;
+}
+
+}  // namespace
+
+std::string execModType(std::string_view name) { return "mod:" + std::string(name); }
+
+graphql::Json ExecAPI::modStarter(std::string appId) const {
+  return exec(gen::exec::kExecModStarterIsolatedDocument, "execModStarter", appVariables(appId),
+              gen::exec::kExecModStarterOperationName);
+}
+
+void ExecAPI::modStarterAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModStarterIsolatedDocument, "execModStarter", appVariables(appId),
+            gen::exec::kExecModStarterOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modBuild(std::string appId, const ExecCrate& crate) const {
+  return exec(gen::exec::kExecModBuildIsolatedDocument, "execModBuild", modBuildVariables(appId, crate),
+              gen::exec::kExecModBuildOperationName);
+}
+
+void ExecAPI::modBuildAsync(std::string appId, const ExecCrate& crate, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModBuildIsolatedDocument, "execModBuild", modBuildVariables(appId, crate),
+            gen::exec::kExecModBuildOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modBuildStatus(std::string appId, std::string buildId) const {
+  return exec(gen::exec::kExecModBuildStatusIsolatedDocument, "execModBuildStatus",
+              buildStatusVariables(appId, buildId), gen::exec::kExecModBuildStatusOperationName);
+}
+
+void ExecAPI::modBuildStatusAsync(std::string appId, std::string buildId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModBuildStatusIsolatedDocument, "execModBuildStatus",
+            buildStatusVariables(appId, buildId), gen::exec::kExecModBuildStatusOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::waitForModBuild(std::string appId, std::string buildId, int intervalMs, int timeoutMs) const {
+  const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  for (;;) {
+    auto b = modBuildStatus(appId, buildId);
+    if (!b.isObject()) return b;
+    const auto status = b["status"].asString();
+    if (status == "succeeded" || status == "failed" || std::chrono::steady_clock::now() >= until) return b;
+    std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+  }
+}
+
+graphql::Json ExecAPI::modDeploy(std::string appId, std::string gridId, std::string name, std::string buildId) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["buildId"] = graphql::JVal(buildId);
+  return exec(gen::exec::kExecModDeployIsolatedDocument, "execModDeploy", std::move(vars),
+              gen::exec::kExecModDeployOperationName);
+}
+
+void ExecAPI::modDeployAsync(std::string appId, std::string gridId, std::string name, std::string buildId,
+                             graphql::GraphQLCallback done) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["buildId"] = graphql::JVal(buildId);
+  execAsync(gen::exec::kExecModDeployIsolatedDocument, "execModDeploy", std::move(vars),
+            gen::exec::kExecModDeployOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modSetEnabled(std::string appId, std::string gridId, std::string name, bool enabled) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["enabled"] = graphql::JVal(enabled);
+  return exec(gen::exec::kExecModSetEnabledIsolatedDocument, "execModSetEnabled", std::move(vars),
+              gen::exec::kExecModSetEnabledOperationName);
+}
+
+void ExecAPI::modSetEnabledAsync(std::string appId, std::string gridId, std::string name, bool enabled,
+                                 graphql::GraphQLCallback done) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["enabled"] = graphql::JVal(enabled);
+  execAsync(gen::exec::kExecModSetEnabledIsolatedDocument, "execModSetEnabled", std::move(vars),
+            gen::exec::kExecModSetEnabledOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modDelete(std::string appId, std::string gridId, std::string name) const {
+  return exec(gen::exec::kExecModDeleteIsolatedDocument, "execModDelete", modVariables(appId, gridId, name),
+              gen::exec::kExecModDeleteOperationName);
+}
+
+void ExecAPI::modDeleteAsync(std::string appId, std::string gridId, std::string name,
+                             graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModDeleteIsolatedDocument, "execModDelete", modVariables(appId, gridId, name),
+            gen::exec::kExecModDeleteOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::mods(std::string appId, std::string gridId) const {
+  auto vars = appVariables(appId);
+  vars["gridId"] = graphql::JVal(gridId);
+  return exec(gen::exec::kExecModsIsolatedDocument, "execMods", std::move(vars), gen::exec::kExecModsOperationName);
+}
+
+void ExecAPI::modsAsync(std::string appId, std::string gridId, graphql::GraphQLCallback done) const {
+  auto vars = appVariables(appId);
+  vars["gridId"] = graphql::JVal(gridId);
+  execAsync(gen::exec::kExecModsIsolatedDocument, "execMods", std::move(vars), gen::exec::kExecModsOperationName,
+            std::move(done));
+}
+
+graphql::Json ExecAPI::myMods(std::string appId) const {
+  return exec(gen::exec::kExecMyModsIsolatedDocument, "execMyMods", appVariables(appId),
+              gen::exec::kExecMyModsOperationName);
+}
+
+void ExecAPI::myModsAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecMyModsIsolatedDocument, "execMyMods", appVariables(appId),
+            gen::exec::kExecMyModsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modLogs(std::string appId, std::string gridId, std::string name,
+                               const ExecLogsQuery& query) const {
+  return exec(gen::exec::kExecModLogsIsolatedDocument, "execModLogs", modLogsVariables(appId, gridId, name, query),
+              gen::exec::kExecModLogsOperationName);
+}
+
+void ExecAPI::modLogsAsync(std::string appId, std::string gridId, std::string name, const ExecLogsQuery& query,
+                           graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModLogsIsolatedDocument, "execModLogs", modLogsVariables(appId, gridId, name, query),
+            gen::exec::kExecModLogsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modPublish(std::string appId, std::string gridId, std::string name, std::string title,
+                                  std::string description) const {
+  return exec(gen::exec::kExecModPublishIsolatedDocument, "execModPublish",
+              modPublishVariables(appId, gridId, name, title, description), gen::exec::kExecModPublishOperationName);
+}
+
+void ExecAPI::modPublishAsync(std::string appId, std::string gridId, std::string name, std::string title,
+                              std::string description, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModPublishIsolatedDocument, "execModPublish",
+            modPublishVariables(appId, gridId, name, title, description), gen::exec::kExecModPublishOperationName,
+            std::move(done));
+}
+
+graphql::Json ExecAPI::modListings(std::string appId) const {
+  return exec(gen::exec::kExecModListingsIsolatedDocument, "execModListings", appVariables(appId),
+              gen::exec::kExecModListingsOperationName);
+}
+
+void ExecAPI::modListingsAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModListingsIsolatedDocument, "execModListings", appVariables(appId),
+            gen::exec::kExecModListingsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modUnpublish(std::string appId, std::string listingId) const {
+  return exec(gen::exec::kExecModUnpublishIsolatedDocument, "execModUnpublish", modListingVariables(appId, listingId),
+              gen::exec::kExecModUnpublishOperationName);
+}
+
+void ExecAPI::modUnpublishAsync(std::string appId, std::string listingId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModUnpublishIsolatedDocument, "execModUnpublish", modListingVariables(appId, listingId),
+            gen::exec::kExecModUnpublishOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modInstall(std::string appId, std::string gridId, std::string name,
+                                  std::string listingId) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["listingId"] = graphql::JVal(listingId);
+  return exec(gen::exec::kExecModInstallIsolatedDocument, "execModInstall", std::move(vars),
+              gen::exec::kExecModInstallOperationName);
+}
+
+void ExecAPI::modInstallAsync(std::string appId, std::string gridId, std::string name, std::string listingId,
+                              graphql::GraphQLCallback done) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["listingId"] = graphql::JVal(listingId);
+  execAsync(gen::exec::kExecModInstallIsolatedDocument, "execModInstall", std::move(vars),
+            gen::exec::kExecModInstallOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::appMods(std::string appId, std::string gridId, std::string ownerId) const {
+  return exec(gen::exec::kExecAppModsIsolatedDocument, "execAppMods", appModsVariables(appId, gridId, ownerId),
+              gen::exec::kExecAppModsOperationName);
+}
+
+void ExecAPI::appModsAsync(std::string appId, std::string gridId, std::string ownerId,
+                           graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecAppModsIsolatedDocument, "execAppMods", appModsVariables(appId, gridId, ownerId),
+            gen::exec::kExecAppModsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modSwitches(std::string appId) const {
+  return exec(gen::exec::kExecModSwitchesIsolatedDocument, "execModSwitches", appVariables(appId),
+              gen::exec::kExecModSwitchesOperationName);
+}
+
+void ExecAPI::modSwitchesAsync(std::string appId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModSwitchesIsolatedDocument, "execModSwitches", appVariables(appId),
+            gen::exec::kExecModSwitchesOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modSetSwitch(std::string appId, gen::ExecModScope scope, bool off, std::string target,
+                                    std::string reason) const {
+  return exec(gen::exec::kExecModSetSwitchIsolatedDocument, "execModSetSwitch",
+              modSwitchVariables(appId, scope, off, target, reason), gen::exec::kExecModSetSwitchOperationName);
+}
+
+void ExecAPI::modSetSwitchAsync(std::string appId, gen::ExecModScope scope, bool off, std::string target,
+                                std::string reason, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModSetSwitchIsolatedDocument, "execModSetSwitch",
+            modSwitchVariables(appId, scope, off, target, reason), gen::exec::kExecModSetSwitchOperationName,
+            std::move(done));
+}
+
 graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types,
                                        const std::string& buildId) {
   graphql::JVal manifest;

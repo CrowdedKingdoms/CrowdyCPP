@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 8125ad1112a5a95d7facb289fbee0f68f70199920864ca053a8e8a56c4d23ef3
-// operations sha256: 046b61467e9511aae40c72f1634d33c9c51939e1f79c78ace437c1e258de1858
+// schema.gql sha256: 951b54d78d78aef277abd4bd461b94ffdbf45c65eea1ea0e7f748502c3df4580
+// operations sha256: 8b5564e3ad04c01b1174c3f037f4449e07f4ddff2cf4b8e20cb4ceaaf64d32c2
 
 #pragma once
 
@@ -842,6 +842,34 @@ inline std::optional<DatacenterServingStatus> datacenterServingStatusFromString(
   if (s == "SERVING") return DatacenterServingStatus::SERVING;
   if (s == "NOT_SERVING") return DatacenterServingStatus::NOT_SERVING;
   if (s == "UNKNOWN") return DatacenterServingStatus::UNKNOWN;
+  return std::nullopt;
+}
+
+enum class ExecModScope {
+  MOD,
+  PLAYER,
+  GRID,
+  LISTING,
+  ALL,
+};
+
+inline constexpr std::string_view toString(ExecModScope v) {
+  switch (v) {
+    case ExecModScope::MOD: return "MOD";
+    case ExecModScope::PLAYER: return "PLAYER";
+    case ExecModScope::GRID: return "GRID";
+    case ExecModScope::LISTING: return "LISTING";
+    case ExecModScope::ALL: return "ALL";
+  }
+  return "";
+}
+
+inline std::optional<ExecModScope> execModScopeFromString(std::string_view s) {
+  if (s == "MOD") return ExecModScope::MOD;
+  if (s == "PLAYER") return ExecModScope::PLAYER;
+  if (s == "GRID") return ExecModScope::GRID;
+  if (s == "LISTING") return ExecModScope::LISTING;
+  if (s == "ALL") return ExecModScope::ALL;
   return std::nullopt;
 }
 

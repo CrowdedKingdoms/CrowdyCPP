@@ -10,6 +10,7 @@
 #include "crowdy/core/result.hpp"
 #include "crowdy/domains/domain_base.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
+#include "crowdy/generated/enums.hpp"
 #include "crowdy/graphql/json.hpp"
 #include "crowdy/graphql/websocket.hpp"
 
@@ -276,6 +277,76 @@ class ExecAPI : public DomainBase {
   graphql::Json waitForBuild(std::string appId, std::string buildId, int intervalMs = 2000,
                              int timeoutMs = 600000) const;
 
+  // ---- mods: players' code on grids they own (dev-tier preview) ----
+  //
+  // A mod is the node type `mod:<name>` (`execModType`) keyed by its grid's id; players call it
+  // through an `ExecConnection` like any node. Deploying, installing, publishing and deleting
+  // need to own the grid and `write_server_code` on the access tier and the grid; switching on
+  // or off needs `run_server_code` there, and on also the app's code admission.
+
+  /// The mod starter (`execModStarter`): `{ crate, nodeType, description, files }`.
+  graphql::Json modStarter(std::string appId) const;
+  void modStarterAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// Build a mod from one crate (`execModBuild`); one build at a time per player. Needs
+  /// `write_server_code` in the app.
+  graphql::Json modBuild(std::string appId, const ExecCrate& crate) const;
+  void modBuildAsync(std::string appId, const ExecCrate& crate, graphql::GraphQLCallback done) const;
+  /// A mod build of yours (`execModBuildStatus`).
+  graphql::Json modBuildStatus(std::string appId, std::string buildId) const;
+  void modBuildStatusAsync(std::string appId, std::string buildId, graphql::GraphQLCallback done) const;
+  /// Polls `modBuildStatus`, blocking, like `waitForBuild`.
+  graphql::Json waitForModBuild(std::string appId, std::string buildId, int intervalMs = 2000,
+                                int timeoutMs = 600000) const;
+  /// Deploy a mod build of yours to a grid you own (`execModDeploy`): a new mod starts off.
+  graphql::Json modDeploy(std::string appId, std::string gridId, std::string name, std::string buildId) const;
+  void modDeployAsync(std::string appId, std::string gridId, std::string name, std::string buildId,
+                      graphql::GraphQLCallback done) const;
+  /// Switch a mod on your grid on or off (`execModSetEnabled`).
+  graphql::Json modSetEnabled(std::string appId, std::string gridId, std::string name, bool enabled) const;
+  void modSetEnabledAsync(std::string appId, std::string gridId, std::string name, bool enabled,
+                          graphql::GraphQLCallback done) const;
+  /// Stop and remove a mod on your grid, with its state (`execModDelete`).
+  graphql::Json modDelete(std::string appId, std::string gridId, std::string name) const;
+  void modDeleteAsync(std::string appId, std::string gridId, std::string name, graphql::GraphQLCallback done) const;
+  /// A grid's mods (`execMods`).
+  graphql::Json mods(std::string appId, std::string gridId) const;
+  void modsAsync(std::string appId, std::string gridId, graphql::GraphQLCallback done) const;
+  /// Your mods in the app (`execMyMods`).
+  graphql::Json myMods(std::string appId) const;
+  void myModsAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// A mod of yours' log lines (`execModLogs`); `query.nodeType` and `query.key` are ignored.
+  graphql::Json modLogs(std::string appId, std::string gridId, std::string name, const ExecLogsQuery& query = {}) const;
+  void modLogsAsync(std::string appId, std::string gridId, std::string name, const ExecLogsQuery& query,
+                    graphql::GraphQLCallback done) const;
+  /// Publish a mod of yours for other grid owners to install (`execModPublish`; no payments).
+  graphql::Json modPublish(std::string appId, std::string gridId, std::string name, std::string title,
+                           std::string description = {}) const;
+  void modPublishAsync(std::string appId, std::string gridId, std::string name, std::string title,
+                       std::string description, graphql::GraphQLCallback done) const;
+  /// The app's listed mods (`execModListings`).
+  graphql::Json modListings(std::string appId) const;
+  void modListingsAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// Delist a listing you published (`execModUnpublish`).
+  graphql::Json modUnpublish(std::string appId, std::string listingId) const;
+  void modUnpublishAsync(std::string appId, std::string listingId, graphql::GraphQLCallback done) const;
+  /// Install a listing onto a grid you own as your own mod, switched off (`execModInstall`).
+  graphql::Json modInstall(std::string appId, std::string gridId, std::string name, std::string listingId) const;
+  void modInstallAsync(std::string appId, std::string gridId, std::string name, std::string listingId,
+                       graphql::GraphQLCallback done) const;
+  /// The app's mods by grid or owner, or all (`execAppMods`). Needs `view_compute_diagnostics`.
+  graphql::Json appMods(std::string appId, std::string gridId = {}, std::string ownerId = {}) const;
+  void appModsAsync(std::string appId, std::string gridId, std::string ownerId, graphql::GraphQLCallback done) const;
+  /// The switches of the mods kill ladder that are off (`execModSwitches`). Needs
+  /// `view_compute_diagnostics`.
+  graphql::Json modSwitches(std::string appId) const;
+  void modSwitchesAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// The kill ladder (`execModSetSwitch`): one mod, a player's, a grid's, a listing's installs,
+  /// or all (no target). Needs `manage_compute`.
+  graphql::Json modSetSwitch(std::string appId, gen::ExecModScope scope, bool off, std::string target = {},
+                             std::string reason = {}) const;
+  void modSetSwitchAsync(std::string appId, gen::ExecModScope scope, bool off, std::string target, std::string reason,
+                         graphql::GraphQLCallback done) const;
+
   // ---- operations (dev-tier preview) ----
 
   /// A host and a developer connect token for `appId` (`execConnectAsDeveloper`),
@@ -326,5 +397,8 @@ class ExecAPI : public DomainBase {
 
 /// The SHA-256 of `bytes` as lowercase hex, as a deploy names modules.
 std::string execSha256Hex(std::string_view bytes);
+
+/// The node type players call a mod by: `mod:<name>`, keyed by its grid's id.
+std::string execModType(std::string_view name);
 
 }  // namespace crowdy::domains

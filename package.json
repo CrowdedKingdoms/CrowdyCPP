@@ -29,8 +29,8 @@
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
-    "sourceBlob": "0152671fd36ef2ba6979b7c229b7e2ae95b49ee8",
-    "snapshotSha256": "951b54d78d78aef277abd4bd461b94ffdbf45c65eea1ea0e7f748502c3df4580",
-    "syncedAt": "2026-09-25T23:44:55.547Z"
+    "sourceBlob": "498ad987c522dd60a3c1cf236a3455312be57f02",
+    "snapshotSha256": "10e2ff2f4b712c8cb8fd4729b8cd320cc281e9042a855956b66fb6284c22b762",
+    "syncedAt": "2026-09-26T18:29:17.463Z"
   }
 }

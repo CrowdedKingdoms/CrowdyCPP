@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 951b54d78d78aef277abd4bd461b94ffdbf45c65eea1ea0e7f748502c3df4580
-// operations sha256: 8b5564e3ad04c01b1174c3f037f4449e07f4ddff2cf4b8e20cb4ceaaf64d32c2
+// schema.gql sha256: 10e2ff2f4b712c8cb8fd4729b8cd320cc281e9042a855956b66fb6284c22b762
+// operations sha256: ad8b360f3862c8fa2ca996c2be010a4af91373acbd6e112595c2de4ba2f7646c
 
 #pragma once
 
@@ -1293,6 +1293,7 @@ enum class PlayerFaultCode {
   SPEND_CAP_REACHED,
   CIRCUIT_OPEN,
   TEMPORARILY_DISABLED,
+  ENGINE_SWITCHED_OFF,
   INVALID_REQUEST,
   NOT_ALLOWED,
   NOT_FOUND,
@@ -1315,6 +1316,7 @@ inline constexpr std::string_view toString(PlayerFaultCode v) {
     case PlayerFaultCode::SPEND_CAP_REACHED: return "SPEND_CAP_REACHED";
     case PlayerFaultCode::CIRCUIT_OPEN: return "CIRCUIT_OPEN";
     case PlayerFaultCode::TEMPORARILY_DISABLED: return "TEMPORARILY_DISABLED";
+    case PlayerFaultCode::ENGINE_SWITCHED_OFF: return "ENGINE_SWITCHED_OFF";
     case PlayerFaultCode::INVALID_REQUEST: return "INVALID_REQUEST";
     case PlayerFaultCode::NOT_ALLOWED: return "NOT_ALLOWED";
     case PlayerFaultCode::NOT_FOUND: return "NOT_FOUND";
@@ -1338,6 +1340,7 @@ inline std::optional<PlayerFaultCode> playerFaultCodeFromString(std::string_view
   if (s == "SPEND_CAP_REACHED") return PlayerFaultCode::SPEND_CAP_REACHED;
   if (s == "CIRCUIT_OPEN") return PlayerFaultCode::CIRCUIT_OPEN;
   if (s == "TEMPORARILY_DISABLED") return PlayerFaultCode::TEMPORARILY_DISABLED;
+  if (s == "ENGINE_SWITCHED_OFF") return PlayerFaultCode::ENGINE_SWITCHED_OFF;
   if (s == "INVALID_REQUEST") return PlayerFaultCode::INVALID_REQUEST;
   if (s == "NOT_ALLOWED") return PlayerFaultCode::NOT_ALLOWED;
   if (s == "NOT_FOUND") return PlayerFaultCode::NOT_FOUND;

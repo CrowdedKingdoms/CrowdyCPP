@@ -46,7 +46,15 @@ const CATEGORY = Object.freeze({
   NATIVE: 'native-equivalent',
   BROWSER: 'browser-exclusion',
   COVERED: 'covered-extension',
+  HELD: 'held-removal',
 });
+
+// The legacy engines' fields (Studio compute, the game model and its automations, player
+// compute's server side, the player model). Their wrappers went in the held deletion that
+// merges at ck-exec P4; the schema keeps the fields until the P4 SDL sync removes them, and
+// then these entries go stale and the gate asks for them to be deleted.
+const LEGACY_ENGINE_REASON =
+  'a legacy engine field; its wrapper went in the held deletion, and the P4 SDL sync removes it';
 
 // CrowdyCPP syncs schema.gql from the published SDL, so it currently runs ahead
 // of CrowdyJS's committed snapshot rather than matching it.
@@ -79,6 +87,136 @@ const SCHEMA_BASELINE = {
 };
 
 const ROOT_CLASSIFICATIONS = {
+  ...classifyNames(
+    'Query',
+    [
+      'computeAppDiagnostics',
+      'computeModule',
+      'computeModuleLogs',
+      'computeModulePolicy',
+      'computeModuleRuns',
+      'computeModuleStats',
+      'computeModuleTriggers',
+      'computeModuleVersions',
+      'computeModules',
+      'computeTemplates',
+      'gameModelActivePlayerCount',
+      'gameModelAppDiagnostics',
+      'gameModelAutomation',
+      'gameModelAutomationPolicy',
+      'gameModelAutomationRuns',
+      'gameModelAutomationStats',
+      'gameModelAutomationTriggers',
+      'gameModelAutomations',
+      'gameModelContainer',
+      'gameModelContainerState',
+      'gameModelContainerStates',
+      'gameModelContainerTypes',
+      'gameModelContainers',
+      'gameModelEventsConnection',
+      'gameModelFlow',
+      'gameModelFunction',
+      'gameModelFunctions',
+      'gameModelLint',
+      'gameModelPolicy',
+      'gameModelPropertyDefs',
+      'gameModelSession',
+      'gameModelSessionEvents',
+      'gameModelSessionInspect',
+      'gameModelSessionSnapshot',
+      'gameModelSessions',
+      'gameModelTimers',
+      'gameModelTraverse',
+      'gameModelTypeSchema',
+      'gridClientMods',
+      'myPlayerCodeAcquisitions',
+      'myPlayerCodeInstalls',
+      'playerAutomations',
+      'playerCodeClientArtifact',
+      'playerCodeListingVersions',
+      'playerCodeListings',
+      'playerComputeLogs',
+      'playerComputeRuns',
+      'playerModelContainer',
+      'playerModelContainers',
+    ],
+    CATEGORY.HELD,
+    LEGACY_ENGINE_REASON,
+  ),
+  ...classifyNames(
+    'Mutation',
+    [
+      'acquirePlayerCode',
+      'computeDeleteModule',
+      'computeDeleteTrigger',
+      'computeDeployTemplate',
+      'computeDeployVersion',
+      'computeInvoke',
+      'computeResetBreaker',
+      'computeSetModuleEnabled',
+      'computeSetPolicy',
+      'computeUpsertModule',
+      'computeUpsertTrigger',
+      'consentGridClientMod',
+      'gameModelAddEdge',
+      'gameModelCancelTimer',
+      'gameModelCreateContainer',
+      'gameModelCreateSession',
+      'gameModelDeleteAutomation',
+      'gameModelDeleteAutomationTrigger',
+      'gameModelDeleteContainer',
+      'gameModelDeleteContainerType',
+      'gameModelDeleteEdge',
+      'gameModelDeleteFunction',
+      'gameModelDeletePropertyDef',
+      'gameModelEndSession',
+      'gameModelEnsureContainer',
+      'gameModelInvoke',
+      'gameModelJoinSession',
+      'gameModelLeaveSession',
+      'gameModelRunAutomation',
+      'gameModelScheduleInvoke',
+      'gameModelSeed',
+      'gameModelSetAutomationEnabled',
+      'gameModelSetAutomationPolicy',
+      'gameModelSetPolicy',
+      'gameModelSetProperty',
+      'gameModelSetSessionAdmission',
+      'gameModelSetSessionTurn',
+      'gameModelTransferSessionHost',
+      'gameModelUpsertAutomation',
+      'gameModelUpsertAutomationTrigger',
+      'gameModelUpsertContainerType',
+      'gameModelUpsertFunction',
+      'gameModelUpsertPropertyDef',
+      'installPlayerCode',
+      'playerAutomationCreate',
+      'playerAutomationDelete',
+      'playerAutomationSetEnabled',
+      'playerComputeInvoke',
+      'playerComputeSetEnabled',
+      'playerComputeSetRequires',
+      'playerModelCreateContainer',
+      'playerModelDeleteContainer',
+      'playerModelSetProperty',
+      'publishPlayerCode',
+      'publishPlayerCodeVersion',
+      'trustGridAuthor',
+      'uninstallPlayerCode',
+    ],
+    CATEGORY.HELD,
+    LEGACY_ENGINE_REASON,
+  ),
+  ...classifyNames(
+    'Subscription',
+    [
+      'gameModelActivePlayerCountChanged',
+      'gameModelContainerChanged',
+      'gameModelSessionChanged',
+    ],
+    CATEGORY.HELD,
+    LEGACY_ENGINE_REASON,
+  ),
   // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games.
   // A publish uploads a BROWSER game bundle (a Vite build served under the
   // crowdy.games web host) with an identity session holding manage_apps; the
@@ -427,8 +565,6 @@ const METHOD_ALIASES = {
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
-  'GameModelAPI.automations': 'automationsList',
-  'GameModelAPI.getFunction': 'function',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -447,11 +583,6 @@ const METHOD_ALIASES = {
   'SharedEnvironmentAPI.autoBilling': 'orgAutoBilling',
   'SharedEnvironmentAPI.freeAppQuota': 'orgFreeAppQuota',
   'SharedEnvironmentAPI.paymentMethods': 'orgPaymentMethods',
-  'EconomyKit.trades.get': 'trade',
-  'EconomyKit.trades.listMine': 'myTrades',
-  'EconomyKit.trades.offer': 'tradeOffer',
-  'EconomyKit.trades.accept': 'tradeAccept',
-  'EconomyKit.trades.cancel': 'tradeCancel',
   'AvatarStateStore.publicState': 'identityState',
   'ChunkStore.get': 'find',
   'HostTracker.isHost': 'amIHost',
@@ -466,14 +597,6 @@ const ASYNC_TWIN_WAIVERS = {
     'local AuthState read completes synchronously without transport work',
   'AuthAPI.setToken':
     'local AuthState write completes synchronously without transport work',
-  'GameModelAPI.containerChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  'GameModelAPI.activePlayerCountChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  // Same shape as the two above; it entered the matrix with the 17.4.0 re-pin
-  // (the 17.3.0 snapshot predated the session system).
-  'GameModelAPI.sessionChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
   'ExecAPI.waitForBuild':
@@ -497,12 +620,9 @@ const CLASS_MAP = {
   TeleportAPI: 'TeleportAPI',
   TeamsAPI: 'TeamsAPI',
   ChannelsAPI: 'ChannelsAPI',
-  ComputeAPI: 'ComputeAPI',
-  GameModelAPI: 'GameModelAPI',
   GameAppsAPI: 'GameAppsAPI',
   MarketplaceAPI: 'MarketplaceAPI',
   PlayerComputeAPI: 'PlayerComputeAPI',
-  PlayerModelAPI: 'PlayerModelAPI',
   PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
@@ -516,22 +636,7 @@ const CLASS_MAP = {
   ControlPlaneAPI: 'OperatorAPI',
   WorldClient: 'WorldClient',
   ActorClient: 'ActorClient',
-  GameKitClient: 'GameKitClient',
-  InventoryKit: 'InventoryKit',
-  ObjectsKit: 'ObjectsKit',
-  NpcsKit: 'NpcsKit',
-  PlotsKit: 'PlotsKit',
-  EconomyKit: 'EconomyKit',
-  ProgressionKit: 'ProgressionKit',
-  LootKit: 'LootKit',
-  QuestsKit: 'QuestsKit',
-  CombatKit: 'CombatKit',
-  MatchesKit: 'MatchesKit',
-  DecksKit: 'DecksKit',
-  WorldsimKit: 'WorldsimKit',
   SocialKit: 'SocialKit',
-  LeaderboardsKit: 'LeaderboardsKit',
-  FeaturesKit: 'FeaturesKit',
   LocalActorStore: 'LocalActorStore',
   RemoteActorStore: 'RemoteActorStore',
   ChannelInbox: 'Inbox',
@@ -540,7 +645,6 @@ const CLASS_MAP = {
   HostTracker: 'WorldSession',
   SaveStateStore: 'SaveStateStore',
   AvatarStateStore: 'AvatarStateStore',
-  ContainerMirror: 'ContainerMirror',
   WorldSessionCore: 'WorldSession',
   ChunkStore: 'ChunkStore',
   ErrorStore: 'ErrorStore',
@@ -910,6 +1014,7 @@ const state = {
   native: [],
   browser: [],
   covered: [],
+  held: [],
   deprecated: [],
   usedSchemaClassifications: new Set(),
   usedRootClassifications: new Set(),
@@ -1157,6 +1262,7 @@ report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
 report += `- Covered schema extensions: ${state.covered.length}\n`;
+report += `- Held-removal waivers: ${state.held.length}\n`;
 report += `- Deprecated waivers: ${state.deprecated.length}\n`;
 report += `- Unclassified differences: ${state.unclassified.length}\n`;
 report += `- Stale classifications: ${state.stale.length}\n\n`;
@@ -1413,6 +1519,7 @@ function renderClassification(value) {
   if (value.category === CATEGORY.PORTABLE) return `portable gap — ${value.reason}`;
   if (value.category === CATEGORY.NATIVE) return `native equivalent — ${value.reason}`;
   if (value.category === CATEGORY.BROWSER) return `browser exclusion — ${value.reason}`;
+  if (value.category === CATEGORY.HELD) return `held removal — ${value.reason}`;
   return `covered — ${value.reason}`;
 }
 
@@ -1421,6 +1528,7 @@ function recordClassification(state, value, id) {
   else if (value.category === CATEGORY.NATIVE) state.native.push(id);
   else if (value.category === CATEGORY.BROWSER) state.browser.push(id);
   else if (value.category === CATEGORY.COVERED) state.covered.push(id);
+  else if (value.category === CATEGORY.HELD) state.held.push(id);
   else state.unclassified.push(`${id} (unknown classification ${value.category})`);
 }
 

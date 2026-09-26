@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 8125ad1112a5a95d7facb289fbee0f68f70199920864ca053a8e8a56c4d23ef3
-// operations sha256: 046b61467e9511aae40c72f1634d33c9c51939e1f79c78ace437c1e258de1858
+// schema.gql sha256: 951b54d78d78aef277abd4bd461b94ffdbf45c65eea1ea0e7f748502c3df4580
+// operations sha256: 8b5564e3ad04c01b1174c3f037f4449e07f4ddff2cf4b8e20cb4ceaaf64d32c2
 
 #pragma once
 
@@ -5792,6 +5792,192 @@ query ExecBuildStatus($appId: BigInt!, $buildId: String!) {
   execBuildStatus(appId: $appId, buildId: $buildId) {
     ...ExecBuildFields
   }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+}
+
+fragment ExecModListingFields on ExecModListing {
+  listingId
+  title
+  description
+  publisherId
+  sourceModId
+  sourceVersion
+  digest
+  installs
+  createdAt
+  delistedAt
+}
+
+fragment ExecModSwitchFields on ExecModSwitch {
+  scope
+  target
+  reason
+  createdBy
+  createdAt
+}
+
+query ExecModStarter($appId: BigInt!) {
+  execModStarter(appId: $appId) {
+    crate
+    nodeType
+    description
+    files {
+      path
+      content
+    }
+  }
+}
+
+mutation ExecModBuild($appId: BigInt!, $crate: ExecBuildCrateInput!) {
+  execModBuild(appId: $appId, crate: $crate) {
+    ...ExecBuildFields
+  }
+}
+
+query ExecModBuildStatus($appId: BigInt!, $buildId: String!) {
+  execModBuildStatus(appId: $appId, buildId: $buildId) {
+    ...ExecBuildFields
+  }
+}
+
+mutation ExecModDeploy(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $buildId: String!
+) {
+  execModDeploy(appId: $appId, gridId: $gridId, name: $name, buildId: $buildId) {
+    ...ExecModFields
+  }
+}
+
+mutation ExecModSetEnabled(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $enabled: Boolean!
+) {
+  execModSetEnabled(appId: $appId, gridId: $gridId, name: $name, enabled: $enabled) {
+    ...ExecModFields
+  }
+}
+
+mutation ExecModDelete($appId: BigInt!, $gridId: BigInt!, $name: String!) {
+  execModDelete(appId: $appId, gridId: $gridId, name: $name)
+}
+
+query ExecMods($appId: BigInt!, $gridId: BigInt!) {
+  execMods(appId: $appId, gridId: $gridId) {
+    ...ExecModFields
+  }
+}
+
+query ExecMyMods($appId: BigInt!) {
+  execMyMods(appId: $appId) {
+    ...ExecModFields
+  }
+}
+
+query ExecModLogs(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $maxLevel: Int
+  $before: String
+  $limit: Int
+) {
+  execModLogs(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    maxLevel: $maxLevel
+    before: $before
+    limit: $limit
+  ) {
+    id
+    nodeType
+    key
+    level
+    host
+    at
+    text
+  }
+}
+
+mutation ExecModPublish(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $title: String!
+  $description: String
+) {
+  execModPublish(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    title: $title
+    description: $description
+  ) {
+    ...ExecModListingFields
+  }
+}
+
+query ExecModListings($appId: BigInt!) {
+  execModListings(appId: $appId) {
+    ...ExecModListingFields
+  }
+}
+
+mutation ExecModUnpublish($appId: BigInt!, $listingId: BigInt!) {
+  execModUnpublish(appId: $appId, listingId: $listingId)
+}
+
+mutation ExecModInstall(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $listingId: BigInt!
+) {
+  execModInstall(appId: $appId, gridId: $gridId, name: $name, listingId: $listingId) {
+    ...ExecModFields
+  }
+}
+
+query ExecAppMods($appId: BigInt!, $gridId: BigInt, $ownerId: BigInt) {
+  execAppMods(appId: $appId, gridId: $gridId, ownerId: $ownerId) {
+    ...ExecModFields
+  }
+}
+
+query ExecModSwitches($appId: BigInt!) {
+  execModSwitches(appId: $appId) {
+    ...ExecModSwitchFields
+  }
+}
+
+mutation ExecModSetSwitch(
+  $appId: BigInt!
+  $scope: ExecModScope!
+  $off: Boolean!
+  $target: String
+  $reason: String
+) {
+  execModSetSwitch(appId: $appId, scope: $scope, off: $off, target: $target, reason: $reason) {
+    ...ExecModSwitchFields
+  }
 })gql";
 inline constexpr std::string_view kExecConnectIsolatedDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
   execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
@@ -5954,6 +6140,293 @@ fragment ExecBuildFields on ExecBuild {
   }
 })gql";
 inline constexpr std::string_view kExecBuildStatusOperationName = "ExecBuildStatus";
+inline constexpr std::string_view kExecModStarterIsolatedDocument = R"gql(query ExecModStarter($appId: BigInt!) {
+  execModStarter(appId: $appId) {
+    crate
+    nodeType
+    description
+    files {
+      path
+      content
+    }
+  }
+})gql";
+inline constexpr std::string_view kExecModStarterOperationName = "ExecModStarter";
+inline constexpr std::string_view kExecModBuildIsolatedDocument = R"gql(mutation ExecModBuild($appId: BigInt!, $crate: ExecBuildCrateInput!) {
+  execModBuild(appId: $appId, crate: $crate) {
+    ...ExecBuildFields
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+  }
+})gql";
+inline constexpr std::string_view kExecModBuildOperationName = "ExecModBuild";
+inline constexpr std::string_view kExecModBuildStatusIsolatedDocument = R"gql(query ExecModBuildStatus($appId: BigInt!, $buildId: String!) {
+  execModBuildStatus(appId: $appId, buildId: $buildId) {
+    ...ExecBuildFields
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+  }
+})gql";
+inline constexpr std::string_view kExecModBuildStatusOperationName = "ExecModBuildStatus";
+inline constexpr std::string_view kExecModDeployIsolatedDocument = R"gql(mutation ExecModDeploy($appId: BigInt!, $gridId: BigInt!, $name: String!, $buildId: String!) {
+  execModDeploy(appId: $appId, gridId: $gridId, name: $name, buildId: $buildId) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecModDeployOperationName = "ExecModDeploy";
+inline constexpr std::string_view kExecModSetEnabledIsolatedDocument = R"gql(mutation ExecModSetEnabled($appId: BigInt!, $gridId: BigInt!, $name: String!, $enabled: Boolean!) {
+  execModSetEnabled(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    enabled: $enabled
+  ) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecModSetEnabledOperationName = "ExecModSetEnabled";
+inline constexpr std::string_view kExecModDeleteIsolatedDocument = R"gql(mutation ExecModDelete($appId: BigInt!, $gridId: BigInt!, $name: String!) {
+  execModDelete(appId: $appId, gridId: $gridId, name: $name)
+})gql";
+inline constexpr std::string_view kExecModDeleteOperationName = "ExecModDelete";
+inline constexpr std::string_view kExecModsIsolatedDocument = R"gql(query ExecMods($appId: BigInt!, $gridId: BigInt!) {
+  execMods(appId: $appId, gridId: $gridId) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecModsOperationName = "ExecMods";
+inline constexpr std::string_view kExecMyModsIsolatedDocument = R"gql(query ExecMyMods($appId: BigInt!) {
+  execMyMods(appId: $appId) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecMyModsOperationName = "ExecMyMods";
+inline constexpr std::string_view kExecModLogsIsolatedDocument = R"gql(query ExecModLogs($appId: BigInt!, $gridId: BigInt!, $name: String!, $maxLevel: Int, $before: String, $limit: Int) {
+  execModLogs(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    maxLevel: $maxLevel
+    before: $before
+    limit: $limit
+  ) {
+    id
+    nodeType
+    key
+    level
+    host
+    at
+    text
+  }
+})gql";
+inline constexpr std::string_view kExecModLogsOperationName = "ExecModLogs";
+inline constexpr std::string_view kExecModPublishIsolatedDocument = R"gql(mutation ExecModPublish($appId: BigInt!, $gridId: BigInt!, $name: String!, $title: String!, $description: String) {
+  execModPublish(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    title: $title
+    description: $description
+  ) {
+    ...ExecModListingFields
+  }
+}
+
+fragment ExecModListingFields on ExecModListing {
+  listingId
+  title
+  description
+  publisherId
+  sourceModId
+  sourceVersion
+  digest
+  installs
+  createdAt
+  delistedAt
+})gql";
+inline constexpr std::string_view kExecModPublishOperationName = "ExecModPublish";
+inline constexpr std::string_view kExecModListingsIsolatedDocument = R"gql(query ExecModListings($appId: BigInt!) {
+  execModListings(appId: $appId) {
+    ...ExecModListingFields
+  }
+}
+
+fragment ExecModListingFields on ExecModListing {
+  listingId
+  title
+  description
+  publisherId
+  sourceModId
+  sourceVersion
+  digest
+  installs
+  createdAt
+  delistedAt
+})gql";
+inline constexpr std::string_view kExecModListingsOperationName = "ExecModListings";
+inline constexpr std::string_view kExecModUnpublishIsolatedDocument = R"gql(mutation ExecModUnpublish($appId: BigInt!, $listingId: BigInt!) {
+  execModUnpublish(appId: $appId, listingId: $listingId)
+})gql";
+inline constexpr std::string_view kExecModUnpublishOperationName = "ExecModUnpublish";
+inline constexpr std::string_view kExecModInstallIsolatedDocument = R"gql(mutation ExecModInstall($appId: BigInt!, $gridId: BigInt!, $name: String!, $listingId: BigInt!) {
+  execModInstall(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    listingId: $listingId
+  ) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecModInstallOperationName = "ExecModInstall";
+inline constexpr std::string_view kExecAppModsIsolatedDocument = R"gql(query ExecAppMods($appId: BigInt!, $gridId: BigInt, $ownerId: BigInt) {
+  execAppMods(appId: $appId, gridId: $gridId, ownerId: $ownerId) {
+    ...ExecModFields
+  }
+}
+
+fragment ExecModFields on ExecMod {
+  modId
+  gridId
+  name
+  ownerId
+  version
+  digest
+  enabled
+  listingId
+  blocked
+  running
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecAppModsOperationName = "ExecAppMods";
+inline constexpr std::string_view kExecModSwitchesIsolatedDocument = R"gql(query ExecModSwitches($appId: BigInt!) {
+  execModSwitches(appId: $appId) {
+    ...ExecModSwitchFields
+  }
+}
+
+fragment ExecModSwitchFields on ExecModSwitch {
+  scope
+  target
+  reason
+  createdBy
+  createdAt
+})gql";
+inline constexpr std::string_view kExecModSwitchesOperationName = "ExecModSwitches";
+inline constexpr std::string_view kExecModSetSwitchIsolatedDocument = R"gql(mutation ExecModSetSwitch($appId: BigInt!, $scope: ExecModScope!, $off: Boolean!, $target: String, $reason: String) {
+  execModSetSwitch(
+    appId: $appId
+    scope: $scope
+    off: $off
+    target: $target
+    reason: $reason
+  ) {
+    ...ExecModSwitchFields
+  }
+}
+
+fragment ExecModSwitchFields on ExecModSwitch {
+  scope
+  target
+  reason
+  createdBy
+  createdAt
+})gql";
+inline constexpr std::string_view kExecModSetSwitchOperationName = "ExecModSetSwitch";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecConnect") return kExecConnectIsolatedDocument;
@@ -5968,6 +6441,22 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecStarters") return kExecStartersIsolatedDocument;
   if (operationName == "ExecBuild") return kExecBuildIsolatedDocument;
   if (operationName == "ExecBuildStatus") return kExecBuildStatusIsolatedDocument;
+  if (operationName == "ExecModStarter") return kExecModStarterIsolatedDocument;
+  if (operationName == "ExecModBuild") return kExecModBuildIsolatedDocument;
+  if (operationName == "ExecModBuildStatus") return kExecModBuildStatusIsolatedDocument;
+  if (operationName == "ExecModDeploy") return kExecModDeployIsolatedDocument;
+  if (operationName == "ExecModSetEnabled") return kExecModSetEnabledIsolatedDocument;
+  if (operationName == "ExecModDelete") return kExecModDeleteIsolatedDocument;
+  if (operationName == "ExecMods") return kExecModsIsolatedDocument;
+  if (operationName == "ExecMyMods") return kExecMyModsIsolatedDocument;
+  if (operationName == "ExecModLogs") return kExecModLogsIsolatedDocument;
+  if (operationName == "ExecModPublish") return kExecModPublishIsolatedDocument;
+  if (operationName == "ExecModListings") return kExecModListingsIsolatedDocument;
+  if (operationName == "ExecModUnpublish") return kExecModUnpublishIsolatedDocument;
+  if (operationName == "ExecModInstall") return kExecModInstallIsolatedDocument;
+  if (operationName == "ExecAppMods") return kExecAppModsIsolatedDocument;
+  if (operationName == "ExecModSwitches") return kExecModSwitchesIsolatedDocument;
+  if (operationName == "ExecModSetSwitch") return kExecModSetSwitchIsolatedDocument;
   return {};
 }
 

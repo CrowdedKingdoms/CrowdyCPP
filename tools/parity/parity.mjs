@@ -478,6 +478,8 @@ const ASYNC_TWIN_WAIVERS = {
     'native PKCE generation and URL construction are synchronous local work',
   'ExecAPI.waitForBuild':
     'a blocking poll over buildStatus; an event loop polls buildStatusAsync on its own timer',
+  'ExecAPI.waitForModBuild':
+    'a blocking poll over modBuildStatus; an event loop polls modBuildStatusAsync on its own timer',
 };
 
 const CLASS_MAP = {

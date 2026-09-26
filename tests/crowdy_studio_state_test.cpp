@@ -298,10 +298,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
   void setEnabled(const CrowdyStudioProjectScope&, std::string_view,
                   bool) override {}
 
-  void setRequires(
-      const CrowdyStudioProjectScope&, std::string_view,
-      const std::optional<std::string>&) override {}
-
   void startClient(const CrowdyStudioProjectScope&, std::string_view,
                    std::string_view) override {}
 
@@ -417,7 +413,8 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   const std::optional<CrowdyStudioWalletSnapshot> expectedWallet =
       CrowdyStudioWalletSnapshot{"2500000", "0", "250", "USD"};
   CHECK(controller.getState().wallet == expectedWallet);
-  CHECK(controller.getState().usage.has_value());
+  // A SERVER-only project spends no player compute quota: its target is a mod.
+  CHECK(!controller.getState().usage.has_value());
 
   controller.setPageVisible(false);
   clock.monotonic = 100;
@@ -429,7 +426,7 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   controller.tick();
   CHECK_EQ(wallet.calls, 2);
   CHECK(!controller.getState().wallet);
-  CHECK(controller.getState().usage.has_value());
+  CHECK(!controller.getState().usage.has_value());
 
   controller.updateFile(CrowdyStudioTarget::Server, "src/lib.rs",
                         "fn still_authors() {}");

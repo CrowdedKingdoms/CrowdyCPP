@@ -6,18 +6,6 @@ using namespace crowdy;
 
 namespace {
 
-constexpr const char* kCargoToml = R"toml([package]
-name = "crowdy-studio-e2e"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-)toml";
-
-constexpr const char* kLibRs =
-    "fn on_invoke(input: &[u8]) -> Vec<u8> { input.to_vec() }\n";
-
 studio::CrowdyStudioProjectFile projectFile(std::string path,
                                              std::string content) {
   studio::CrowdyStudioProjectFile file;
@@ -43,7 +31,15 @@ int main() {
   const std::string suffix = e2e::runSuffix();
   const std::string module = "studio_e2e_" + suffix;
 
-  E2E_SUBTEST("create and read a typed Studio project");
+  E2E_SUBTEST("create and read a typed Studio project from the mod starter");
+  // The SERVER target is a ck-exec mod: its crate is the platform's mod starter.
+  std::string starterLib;
+  std::vector<studio::CrowdyStudioProjectFile> starterFiles;
+  game.exec().modStarter(cfg.appId)["files"].forEach([&](const graphql::Json& file) {
+    if (file["path"].asString() == "src/lib.rs") starterLib = file["content"].asString();
+    starterFiles.push_back(projectFile(file["path"].asString(), file["content"].asString()));
+  });
+  E2E_CHECK(!starterLib.empty());
   studio::CreateCrowdyStudioProjectInput create;
   create.appId = cfg.appId;
   create.gridId = gridId;
@@ -52,11 +48,10 @@ int main() {
   create.metadata.description = "strict-parity CRUD";
   create.metadata.serverModuleName = module;
   create.idempotencyKey = "cpp-studio-create-" + suffix;
-  create.files = {projectFile("Cargo.toml", kCargoToml),
-                  projectFile("src/lib.rs", kLibRs)};
+  create.files = starterFiles;
   auto project = studioApi.createProject(create);
   E2E_CHECK(!project.projectId.empty());
-  E2E_CHECK(project.files.size() == 2);
+  E2E_CHECK(project.files.size() == starterFiles.size());
   project = studioApi.getProject({cfg.appId, gridId}, project.projectId);
   E2E_CHECK(project.metadata.serverModuleName == module);
 
@@ -77,14 +72,12 @@ int main() {
   files.projectId = project.projectId;
   files.expectedRevisionId = project.revision.id;
   files.idempotencyKey = "cpp-studio-files-" + suffix;
-  files.upserts.push_back(projectFile(
-      "src/lib.rs",
-      "fn on_invoke(input: &[u8]) -> Vec<u8> { let mut out = input.to_vec(); out.push(1); out }\n"));
+  files.upserts.push_back(projectFile("src/lib.rs", starterLib + "// patched by e2e\n"));
   project = studioApi.saveProjectFiles(files);
-  E2E_CHECK(project.files.size() == 2);
+  E2E_CHECK(project.files.size() == starterFiles.size());
 
-  E2E_SUBTEST("submit the exact saved project as a draft");
-  studio::CrowdyStudioPlayerComputeRuntime runtime(game.playerCompute());
+  E2E_SUBTEST("build the exact saved SERVER crate as the grid's mod");
+  studio::CrowdyStudioModRuntime runtime(game.exec(), game.playerCompute());
   studio::CrowdyStudioDeployTargetInput draft;
   draft.scope = {cfg.appId, gridId};
   draft.target = studio::CrowdyStudioTarget::Server;
@@ -92,6 +85,7 @@ int main() {
   draft.projectId = project.projectId;
   if (project.github && project.github->sha) draft.commitSha = project.github->sha;
   draft.deployment = studio::CrowdyStudioDeployment::Draft;
+  draft.files = project.files;
   const auto submitted = runtime.deploy(draft);
   E2E_CHECK(!submitted.versionId.empty());
 

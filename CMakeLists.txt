@@ -13,7 +13,6 @@ option(CROWDY_BUILD_TESTS "Build unit tests" ON)
 option(CROWDY_BUILD_E2E "Build env-gated e2e tests" ON)
 option(CROWDY_BUILD_BENCHMARKS "Build benchmarks" ON)
 option(CROWDY_BUILD_EXAMPLES "Build example programs" ON)
-option(CROWDY_BUILD_PARITY_TOOLS "Build maintainer-only parity tools" OFF)
 option(CROWDY_WITH_CURL "Build the default libcurl HTTP transport" ON)
 option(CROWDY_WITH_CURL_WEBSOCKETS
        "Build the optional libcurl GraphQL-WebSocket transport when supported" ON)
@@ -311,12 +310,6 @@ if(CROWDY_WITH_OPENSSL)
   target_compile_definitions(crowdy PRIVATE CROWDY_HAS_OPENSSL=1)
 endif()
 
-# ---- maintainer parity tools (never required by external builds)
-if(CROWDY_BUILD_PARITY_TOOLS AND NOT CROWDY_NO_EXCEPTIONS)
-  add_executable(crowdy_blueprint_dump tools/parity/dump_blueprints.cpp)
-  target_link_libraries(crowdy_blueprint_dump PRIVATE crowdy)
-endif()
-
 # ---- tests
 if(CROWDY_BUILD_TESTS)
   enable_testing()
@@ -357,14 +350,12 @@ if(CROWDY_NO_EXCEPTIONS)
           PATTERN "player_host" EXCLUDE
           PATTERN "studio" EXCLUDE
           PATTERN "kit" EXCLUDE
-          PATTERN "compute.hpp" EXCLUDE
           PATTERN "crowdy_studio.hpp" EXCLUDE
           PATTERN "crowdy_studio_github.hpp" EXCLUDE
           PATTERN "controller.hpp" EXCLUDE
           PATTERN "diagnostics.hpp" EXCLUDE
           PATTERN "runtime.hpp" EXCLUDE
-          PATTERN "models.hpp" EXCLUDE
-          PATTERN "model_mirror.hpp" EXCLUDE)
+          PATTERN "models.hpp" EXCLUDE)
   install(FILES include/crowdy/studio/layout.hpp
           DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/crowdy/studio)
 else()

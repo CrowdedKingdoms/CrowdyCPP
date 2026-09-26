@@ -1,6 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
+#include <future>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -10,6 +14,7 @@
 #include <vector>
 
 #include "crowdy/core/base64.hpp"
+#include "crowdy/domains/exec.hpp"
 #include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/graphql/json.hpp"
@@ -26,10 +31,10 @@ struct CrowdyStudioDeploymentPlan {
   std::optional<std::string> projectContentHash;
 };
 
-/// What a deploy names. The server resolves the source from the project
+/// What a deploy names. A CLIENT compile resolves the source from the project
 /// itself — its saved files at the current revision, or the rust at
-/// `commitSha` for a project bound to GitHub — so no file bodies travel with a
-/// deploy (ck-api v2.0.0; CrowdyJS 17 does the same).
+/// `commitSha` for a project bound to GitHub — so no file bodies travel with
+/// it. The SERVER target is a ck-exec mod, built from `files`.
 struct CrowdyStudioDeployTargetInput {
   CrowdyStudioProjectScope scope;
   CrowdyStudioTarget target = CrowdyStudioTarget::Server;
@@ -39,6 +44,8 @@ struct CrowdyStudioDeployTargetInput {
   /// Studio project.
   std::optional<std::string> commitSha;
   CrowdyStudioDeployment deployment = CrowdyStudioDeployment::Draft;
+  /// The target's project files.
+  std::vector<CrowdyStudioProjectFile> files;
 };
 
 struct CrowdyStudioDeploySubmission {
@@ -59,22 +66,20 @@ struct CrowdyStudioClientArtifact {
   std::optional<std::string> contractJson;
 };
 
+/// A mod endpoint's decoded reply as JSON, and the call's round trip.
 struct CrowdyStudioInvokeResult {
-  std::optional<std::string> resultBase64;
-  std::optional<std::string> resultJson;
-  std::string fuelUsed;
+  std::string resultJson;
   std::int64_t durationUs = 0;
 };
 
-struct CrowdyStudioRun {
-  std::string runId;
+/// One line the SERVER target's mod logged (`ctx.log`).
+struct CrowdyStudioLogLine {
+  std::string id;
   std::string moduleName;
-  std::string triggerSource;
-  std::string startedAt;
-  std::int64_t durationUs = 0;
-  std::string fuelUsed;
-  bool success = false;
-  std::optional<std::string> errorMessage;
+  /// "error", "warn", "info" or "debug".
+  std::string level;
+  std::string at;
+  std::string text;
 };
 
 struct CrowdyStudioUsageSnapshot {
@@ -118,9 +123,10 @@ class ICrowdyStudioClientRuntime {
   virtual void stop() = 0;
 };
 
-/// Injectable playerCompute seam used by the headless controller. Fakes can
-/// implement this directly; CrowdyStudioPlayerComputeRuntime is the production
-/// adapter over CrowdyClient::playerCompute().
+/// Injectable runtime seam used by the headless controller: the SERVER target
+/// as a ck-exec mod, the CLIENT target through player compute. Fakes can
+/// implement this directly; CrowdyStudioModRuntime is the production adapter
+/// over CrowdyClient::exec() and CrowdyClient::playerCompute().
 class ICrowdyStudioRuntime {
  public:
   virtual ~ICrowdyStudioRuntime() = default;
@@ -131,23 +137,16 @@ class ICrowdyStudioRuntime {
       const CrowdyStudioProjectScope& scope, std::string_view moduleName) = 0;
   virtual void setEnabled(const CrowdyStudioProjectScope& scope,
                           std::string_view moduleName, bool enabled) = 0;
-  virtual void setRequires(
-      const CrowdyStudioProjectScope& scope, std::string_view serverName,
-      const std::optional<std::string>& requiredClientName) = 0;
   virtual void startClient(const CrowdyStudioProjectScope& scope,
                            std::string_view moduleName,
                            std::string_view versionId) = 0;
   virtual void stopClient() = 0;
   virtual CrowdyStudioInvokeResult invoke(
       const CrowdyStudioProjectScope& scope, std::string_view moduleName,
-      std::string_view exportName,
+      std::string_view method,
       const std::optional<std::string>& paramsJson) = 0;
 
-  virtual std::vector<CrowdyStudioRun> runs(
-      const CrowdyStudioProjectScope&, std::string_view) {
-    return {};
-  }
-  virtual std::vector<CrowdyStudioRun> logs(
+  virtual std::vector<CrowdyStudioLogLine> logs(
       const CrowdyStudioProjectScope&, std::string_view) {
     return {};
   }
@@ -232,23 +231,47 @@ class CrowdyStudioPlayerWalletProvider final
   domains::PlayerWalletAPI* playerWallet_ = nullptr;
 };
 
-class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
+/// The production runtime: the SERVER target is the grid's ck-exec mod
+/// (`mod:<name>`, keyed by the grid), built from the target's crate files with
+/// modBuild, deployed when the build succeeds and switched with
+/// modSetEnabled; Invoke calls one of its endpoints over an exec connection
+/// and Logs are its `ctx.log` lines. The CLIENT target compiles through player
+/// compute and runs in the engine-owned client runtime.
+///
+/// `pump` runs while a mod call waits for its reply: pass what drains the
+/// client's dispatcher (CrowdyClient::poll), since exec callbacks run there.
+class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
  public:
-  explicit CrowdyStudioPlayerComputeRuntime(
-      domains::PlayerComputeAPI& playerCompute,
-      ICrowdyStudioClientRuntime* clientRuntime = nullptr)
-      : playerCompute_(playerCompute), clientRuntime_(clientRuntime) {}
+  CrowdyStudioModRuntime(domains::ExecAPI& exec,
+                         domains::PlayerComputeAPI& playerCompute,
+                         ICrowdyStudioClientRuntime* clientRuntime = nullptr,
+                         std::function<std::size_t()> pump = {})
+      : exec_(exec),
+        playerCompute_(playerCompute),
+        clientRuntime_(clientRuntime),
+        pump_(std::move(pump)) {}
 
-  CrowdyStudioPlayerComputeRuntime(
-      std::shared_ptr<domains::PlayerComputeAPI> playerCompute,
-      std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntime = {})
-      : playerComputeOwner_(std::move(playerCompute)),
+  CrowdyStudioModRuntime(std::shared_ptr<domains::ExecAPI> exec,
+                         std::shared_ptr<domains::PlayerComputeAPI> playerCompute,
+                         std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntime = {},
+                         std::function<std::size_t()> pump = {})
+      : execOwner_(std::move(exec)),
+        playerComputeOwner_(std::move(playerCompute)),
         clientRuntimeOwner_(std::move(clientRuntime)),
-        playerCompute_(requirePlayerCompute(playerComputeOwner_)),
-        clientRuntime_(clientRuntimeOwner_.get()) {}
+        exec_(require(execOwner_, "ExecAPI")),
+        playerCompute_(require(playerComputeOwner_, "PlayerComputeAPI")),
+        clientRuntime_(clientRuntimeOwner_.get()),
+        pump_(std::move(pump)) {}
+
+  ~CrowdyStudioModRuntime() override {
+    for (auto& [name, connection] : connections_) {
+      if (connection) connection->close();
+    }
+  }
 
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
+    if (input.target == CrowdyStudioTarget::Server) return buildMod(input);
     if (input.projectId.empty()) {
       throw std::invalid_argument(
           "Crowdy Studio deploy input names no project");
@@ -258,12 +281,8 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
     variables["gridId"] = input.scope.gridId;
     variables["projectId"] = input.projectId;
     variables["name"] = input.moduleName;
-    variables["target"] = toString(input.target);
     if (input.commitSha && !input.commitSha->empty()) {
       variables["commitSha"] = *input.commitSha;
-    }
-    if (input.target == CrowdyStudioTarget::Server) {
-      variables["tickHz"] = 1;
     }
     variables["draft"] =
         input.deployment == CrowdyStudioDeployment::Draft;
@@ -274,6 +293,8 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
   std::vector<CrowdyStudioRuntimeVersion> versions(
       const CrowdyStudioProjectScope& scope,
       std::string_view moduleName) override {
+    const auto build = modBuilds_.find(std::string(moduleName));
+    if (build != modBuilds_.end()) return modBuildStatus(scope, build->first, build->second);
     const graphql::Json response =
         playerCompute_.versions(scope.appId, scope.gridId, moduleName);
     std::vector<CrowdyStudioRuntimeVersion> mapped;
@@ -291,17 +312,7 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
 
   void setEnabled(const CrowdyStudioProjectScope& scope,
                   std::string_view moduleName, bool enabled) override {
-    (void)playerCompute_.setEnabled(scope.appId, scope.gridId, moduleName,
-                                    enabled);
-  }
-
-  void setRequires(
-      const CrowdyStudioProjectScope& scope, std::string_view serverName,
-      const std::optional<std::string>& requiredClientName) override {
-    (void)playerCompute_.setRequires(
-        scope.appId, scope.gridId, serverName,
-        requiredClientName ? std::string_view(*requiredClientName)
-                           : std::string_view{});
+    (void)exec_.modSetEnabled(scope.appId, scope.gridId, std::string(moduleName), enabled);
   }
 
   void startClient(const CrowdyStudioProjectScope& scope,
@@ -339,36 +350,67 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
 
   CrowdyStudioInvokeResult invoke(
       const CrowdyStudioProjectScope& scope, std::string_view moduleName,
-      std::string_view exportName,
+      std::string_view method,
       const std::optional<std::string>& paramsJson) override {
-    const graphql::Json response = playerCompute_.invoke(
-        scope.appId, scope.gridId, moduleName, exportName,
-        paramsJson ? std::string_view(*paramsJson) : std::string_view("{}"));
+    // MessagePack nil: a call with no arguments.
+    std::string payload(1, static_cast<char>(0xc0));
+    if (paramsJson && paramsJson->find_first_not_of(" \t\r\n") != std::string::npos) {
+      const graphql::Json args = graphql::Json::parse(*paramsJson);
+      if (!args.ok()) {
+        throw std::invalid_argument("The call arguments must be JSON");
+      }
+      payload = args.toMsgpack();
+    }
+    const std::string nodeType = domains::execModType(moduleName);
+    auto connection = modConnection(scope, moduleName);
+    auto reply = std::make_shared<std::promise<domains::ExecReply>>();
+    std::future<domains::ExecReply> replied = reply->get_future();
+    const auto started = std::chrono::steady_clock::now();
+    connection->callRaw(nodeType, scope.gridId, std::string(method), std::move(payload),
+                        [reply](domains::ExecReply value) { reply->set_value(std::move(value)); });
+    // The connection answers DeadlineExceeded after its own call timeout; this
+    // bound only stops a wait whose callbacks nothing is draining.
+    const auto giveUp = started + std::chrono::seconds(30);
+    while (replied.wait_for(std::chrono::milliseconds(2)) != std::future_status::ready) {
+      if (pump_) pump_();
+      if (std::chrono::steady_clock::now() > giveUp) {
+        throw std::runtime_error("DeadlineExceeded: the mod call got no reply");
+      }
+    }
+    const domains::ExecReply value = replied.get();
+    if (!value.ok()) {
+      throw std::runtime_error(std::string(domains::execStatusName(value.status)) + ": " +
+                               value.message());
+    }
     CrowdyStudioInvokeResult result;
-    result.resultBase64 = optionalString(response["resultBase64"]);
-    result.resultJson = optionalString(response["resultJson"]);
-    result.fuelUsed = scalarString(response["fuelUsed"]);
-    result.durationUs = response["durationUs"].asInt64();
+    const graphql::Json decoded = value.value();
+    result.resultJson = decoded.ok() ? decoded.dump() : "null";
+    result.durationUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
     return result;
   }
 
-  std::vector<CrowdyStudioRun> runs(
+  std::vector<CrowdyStudioLogLine> logs(
       const CrowdyStudioProjectScope& scope,
       std::string_view moduleName) override {
-    graphql::JVal options;
-    if (!moduleName.empty()) options["moduleName"] = moduleName;
-    options["limit"] = 50;
-    options["offset"] = 0;
-    return mapRuns(playerCompute_.runs(scope.appId, scope.gridId, options));
-  }
-
-  std::vector<CrowdyStudioRun> logs(
-      const CrowdyStudioProjectScope& scope,
-      std::string_view moduleName) override {
-    graphql::JVal options;
-    if (!moduleName.empty()) options["moduleName"] = moduleName;
-    options["limit"] = 50;
-    return mapRuns(playerCompute_.logs(scope.appId, scope.gridId, options));
+    domains::ExecLogsQuery query;
+    query.limit = 50;
+    const graphql::Json response =
+        exec_.modLogs(scope.appId, scope.gridId, std::string(moduleName), query);
+    static constexpr std::string_view kLevels[] = {"error", "warn", "info", "debug"};
+    std::vector<CrowdyStudioLogLine> lines;
+    response.forEach([&](const graphql::Json& value) {
+      CrowdyStudioLogLine line;
+      line.id = value["id"].asString();
+      line.moduleName = std::string(moduleName);
+      const std::int64_t level = value["level"].asInt64(3);
+      line.level = std::string(level >= 0 && level < 4 ? kLevels[level] : kLevels[3]);
+      line.at = value["at"].asString();
+      line.text = value["text"].asString();
+      lines.push_back(std::move(line));
+    });
+    return lines;
   }
 
   std::optional<CrowdyStudioUsageSnapshot> usage(
@@ -389,13 +431,81 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
   }
 
  private:
-  static domains::PlayerComputeAPI& requirePlayerCompute(
-      const std::shared_ptr<domains::PlayerComputeAPI>& playerCompute) {
-    if (!playerCompute) {
+  struct ModBuild {
+    std::string buildId;
+    bool deployed = false;
+  };
+
+  CrowdyStudioDeploySubmission buildMod(const CrowdyStudioDeployTargetInput& input) {
+    const std::string& name = input.moduleName;
+    if (!isModName(name)) {
       throw std::invalid_argument(
-          "Crowdy Studio runtime requires PlayerComputeAPI");
+          "The server module name '" + name +
+          "' must be 1-48 lowercase letters, digits, - or _ to run as a mod");
     }
-    return *playerCompute;
+    domains::ExecCrate crate;
+    // A build's crate names need a leading letter; a mod's name need not.
+    crate.name = name.front() >= 'a' && name.front() <= 'z' ? name : "mod-" + name;
+    for (const auto& file : input.files) {
+      // What a mod build takes: Cargo.toml, README.md and Rust under src/.
+      const std::string& path = file.path;
+      const bool rust = path.rfind("src/", 0) == 0 && path.size() > 3 &&
+                        path.compare(path.size() - 3, 3, ".rs") == 0;
+      if (path == "Cargo.toml" || path == "README.md" || rust) {
+        crate.files.emplace_back(path, file.content);
+      }
+    }
+    const graphql::Json queued = exec_.modBuild(input.scope.appId, crate);
+    const std::string buildId = queued["buildId"].asString();
+    if (buildId.empty()) throw std::runtime_error("execModBuild returned no build id");
+    modBuilds_[name] = {buildId, false};
+    return {buildId};
+  }
+
+  std::vector<CrowdyStudioRuntimeVersion> modBuildStatus(const CrowdyStudioProjectScope& scope,
+                                                         const std::string& name, ModBuild& build) {
+    const graphql::Json status = exec_.modBuildStatus(scope.appId, build.buildId);
+    CrowdyStudioRuntimeVersion version;
+    version.versionId = build.buildId;
+    version.compileStatus = status["status"].asString();
+    if (status["log"].ok() && !status["log"].isNull()) version.compileLog = status["log"].asString();
+    if (version.compileStatus == "succeeded" && !build.deployed) {
+      // A new mod starts switched off; the controller enables it next.
+      (void)exec_.modDeploy(scope.appId, scope.gridId, name, build.buildId);
+      build.deployed = true;
+    }
+    return {version};
+  }
+
+  std::shared_ptr<domains::ExecConnection> modConnection(const CrowdyStudioProjectScope& scope,
+                                                         std::string_view moduleName) {
+    const std::string key = scope.appId + "/" + scope.gridId + "/" + std::string(moduleName);
+    auto& connection = connections_[key];
+    if (!connection) {
+      domains::ExecConnectOptions options;
+      options.nodeType = domains::execModType(moduleName);
+      options.key = scope.gridId;
+      connection = exec_.connect(scope.appId, std::move(options));
+    }
+    return connection;
+  }
+
+  /// As ck-exec's mod names: 1-48 lowercase letters, digits, - or _.
+  static bool isModName(std::string_view name) {
+    if (name.empty() || name.size() > 48) return false;
+    for (const char c : name) {
+      const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  template <typename T>
+  static T& require(const std::shared_ptr<T>& value, const char* what) {
+    if (!value) {
+      throw std::invalid_argument(std::string("Crowdy Studio runtime requires ") + what);
+    }
+    return *value;
   }
 
   static std::string scalarString(const graphql::Json& value) {
@@ -410,28 +520,15 @@ class CrowdyStudioPlayerComputeRuntime final : public ICrowdyStudioRuntime {
     return scalarString(value);
   }
 
-  static std::vector<CrowdyStudioRun> mapRuns(
-      const graphql::Json& response) {
-    std::vector<CrowdyStudioRun> runs;
-    response.forEach([&](const graphql::Json& value) {
-      CrowdyStudioRun run;
-      run.runId = value["runId"].asString();
-      run.moduleName = value["moduleName"].asString();
-      run.triggerSource = value["triggerSource"].asString();
-      run.startedAt = value["startedAt"].asString();
-      run.durationUs = value["durationUs"].asInt64();
-      run.fuelUsed = scalarString(value["fuelUsed"]);
-      run.success = value["success"].asBool();
-      run.errorMessage = optionalString(value["errorMessage"]);
-      runs.push_back(std::move(run));
-    });
-    return runs;
-  }
-
+  std::shared_ptr<domains::ExecAPI> execOwner_;
   std::shared_ptr<domains::PlayerComputeAPI> playerComputeOwner_;
   std::shared_ptr<ICrowdyStudioClientRuntime> clientRuntimeOwner_;
+  domains::ExecAPI& exec_;
   domains::PlayerComputeAPI& playerCompute_;
   ICrowdyStudioClientRuntime* clientRuntime_;
+  std::function<std::size_t()> pump_;
+  std::map<std::string, ModBuild> modBuilds_;
+  std::map<std::string, std::shared_ptr<domains::ExecConnection>> connections_;
 };
 
 }  // namespace crowdy::studio

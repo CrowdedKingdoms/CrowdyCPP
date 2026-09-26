@@ -11,12 +11,10 @@
 #include "crowdy/domains/discovery.hpp"
 #include "crowdy/domains/realtime_control.hpp"
 #include "crowdy/domains/game_apps.hpp"
-#include "crowdy/domains/game_model.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
 #include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/domains/marketplace.hpp"
-#include "crowdy/domains/player_model.hpp"
 #include "crowdy/domains/groups.hpp"
 #include "crowdy/domains/grids.hpp"
 #include "crowdy/domains/portal.hpp"
@@ -31,7 +29,6 @@
 #include "crowdy/domains/exec.hpp"
 
 #ifndef CROWDY_NO_EXCEPTIONS
-#include "crowdy/domains/compute.hpp"
 #include "crowdy/domains/crowdy_studio.hpp"
 #include "crowdy/domains/crowdy_studio_github.hpp"
 #endif
@@ -222,16 +219,14 @@ class CrowdyClient {
   domains::ChannelsAPI& channels() { return *channels_; }
   /// Grid tokens and grid channels (DN-10).
   domains::GridsAPI& grids() { return *grids_; }
-  domains::GameModelAPI& gameModel() { return *gameModel_; }
-#ifndef CROWDY_NO_EXCEPTIONS
-  domains::ComputeAPI& compute() { return *compute_; }
-#endif
-  /// ck-exec (dev-tier preview): connect players to an app's hubs and spokes.
+  /// ck-exec (dev-tier preview): an app's server code as hubs and spokes, and
+  /// players' mods on grids they own.
   domains::ExecAPI& exec() { return *exec_; }
+  /// Players' CLIENT modules (compile, artifact, compile quota).
   domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
   domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
+  /// Grid claims and the app's player-code administration.
   domains::MarketplaceAPI& marketplace() { return *marketplace_; }
-  domains::PlayerModelAPI& playerModel() { return *playerModel_; }
   domains::GameAppsAPI& gameApps() { return *gameApps_; }
 #ifndef CROWDY_NO_EXCEPTIONS
   /// Caller-owned, app-scoped Crowdy Studio projects and reusable files.
@@ -393,15 +388,10 @@ class CrowdyClient {
   std::unique_ptr<domains::TeamsAPI> teams_;
   std::unique_ptr<domains::ChannelsAPI> channels_;
   std::unique_ptr<domains::GridsAPI> grids_;
-  std::unique_ptr<domains::GameModelAPI> gameModel_;
-#ifndef CROWDY_NO_EXCEPTIONS
-  std::unique_ptr<domains::ComputeAPI> compute_;
-#endif
   std::unique_ptr<domains::ExecAPI> exec_;
   std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
   std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
   std::unique_ptr<domains::MarketplaceAPI> marketplace_;
-  std::unique_ptr<domains::PlayerModelAPI> playerModel_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;
 #ifndef CROWDY_NO_EXCEPTIONS
   std::unique_ptr<domains::CrowdyStudioAPI> crowdyStudio_;

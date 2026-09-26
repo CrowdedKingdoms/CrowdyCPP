@@ -13,6 +13,10 @@
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/json.hpp"
+#ifndef CROWDY_NO_EXCEPTIONS
+#include "crowdy/domains/player_compute.hpp"
+#include "crowdy/studio/runtime.hpp"
+#endif
 #include "test_util.hpp"
 
 using namespace crowdy;
@@ -419,6 +423,11 @@ class RecordingHttp final : public graphql::IHttpTransport {
         R"({"modId":"900","gridId":"5","name":"turret","ownerId":"42","version":1,"digest":"ab","enabled":false,"listingId":null,"blocked":null,"running":false,"updatedAt":"t"})";
     if (op == "ExecModDeploy") return {200, R"({"data":{"execModDeploy":)" + mod + "}}"};
     if (op == "ExecModSetEnabled") return {200, R"({"data":{"execModSetEnabled":)" + mod + "}}"};
+    if (op == "ExecConnect")
+      return {200, R"({"data":{"execConnect":{"gatewayUrl":"wss://gw","token":"t1","host":"h1","expiresAt":"2026-09-26T00:01:00.000Z"}}})"};
+    if (op == "ExecModLogs")
+      return {200, R"({"data":{"execModLogs":[{"id":"2","nodeType":"mod:3d-server","key":"5","level":0,"host":"h","at":"2026-09-26T00:00:02.000Z","text":"boom"},{"id":"1","nodeType":"mod:3d-server","key":"5","level":2,"host":"h","at":"2026-09-26T00:00:01.000Z","text":"visited"}]}})"};
+    if (op == "PlayerComputeDeploy") return {200, R"({"data":{"playerComputeDeploy":{"versionId":"c1"}}})"};
     if (op == "ExecModSetSwitch")
       return {200, R"({"data":{"execModSetSwitch":[{"scope":"GRID","target":"5","reason":"r","createdBy":"user:1","createdAt":"t"}]}})"};
     return {200, R"({"data":{}})"};
@@ -554,6 +563,132 @@ void testMods() {
   CHECK_EQ(execModType("turret"), std::string("mod:turret"));
 }
 
+#ifndef CROWDY_NO_EXCEPTIONS
+std::size_t countOp(const RecordingHttp& http, std::string_view op) {
+  std::size_t n = 0;
+  for (const auto& r : http.requests) n += r["operationName"].asString() == op ? 1 : 0;
+  return n;
+}
+
+// Crowdy Studio's production runtime: the SERVER target as the grid's mod, the CLIENT target on
+// player compute.
+void testStudioModRuntime() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      std::make_shared<graphql::AuthState>());
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  gql->setDispatcher(dispatcher);
+  auto transport = std::make_shared<FakeTransport>();
+  ExecAPI exec(gql, transport);
+  PlayerComputeAPI playerCompute(gql);
+  studio::CrowdyStudioModRuntime runtime(exec, playerCompute, nullptr, [dispatcher] { return dispatcher->drain(); });
+  const studio::CrowdyStudioProjectScope scope{"77", "5"};
+
+  // The mod build takes only the crate's files, under a crate name a build accepts.
+  studio::CrowdyStudioDeployTargetInput server;
+  server.scope = scope;
+  server.target = studio::CrowdyStudioTarget::Server;
+  server.moduleName = "3d-server";
+  server.projectId = "p1";
+  for (const char* path : {"Cargo.toml", "README.md", "programs/sky.js", "src/lib.rs", "src/sky.rs"}) {
+    studio::CrowdyStudioProjectFile file;
+    file.target = studio::CrowdyStudioTarget::Server;
+    file.path = path;
+    file.content = "x";
+    server.files.push_back(std::move(file));
+  }
+  CHECK_EQ(runtime.deploy(server).versionId, std::string("b1"));
+  auto crate = http->requests.back()["variables"]["crate"];
+  CHECK_EQ(crate["name"].asString(), std::string("mod-3d-server"));
+  CHECK_EQ(crate["files"].size(), 4u);
+  for (std::size_t i = 0; i < crate["files"].size(); ++i) {
+    CHECK(crate["files"].at(i)["path"].asString() != "programs/sky.js");
+  }
+
+  // Building, then succeeded: the mod is deployed once, when the build first succeeds.
+  CHECK_EQ(runtime.versions(scope, "3d-server").at(0).compileStatus, std::string("building"));
+  CHECK_EQ(countOp(*http, "ExecModDeploy"), 0u);
+  CHECK_EQ(runtime.versions(scope, "3d-server").at(0).compileStatus, std::string("succeeded"));
+  CHECK_EQ(runtime.versions(scope, "3d-server").at(0).versionId, std::string("b1"));
+  CHECK_EQ(countOp(*http, "ExecModDeploy"), 1u);
+  runtime.setEnabled(scope, "3d-server", true);
+  auto vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecModSetEnabled"));
+  CHECK_EQ(vars["name"].asString(), std::string("3d-server"));
+  CHECK(vars["enabled"].asBool());
+
+  const auto lines = runtime.logs(scope, "3d-server");
+  CHECK_EQ(lines.size(), 2u);
+  CHECK_EQ(lines.at(0).level, std::string("error"));
+  CHECK_EQ(lines.at(0).text, std::string("boom"));
+  CHECK_EQ(lines.at(1).level, std::string("info"));
+  CHECK_EQ(http->requests.back()["variables"]["limit"].asInt64(), 50);
+
+  // A name that is not a mod's is refused before anything is sent.
+  const std::size_t sent = http->requests.size();
+  server.moduleName = "Weather Server";
+  bool refused = false;
+  try {
+    (void)runtime.deploy(server);
+  } catch (const std::invalid_argument&) {
+    refused = true;
+  }
+  CHECK(refused);
+  CHECK_EQ(http->requests.size(), sent);
+
+  // The CLIENT target compiles on player compute.
+  studio::CrowdyStudioDeployTargetInput client;
+  client.scope = scope;
+  client.target = studio::CrowdyStudioTarget::Client;
+  client.moduleName = "3d-client";
+  client.projectId = "p1";
+  CHECK_EQ(runtime.deploy(client).versionId, std::string("c1"));
+  auto input = http->requests.back()["variables"]["input"];
+  CHECK_EQ(input["target"].asString(), std::string("CLIENT"));
+  CHECK(input["tickHz"].isNull());
+
+  // Invoke: one exec connection to mod:<name> on the grid; the reply decoded as JSON.
+  std::thread gateway([&] {
+    if (!until(*dispatcher, [&] { return transport->count() == 1; })) return;
+    auto conn = transport->at(0);
+    conn->open();
+    for (const auto* status : {"ok", "refused"}) {
+      std::optional<Sent> call;
+      const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+      while (std::chrono::steady_clock::now() < end) {
+        for (const auto& frame : conn->frames()) {
+          Sent parsed = parse(frame);
+          if (parsed.tag == 0x01 && (!call || parsed.rid > call->rid)) call = parsed;
+        }
+        if (call && (std::string_view(status) == "ok" || call->name == "state")) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+      if (!call) return;
+      if (std::string_view(status) == "ok") {
+        CHECK_EQ(call->nodeType, std::string("mod:3d-server"));
+        CHECK_EQ(call->key, std::string("5"));
+        CHECK_EQ(call->name, std::string("visit"));
+        CHECK_EQ(graphql::Json::fromMsgpack(call->payload)["x"].asInt64(), 1);
+        conn->deliver(reply(call->rid, 0, graphql::Json::parse(R"({"visits":2})").toMsgpack()));
+      } else {
+        conn->deliver(reply(call->rid, 1, "nope"));
+      }
+    }
+  });
+  const auto invoked = runtime.invoke(scope, "3d-server", "visit", std::string(R"({"x":1})"));
+  CHECK_EQ(invoked.resultJson, std::string(R"({"visits":2})"));
+  bool appError = false;
+  try {
+    (void)runtime.invoke(scope, "3d-server", "state", std::nullopt);
+  } catch (const std::runtime_error& error) {
+    appError = std::string(error.what()) == "AppError: nope";
+  }
+  gateway.join();
+  CHECK(appError);
+  CHECK_EQ(transport->count(), 1u);
+}
+#endif
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
@@ -562,6 +697,9 @@ int main() {
   testOperations();
   testBuilds();
   testMods();
+#ifndef CROWDY_NO_EXCEPTIONS
+  testStudioModRuntime();
+#endif
   std::puts("exec_test OK");
   return 0;
 }

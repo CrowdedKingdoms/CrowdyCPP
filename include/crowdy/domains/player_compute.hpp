@@ -7,11 +7,12 @@
 #include "crowdy/domains/types.hpp"
 #include "crowdy/generated/operations.hpp"
 
-/// client.playerCompute() — player-authored Rust/WASM bound to player-owned
-/// grids. Deploying requires current ownership plus target-specific write
-/// permission at both app-tier and grid ACL layers. Enabling separately
-/// requires run permission, successful compilation, and admission when the app
-/// uses strict allow-list mode. Targets the Game API.
+/// client.playerCompute() — players' CLIENT modules: Rust compiled on the
+/// platform to WASM for a native sandbox, bound to player-owned grids.
+/// Deploying requires current ownership plus write_client_code at both
+/// app-tier and grid ACL layers; fetching the artifact requires
+/// run_client_code and admission when the app uses strict allow-list mode.
+/// Server-side player code is a ck-exec mod (client.exec().mod*).
 namespace crowdy::domains {
 
 class PlayerComputeAPI : public DomainBase {
@@ -20,63 +21,14 @@ class PlayerComputeAPI : public DomainBase {
   using ArtifactBytesCallback = std::function<void(
       graphql::GraphQLOutcome, ClientArtifactBytes)>;
 
-  /// Create/update a grid-bound module and publish an immutable pending source
-  /// version. Compilation is asynchronous.
+  /// Compile a project's CLIENT target into an immutable pending version of a
+  /// grid-bound module (`target` is set to CLIENT). Compilation is
+  /// asynchronous; poll versions().
   graphql::Json deploy(const graphql::JVal& input) const {
-    return byInput("PlayerComputeDeploy", input);
+    return byInput("PlayerComputeDeploy", clientTarget(input));
   }
   void deployAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
-    byInputAsync("PlayerComputeDeploy", input, std::move(cb));
-  }
-
-  /// Request activation or stop execution. Enabling checks ownership, target
-  /// run permission, compile success, and app admission.
-  graphql::Json setEnabled(std::string_view appId, std::string_view gridId,
-                           std::string_view name, bool enabled) const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["name"] = name;
-    vars["enabled"] = enabled;
-    return run("PlayerComputeSetEnabled", vars);
-  }
-  void setEnabledAsync(std::string_view appId, std::string_view gridId,
-                       std::string_view name, bool enabled,
-                       graphql::GraphQLCallback cb) const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["name"] = name;
-    vars["enabled"] = enabled;
-    runAsync("PlayerComputeSetEnabled", vars, std::move(cb));
-  }
-
-  /// Set or clear the required CLIENT companion for the current immutable
-  /// SERVER version. Empty requiredClientName clears the edge.
-  graphql::Json setRequires(std::string_view appId, std::string_view gridId,
-                            std::string_view serverName,
-                            std::string_view requiredClientName = "") const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["serverName"] = serverName;
-    if (!requiredClientName.empty()) {
-      vars["requiredClientName"] = requiredClientName;
-    }
-    return run("PlayerComputeSetRequires", vars);
-  }
-  void setRequiresAsync(std::string_view appId, std::string_view gridId,
-                        std::string_view serverName,
-                        std::string_view requiredClientName,
-                        graphql::GraphQLCallback cb) const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["serverName"] = serverName;
-    if (!requiredClientName.empty()) {
-      vars["requiredClientName"] = requiredClientName;
-    }
-    runAsync("PlayerComputeSetRequires", vars, std::move(cb));
+    byInputAsync("PlayerComputeDeploy", clientTarget(input), std::move(cb));
   }
 
   /// List modules authored by the caller or installed on grids they currently
@@ -130,36 +82,8 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeDelete", vars, std::move(cb));
   }
 
-  /// Synchronously invoke an enabled/admitted server module as the grid owner.
-  graphql::Json invoke(std::string_view appId, std::string_view gridId,
-                       std::string_view moduleName,
-                       std::string_view exportName,
-                       std::string_view paramsJson = "{}") const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["moduleName"] = moduleName;
-    vars["exportName"] = exportName;
-    vars["paramsJson"] = paramsJson;
-    return run("PlayerComputeInvoke", vars);
-  }
-  void invokeAsync(std::string_view appId, std::string_view gridId,
-                   std::string_view moduleName,
-                   std::string_view exportName,
-                   std::string_view paramsJson,
-                   graphql::GraphQLCallback cb) const {
-    graphql::JVal vars;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    vars["moduleName"] = moduleName;
-    vars["exportName"] = exportName;
-    vars["paramsJson"] = paramsJson;
-    runAsync("PlayerComputeInvoke", vars, std::move(cb));
-  }
-
-  /// The caller's spend/quota view for one app (P2): current hour/day compute
-  /// units vs the effective policy caps, compile-quota utilization, and the
-  /// wallet/spend-cap gate state with its typed reason.
+  /// The caller's compile quota for one app and the wallet/spend-cap gate
+  /// state with its typed reason.
   graphql::Json usage(std::string_view appId) const {
     graphql::JVal vars;
     vars["appId"] = appId;
@@ -171,43 +95,9 @@ class PlayerComputeAPI : public DomainBase {
     runAsync("PlayerComputeUsage", vars, std::move(cb));
   }
 
-  /// Executions on an owned grid, newest first (attributed to the grid owner).
-  graphql::Json runs(std::string_view appId, std::string_view gridId,
-                     const graphql::JVal& options = graphql::JVal()) const {
-    graphql::JVal vars = options;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    return run("PlayerComputeRuns", vars);
-  }
-  void runsAsync(std::string_view appId, std::string_view gridId,
-                 const graphql::JVal& options,
-                 graphql::GraphQLCallback cb) const {
-    graphql::JVal vars = options;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    runAsync("PlayerComputeRuns", vars, std::move(cb));
-  }
-
-  /// Failed-run diagnostics on an owned grid, newest first.
-  graphql::Json logs(std::string_view appId, std::string_view gridId,
-                     const graphql::JVal& options = graphql::JVal()) const {
-    graphql::JVal vars = options;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    return run("PlayerComputeLogs", vars);
-  }
-  void logsAsync(std::string_view appId, std::string_view gridId,
-                 const graphql::JVal& options,
-                 graphql::GraphQLCallback cb) const {
-    graphql::JVal vars = options;
-    vars["appId"] = appId;
-    vars["gridId"] = gridId;
-    runAsync("PlayerComputeLogs", vars, std::move(cb));
-  }
-
   /// Throw or release a kill-ladder switch at player/grid/app/listing scope
-  /// (studio, requires manage_compute). Pass listingRef in options for
-  /// LISTING scope. Quota state is retained across a kill.
+  /// (studio, requires manage_compute); a thrown switch stops artifact
+  /// fetches. Pass listingRef in options for LISTING scope.
   graphql::Json setSwitch(std::string_view appId, std::string_view scope,
                           bool disabled,
                           const graphql::JVal& options = graphql::JVal()) const {
@@ -300,6 +190,12 @@ class PlayerComputeAPI : public DomainBase {
   }
 
  private:
+  static graphql::JVal clientTarget(const graphql::JVal& input) {
+    graphql::JVal in = input;
+    in["target"] = "CLIENT";
+    return in;
+  }
+
   static ClientArtifactBytes requireArtifactBytes(
       const graphql::Json& artifact) {
     auto decoded = decodeClientArtifactBytes(artifact);

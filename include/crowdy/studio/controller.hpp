@@ -29,7 +29,7 @@ namespace crowdy::studio {
 
 enum class CrowdyStudioSaveState { Saving, Saved, Conflict, Offline };
 enum class CrowdyStudioAgentActivity { Idle, Preparing, Working, Paused };
-enum class CrowdyStudioPolledSurface { Runs, Logs, Usage };
+enum class CrowdyStudioPolledSurface { Logs, Usage };
 enum class CrowdyStudioPhase {
   Idle,
   TestingDraft,
@@ -96,8 +96,7 @@ struct CrowdyStudioState {
   std::string buildOutput;
   std::vector<CrowdyStudioDiagnostic> authoritativeDiagnostics;
   std::vector<CrowdyStudioDiagnostic> localDiagnostics;
-  std::vector<CrowdyStudioRun> runs;
-  std::vector<CrowdyStudioRun> logs;
+  std::vector<CrowdyStudioLogLine> logs;
   std::optional<CrowdyStudioUsageSnapshot> usage;
   std::optional<CrowdyStudioWalletSnapshot> wallet;
   std::optional<CrowdyStudioInvokeResult> invokeResult;
@@ -1022,7 +1021,7 @@ class CrowdyStudioController {
     }
     std::string selected(exportName);
     trim(selected);
-    if (selected.empty()) selected = "invoke";
+    if (selected.empty()) selected = "state";
     if (onEffectStart) onEffectStart();
     CrowdyStudioInvokeResult result = runtime_.invoke(
         scope(), *state_.runtimeSync.runningServerModuleName, selected,
@@ -1057,12 +1056,16 @@ class CrowdyStudioController {
     if (!state_.project) return;
     const std::string serverName =
         state_.project->metadata.serverModuleName.value_or("");
-    if (surface == CrowdyStudioPolledSurface::Runs) {
-      state_.runs = runtime_.runs(scope(), serverName);
-    } else if (surface == CrowdyStudioPolledSurface::Logs) {
-      state_.logs = runtime_.logs(scope(), serverName);
+    if (surface == CrowdyStudioPolledSurface::Logs) {
+      state_.logs = serverName.empty()
+                        ? std::vector<CrowdyStudioLogLine>{}
+                        : runtime_.logs(scope(), serverName);
     } else {
-      state_.usage = runtime_.usage(options_.appId);
+      // Only the CLIENT target's compiles spend player compute quota.
+      state_.usage = containsTarget(projectTargets(state_.project->kind),
+                                    CrowdyStudioTarget::Client)
+                         ? runtime_.usage(options_.appId)
+                         : std::nullopt;
       if (walletProvider_) {
         try {
           state_.wallet = walletProvider_->balance();
@@ -1184,7 +1187,6 @@ class CrowdyStudioController {
     state_.buildOutput.clear();
     state_.authoritativeDiagnostics.clear();
     state_.localDiagnostics.clear();
-    state_.runs.clear();
     state_.logs.clear();
     state_.usage.reset();
     state_.wallet.reset();
@@ -1260,13 +1262,7 @@ class CrowdyStudioController {
           return compileFailedDeployment(deployment, project, plan.targets);
         }
         checkOperation(operation);
-        const std::optional<std::string> requiredClient =
-            project.metadata.pairingPreference ==
-                    CrowdyStudioPairingPreference::Required
-                ? std::optional<std::string>{client->name}
-                : std::nullopt;
-        runtime_.setRequires(scope(), server->name, requiredClient);
-        checkOperation(operation);
+        // A mod has no client pairing: its players call it by name.
         enableServer(server->name, operation);
         runClient(*client, operation);
       }
@@ -1327,15 +1323,15 @@ class CrowdyStudioController {
                       "Submitting " + name};
     notify();
     if (onEffectStart) onEffectStart();
-    // The server resolves the source from the project: its saved files at
-    // the current revision, or the rust at the mirror commit for a project
-    // bound to GitHub. The per-target file check above is the local sanity
-    // check that the target has anything to compile.
+    // A CLIENT compile resolves the source from the project (its saved files,
+    // or the rust at the mirror commit for a project bound to GitHub); the
+    // SERVER target's mod build compiles these files.
     CrowdyStudioDeployTargetInput submission;
     submission.scope = scope();
     submission.target = target;
     submission.moduleName = name;
     submission.projectId = project.projectId;
+    submission.files = files;
     if (project.github && project.github->sha) {
       submission.commitSha = project.github->sha;
     }
@@ -2058,7 +2054,7 @@ class CrowdyStudioController {
   std::optional<CrowdyStudioProject> conflictRemote_;
   std::uint64_t operationGeneration_ = 0;
   std::uint64_t agentOperationGeneration_ = 0;
-  std::array<bool, 3> surfaceVisible_{false, false, false};
+  std::array<bool, 2> surfaceVisible_{false, false};
   bool pageVisible_ = true;
   bool destroyed_ = false;
 };

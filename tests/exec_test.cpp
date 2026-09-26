@@ -102,6 +102,20 @@ void testStatusesAndDigests() {
   CHECK(execStatusFromWire(200) == ExecStatus::Unknown);
   CHECK(execStatusRetryable(ExecStatus::Busy));
   CHECK(!execStatusRetryable(ExecStatus::AppError));
+
+  const std::string refusal =
+      "rate limited: a player may make 120 calls per 10000 ms to an app on one host; retry in 250 ms";
+  ExecReply limited{ExecStatus::Busy, refusal};
+  CHECK(limited.retryable());
+  CHECK(limited.rateLimited());
+  CHECK(limited.retryAfterMs() == std::optional<long>(250));
+  ExecReply full{ExecStatus::Busy, "mailbox full"};
+  CHECK(full.retryable());
+  CHECK(!full.rateLimited());
+  CHECK(!full.retryAfterMs().has_value());
+  CHECK((ExecReply{ExecStatus::RateLimited, "slow down"}.rateLimited()));
+  CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in soon"}.retryAfterMs().has_value()));
+  CHECK(!(ExecReply{ExecStatus::Denied, refusal}.rateLimited()));
   CHECK_EQ(execSha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   CHECK_EQ(execSha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   CHECK_EQ(execSha256Hex(unhex("0061736d01000000")), "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476");
@@ -295,6 +309,20 @@ void testConnection() {
   CHECK(r2->status == ExecStatus::AppError);
   CHECK_EQ(r2->message(), "asked to fail");
 
+  // A call over the player's call limit is Busy with its retry hint, and is not sent again.
+  std::optional<ExecReply> limited;
+  const auto sentBefore = c1->frames().size();
+  conn->callRaw("arena", "m1", "spam", "", [&](ExecReply r) { limited = r; });
+  call = last(c1, 0x01);
+  c1->deliver(reply(call->rid, 2,
+                    "rate limited: a player may make 120 calls per 10000 ms to an app on one host; retry in 250 ms"));
+  CHECK(until(*dispatcher, [&] { return limited.has_value(); }));
+  CHECK(limited->status == ExecStatus::Busy);
+  CHECK(limited->rateLimited());
+  CHECK(limited->retryAfterMs() == std::optional<long>(250));
+  dispatcher->drain();
+  CHECK_EQ(c1->frames().size(), sentBefore + 1);
+
   // Pushes reach the handler decoded.
   std::vector<std::int64_t> hps;
   std::optional<ExecReply> subbed;
@@ -392,7 +420,11 @@ class RecordingHttp final : public graphql::IHttpTransport {
     const auto op = body["operationName"].asString();
     const std::string status = R"({"activeVersion":2,"disabled":false,"disabledTypes":["bare"],"budgetPaused":false})";
     if (op == "ExecLogs")
-      return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi"}]}})"};
+      return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi","flow":"0123456789abcdef0123456789abcdef"}]}})"};
+    if (op == "ExecVersions")
+      return {200, R"({"data":{"execVersions":[{"version":2,"createdBy":"user:1","createdAt":"t","types":1,"active":true,"manifestJson":"{\"root\":\"lobby\",\"types\":{\"lobby\":{\"kind\":\"hub\",\"seed_bytes\":4}}}"},{"version":1,"createdBy":"user:1","createdAt":"t","types":1,"active":false,"manifestJson":null}]}})"};
+    if (op == "ExecEndpointStats")
+      return {200, R"({"data":{"execEndpointStats":[{"nodeType":"arena","method":"hit","calls":40,"appErrors":1,"busy":3,"denied":0,"deadlineExceeded":0,"otherErrors":0,"timedCalls":37,"latencyMsAvg":1.5,"latencyMsMax":9,"firstMinute":"t0","lastMinute":"t1"}]}})"};
     if (op == "ExecSetEnabled") return {200, R"({"data":{"execSetEnabled":)" + status + "}}"};
     if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
     if (op == "ExecConnectAsDeveloper")
@@ -454,6 +486,31 @@ void testOperations() {
   CHECK_EQ(vars["limit"].asInt64(), 10);
   CHECK(vars["key"].isNull());
   CHECK(vars["before"].isNull());
+  CHECK(vars["flow"].isNull());
+  CHECK(lines.at(0)["flow"].isString());
+
+  q.flow = "0123456789abcdef0123456789abcdef";
+  exec.logs("77", q);
+  CHECK_EQ(http->requests.back()["variables"]["flow"].asString(), q.flow);
+
+  auto versions = exec.versions("77");
+  CHECK_EQ(versions.size(), 2u);
+  auto manifest = graphql::Json::parse(versions.at(0)["manifestJson"].asString());
+  CHECK_EQ(manifest["root"].asString(), std::string("lobby"));
+  CHECK_EQ(manifest["types"]["lobby"]["seed_bytes"].asInt64(), 4);
+  CHECK(versions.at(1)["manifestJson"].isNull());
+
+  auto stats = exec.endpointStats("77", "arena", 30);
+  CHECK_EQ(stats.at(0)["busy"].asInt64(), 3);
+  CHECK_EQ(stats.at(0)["latencyMsAvg"].asDouble(), 1.5);
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecEndpointStats"));
+  CHECK_EQ(vars["nodeType"].asString(), std::string("arena"));
+  CHECK_EQ(vars["sinceMinutes"].asInt64(), 30);
+  exec.endpointStats("77");
+  vars = http->requests.back()["variables"];
+  CHECK(vars["nodeType"].isNull());
+  CHECK(vars["sinceMinutes"].isNull());
 
   auto s = exec.setEnabled("77", false, "bare");
   CHECK_EQ(s["disabledTypes"].at(0).asString(), std::string("bare"));

@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 951b54d78d78aef277abd4bd461b94ffdbf45c65eea1ea0e7f748502c3df4580
-// operations sha256: 8b5564e3ad04c01b1174c3f037f4449e07f4ddff2cf4b8e20cb4ceaaf64d32c2
+// schema.gql sha256: 10e2ff2f4b712c8cb8fd4729b8cd320cc281e9042a855956b66fb6284c22b762
+// operations sha256: ad8b360f3862c8fa2ca996c2be010a4af91373acbd6e112595c2de4ba2f7646c
 
 #pragma once
 
@@ -5685,6 +5685,7 @@ query ExecLogs(
   $maxLevel: Int
   $before: String
   $limit: Int
+  $flow: String
 ) {
   execLogs(
     appId: $appId
@@ -5693,6 +5694,7 @@ query ExecLogs(
     maxLevel: $maxLevel
     before: $before
     limit: $limit
+    flow: $flow
   ) {
     id
     nodeType
@@ -5701,6 +5703,7 @@ query ExecLogs(
     host
     at
     text
+    flow
   }
 }
 
@@ -5725,6 +5728,25 @@ query ExecVersions($appId: BigInt!) {
     createdAt
     types
     active
+    manifestJson
+  }
+}
+
+query ExecEndpointStats($appId: BigInt!, $nodeType: String, $sinceMinutes: Int) {
+  execEndpointStats(appId: $appId, nodeType: $nodeType, sinceMinutes: $sinceMinutes) {
+    nodeType
+    method
+    calls
+    appErrors
+    busy
+    denied
+    deadlineExceeded
+    otherErrors
+    timedCalls
+    latencyMsAvg
+    latencyMsMax
+    firstMinute
+    lastMinute
   }
 }
 
@@ -5914,6 +5936,7 @@ query ExecModLogs(
     host
     at
     text
+    flow
   }
 }
 
@@ -6003,7 +6026,7 @@ inline constexpr std::string_view kExecConnectAsDeveloperIsolatedDocument = R"gq
   }
 })gql";
 inline constexpr std::string_view kExecConnectAsDeveloperOperationName = "ExecConnectAsDeveloper";
-inline constexpr std::string_view kExecLogsIsolatedDocument = R"gql(query ExecLogs($appId: BigInt!, $nodeType: String, $key: String, $maxLevel: Int, $before: String, $limit: Int) {
+inline constexpr std::string_view kExecLogsIsolatedDocument = R"gql(query ExecLogs($appId: BigInt!, $nodeType: String, $key: String, $maxLevel: Int, $before: String, $limit: Int, $flow: String) {
   execLogs(
     appId: $appId
     nodeType: $nodeType
@@ -6011,6 +6034,7 @@ inline constexpr std::string_view kExecLogsIsolatedDocument = R"gql(query ExecLo
     maxLevel: $maxLevel
     before: $before
     limit: $limit
+    flow: $flow
   ) {
     id
     nodeType
@@ -6019,6 +6043,7 @@ inline constexpr std::string_view kExecLogsIsolatedDocument = R"gql(query ExecLo
     host
     at
     text
+    flow
   }
 })gql";
 inline constexpr std::string_view kExecLogsOperationName = "ExecLogs";
@@ -6043,9 +6068,32 @@ inline constexpr std::string_view kExecVersionsIsolatedDocument = R"gql(query Ex
     createdAt
     types
     active
+    manifestJson
   }
 })gql";
 inline constexpr std::string_view kExecVersionsOperationName = "ExecVersions";
+inline constexpr std::string_view kExecEndpointStatsIsolatedDocument = R"gql(query ExecEndpointStats($appId: BigInt!, $nodeType: String, $sinceMinutes: Int) {
+  execEndpointStats(
+    appId: $appId
+    nodeType: $nodeType
+    sinceMinutes: $sinceMinutes
+  ) {
+    nodeType
+    method
+    calls
+    appErrors
+    busy
+    denied
+    deadlineExceeded
+    otherErrors
+    timedCalls
+    latencyMsAvg
+    latencyMsMax
+    firstMinute
+    lastMinute
+  }
+})gql";
+inline constexpr std::string_view kExecEndpointStatsOperationName = "ExecEndpointStats";
 inline constexpr std::string_view kExecAppStatusIsolatedDocument = R"gql(query ExecAppStatus($appId: BigInt!) {
   execAppStatus(appId: $appId) {
     ...ExecAppStatusFields
@@ -6297,6 +6345,7 @@ inline constexpr std::string_view kExecModLogsIsolatedDocument = R"gql(query Exe
     host
     at
     text
+    flow
   }
 })gql";
 inline constexpr std::string_view kExecModLogsOperationName = "ExecModLogs";
@@ -6435,6 +6484,7 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecLogs") return kExecLogsIsolatedDocument;
   if (operationName == "ExecInstances") return kExecInstancesIsolatedDocument;
   if (operationName == "ExecVersions") return kExecVersionsIsolatedDocument;
+  if (operationName == "ExecEndpointStats") return kExecEndpointStatsIsolatedDocument;
   if (operationName == "ExecAppStatus") return kExecAppStatusIsolatedDocument;
   if (operationName == "ExecActivateVersion") return kExecActivateVersionIsolatedDocument;
   if (operationName == "ExecSetEnabled") return kExecSetEnabledIsolatedDocument;

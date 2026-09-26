@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,6 +94,10 @@ struct ExecEndpoint {
   std::string host;
 };
 
+/// A call's answer. The SDK never retries a `Busy` reply: a gateway refuses a player's
+/// calls over its limit (120 per 10 s per player and app on a host) as `Busy` with a
+/// message starting "rate limited", and calling again before `retryAfterMs()` is refused
+/// again.
 struct ExecReply {
   ExecStatus status = ExecStatus::Unavailable;
   /// MessagePack for Ok; the refusal's message (UTF-8) otherwise.
@@ -100,6 +105,10 @@ struct ExecReply {
 
   bool ok() const { return status == ExecStatus::Ok; }
   bool retryable() const { return execStatusRetryable(status); }
+  /// The caller's call limit refused it (`Busy` "rate limited ...", or `RateLimited`).
+  bool rateLimited() const;
+  /// How long to wait before calling again, when a rate-limit refusal says (`retry in N ms`).
+  std::optional<long> retryAfterMs() const;
   /// The payload decoded from MessagePack (a null Json when it is not).
   graphql::Json value() const { return graphql::Json::fromMsgpack(payload); }
   std::string message() const { return ok() ? std::string() : payload; }
@@ -144,6 +153,9 @@ struct ExecLogsQuery {
   std::string before;
   /// At most this many lines (default 100, at most 500).
   int limit = -1;
+  /// Only lines of this flow (a line's `flow`, 32 hex digits): one call through every hub
+  /// and host. `ExecAPI::logs` only; mod logs take no flow.
+  std::string flow;
 };
 
 /// One player's connection to a ck-exec host. Thread-safe. Every callback runs
@@ -364,15 +376,28 @@ class ExecAPI : public DomainBase {
                                std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const;
 
   /// Guest log lines (`execLogs`), newest first, kept for 24 hours: an array of
-  /// `{ id, nodeType, key, level, host, at, text }`. Requires `view_compute_diagnostics`.
+  /// `{ id, nodeType, key, level, host, at, text, flow }`. `flow` is the call the line was
+  /// written in (32 lowercase hex digits, shared by everything it caused), null outside a
+  /// call; filter by it with `query.flow`. Requires `view_compute_diagnostics`.
   graphql::Json logs(std::string appId, const ExecLogsQuery& query = {}) const;
   void logsAsync(std::string appId, const ExecLogsQuery& query, graphql::GraphQLCallback done) const;
   /// What the manager has placed (`execInstances`). Requires `view_compute_diagnostics`.
   graphql::Json instances(std::string appId) const;
   void instancesAsync(std::string appId, graphql::GraphQLCallback done) const;
-  /// The app's versions, newest first (`execVersions`). Requires `view_compute_diagnostics`.
+  /// The app's versions, newest first (`execVersions`): `{ version, createdBy, createdAt,
+  /// types, active, manifestJson }`. `manifestJson` is the deployed manifest (a type's spawn
+  /// seed shown as `seed_bytes`; parse it with graphql::Json::parse), null when the version's
+  /// row is gone. Requires `view_compute_diagnostics`.
   graphql::Json versions(std::string appId) const;
   void versionsAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// Calls to each endpoint over the last `sinceMinutes` (default 60, at most 10080), by
+  /// outcome, most called first (`execEndpointStats`): `{ nodeType, method, calls, appErrors,
+  /// busy, denied, deadlineExceeded, otherErrors, timedCalls, latencyMsAvg, latencyMsMax,
+  /// firstMinute, lastMinute }`. An empty `nodeType` and a negative `sinceMinutes` mean
+  /// "not set". Requires `view_compute_diagnostics`.
+  graphql::Json endpointStats(std::string appId, std::string nodeType = {}, int sinceMinutes = -1) const;
+  void endpointStatsAsync(std::string appId, std::string nodeType, int sinceMinutes,
+                          graphql::GraphQLCallback done) const;
   /// `{ activeVersion, disabled, disabledTypes, budgetPaused }` (`execAppStatus`).
   /// Requires `view_compute_diagnostics`.
   graphql::Json status(std::string appId) const;

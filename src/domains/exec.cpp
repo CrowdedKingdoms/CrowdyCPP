@@ -46,6 +46,30 @@ bool execStatusRetryable(ExecStatus status) noexcept {
          status == ExecStatus::Unavailable || status == ExecStatus::RateLimited;
 }
 
+bool ExecReply::rateLimited() const {
+  constexpr std::string_view kRateLimited = "rate limited";
+  return status == ExecStatus::RateLimited ||
+         (status == ExecStatus::Busy && std::string_view(payload).substr(0, kRateLimited.size()) == kRateLimited);
+}
+
+std::optional<long> ExecReply::retryAfterMs() const {
+  if (!rateLimited()) return std::nullopt;
+  constexpr std::string_view kRetryIn = "retry in ";
+  const std::string_view text(payload);
+  const auto at = text.find(kRetryIn);
+  if (at == std::string_view::npos) return std::nullopt;
+  std::size_t i = at + kRetryIn.size();
+  long ms = 0;
+  bool digits = false;
+  for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i) {
+    if (ms > 100000000L) return std::nullopt;
+    ms = ms * 10 + (text[i] - '0');
+    digits = true;
+  }
+  if (!digits || text.substr(i, 3) != " ms") return std::nullopt;
+  return ms;
+}
+
 // ---- frames ------------------------------------------------------------------
 
 namespace exec_wire {
@@ -911,6 +935,14 @@ graphql::JVal logsVariables(const std::string& appId, const ExecLogsQuery& q) {
   if (q.maxLevel >= 0) vars["maxLevel"] = graphql::JVal(q.maxLevel);
   if (!q.before.empty()) vars["before"] = graphql::JVal(q.before);
   if (q.limit >= 0) vars["limit"] = graphql::JVal(q.limit);
+  if (!q.flow.empty()) vars["flow"] = graphql::JVal(q.flow);
+  return vars;
+}
+
+graphql::JVal endpointStatsVariables(const std::string& appId, const std::string& nodeType, int sinceMinutes) {
+  graphql::JVal vars = appVariables(appId);
+  if (!nodeType.empty()) vars["nodeType"] = graphql::JVal(nodeType);
+  if (sinceMinutes >= 0) vars["sinceMinutes"] = graphql::JVal(sinceMinutes);
   return vars;
 }
 
@@ -957,6 +989,18 @@ graphql::Json ExecAPI::versions(std::string appId) const {
 void ExecAPI::versionsAsync(std::string appId, graphql::GraphQLCallback done) const {
   execAsync(gen::exec::kExecVersionsIsolatedDocument, "execVersions", appVariables(appId),
             gen::exec::kExecVersionsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::endpointStats(std::string appId, std::string nodeType, int sinceMinutes) const {
+  return exec(gen::exec::kExecEndpointStatsIsolatedDocument, "execEndpointStats",
+              endpointStatsVariables(appId, nodeType, sinceMinutes), gen::exec::kExecEndpointStatsOperationName);
+}
+
+void ExecAPI::endpointStatsAsync(std::string appId, std::string nodeType, int sinceMinutes,
+                                 graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecEndpointStatsIsolatedDocument, "execEndpointStats",
+            endpointStatsVariables(appId, nodeType, sinceMinutes), gen::exec::kExecEndpointStatsOperationName,
+            std::move(done));
 }
 
 graphql::Json ExecAPI::status(std::string appId) const {

@@ -60,6 +60,14 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.48.0: ck-exec observability (dev-tier preview).** `client.exec()` adds `endpointStats` /
+`endpointStatsAsync` (calls per endpoint by outcome, with latency), the `flow` filter on `logs`
+(`ExecLogsQuery::flow`) and `flow` on every log line, and `manifestJson` on `versions`.
+`ExecReply::rateLimited()` and `retryAfterMs()` expose the gateway's per-player call limit (120
+calls per 10 s per app on a host, refused `Busy` with "rate limited: ...; retry in N ms"); the
+SDK never retries `Busy`, so wait `retryAfterMs()` before calling again. Parity pinned to
+CrowdyJS 17.13.0.
+
 **v0.47.0: ck-exec mods (dev-tier preview).** `client.exec()` adds players' code on grids they
 own: `modStarter`, `modBuild` / `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`,
 `mods`, `myMods`, `modLogs`, the marketplace without payments (`modPublish`, `modListings`,

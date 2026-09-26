@@ -132,22 +132,6 @@ The parity command above is the command used by CI. The tools reject tracked
 CrowdyJS checkout changes, a same-version checkout at any commit other than
 the package pin, or mismatched fixture target metadata.
 
-Build and compare the exact pinned blueprints:
-
-```bash
-cmake -S . -B build-release-parity \
-  -DCROWDY_BUILD_PARITY_TOOLS=ON \
-  -DCROWDY_BUILD_TESTS=OFF \
-  -DCROWDY_BUILD_E2E=OFF \
-  -DCROWDY_BUILD_BENCHMARKS=OFF \
-  -DCROWDY_BUILD_EXAMPLES=OFF
-cmake --build build-release-parity --target crowdy_blueprint_dump -j
-node tools/parity/dump-blueprints.mjs "$CROWDYJS_PATH" > /tmp/crowdyjs-blueprints.json
-./build-release-parity/crowdy_blueprint_dump > /tmp/crowdycpp-blueprints.json
-node tools/parity/blueprints-diff.mjs \
-  /tmp/crowdyjs-blueprints.json /tmp/crowdycpp-blueprints.json
-```
-
 ## Default build and tests
 
 ```bash
@@ -185,9 +169,9 @@ cmake --build build-release-no-exceptions -j
 ctest --test-dir build-release-no-exceptions --output-on-failure
 ```
 
-Install this profile and verify the reduced package omits Compute authoring,
-Crowdy Studio project API/models/controller, Agent/controller, player-host,
-Game Kit, and `ContainerMirror` headers while the independent
+Install this profile and verify the reduced package omits the Crowdy Studio
+project API/models/controller, Agent/controller, player-host and Game Kit
+headers while the independent
 `crowdy/studio/layout.hpp` surface remains installed and the umbrella consumer
 still links. `no_exceptions_install_test` generates one translation unit for
 every installed header, verifies `CROWDY_NO_EXCEPTIONS` is exported to each,

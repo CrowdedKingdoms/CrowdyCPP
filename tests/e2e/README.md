@@ -19,7 +19,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_HTTP_URL` | no | per-game API base URL (falls back to the minted `gameApiUrl`) |
 | `CROWDY_E2E_EMAIL` | yes | base email; suites derive fresh accounts by plus-addressing |
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
-| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players, deploys kit blueprints) |
+| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players) |
 | `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
 | `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
@@ -84,27 +84,20 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid+Play host / multi-server / WebSocket transport / claim coordinate / operator |
+| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_operator` | project+grid+Play host / multi-server / a ck-exec gateway and token / claim coordinate / operator |
 
 ## Notes for reruns
 
-- Suites derive fresh accounts (plus-addressed with a per-run suffix) and
-  use unique kit blueprint prefixes, so back-to-back runs never collide on a
-  shared app.
+- Suites derive fresh accounts (plus-addressed with a per-run suffix), so
+  back-to-back runs never collide on a shared app.
 - Each suite owns a disjoint chunk-coordinate band (base
   `{100000..500000 + suite*100, 0, ...}`) so parallel suites don't cross
   spatial fan-out.
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.
-- `e2e_crowdy_studio` archives its unique project after submitting the exact
-  saved revision as a draft player-compute version.
-- `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
-  asks the configured server-side provider to run. The suite uses the
-  production controller factory for create/attach/replay/heartbeat and binds a
-  fake native host to the live session epoch for takeover cancellation.
-  Policy-kill coverage is a separate explicit opt-in and releases the kill
-  before asserting.
+- `e2e_crowdy_studio` creates its project from the mod starter, builds the
+  exact saved SERVER crate as the grid's mod, then archives the project.
 - `e2e_native_studio_integration` uses the production
   `CrowdyClient::createCrowdyStudioIntegration` factory end to end. It creates
   and archives a disposable project, edits and saves through the in-memory
@@ -114,10 +107,6 @@ Run a single suite directly for its per-subtest output:
   generic approved-restore capability, so that live subtest is skipped unless
   an independent synchronization and approval provider is injected. Setting
   the capability assertion without such a provider fails closed.
-- `e2e_graphql_websocket` exits 77 when the client has neither an injected nor
-  compatible default WebSocket transport. With its explicit flag set,
-  endpoint/protocol failures are failures and structured GraphQL details are
-  printed.
 - `assignServer failed: No available servers found` during connect is
   transient on small deployments (server-status heartbeats briefly lapse) and
   is absorbed by the harness's assignment retry — not a failure.

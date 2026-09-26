@@ -41,8 +41,13 @@ Callbacks retained after `dispose()` are fenced.
 ## Complete assembly
 
 `CrowdyClient::createCrowdyStudioIntegration` constructs owned project and
-PlayerCompute adapters, the Studio runtime/controller, the editor bridge and
-the layout controller in dependency-safe order. Since 0.34.0 there is no agent
+runtime adapters, the Studio runtime/controller, the editor bridge and the
+layout controller in dependency-safe order. The runtime is
+`CrowdyStudioModRuntime` (0.48.0): the SERVER target builds and deploys as the
+grid's ck-exec mod over `client.exec()`, Invoke calls a mod endpoint, and the
+CLIENT target compiles on player compute for `clientRuntime`. An Invoke waits
+for its reply (up to 30 s) while draining the client's dispatcher, so call it
+from the maintenance phase, like the other blocking runtime work. Since 0.34.0 there is no agent
 in this assembly: the Studio agent is the in-browser DeepSeek Harness that
 CrowdyJS docks beside the web editor, and a native engine has nowhere to dock
 it. Its policy, consent and usage stay reachable through

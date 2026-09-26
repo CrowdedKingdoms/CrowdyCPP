@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.47.0 passes the strict portable-parity gate against CrowdyJS
-**17.12.0**. The gate pins CrowdyJS commit
-`6f5fd1f18dac156cc75164acf30d7c4ef5768db9` (`crowdyjsParityTarget` in
+CrowdyCPP 0.48.0 passes the strict portable-parity gate against CrowdyJS
+**18.0.0**. The gate pins CrowdyJS commit
+`1bd0e4d8c73d1f603d49e2b827a8f9a0a77e68a3` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.47.0 | CrowdyJS 17.12.0 | Required public API generation |
+| Surface | CrowdyCPP 0.48.0 | CrowdyJS 18.0.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs`, `instances`, `versions`, `status`, `activateVersion`, `setEnabled`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations, builds and mods | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`); ck-exec v0.2 client protocol |
@@ -42,11 +42,9 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
 | Generic GraphQL WebSocket | `GraphQLSubscriptionClient` | `graphql-ws` | `graphql-transport-ws` endpoint |
-| Game-model container feed | Typed `gameModel().containerChanged` | Typed `containerChanged` | Game API 2026-07+ |
-| App-scoped player counts | Typed snapshot + change stream | Typed snapshot + change stream | Game API 2026-07-24+ |
-| Keyed container ensure/filter | `ensureContainer`, `bindingKey` filter | `ensureContainer`, `bindingKey` filter | Game API 2026-07-24+ |
-| App listing-version administration | `marketplace().appListingVersions` | Typed listing-version methods | Management API 2026-07-24+ |
-| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile` | Game API project/runtime roots; durable checkpoint mutations require an injected bridge |
+| App listing-version administration | `marketplace().appListingVersions` | `marketplace.appListings` (no listing-version method) | Management API 2026-07-24+ |
+| Tier features | `admin().appAccess().defineFeature` / `features` / `grantTierFeature` / `revokeTierFeature` / `tierFeatures` | `appAccess.defineFeature` / `features` / `grantTierFeature` / `revokeTierFeature` / `tierFeatures` | `gameModelDefineFeature` … `gameModelTierFeatures`, served beside access tiers |
+| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file; the SERVER target is a ck-exec mod (`CrowdyStudioModRuntime`), the CLIENT target compiles on player compute | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile`; the SERVER target is a mod (`mods: client.exec`) | Game API project roots, `execMod*`, and `playerComputeDeploy` / `Versions` / `Artifact` for CLIENT modules; durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Native Studio integration | Owned editor/layout/runtime assembly with explicit maintenance scheduling | Browser Studio composition with the in-browser DSH agent pane | Project/runtime roots |
 | Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and admin writes | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |
@@ -74,15 +72,14 @@ for inherently browser-owned PKCE persistence, DOM/Monaco/VFS worker chrome,
 splitters, embed panel/dock/HUD/styles/focus handling, and worker-entry
 packaging. CLIENT
 artifact-byte decoding is portable and is available through
-`playerCompute().artifactBytes(...)` and
-`marketplace().clientArtifactBytes(...)`.
+`playerCompute().artifactBytes(...)`.
 Portable gaps, unclassified differences, and stale classifications are zero.
 
-Known coordinated limitation: the pinned CrowdyJS/CrowdyCPP Game Kit
-blueprints retain combat status-tick and worldsim node/crop selector forms that
-the deployed Game API does not currently execute. Runtime helpers remain
-available, but those automatic schedules are not claimed as supported until
-the shared blueprint/server contract changes in both SDKs.
+The matrix also lists **held removals**: the legacy engines' root fields (Studio
+compute, the game model and its automations, player compute's server side, the
+player model), which `schema.gql` still carries until the SDL sync that follows
+the Game API's deletion at ck-exec P4. Neither SDK wraps them; the sync removes
+them, and the gate then reports these entries stale until they are deleted.
 
 ## CrowdyCPP 0.x source and ABI policy
 

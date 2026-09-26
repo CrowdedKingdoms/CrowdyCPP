@@ -60,6 +60,18 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.48.0: the legacy engines are gone (held until ck-exec reaches P4).** ck-exec
+(`client.exec()`) replaced the Game API's game model and its automations, Studio compute and
+player compute's server side, so their C++ surface is removed: `client.gameModel()`,
+`client.compute()`, `client.playerModel()`, the Game Kit's blueprints, `deploy()`, engines and
+model-backed kits (`makeKit` keeps `social()`; `kit/wire.hpp` and `kit/actions.hpp` stay), the
+session layer's `ContainerMirror`, model lint and `CrowdyStudioDiagnosticSource::ModelLint`, the
+quarantine fields of `GraphQLErrorDetail`, `playerCompute()`'s SERVER half and the
+marketplace's player-code listings and grid attachments. Tier features moved to
+`admin().appAccess()`. Crowdy Studio's SERVER target is a ck-exec mod:
+`CrowdyStudioModRuntime` replaces `CrowdyStudioPlayerComputeRuntime`. Parity pinned to CrowdyJS
+18.0.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.47.0: ck-exec mods (dev-tier preview).** `client.exec()` adds players' code on grids they
 own: `modStarter`, `modBuild` / `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`,
 `mods`, `myMods`, `modLogs`, the marketplace without payments (`modPublish`, `modListings`,
@@ -326,7 +338,7 @@ include/crowdy/          public headers
   graphql/               GraphQL HTTP + WebSocket transports, JSON, errors
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
-  kit/                   Game Kit (blueprints + runtime helpers)
+  kit/                   Game Kit (social helpers, wire codecs, optimistic actions)
   player_host/           typed player observations and their schemas
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
@@ -376,10 +388,9 @@ protocols out.
 `CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
 core GraphQL outcomes, auth/portal, replication, non-authoring domains, and
 session stores remain available. The independent Crowdy Studio pane-layout
-header remains available. Compute authoring, Crowdy Studio project
-models/API/controller, Agent/controller, player-host, Game Kit, and
-`ContainerMirror` headers are not installed because their validation
-contracts throw. Blocking GraphQL failures return an invalid `Json`; use
+header remains available. Crowdy Studio project models/API/controller,
+Agent/controller, player-host and Game Kit headers are not installed because
+their validation contracts throw. Blocking GraphQL failures return an invalid `Json`; use
 `*Async` callbacks for typed details. Injected transports must not throw
 across the SDK boundary.
 
@@ -472,33 +483,21 @@ callbacks.onReconnect = [](crowdy::graphql::GraphQLReconnectInfo replay) {
   // Optionally start a durable gap-fill query before replayed events arrive.
 };
 
+// `yourFeed` stands for an application-specific subscription root.
 auto subscription = game.subscriptions().subscribe(
-    "subscription Changes($appId: BigInt!) {"
-    " gameModelContainerChanged(appId: $appId) { containerId changedKeys }"
-    "}",
-    crowdy::graphql::JVal::object({{"appId", appId}}), "Changes",
+    "subscription Feed($appId: BigInt!) { yourFeed(appId: $appId) { id } }",
+    crowdy::graphql::JVal::object({{"appId", appId}}), "Feed",
     std::move(callbacks));
 
 while (running) game.poll();  // all callbacks are delivered here
 // subscription.cancel() is explicit; destruction also cancels.
 ```
 
-Use the typed wrappers where available:
-`game.gameModel().containerChanged(...)` maps container metadata pushes, and
-`game.gameModel().activePlayerCount(appId)` returns the app-scoped session
-gauge with its completeness status and decimal revision.
-`activePlayerCountChanged(...)` is a best-effort transition feed with no
-bootstrap event: establish the feed, query the snapshot, deduplicate by
-revision, and requery after a reconnect or revision gap. Both calls require an
-app-scoped token for the same app. The gauge counts active gameplay sessions,
-not distinct users or actors; an abandoned session can remain visible for
-roughly 120 seconds while inactivity is recognized.
-The generic client remains for application-specific subscriptions (the
-`crowdyStudioAgentEvents` feed went with the Crowdy Agent orchestrator in
-0.34.0). `crowdy::session::ContainerMirror` does
-not subscribe automatically: it remains a pull cache. Call `refresh()` from a
-typed container-change callback, or continue feeding channel notifications to
-`notifyChannelPing()`, when that is the application's notify-to-pull contract.
+The published Game API schema's only subscription roots are the legacy game
+model's container, session and player-count feeds, which go at ck-exec P4
+(CrowdyCPP 0.48.0 removed their typed wrappers); ck-exec pushes arrive on an
+`ExecConnection` subscription instead. The generic client remains for
+application-specific subscriptions.
 See
 [GraphQL WebSocket examples](docs/graphql-websocket.md).
 
@@ -518,10 +517,9 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
-| `client.gameModel()` | Abstract game model: containers, properties, functions, sessions, automations, one-shot timers. |
-| `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
-| `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
-| `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
+| `client.exec()` | **ck-exec (dev-tier preview):** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `activateVersion`, `setEnabled`), and players' mods on grids they own (`mod*`). |
+| `client.playerCompute()` | Players' CLIENT modules: compile a project's CLIENT target (`deploy`), `versions`, `artifact` / `artifactBytes` for a native sandbox, compile quota (`usage`), list and remove modules, and the studio kill ladder (`setSwitch`, `switches`). Server-side player code is a mod. |
+| `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
@@ -529,7 +527,7 @@ app-scoped token):
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage and operator controls. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
-| `crowdy::kit::makeKit(client, appId)` | Game Kit: ready-made mappings of game concepts onto the game model across 15 genre layers, plus the engine-aware helpers (`mobs()` refereed attacks, `pets()`, `engines()` capability detection, the `crowdy/kit/wire.hpp` engine pose codec + event parsers), blueprint builders, and `deploy()` for the admin "load the rules" step — see [Game Kit](#game-kit-genre-building-blocks-over-the-game-model). |
+| `crowdy::kit::makeKit(client, appId)` | Game Kit: parties, guilds and chat over teams and channels (`social()`); `crowdy/kit/wire.hpp` (engine pose codec, event parsers) and `crowdy/kit/actions.hpp` stand alone — see [Game Kit](#game-kit-social-helpers-and-wire-codecs). |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps()` (including player-code
@@ -550,8 +548,11 @@ The API exposes no raw operation executor.
 For an engine-owned editor, construct the controller from injected interfaces:
 
 ```cpp
-crowdy::studio::CrowdyStudioPlayerComputeRuntime runtime(
-    game.playerCompute(), &engineArtifactRuntime);
+// The SERVER target is the grid's ck-exec mod; the CLIENT target compiles on
+// player compute and runs in the engine's artifact runtime.
+crowdy::studio::CrowdyStudioModRuntime runtime(
+    game.exec(), game.playerCompute(), &engineArtifactRuntime,
+    [&game] { game.poll(); });
 crowdy::studio::CrowdyStudioController studio(
     {.appId = appId, .gridId = gridId},
     game.crowdyStudio(), runtime, engineCrypto, engineClock,
@@ -582,9 +583,12 @@ Runtime actions are revision-bound:
 - live plans additionally bind pairing preference and the canonical
   full-project content hash, then pass through the injected agent approval
   gate before compilation;
-- full-stack publication compiles CLIENT then SERVER, binds `setRequires`,
-  enables SERVER, then starts the exact CLIENT artifact through the engine
-  runtime;
+- full-stack publication compiles CLIENT, builds the SERVER crate as the
+  grid's mod (`modBuild`, then `modDeploy` when the build succeeds), enables
+  it (`modSetEnabled`), then starts the exact CLIENT artifact through the
+  engine runtime; a mod has no client pairing;
+- Invoke calls one of the mod's endpoints (`state` by default) over an exec
+  connection, and Logs are its `ctx.log` lines (`CrowdyStudioLogLine`);
 - checkpoint restore likewise requires the external agent layer's opaque,
   exact approval grant;
 - `state.runtimeSync` explicitly distinguishes never-run, running-saved,
@@ -604,7 +608,7 @@ external approval gate.
 The synchronization and runtime interfaces are intentionally server-free in
 unit tests. They do not grant grid permissions or source visibility: Game API
 ownership, target write/run permissions, and admission checks still execute on
-every playerCompute call. The installed Studio parity fixtures pin the common
+every mod and player compute call. The installed Studio parity fixtures pin the common
 CrowdyJS runtime projection while retaining native content-hash, module, and
 pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
 runtime-ownership notes.
@@ -708,7 +712,6 @@ design, so reads never lock).
 | `ErrorStore` (`session.errors()`) | "why was that send rejected?" | Correlates server error frames (sequence-numbered, uint8 wrap) with the *kind* of send that used that sequence, so a permission denial points at "your voxel edit", not a bare error code. |
 | Host tracking (`amIHost()` / `onHostChanged`) | election polling | Heartbeats host eligibility on a cadence and caches the elected host with a change callback; gate host-only simulation without writing the polling loop. |
 | `SaveStateStore` / `AvatarStateStore` | persistence plumbing | Byte-level caches over the durable save/avatar surfaces with explicit `load()`/`save()`; base64 stays at the wire boundary, your code sees bytes. |
-| `ContainerMirror` | game-model polling | A pull cache, not a subscription owner: `watch()` containers, re-pull on demand or when a bound channel pings, and read versioned snapshots via `get()`/`onChange`. Applications may also call `refresh()` from the separate typed `containerChanged` metadata feed. |
 | `PodCodec<T>` / `UnrealPose` | wire layout code | Your replicated state as a packed struct: the struct layout *is* the little-endian wire layout (static-asserted), with the 88-byte Unreal-compatible pose included. No serializer to write, nothing to keep in sync. |
 | `IUuidStore` (memory/file) | identity persistence | Persist your actor uuid across restarts so remote registries treat you as the same actor. |
 
@@ -717,77 +720,25 @@ lock-free SPSC ring between network and game thread, pooled fixed-size
 buffers, and zero-copy parsed views — so the convenience layer does not trade
 away the performance story.
 
-## Game Kit: genre building blocks over the game model
+## Game Kit: social helpers and wire codecs
 
-The platform's [game model](https://docs.crowdedkingdoms.com/game-api/game-models)
-gives you server-authoritative rules without running a server: typed
-containers, properties, and transactional functions gated by **invoke
-policies** (`owner_of_self`, `condition` expressions, `is_host`,
-`is_current_turn`, ...), plus
-[automations](https://docs.crowdedkingdoms.com/game-api/autonomous-processes)
-that run functions server-side on schedules or events. The **Game Kit** maps
-traditional game concepts onto that machinery so you don't design the schema
-yourself. Two phases, matching the platform's model:
-
-1. **Studio loads the rules** — blueprint builders emit declarative bundles
-   (container types, property schemas, policy-gated functions, automations);
-   `deploy()` seeds them in one idempotent pass. Admin context
-   (`manage_apps`) only — never the shipped client.
-2. **The game client plays** — runtime kits wrap the conventions with typed
-   helpers. Authority is enforced server-side on every call: `KitInvokeResult`
-   carries the verdict (`success == false` with `errorMessage` on a policy
-   denial — never an exception), so an untrusted client can try anything and
-   change nothing it shouldn't.
+`makeKit(client, appId).social()` gives parties, guilds and chat rooms over the
+platform's teams (membership and roles) and channels (messaging), with chat
+sent over the native replication connection:
 
 ```cpp
-// Studio (admin token): one-time "load the rules".
-auto adminKit = crowdy::kit::makeKit(admin, appId);
-adminKit.deploy({crowdy::kit::inventoryBlueprint(),
-                 crowdy::kit::lockBlueprint({.objectTypeName = "Door",
-                                             .authority = {crowdy::kit::LockAuthority::key()}})});
-
-// Game client (player token): typed runtime helpers.
-auto kit = crowdy::kit::makeKit(game, appId);
-auto bag = kit.inventory().ensure(myUserId);
-auto result = kit.objects().open(doorId, keyId);
-if (!result.success) showLockedMessage(result.errorMessage);
+auto kit = crowdy::kit::makeKit(game, appId, &connection);
+auto party = kit.social().partyCreate("raid");
+auto guild = kit.social().guildCreate("builders");
+kit.social().chatSend(std::strtoll(guild.channelId.c_str(), nullptr, 10), "hello");
 ```
 
-### Genre and capability map
-
-Every layer is a blueprint builder plus a runtime kit. Compose the layers
-your genre needs — they share the model, so they interoperate (a quest can
-pay into a wallet, a plot purchase can grant enforced build permissions):
-
-| Genre / concept | Builder → runtime | Capabilities |
-|---|---|---|
-| Items & bags (RPG, survival, sandbox) | `inventoryBlueprint` → `kit.inventory()` | Per-player bags and item stacks (`item_id`/`quantity`/`slot`); owner-gated grant/consume/move and atomic two-stack transfer; the consume guard refuses overdraw server-side. |
-| Doors, chests, gates | `lockBlueprint` → `kit.objects()` | Lockable world objects with pluggable authority: key item, owner, group/team permission, grid permission, enforced chunk permission, or custom policy trees; several lock types per app via `objectsFor()`. |
-| NPCs & world ticks | `npcBlueprint` → `kit.npcs()` | Server-driven behaviors (interval/cron/event triggers) with selector targeting — wander, restock, guards reacting only to intruders via permission predicates. Scheduled triggers run only while the app has a player in it (2026-09-01) — write them idempotent in elapsed time. |
-| Land ownership (MMO, sandbox) | `plotBlueprint` → `kit.plots()` | Buy/rent/evict plots where payment and **replication-enforced grid permissions** commit atomically — buying land grants real build rights, not just a database row. |
-| Economy (any genre) | `economyBlueprint` → `kit.economy()` | Multi-currency wallets, atomic shop purchases, escrow player trades, a player market with escrowed listings, restock automation; every mutation guard is server-side. |
-| Progression (RPG, arcade) | `progressionBlueprint` → `kit.progression()` | XP/levels on a configurable curve, skill trees with prerequisite chains, achievements, host-gated rating. |
-| Loot (RPG, roguelike) | `lootBlueprint` → `kit.loot()` | Weighted tables compiled into seed-driven server expressions (clients can't reroll), atomic single-claim drops, event-triggered drops. |
-| Quests (RPG, live-ops) | `questsBlueprint` → `kit.quests()` | Event-driven progress via automations, atomic reward turn-in (items + currency in one transaction), cron daily resets. |
-| Combat (action, MMO) | `combatBlueprint` → `kit.combat()` | Server-authoritative damage/death/respawn plus turn-based and host-synced modes. |
-| Matches & lobbies (arena, board, card) | `matchesBlueprint` → `kit.matches()` | Session lobbies, rounds, turn order via the platform's session-turn authority, scores, per-match notification channel (notify-to-pull re-pulls on ping). |
-| Hidden information (card games) | `decksBlueprint` → `kit.decks()` | Hidden hands via owner-visibility properties, server-dealt shuffles by position — opponents' cards never reach your client. |
-| Living world (farming, survival) | `worldsimBlueprint` → `kit.worldsim()` | Day/night clock with spatial notifications, atomic gather/crop functions, and wave counters. |
-| Social (MMO, co-op) | `guildBlueprint` → `kit.social()` | Parties and guilds over teams + channels, guild chat, territory grants, guild hall (a group-permission lock) + guild bank (a shared inventory) composites. |
-| Leaderboards (arcade, competitive) | `leaderboardsBlueprint` → `kit.leaderboards()` | Trusted keep-best submits (server/host/automation authority — anti-cheat by construction), ranking reads, cron season resets. |
-| Monetization | `featureGate` → `kit.features()` | Feature keys granted per access tier; AND a gate into any builder's policy (`andPolicies(..., featureGate("vip"))`) to tier-gate a capability. |
-
-Trusted mutations (XP grants, loot rolls, currency mints, score submits) take
-a `TrustedAuthority` — server, host, automation, owner, or a custom policy —
-so reward-granting functions are never plain player calls. The C++ builders
-emit **the same model definitions as CrowdyJS's** (verified structurally in
-CI-adjacent tooling), so a world deployed from either SDK is playable from
-both, and studios can seed from TypeScript tooling while the game ships C++.
-The pinned CrowdyJS blueprint currently emits selector JSON that the deployed
-Game API cannot execute for combat status ticks and automatic node/crop
-regeneration. CrowdyCPP preserves that structural parity but does not claim
-those automations as operational; use explicit scheduling until the
-coordinated CrowdyJS/Game API blueprint contract is corrected.
+Game rules and state are ck-exec hubs (`client.exec()`). Two kit headers stand
+alone: `crowdy/kit/wire.hpp` (the 48-byte engine pose codec, lanes, and the
+parsers for server events 77 and 90-98) for games whose hubs keep that wire, and
+`crowdy/kit/actions.hpp` (`runOptimisticAction`: apply locally, ask a referee
+such as a hub endpoint, roll back on a denial). The blueprints, `deploy()`, the
+engines and the model-backed kits went with the game model in 0.48.0.
 
 ## Wrapping CrowdyCPP in engines
 
@@ -894,43 +845,12 @@ between arbitrary `0.x` minors.
 CrowdyCPP targets the current platform APIs and degrades gracefully on older
 deployments:
 
-- **Game-model invoke denials:** current servers report invoke-policy denials
-  as `FORBIDDEN` GraphQL errors; newer builds resolve them as
-  `success: false` invoke results (with a failure event). The kit's
-  `kitInvoke` maps both onto `KitInvokeResult{success:false, errorMessage}`,
-  so kit code behaves identically on either generation. A `BAD_REQUEST` whose
-  message begins with the stable `Invoke params violate` contract prefix is
-  also a typed unsuccessful verdict; unrelated BAD_REQUESTs still throw.
 - **`userAppState` round-trip:** older game-api builds stored the base64
   `state` input verbatim and re-encoded on read (reads returned
   base64(base64(bytes))); newer builds round-trip symmetrically. Decode
   defensively if you must read rows written through an old server.
-- **Compute Modules (`client.compute()`):** requires a `cks-game-api` build
-  that serves the `compute*` root fields (v0.13.13+ dev line). Older servers
-  reject compute operations with a GraphQL validation error; every other
-  sub-client is unaffected.
-- **Realtime + live-ops surfaces (v0.6.0):** `abilities()` (server-validated
-  casts), `movement()` (warden violation books, observe/flag), `territory()`
-  (control points + factions), `racing()` (server-timed laps, ghosts, the
-  possession ball), `liveops()` (event windows, seasons, battle-pass
-  composition), `moderation()` + `telemetry()` (model-first), the loot
-  engine path (`enginePull` pity rolls), `compute().templates()` /
-  `deployTemplate()` (the platform engine registry), and the type-94..98
-  wire parsers. Capability-detected as always.
-- **Session-genre engine surfaces (v0.5.0):** `kit.instances()` /
-  `director()` / `matchmaking()` / `minigames()`, the engine paths on
-  `matches()` (`engineReady`/`engineSubmitMove`/`findByProposal`),
-  `decks()` (hidden hands via the deck engine), `leaderboards()`
-  (server-ranked pages), `economy().orderBook()` (escrowed bid/ask), the
-  quests tutorial sequencing, and the type-91/92/93 wire parsers talk to
-  the Wave 2 engine templates. Capability-detected; model-only deployments
-  keep today's behavior.
-- **Engine kit surfaces (v0.4.0):** `kit.mobs()` / `kit.pets()` /
-  `combat().attackRouted()` / `worldsim().forecast()` and the
-  `crowdy/kit/wire.hpp` pose/lane registry talk to compute-module game
-  engines built on the Wave 0/1 `cks-game-api` dev line (`crowdy-game-kit`
-  crates). Capability detection (`kit.engines()`) makes them degrade
-  gracefully — model-only deployments keep today's behavior.
+- **ck-exec (`client.exec()`):** a dev-tier preview; a Game API that does not
+  serve the `exec*` roots rejects the call with a GraphQL validation error.
 
 ## Errors
 
@@ -990,7 +910,7 @@ modifying files.
 
 ### Parity maintenance gates
 
-CrowdyCPP tracks CrowdyJS **17.1.0**. The source of truth is
+CrowdyCPP tracks CrowdyJS **18.0.0**. The source of truth is
 `crowdyjsParityTarget` in `package.json` — quote it from there, not from this
 sentence, which said 14.1.0 at a commit hash for a day after 0.26.0 moved the pin; CI reads that commit before checkout,
 and the parity/fixture tools reject a checkout whose package version or HEAD
@@ -1026,15 +946,11 @@ inherently browser-only surfaces are the only waivers. New differences and
 stale classifications fail. `--strict` additionally fails on every remaining
 portable gap and is the strict portable-parity release gate used by CI.
 
-Blueprint builders are a compiled structural gate:
-
-```bash
-cmake -S . -B build-parity -DCROWDY_BUILD_PARITY_TOOLS=ON
-cmake --build build-parity --target crowdy_blueprint_dump
-node tools/parity/dump-blueprints.mjs /path/to/built/CrowdyJS > /tmp/js.json
-./build-parity/crowdy_blueprint_dump > /tmp/cpp.json
-node tools/parity/blueprints-diff.mjs /tmp/js.json /tmp/cpp.json
-```
+A **held removal** is a legacy engine root field (Studio compute, the game
+model and its automations, player compute's server side, the player model) that
+`schema.gql` still carries until the SDL sync after the Game API deletes it at
+ck-exec P4. Neither SDK wraps one; the sync removes them, and the gate then
+reports the entries stale until they are deleted from `tools/parity/parity.mjs`.
 
 When intentionally changing the target, update the pinned CrowdyJS SHA, sync
 the descriptor/preemption, control-gate, 11-tool Studio host, and layout
@@ -1088,7 +1004,7 @@ None of these maintainer gates run during a normal external CMake build.
 - [Native Studio integration](docs/native-studio-integration.md) · [Native player host](docs/native-player-host.md) · [GraphQL WebSockets](docs/graphql-websocket.md)
 - [CrowdyJS / CrowdyCPP / Game API compatibility](docs/compatibility.md)
 - [Release verification checklist](docs/release-checklist.md)
-- [Game Models](https://docs.crowdedkingdoms.com/game-api/game-models) · [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)
+- [Grids & permissions](https://docs.crowdedkingdoms.com/game-api/grids-and-permissions)
 - [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS) — the TypeScript SDK this API surface mirrors
 - Agent index: [llms.txt](https://docs.crowdedkingdoms.com/llms.txt)
 

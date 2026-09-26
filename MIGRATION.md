@@ -1,5 +1,53 @@
 # CrowdyCPP migration notes
 
+## 0.48.0 The legacy engines are gone
+
+Breaking. Held until ck-exec reaches P4, when the Game API deletes these engines. Pinned to
+CrowdyJS 18.0.0.
+
+ck-exec (`client.exec()`) replaced the game model and its automations, Studio compute, player
+compute's server side and the player model. Their surface is removed:
+
+| 0.47 | 0.48 |
+|---|---|
+| `client.gameModel()` (`domains/game_model.hpp`): containers, functions, sessions, automations, timers, the container and player-count feeds | ck-exec hubs: state lives in a hub, calls are `ExecConnection::call`, pushes are `subscribe` |
+| `client.compute()` (`domains/compute.hpp`): compute modules, templates, runs | `exec().build` / `deploy` / `logs` / `versions` |
+| `client.playerModel()` (`domains/player_model.hpp`) | A mod's own state (`exec().mod*`) |
+| `playerCompute().invoke`, `runs`, `logs`, `setEnabled`, `setRequires`, and deploying the SERVER target | A mod: `modBuild`, `modDeploy`, `modSetEnabled`, `modLogs`, and a call on `connect(appId, {execModType(name), gridId})`. `deploy` compiles the CLIENT target only (it sets `"target":"CLIENT"`) |
+| `marketplace()` player-code listings, versions, acquisitions, installs, grid client mods, trust and consent, `clientArtifact` / `clientArtifactBytes` | The mod marketplace: `exec().modPublish`, `modListings`, `modUnpublish`, `modInstall`. The grid claims and the studio moderation methods stay |
+| Tier features on the game model | `admin().appAccess()`: `defineFeature`, `features`, `grantTierFeature`, `revokeTierFeature`, `tierFeatures` (and `…Async`), the same Game API fields |
+| Game Kit: the blueprints, `deploy()`, the engines and the model-backed kits (`kit/core.hpp`, `inventory`, `objects`, `npcs`, `plots`, `economy`, `progression`, `loot`, `quests`, `combat`, `matches`, `decks`, `worldsim`, `leaderboards`, `features`, `notifications`, `mobs`, `pets`, and the realtime and session engine headers) | Hubs. `makeKit(client, appId, connection, options)` keeps `social()` (parties, guilds, chat; the guild blueprint went); `kit/wire.hpp` and `kit/actions.hpp` are unchanged |
+| `session::ContainerMirror` (`session/model_mirror.hpp`) | A hub subscription |
+| `studio/model_lint.hpp`, `CrowdyStudioDiagnosticSource::ModelLint` | None |
+| `GraphQLErrorDetail::quarantinedKind`, `quarantinedName`, `quarantineReason` | None: only game-model objects were quarantined |
+| `CrowdyStudioPlayerComputeRuntime` | `CrowdyStudioModRuntime(exec, playerCompute, clientRuntime, pump)` |
+
+Crowdy Studio:
+
+- The SERVER target is the grid's ck-exec mod. A deploy builds the target's crate files
+  (`Cargo.toml`, `README.md`, `src/**/*.rs`) with `modBuild`, as crate `mod-<name>` when the module
+  name does not start with a letter; `versions()` polls `modBuildStatus` and deploys the first
+  successful build with `modDeploy`; enabling is `modSetEnabled`. The module name must be a valid
+  mod name (`[a-z0-9_-]{1,48}`).
+- Invoke calls one of the mod's endpoints (`state` by default) over an exec connection and
+  returns `CrowdyStudioInvokeResult{resultJson, durationUs}`. The runtime waits up to 30 s for
+  the reply and calls the `pump` while it waits; the integration passes one that drains the
+  client's dispatcher, and a caller that drives `poll()` on another thread can pass none.
+- Logs are the mod's `ctx.log` lines (`CrowdyStudioLogLine`); the Runs surface
+  (`CrowdyStudioPolledSurface::Runs`, `CrowdyStudioRun`), `setRequires` and a mod's client pairing
+  are gone. Usage is read
+  only when the project has a CLIENT target.
+- `ICrowdyStudioRuntime` drops `setRequires` and `runs`; `CrowdyStudioDeployTargetInput` carries
+  the target's `files`.
+
+Generated operations: `gen::compute`, `gen::gameModel` and `gen::playerModel` are gone. The
+compute budget and usage documents are `gen::computeUnits`, the user-code fault documents
+`gen::userCodeFaults`, and `gameModelFunctionCircuits` is `gen::runAdmission`; the Game API keeps
+those fields.
+
+`schema.gql` is unchanged: it drops the legacy fields at the SDL sync after the Game API deletes
+them. Until then the parity gate lists them as held removals.
+
 ## 0.47.0 ck-exec mods (dev-tier preview)
 
 Additive. Pinned to CrowdyJS 17.12.0.

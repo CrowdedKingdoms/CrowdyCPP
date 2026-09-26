@@ -73,14 +73,10 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `gamer-journey` | `e2e_gamer_journey` | implemented; optional live |
 | gameplay-token rotation | `e2e_gameplay_token_refresh` | implemented; optional live (native UDP; preserves the same connection/handlers) |
 | marketplace chunk claim/release | `e2e_marketplace_claims` | implemented; optional live with a reserved free chunk and `SELF_CLAIM` |
-| Crowdy Studio project CRUD/patch/draft | `e2e_crowdy_studio` | implemented; optional live with an owned Studio grid |
-| Agentic Studio ASK/BUILD | `e2e_agentic_studio` | implemented through the controller factory; optional live |
+| Crowdy Studio project CRUD/patch, SERVER mod build | `e2e_crowdy_studio` | implemented; optional live with an owned Studio grid |
 | Native Studio factory/edit/save/BUILD/draft/Play takeover | `studio_integration_test` + `e2e_native_studio_integration` | deterministic factory/host/control coverage in default CI; complete production-factory round trip optional live |
 | Approved checkpoint restore | `studio_integration_test` + conditional `e2e_native_studio_integration` subtest | deterministic injected synchronization + exact approval coverage; live excluded until the selected deployment advertises and injects both capabilities |
-| Agentic Studio attach/replay/heartbeat | `agent_controller_test` + `e2e_agentic_studio` | fake-transport coverage in default CI; controller-factory round trip optional live |
-| Agentic Studio local dispatcher takeover | `player_host_test` + `e2e_agentic_studio` | fake-host coverage in default CI; live-session epoch binding optional live |
-| Agentic Studio Play lease/takeover | `e2e_agentic_studio` | implemented; optional live with an engine host capability/entity |
-| Agentic Studio operator kill | `e2e_agentic_studio` | implemented behind an explicit destructive-test flag; optional live and released in-test |
+| Agentic Studio runs | — | excluded: the agent runs in the player's browser; `e2e_agentic_studio` and `agent_controller_test` went with the Crowdy Agent orchestrator in 0.34.0 |
 | `new-app-default-access` | `e2e_studio_admin` (default-access scenario) | implemented; optional live |
 | `new-app-grid-creation` | `e2e_studio_admin` (grid-creation scenario) | implemented; optional live |
 | `studio-admin` | `e2e_studio_admin` | implemented; optional live |
@@ -100,10 +96,9 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teleport | `e2e_teleport` | implemented; optional live |
 | host discovery | `e2e_host_election` | implemented; optional live |
 | teams / channels | `e2e_teams_channels` | implemented; optional live |
-| game model + automations | `e2e_game_model`, plus every `e2e_kit_*` (model composition) | implemented; optional live |
-| generic GraphQL-WS + typed container feed | `graphql_subscription_test` + `e2e_graphql_websocket` | protocol behavior in default CI; explicitly gated optional live round trip when a default/injected transport is available |
-| compute modules | `e2e_compute` (author → deploy → compile → enable → invoke → observe → delete) | implemented; optional live equivalent of the CrowdyJS scenario |
-| player compute + grid ownership | `player_runtime_surface_test` + `e2e_crowdy_studio` (draft submission) | typed surface in default CI; draft round trip optional live on an owned grid |
+| generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds, the published schema's only subscription roots |
+| ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |
+| player compute (CLIENT) + mods + grid ownership | `player_runtime_surface_test` + `exec_test` (the Studio mod runtime) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) | typed surface in default CI; the Studio round trip optional live on an owned grid |
 | player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | exact documents/output mapping in default CI; app-token round trip optional live |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
@@ -116,7 +111,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | organizations | `e2e_studio_admin` | implemented; optional live |
 | apps | `e2e_studio_admin` | implemented; optional live |
 | app code admission | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
-| Agentic Studio app/operator policy | `agent_api_test` + `e2e_agentic_studio` | typed routing in default CI; operator kill/release optional live |
+| Agentic Studio app/operator policy | `client_portable_test` | typed routing in default CI |
 | app-access (tiers + grants) | `e2e_studio_admin` | implemented; optional live |
 | billing | `e2e_billing_quotas` | implemented; optional live |
 | quotas | `e2e_billing_quotas` | implemented; optional live |
@@ -140,7 +135,7 @@ docs (wire formats, HMAC, operations, troubleshooting).
 | spatial distance + decay | `e2e_spatial_distance` | implemented; optional live |
 | voxel update replication | `e2e_two_client_actor`, `e2e_chunk_store_live` | implemented; optional live |
 | single-actor (directed) message | `e2e_two_client_messaging`, `e2e_cross_server` | implemented; optional live |
-| channel messages | `e2e_two_client_messaging`, `e2e_durable_mirror` | implemented; optional live |
+| channel messages | `e2e_two_client_messaging` | implemented; optional live |
 | client-event replication | `e2e_stores_live` (EventRouter) | implemented; optional live |
 | negative auth (bad HMAC / wrong app / garbage) | `e2e_negative_auth` | implemented; optional live |
 | permission refresh (grant/revoke on a live session) | `e2e_permission_refresh` | implemented; optional slow live |
@@ -160,33 +155,19 @@ transitions only through the named offline tests.
 |---|---|
 | local actor loop + acks, remote-actor lanes, EventRouter, AndWait | `e2e_stores_live` |
 | chunk cache: hydrate, optimistic edit + write-back, seed, prune, flush | `e2e_chunk_store_live` |
-| SaveState / AvatarState stores, ContainerMirror (notify-to-pull), UUID persistence | `e2e_durable_mirror` |
+| SaveState / AvatarState stores, UUID persistence | `e2e_durable_stores` |
 | revisions, pending write-backs, dirty/save timestamps, error totals, local actor status, private avatar snapshots | `session_test` + `client_portable_test` |
 
-## Game Kit (no JS e2e source; mirrors the `smoke-mmo` / `smoke-plots` samples)
+## Game Kit (no JS e2e source)
 
-Each optional live suite deploys the blueprint as admin, plays as a player, and
-asserts that policy denials resolve as results (`success:false`), never
-exceptions. Default CI compiles these targets but does not deploy them.
+`e2e_kit_social` creates a guild (a team paired with a chat channel) and a party
+as players, adds a member through a team join, and sends guild chat over native
+UDP to another member's `channelMessage` handler. Default CI compiles it; the
+model-backed kit suites went with the game model in 0.48.0.
 
 | Layer | CrowdyCPP suite |
 |---|---|
-| inventory | `e2e_kit_inventory` |
-| lockable objects | `e2e_kit_objects` |
-| plots (land + enforced grid grants) | `e2e_kit_plots` |
-| NPCs / automations | `e2e_kit_npcs` |
-| economy | `e2e_kit_economy` |
-| progression | `e2e_kit_progression` |
-| loot | `e2e_kit_loot` |
-| quests | `e2e_kit_quests` |
-| combat | `e2e_kit_combat` |
-| matches (+ notify-to-pull) | `e2e_kit_matches` |
-| decks (hidden information) | `e2e_kit_decks` |
-| world sim | `e2e_kit_worldsim` |
 | social (parties/guilds) | `e2e_kit_social` |
-| leaderboards | `e2e_kit_leaderboards` |
-| feature gates | `e2e_kit_features` |
-| composite journey | `e2e_kit_journey` |
 
 ## Findings surfaced by writing these suites
 
@@ -194,20 +175,8 @@ Prior opt-in runs against a live deployment exposed the following contract
 details. They are retained as observations and suite expectations, not as
 claims that hosted CI revalidated them on every commit:
 
-- **Game Kit blueprint selectors** — the combat status-effect tick and the
-  worldsim/economy regen automations ship selector shapes the current
-  automation resolver does not bind (`bindAs` ref without `pick`; `selfWhere`
-  referencing `self.*`). These originate in the shared blueprint definitions
-  (the C++ builders reproduce the JS builders exactly, so both SDKs carry
-  them); the suites re-upsert corrected automations and the defect is flagged
-  for a coordinated blueprint fix in both SDKs.
-- **Admin/server-scope callers bypass invoke-policy conditions** — a
-  server-scope owner call is not bound by a function's `condition` guard
-  (e.g. the loot "no re-roll" guard). This is the documented authority model;
-  the loot runtime doc comment is being updated to say so.
 - **`gameApps().userPermissions` is admin-only** — players cannot read their
-  own grid grants; post-grant verification in the plot suite goes through the
-  owner client.
+  own grid grants; post-grant verification goes through the owner client.
 - **`createGrid` reports success via an `error: "NO_ERROR"` sentinel** rather
   than a null error field; the world-grid assignment lands lazily on first
   UDP touch.
@@ -220,9 +189,6 @@ claims that hosted CI revalidated them on every commit:
   deployment a third party often holds the host, so the suite asserts
   convergence and `amIHost` consistency; the failover subtest runs only when
   one of the suite's own players wins the election.
-- **`setSessionTurn` requires an app admin, the elected host, or the current
-  turn holder** — a fresh session has no holder, so the admin seeds the first
-  turn before players can pass it.
 - **Reading a deleted channel throws `Group N not found`** rather than
   returning a soft-deleted record.
 - **`gameApps().nearbyPermissions` is admin-only** (like `userPermissions`);

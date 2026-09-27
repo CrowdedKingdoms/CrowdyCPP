@@ -19,8 +19,8 @@ const crowdyjs = resolveCrowdyJsPath(repo);
 
 test('pinned strict parity target and generated matrix pass', () => {
   assert.deepEqual(assertCrowdyJsParityTarget(repo, crowdyjs), {
-    version: '17.13.0',
-    commit: '91959fbf73cbae5c960a43cbabc5728650b74be5',
+    version: '17.14.0',
+    commit: 'ec9518bc5561947283cd0c21e5c793b656109335',
   });
   const result = runParity(
     '--check',
@@ -64,6 +64,34 @@ test('cross-cutting Studio exports stay explicitly audited', () => {
   );
   assert.match(matrix, /`embed-focus-trap`: browser exclusion/u);
   assert.match(matrix, /`player-glue-worker-package`: browser exclusion/u);
+});
+
+test('the CLIENT-half runtime and 17.14 World Stores changes stay explicitly audited', () => {
+  const matrix = readFileSync(
+    join(repo, 'docs', 'parity-matrix.md'),
+    'utf8',
+  );
+  // The operations are wrapped; what runs a CLIENT half in the browser is not.
+  assert.match(matrix, /\| `modClientArtifactBytes` \| covered \|/u);
+  assert.match(
+    matrix,
+    /exec-client-halves\.ts#ExecClientHalves` \| browser exclusion/u,
+  );
+  assert.match(
+    matrix,
+    /player-code-broker\.ts#PlayerCodeBroker` \| browser exclusion/u,
+  );
+  assert.match(
+    matrix,
+    /glue-runtime\.ts#EXEC_CLIENT_ABI_IMPORTS` \| browser exclusion/u,
+  );
+  for (const behavior of [
+    'local-actor-send-retry',
+    'save-state-autosave-retry',
+    'chunk-store-bounded-hydration',
+  ]) {
+    assert.match(matrix, new RegExp(`\`${behavior}\`: native equivalent`, 'u'));
+  }
 });
 
 test('unused method aliases are stale gate failures', () => {

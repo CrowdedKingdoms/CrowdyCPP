@@ -60,6 +60,16 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.49.0: ck-exec CLIENT halves (dev-tier preview).** A mod can carry a CLIENT half: browser WASM
+built from a `crowdy-client-sdk` crate, which its grid serves to visitors who consent to its
+capability hash or trust its author. `client.exec()` adds `modClientBuild`, `modClientDeploy`,
+`modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor` and `modClientArtifact`, and
+`modClientArtifactBytes`, which hands a native sandbox the module only after checking its SHA-256
+against the served digest, its CLIENT ABI (`kExecClientAbiVersion`) and its capability summary.
+The SDK runs no WASM itself. Builds and listings select the new CLIENT fields, so they need ck-api
+v2.24.0. `LocalActorStore` resends a failed send on the next tick. Parity pinned to CrowdyJS
+17.14.0.
+
 **v0.48.0: ck-exec observability (dev-tier preview).** `client.exec()` adds `endpointStats` /
 `endpointStatsAsync` (calls per endpoint by outcome, with latency), the `flow` filter on `logs`
 (`ExecLogsQuery::flow`) and `flow` on every log line, and `manifestJson` on `versions`.
@@ -530,6 +540,7 @@ app-scoped token):
 | `client.compute()` | **Compute Modules** — server-side Rust/WASM logic: author + deploy source (`upsertModule`, `deploySource`), compile polling (`moduleVersions`), triggers + policy, synchronous `invoke`, monitoring (`moduleRuns`, `moduleStats`, `moduleLogs`, `appDiagnostics`). Server-only execution; see the [Compute Modules docs](https://docs.crowdedkingdoms.com/game-api/compute-modules). |
 | `client.playerCompute()` | Player-authored SERVER/CLIENT Rust/WASM bound to player-owned grids: deploy, activate/deactivate, list modules/versions, and remove self-authored modules. |
 | `client.marketplace()` | Player-code store/install/consent plus player-authorized one-chunk claim/release (`claimGridChunk`, `releaseClaimedGrid`) on the app-token Game API. |
+| `client.exec()` | **ck-exec** (dev-tier preview): `connect` a player to an app's hubs and spokes (`ExecConnection` calls, subscriptions, pings over a WebSocket), build and deploy nodes, operate them (logs, instances, versions, endpoint stats, rollback, kill switch), players' mods on grids they own, and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |

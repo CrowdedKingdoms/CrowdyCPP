@@ -235,6 +235,55 @@ struct ExecCrate {
   std::vector<std::pair<std::string, std::string>> files;
 };
 
+/// The CLIENT ABI a served CLIENT half must be built for (crowdy-client-sdk `ABI_VERSION`);
+/// `ExecAPI::modClientArtifactBytes` refuses any other. CrowdyJS `EXEC_CLIENT_ABI_VERSION`.
+inline constexpr int kExecClientAbiVersion = 0;
+
+/// A CLIENT half's capability summary, which the build derives from the module and its author
+/// cannot declare. Visitors consent to its hash.
+struct ExecClientCapabilitySummary {
+  int version = 0;
+  /// "client".
+  std::string target;
+  /// The module's WASM imports as `module.name`.
+  std::vector<std::string> imports;
+  /// The client host calls it can reach.
+  std::vector<std::string> hostFunctions;
+  /// The host catalog groups of those calls.
+  std::vector<std::string> capabilityGroups;
+  /// HUD and overlay hooks among them.
+  std::vector<std::string> presentationHooks;
+  /// The functions the module exports.
+  std::vector<std::string> exportedFunctions;
+};
+
+/// A served CLIENT half, decoded and checked by `ExecAPI::modClientArtifactBytes`.
+struct ExecModClientArtifactBytes {
+  std::string modId;
+  /// The mod's name: its name on the grid event bus.
+  std::string name;
+  std::string gridId;
+  int clientVersion = 0;
+  /// The module; its SHA-256 is `digest`.
+  std::vector<std::uint8_t> bytes;
+  /// SHA-256 of `bytes`, lowercase hex.
+  std::string digest;
+  int sizeBytes = 0;
+  /// Fuel for each dispatch (init, tick, invoke, event), a GraphQL BigInt as decimal text: load
+  /// it into the module's `ck_fuel` global before every call.
+  std::string fuelPerDispatch;
+  /// How often to tick it, in milliseconds (16-1000).
+  int tickIntervalMs = 0;
+  std::string capabilitySummaryJson;
+  /// What the player consented to: let the module call only its `hostFunctions`.
+  ExecClientCapabilitySummary capabilitySummary;
+  std::string capabilityHash;
+  int abiVersion = 0;
+};
+
+using ExecModClientArtifactBytesCallback =
+    std::function<void(graphql::GraphQLOutcome, ExecModClientArtifactBytes)>;
+
 class ExecAPI : public DomainBase {
  public:
   ExecAPI(std::shared_ptr<graphql::GraphQLClient> gql,
@@ -273,8 +322,10 @@ class ExecAPI : public DomainBase {
   graphql::Json starters(std::string appId) const;
   void startersAsync(std::string appId, graphql::GraphQLCallback done) const;
   /// Build crates into modules on the platform (`execBuild`), so you need no Rust
-  /// toolchain. Returns the build at once, queued: `{ buildId, status, log, createdAt,
-  /// startedAt, finishedAt, artifacts: [{ crate, digest, sizeBytes }] }`. Requires
+  /// toolchain. Returns the build at once, queued: `{ buildId, status, kind, log, createdAt,
+  /// startedAt, finishedAt, artifacts: [{ crate, digest, sizeBytes, capabilitySummaryJson,
+  /// capabilityHash, tickIntervalMs }] }`. `kind` is `exec` here and `client` for a CLIENT half
+  /// (`modClientBuild`), whose artifact alone carries the three capability fields. Requires
   /// `manage_compute`.
   graphql::Json build(std::string appId, const std::vector<ExecCrate>& crates) const;
   void buildAsync(std::string appId, const std::vector<ExecCrate>& crates, graphql::GraphQLCallback done) const;
@@ -303,10 +354,11 @@ class ExecAPI : public DomainBase {
   /// `write_server_code` in the app.
   graphql::Json modBuild(std::string appId, const ExecCrate& crate) const;
   void modBuildAsync(std::string appId, const ExecCrate& crate, graphql::GraphQLCallback done) const;
-  /// A mod build of yours (`execModBuildStatus`).
+  /// A mod build of yours (`execModBuildStatus`): a mod's (`kind` `exec`) or a CLIENT half's
+  /// (`kind` `client`).
   graphql::Json modBuildStatus(std::string appId, std::string buildId) const;
   void modBuildStatusAsync(std::string appId, std::string buildId, graphql::GraphQLCallback done) const;
-  /// Polls `modBuildStatus`, blocking, like `waitForBuild`.
+  /// Polls `modBuildStatus`, server or CLIENT, blocking, like `waitForBuild`.
   graphql::Json waitForModBuild(std::string appId, std::string buildId, int intervalMs = 2000,
                                 int timeoutMs = 600000) const;
   /// Deploy a mod build of yours to a grid you own (`execModDeploy`): a new mod starts off.
@@ -335,13 +387,16 @@ class ExecAPI : public DomainBase {
                            std::string description = {}) const;
   void modPublishAsync(std::string appId, std::string gridId, std::string name, std::string title,
                        std::string description, graphql::GraphQLCallback done) const;
-  /// The app's listed mods (`execModListings`).
+  /// The app's listed mods (`execModListings`), each with the CLIENT half it had when published:
+  /// `clientDigest`, `clientCapabilitySummaryJson`, `clientCapabilityHash` and
+  /// `clientTickIntervalMs`, null without one.
   graphql::Json modListings(std::string appId) const;
   void modListingsAsync(std::string appId, graphql::GraphQLCallback done) const;
   /// Delist a listing you published (`execModUnpublish`).
   graphql::Json modUnpublish(std::string appId, std::string listingId) const;
   void modUnpublishAsync(std::string appId, std::string listingId, graphql::GraphQLCallback done) const;
-  /// Install a listing onto a grid you own as your own mod, switched off (`execModInstall`).
+  /// Install a listing onto a grid you own as your own mod, switched off (`execModInstall`), with
+  /// the listing's CLIENT half if it has one; visitors, you too, consent to that CLIENT half afresh.
   graphql::Json modInstall(std::string appId, std::string gridId, std::string name, std::string listingId) const;
   void modInstallAsync(std::string appId, std::string gridId, std::string name, std::string listingId,
                        graphql::GraphQLCallback done) const;
@@ -358,6 +413,80 @@ class ExecAPI : public DomainBase {
                              std::string reason = {}) const;
   void modSetSwitchAsync(std::string appId, gen::ExecModScope scope, bool off, std::string target, std::string reason,
                          graphql::GraphQLCallback done) const;
+
+  // ---- CLIENT halves: a mod's browser half (dev-tier preview) ----
+  //
+  // A mod may carry a CLIENT half: WASM built from a `crowdy-client-sdk` crate, which its grid
+  // serves to visitors who consent to its capability hash or trust its author. The SDK runs no
+  // WASM. A native engine lists a grid's CLIENT halves, asks the player, fetches each consented one
+  // with `modClientArtifactBytes` and runs it in its own sandbox, letting it call only its
+  // summary's `hostFunctions`. Building, attaching and detaching need `write_client_code`.
+
+  /// Build the CLIENT half of a mod from one crowdy-client-sdk crate (`execModClientBuild`):
+  /// compiled for wasm32-unknown-unknown in the build sandbox, fuel-metered, checked against the
+  /// CLIENT ABI and at most 512 KiB, its capability summary derived from the module. Its
+  /// `Cargo.toml` may have only `[package]`, `[lib]` as a cdylib, `[dependencies]` on
+  /// `crowdy-client-sdk`, `serde` and `serde_json`, and `[package.metadata.crowdy]
+  /// tick_interval_ms`. Returns the build queued (`kind` `client`); wait with `waitForModBuild`,
+  /// then attach it with `modClientDeploy`. One build, server or CLIENT, at a time per player.
+  graphql::Json modClientBuild(std::string appId, const ExecCrate& crate) const;
+  void modClientBuildAsync(std::string appId, const ExecCrate& crate, graphql::GraphQLCallback done) const;
+  /// Attach a succeeded CLIENT build of yours to your mod `name` on a grid you own, replacing the
+  /// CLIENT half it had (`execModClientDeploy`): `{ modId, gridId, name, ownerId, clientVersion,
+  /// digest, sizeBytes, capabilitySummaryJson, capabilityHash, tickIntervalMs, updatedAt }`, its
+  /// `clientVersion` one higher. The mod must run as you and the app's code admission must admit
+  /// the new version. A visitor's consent carries over only while the capability hash is unchanged.
+  graphql::Json modClientDeploy(std::string appId, std::string gridId, std::string name, std::string buildId) const;
+  void modClientDeployAsync(std::string appId, std::string gridId, std::string name, std::string buildId,
+                            graphql::GraphQLCallback done) const;
+  /// Detach the CLIENT half of a mod on your grid, with every visitor's consent to it
+  /// (`execModClientDelete`); the mod keeps running.
+  graphql::Json modClientDelete(std::string appId, std::string gridId, std::string name) const;
+  void modClientDeleteAsync(std::string appId, std::string gridId, std::string name,
+                            graphql::GraphQLCallback done) const;
+  /// The CLIENT halves a grid serves (`execGridClientMods`): of its mods that are switched on, not
+  /// stopped by the kill ladder, running as the grid's owner and admitted. Each is `{ modId, name,
+  /// gridId, authorId, listingId, clientVersion, digest, capabilitySummaryJson, capabilityHash,
+  /// tickIntervalMs, callerConsented, authorCapabilitySummaryJson, authorCapabilityHash,
+  /// callerTrustsAuthor, updatedAt }`; the author's summary is the union of their CLIENT halves on
+  /// the grid. Ask once per author (`trustAuthor`) or per CLIENT half (`consentClientMod`), fetch
+  /// with `modClientArtifactBytes`, cache by `digest`, and poll this to stop the CLIENT halves no
+  /// longer listed or whose digest changed. Requires access to the app.
+  graphql::Json gridClientMods(std::string appId, std::string gridId) const;
+  void gridClientModsAsync(std::string appId, std::string gridId, graphql::GraphQLCallback done) const;
+  /// Consent to run one mod's CLIENT half at `capabilityHash`, the one `gridClientMods` showed you
+  /// (`execConsentClientMod`). A CLIENT half whose capabilities change carries a new hash and the
+  /// consent stops holding; a hash that is not the current one is refused as `CONFLICT`.
+  graphql::Json consentClientMod(std::string appId, std::string modId, std::string capabilityHash) const;
+  void consentClientModAsync(std::string appId, std::string modId, std::string capabilityHash,
+                             graphql::GraphQLCallback done) const;
+  /// Trust one author's CLIENT halves on a grid you stand in at the hash of their union,
+  /// `authorCapabilityHash` (`execTrustAuthor`): it covers their CLIENT halves there while the union
+  /// is no wider, and consents to each current one at its own hash. A hash that is not the current
+  /// one is `CONFLICT`; not standing in the grid, or an author with nothing served there, is
+  /// `NOT_FOUND`.
+  graphql::Json trustAuthor(std::string appId, std::string gridId, std::string authorId,
+                            std::string capabilityHash) const;
+  void trustAuthorAsync(std::string appId, std::string gridId, std::string authorId, std::string capabilityHash,
+                        graphql::GraphQLCallback done) const;
+  /// A served CLIENT half's module, base64, with what a runtime needs to run it
+  /// (`execModClientArtifact`): `{ modId, name, gridId, clientVersion, digest, wasmBase64,
+  /// sizeBytes, capabilitySummaryJson, capabilityHash, tickIntervalMs, fuelPerDispatch, abiVersion }`.
+  /// Served only to a player holding `run_client_code` in the app, standing in the mod's grid now,
+  /// who consented to it at its current hash or trusts its author at a union no wider; every
+  /// refusal is `NOT_FOUND`. At most 12 fetches a minute per player and mod on each API instance
+  /// (`RATE_LIMITED`): a digest never changes its bytes, so cache the module by `digest`.
+  graphql::Json modClientArtifact(std::string appId, std::string modId) const;
+  void modClientArtifactAsync(std::string appId, std::string modId, graphql::GraphQLCallback done) const;
+  /// `modClientArtifact` decoded and checked for a native runtime: the bytes with their SHA-256
+  /// recomputed, and the capability summary parsed. Bytes that differ from `digest`, a CLIENT ABI
+  /// other than `kExecClientAbiVersion`, or a capability summary that does not parse are refused
+  /// and never returned: blocking, as a graphql::CrowdyProtocolError (an empty result in a
+  /// CROWDY_NO_EXCEPTIONS build); async, as an outcome of kind `Protocol` with the reason in
+  /// `errorMessage`. GraphQL refusals (`NOT_FOUND`, `RATE_LIMITED`) arrive as for any call.
+  ExecModClientArtifactBytes modClientArtifactBytes(std::string appId, std::string modId) const;
+  void modClientArtifactBytesAsync(std::string appId, std::string modId,
+                                   ExecModClientArtifactBytesCallback done) const;
 
   // ---- operations (dev-tier preview) ----
 
@@ -425,5 +554,10 @@ std::string execSha256Hex(std::string_view bytes);
 
 /// The node type players call a mod by: `mod:<name>`, keyed by its grid's id.
 std::string execModType(std::string_view name);
+
+/// Parse a CLIENT half's capability summary: `capabilitySummaryJson`, `authorCapabilitySummaryJson`
+/// or a listing's `clientCapabilitySummaryJson`. nullopt unless it is a JSON object whose
+/// `hostFunctions` is an array of strings, since nothing else can bound the module's host calls.
+std::optional<ExecClientCapabilitySummary> parseExecClientCapabilitySummary(std::string_view json);
 
 }  // namespace crowdy::domains

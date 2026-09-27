@@ -503,6 +503,28 @@ void runHeartbeatNotSent() {
   self.tick(201);
   CHECK_EQ(conn->stats().datagramsSent, beforeDirty.datagramsSent + 1);
 
+  // A send that failed with nothing changed is owed as well: a refresh the
+  // socket refused goes out in full on the next tick, not at the next keyframe
+  // (keyframes are never due here, so the heartbeat branch would otherwise run).
+  const auto beforeRefresh = conn->stats();
+  if (self.refresh().ok() || conn->stats().sendsFailed - beforeRefresh.sendsFailed != 1u) {
+    std::puts("  resend after a refused refresh: platform surfaced the fault out of phase; scenario skipped");
+    conn->disconnect();
+    return;
+  }
+  const auto beforeResend = conn->stats();
+  self.tick(202);
+  if (conn->stats().sendsFailed != beforeResend.sendsFailed) {
+    std::puts("  resend after a refused refresh: platform surfaced the fault out of phase; scenario skipped");
+    conn->disconnect();
+    return;
+  }
+  CHECK_EQ(conn->stats().datagramsSent, beforeResend.datagramsSent + 1);
+  CHECK(self.lastSent().has_value() && self.lastSent()->sequence.has_value());
+  CHECK(self.lastSent()->reason == LocalActorSendReason::Interval);
+  CHECK_EQ(self.lastSent()->sentAtMs, std::int64_t{202});
+  CHECK_EQ(static_cast<int>(self.status()), static_cast<int>(LocalActorStatus::Pending));
+
   conn->disconnect();
 }
 

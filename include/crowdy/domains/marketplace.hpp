@@ -121,6 +121,8 @@ class MarketplaceAPI {
   }
 
   // -- Grid-attached client mods (D2) -------------------------------------------
+  // Superseded by a ck-exec mod's CLIENT half (exec().gridClientMods, consentClientMod,
+  // trustAuthor, modClientArtifactBytes); removed with the legacy engines.
 
   /// Client mods attached to a grid, with the caller's consent state.
   graphql::Json gridClientMods(const graphql::JVal& vars) const {

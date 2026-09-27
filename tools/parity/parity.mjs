@@ -850,6 +850,53 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'embed panel owns responsive DOM docking, modal focus, and gameplay-input suppression',
   ),
+  // CrowdyJS 17.14.0: ck-exec mods' CLIENT halves. The ExecAPI operations are
+  // portable and wrapped (0.49.0, with modClientArtifactBytes' digest, ABI and
+  // summary checks). What runs the module is not: these three modules host
+  // player WASM in the page's glue Web Worker, and CrowdyCPP has no WASM runtime.
+  'src/grid-mods/exec-client-halves.ts': exportModule(
+    [
+      'ExecClientHalfBroker',
+      'ExecClientHalfError',
+      'ExecClientHalfPrompt',
+      'ExecClientHalfStopReason',
+      'ExecClientHalves',
+      'ExecClientHalvesGrid',
+      'ExecClientHalvesOptions',
+    ],
+    CATEGORY.BROWSER,
+    'runs the CLIENT halves a grid serves in browser Web Workers through PlayerCodeBroker; a native engine drives exec().gridClientMods, consentClientMod / trustAuthor and modClientArtifactBytes into its own sandbox',
+  ),
+  'src/player-runtime/player-code-broker.ts': exportModule(
+    [
+      'ALLOWED_HOST_CALLS',
+      'EXEC_CLIENT_HOST_CALLS',
+      'PlayerCodeBroker',
+      'PlayerCodeBrokerOptions',
+      'PlayerCodeEngine',
+      'PlayerCodeGridBounds',
+      'PlayerCodeHostCall',
+      'PlayerCodePresentation',
+      'PlayerCodeWorkerLike',
+    ],
+    CATEGORY.BROWSER,
+    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+  ),
+  'src/player-runtime/glue-runtime.ts': exportModule(
+    [
+      'EXEC_CLIENT_ABI_IMPORTS',
+      'GLUE_HOST_FUNCTIONS',
+      'GlueDispatchResult',
+      'GlueInitMessage',
+      'GlueRuntime',
+      'GlueRuntimeOptions',
+      'GuestExports',
+      'parseFuelBudget',
+      'runWithWatchdog',
+    ],
+    CATEGORY.BROWSER,
+    'glue that instantiates player WASM inside the browser Web Worker (CLIENT ABI imports, ck_fuel, watchdog); a native sandbox implements CLIENT ABI kExecClientAbiVersion itself',
+  ),
 };
 
 const STRICT_NATIVE_EXPORT_MODULES = new Set([
@@ -872,6 +919,33 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.BROWSER,
       'published subpath is the browser Web Worker entry; native CLIENT runtimes use injected engine sandboxes',
+    ),
+  },
+  // CrowdyJS 17.14.0 changed three World Stores without adding a method, so no
+  // method row moves; these pin what each change means here, and go stale when
+  // the CrowdyJS source they describe changes.
+  'local-actor-send-retry': {
+    path: 'src/stores/actors.ts',
+    markers: ['private resendDue = false;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'LocalActorStore sends synchronously and returns the Status: a send that fails lands on lastError() and the next tick sends again, changed or not (0.49.0)',
+    ),
+  },
+  'save-state-autosave-retry': {
+    path: 'src/stores/durable.ts',
+    markers: ['this.save().catch(() => {})'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'SaveStateStore has no autosave timer: the game calls save() from its own loop, and a save that fails stays dirty() for the next one (0.49.0 made that hold without exceptions)',
+    ),
+  },
+  'chunk-store-bounded-hydration': {
+    path: 'src/stores/chunks.ts',
+    markers: ['const HYDRATE_CONCURRENCY = 8;', 'async function whenNotBusy<T>('],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::ensureAround is one blocking byDistance request with no per-chunk state hydration to bound or keep; a refused load, PLATFORM_BUSY included, throws to the caller, and the next call requests every chunk again',
     ),
   },
 };
@@ -1101,7 +1175,7 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
   report += '\n';
 }
 
-report += '## Crowdy Studio cross-cutting export audit\n\n';
+report += '## Cross-cutting export and behavior audit\n\n';
 report +=
   '| CrowdyJS export | Classification |\n' +
   '|---|---|\n';
@@ -1148,9 +1222,9 @@ report +=
   `- Reviewed async-twin waivers: ${state.usedAsyncTwinWaivers.size}\n`;
 report += `- Key DTO fields type-checked: ${state.dtoFieldsChecked}\n`;
 report +=
-  `- Cross-cutting Studio exports checked: ${state.crossCuttingExportsChecked}\n`;
+  `- Cross-cutting exports checked: ${state.crossCuttingExportsChecked}\n`;
 report +=
-  `- Cross-cutting browser behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
+  `- Cross-cutting behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
 report += `- Reviewed method aliases checked: ${state.usedMethodAliases.size}\n`;
 report += `- Reviewed class maps checked: ${state.usedClassMaps.size}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;

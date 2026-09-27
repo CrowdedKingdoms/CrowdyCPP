@@ -13,6 +13,7 @@
 
 #include "crowdy/core/base64.hpp"
 #include "crowdy/generated/operations.hpp"
+#include "crowdy/graphql/errors.hpp"
 
 namespace crowdy::domains {
 
@@ -1382,6 +1383,229 @@ void ExecAPI::modSetSwitchAsync(std::string appId, gen::ExecModScope scope, bool
   execAsync(gen::exec::kExecModSetSwitchIsolatedDocument, "execModSetSwitch",
             modSwitchVariables(appId, scope, off, target, reason), gen::exec::kExecModSetSwitchOperationName,
             std::move(done));
+}
+
+// ---- CLIENT halves ----
+
+namespace {
+
+graphql::JVal modIdVariables(const std::string& appId, const std::string& modId) {
+  graphql::JVal vars = appVariables(appId);
+  vars["modId"] = graphql::JVal(modId);
+  return vars;
+}
+
+graphql::JVal consentVariables(const std::string& appId, const std::string& modId, const std::string& capabilityHash) {
+  graphql::JVal vars = modIdVariables(appId, modId);
+  vars["capabilityHash"] = graphql::JVal(capabilityHash);
+  return vars;
+}
+
+graphql::JVal trustVariables(const std::string& appId, const std::string& gridId, const std::string& authorId,
+                             const std::string& capabilityHash) {
+  graphql::JVal vars = appVariables(appId);
+  vars["gridId"] = graphql::JVal(gridId);
+  vars["authorId"] = graphql::JVal(authorId);
+  vars["capabilityHash"] = graphql::JVal(capabilityHash);
+  return vars;
+}
+
+graphql::JVal gridVariables(const std::string& appId, const std::string& gridId) {
+  graphql::JVal vars = appVariables(appId);
+  vars["gridId"] = graphql::JVal(gridId);
+  return vars;
+}
+
+void appendStrings(const graphql::Json& list, std::vector<std::string>& into) {
+  if (!list.isArray()) return;
+  list.forEach([&](graphql::Json v) {
+    if (v.isString()) into.push_back(v.asString());
+  });
+}
+
+std::string asciiLower(std::string_view text) {
+  std::string out(text);
+  for (char& c : out) {
+    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+  }
+  return out;
+}
+
+/// Fills `out` from an `execModClientArtifact` result, checked in CrowdyJS's order: the ABI, the
+/// capability summary, then the bytes against their digest. Returns why it is refused, or "".
+std::string checkClientArtifact(const graphql::Json& a, ExecModClientArtifactBytes& out) {
+  if (!a.isObject() || !a["wasmBase64"].isString() || !a["digest"].isString() || !a["abiVersion"].isNumber()) {
+    return "execModClientArtifact returned no CLIENT module";
+  }
+  out.modId = a["modId"].asString();
+  const std::int64_t abi = a["abiVersion"].asInt64(-1);
+  if (abi != kExecClientAbiVersion) {
+    return "CLIENT half of mod " + out.modId + " is built for CLIENT ABI " + a["abiVersion"].dump() +
+           "; this SDK runs ABI " + std::to_string(kExecClientAbiVersion);
+  }
+  out.capabilitySummaryJson = a["capabilitySummaryJson"].asString();
+  auto summary = parseExecClientCapabilitySummary(out.capabilitySummaryJson);
+  if (!summary) {
+    return "CLIENT half of mod " + out.modId +
+           ": its capability summary does not parse, so nothing bounds its host calls";
+  }
+  auto bytes = core::base64Decode(a["wasmBase64"].asStringView());
+  if (!bytes) return "CLIENT half of mod " + out.modId + ": its module is not base64";
+  out.digest = asciiLower(a["digest"].asStringView());
+  const std::string actual =
+      execSha256Hex(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+  if (actual != out.digest) {
+    return "CLIENT half of mod " + out.modId + ": the module's SHA-256 is " + actual + ", not the digest " +
+           out.digest + " it was served with";
+  }
+  out.fuelPerDispatch = a["fuelPerDispatch"].asBigIntString();
+  if (out.fuelPerDispatch.empty()) {
+    return "CLIENT half of mod " + out.modId + ": its fuel per dispatch is not an integer";
+  }
+  out.name = a["name"].asString();
+  out.gridId = a["gridId"].asBigIntString();
+  out.clientVersion = static_cast<int>(a["clientVersion"].asInt64());
+  out.bytes = std::move(*bytes);
+  out.sizeBytes = static_cast<int>(a["sizeBytes"].asInt64());
+  out.tickIntervalMs = static_cast<int>(a["tickIntervalMs"].asInt64());
+  out.capabilitySummary = std::move(*summary);
+  out.capabilityHash = a["capabilityHash"].asString();
+  out.abiVersion = static_cast<int>(abi);
+  return {};
+}
+
+}  // namespace
+
+std::optional<ExecClientCapabilitySummary> parseExecClientCapabilitySummary(std::string_view json) {
+  const graphql::Json doc = graphql::Json::parse(json);
+  if (!doc.isObject() || !doc["hostFunctions"].isArray()) return std::nullopt;
+  ExecClientCapabilitySummary summary;
+  bool named = true;
+  doc["hostFunctions"].forEach([&](graphql::Json v) {
+    if (v.isString()) {
+      summary.hostFunctions.push_back(v.asString());
+    } else {
+      named = false;
+    }
+  });
+  if (!named) return std::nullopt;
+  summary.version = static_cast<int>(doc["version"].asInt64());
+  summary.target = doc["target"].asString();
+  appendStrings(doc["imports"], summary.imports);
+  appendStrings(doc["capabilityGroups"], summary.capabilityGroups);
+  appendStrings(doc["presentationHooks"], summary.presentationHooks);
+  appendStrings(doc["exportedFunctions"], summary.exportedFunctions);
+  return summary;
+}
+
+graphql::Json ExecAPI::modClientBuild(std::string appId, const ExecCrate& crate) const {
+  return exec(gen::exec::kExecModClientBuildIsolatedDocument, "execModClientBuild", modBuildVariables(appId, crate),
+              gen::exec::kExecModClientBuildOperationName);
+}
+
+void ExecAPI::modClientBuildAsync(std::string appId, const ExecCrate& crate, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModClientBuildIsolatedDocument, "execModClientBuild", modBuildVariables(appId, crate),
+            gen::exec::kExecModClientBuildOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modClientDeploy(std::string appId, std::string gridId, std::string name,
+                                       std::string buildId) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["buildId"] = graphql::JVal(buildId);
+  return exec(gen::exec::kExecModClientDeployIsolatedDocument, "execModClientDeploy", std::move(vars),
+              gen::exec::kExecModClientDeployOperationName);
+}
+
+void ExecAPI::modClientDeployAsync(std::string appId, std::string gridId, std::string name, std::string buildId,
+                                   graphql::GraphQLCallback done) const {
+  auto vars = modVariables(appId, gridId, name);
+  vars["buildId"] = graphql::JVal(buildId);
+  execAsync(gen::exec::kExecModClientDeployIsolatedDocument, "execModClientDeploy", std::move(vars),
+            gen::exec::kExecModClientDeployOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::modClientDelete(std::string appId, std::string gridId, std::string name) const {
+  return exec(gen::exec::kExecModClientDeleteIsolatedDocument, "execModClientDelete",
+              modVariables(appId, gridId, name), gen::exec::kExecModClientDeleteOperationName);
+}
+
+void ExecAPI::modClientDeleteAsync(std::string appId, std::string gridId, std::string name,
+                                   graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModClientDeleteIsolatedDocument, "execModClientDelete",
+            modVariables(appId, gridId, name), gen::exec::kExecModClientDeleteOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::gridClientMods(std::string appId, std::string gridId) const {
+  return exec(gen::exec::kExecGridClientModsIsolatedDocument, "execGridClientMods", gridVariables(appId, gridId),
+              gen::exec::kExecGridClientModsOperationName);
+}
+
+void ExecAPI::gridClientModsAsync(std::string appId, std::string gridId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecGridClientModsIsolatedDocument, "execGridClientMods", gridVariables(appId, gridId),
+            gen::exec::kExecGridClientModsOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::consentClientMod(std::string appId, std::string modId, std::string capabilityHash) const {
+  return exec(gen::exec::kExecConsentClientModIsolatedDocument, "execConsentClientMod",
+              consentVariables(appId, modId, capabilityHash), gen::exec::kExecConsentClientModOperationName);
+}
+
+void ExecAPI::consentClientModAsync(std::string appId, std::string modId, std::string capabilityHash,
+                                    graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecConsentClientModIsolatedDocument, "execConsentClientMod",
+            consentVariables(appId, modId, capabilityHash), gen::exec::kExecConsentClientModOperationName,
+            std::move(done));
+}
+
+graphql::Json ExecAPI::trustAuthor(std::string appId, std::string gridId, std::string authorId,
+                                   std::string capabilityHash) const {
+  return exec(gen::exec::kExecTrustAuthorIsolatedDocument, "execTrustAuthor",
+              trustVariables(appId, gridId, authorId, capabilityHash), gen::exec::kExecTrustAuthorOperationName);
+}
+
+void ExecAPI::trustAuthorAsync(std::string appId, std::string gridId, std::string authorId, std::string capabilityHash,
+                               graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecTrustAuthorIsolatedDocument, "execTrustAuthor",
+            trustVariables(appId, gridId, authorId, capabilityHash), gen::exec::kExecTrustAuthorOperationName,
+            std::move(done));
+}
+
+graphql::Json ExecAPI::modClientArtifact(std::string appId, std::string modId) const {
+  return exec(gen::exec::kExecModClientArtifactIsolatedDocument, "execModClientArtifact",
+              modIdVariables(appId, modId), gen::exec::kExecModClientArtifactOperationName);
+}
+
+void ExecAPI::modClientArtifactAsync(std::string appId, std::string modId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecModClientArtifactIsolatedDocument, "execModClientArtifact",
+            modIdVariables(appId, modId), gen::exec::kExecModClientArtifactOperationName, std::move(done));
+}
+
+ExecModClientArtifactBytes ExecAPI::modClientArtifactBytes(std::string appId, std::string modId) const {
+  ExecModClientArtifactBytes out;
+  const std::string refusal = checkClientArtifact(modClientArtifact(std::move(appId), std::move(modId)), out);
+  if (refusal.empty()) return out;
+#ifndef CROWDY_NO_EXCEPTIONS
+  throw graphql::CrowdyProtocolError(refusal);
+#else
+  return {};
+#endif
+}
+
+void ExecAPI::modClientArtifactBytesAsync(std::string appId, std::string modId,
+                                          ExecModClientArtifactBytesCallback done) const {
+  modClientArtifactAsync(std::move(appId), std::move(modId), [done = std::move(done)](graphql::GraphQLOutcome out) {
+    ExecModClientArtifactBytes decoded;
+    if (out.ok()) {
+      std::string refusal = checkClientArtifact(out.data, decoded);
+      if (!refusal.empty()) {
+        decoded = {};
+        out.status = Errc::Malformed;
+        out.kind = graphql::GraphQLErrorKind::Protocol;
+        out.errorMessage = std::move(refusal);
+      }
+    }
+    done(std::move(out), std::move(decoded));
+  });
 }
 
 graphql::JVal ExecAPI::deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types,

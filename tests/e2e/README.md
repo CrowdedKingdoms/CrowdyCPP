@@ -26,6 +26,8 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
+| `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app |
+| `CROWDY_E2E_EXEC_GATEWAY` / `CROWDY_E2E_EXEC_TOKEN` | no | a ck-exec gateway running the demo app and a connect token for it (`e2e_exec_gateway`) |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
@@ -84,7 +86,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid+Play host / multi-server / WebSocket transport / claim coordinate / operator |
+| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / WebSocket transport / claim coordinate / operator |
 
 ## Notes for reruns
 
@@ -99,6 +101,12 @@ Run a single suite directly for its per-subtest output:
   test deployment and an app configured with `SELF_CLAIM`.
 - `e2e_crowdy_studio` archives its unique project after submitting the exact
   saved revision as a draft player-compute version.
+- `e2e_exec_client_halves` deploys a mod named `e2e-cpp-hud-<run>` on the grid
+  and deletes it however the run ends; it also deletes such mods a killed run
+  left behind. It stands an actor in the grid's low corner chunk over native UDP,
+  because the API serves a CLIENT half's module, and lets a player trust its
+  author, only while one of that player's actors is in the grid. It retries
+  `PLATFORM_BUSY`, which means the work never started.
 - `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
   asks the configured server-side provider to run. The suite uses the
   production controller factory for create/attach/replay/heartbeat and binds a

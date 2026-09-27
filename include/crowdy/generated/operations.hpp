@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: 10e2ff2f4b712c8cb8fd4729b8cd320cc281e9042a855956b66fb6284c22b762
-// operations sha256: ad8b360f3862c8fa2ca996c2be010a4af91373acbd6e112595c2de4ba2f7646c
+// schema.gql sha256: efe68ea6c23a262c713e30a2c08b3d85ddf31783521d15b2c782fafb45c4a523
+// operations sha256: 1ef9e7cad73ae97f85adb39a6825fd269174faff74135fcc8640cc286a91e4c9
 
 #pragma once
 
@@ -5793,6 +5793,7 @@ query ExecStarters($appId: BigInt!) {
 fragment ExecBuildFields on ExecBuild {
   buildId
   status
+  kind
   log
   createdAt
   startedAt
@@ -5801,6 +5802,9 @@ fragment ExecBuildFields on ExecBuild {
     crate
     digest
     sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
   }
 }
 
@@ -5839,6 +5843,10 @@ fragment ExecModListingFields on ExecModListing {
   sourceVersion
   digest
   installs
+  clientDigest
+  clientCapabilitySummaryJson
+  clientCapabilityHash
+  clientTickIntervalMs
   createdAt
   delistedAt
 }
@@ -6001,6 +6009,100 @@ mutation ExecModSetSwitch(
   execModSetSwitch(appId: $appId, scope: $scope, off: $off, target: $target, reason: $reason) {
     ...ExecModSwitchFields
   }
+}
+
+fragment ExecModClientFields on ExecModClient {
+  modId
+  gridId
+  name
+  ownerId
+  clientVersion
+  digest
+  sizeBytes
+  capabilitySummaryJson
+  capabilityHash
+  tickIntervalMs
+  updatedAt
+}
+
+fragment ExecGridClientModFields on ExecGridClientMod {
+  modId
+  name
+  gridId
+  authorId
+  listingId
+  clientVersion
+  digest
+  capabilitySummaryJson
+  capabilityHash
+  tickIntervalMs
+  callerConsented
+  authorCapabilitySummaryJson
+  authorCapabilityHash
+  callerTrustsAuthor
+  updatedAt
+}
+
+mutation ExecModClientBuild($appId: BigInt!, $crate: ExecBuildCrateInput!) {
+  execModClientBuild(appId: $appId, crate: $crate) {
+    ...ExecBuildFields
+  }
+}
+
+mutation ExecModClientDeploy(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $name: String!
+  $buildId: String!
+) {
+  execModClientDeploy(appId: $appId, gridId: $gridId, name: $name, buildId: $buildId) {
+    ...ExecModClientFields
+  }
+}
+
+mutation ExecModClientDelete($appId: BigInt!, $gridId: BigInt!, $name: String!) {
+  execModClientDelete(appId: $appId, gridId: $gridId, name: $name)
+}
+
+query ExecGridClientMods($appId: BigInt!, $gridId: BigInt!) {
+  execGridClientMods(appId: $appId, gridId: $gridId) {
+    ...ExecGridClientModFields
+  }
+}
+
+mutation ExecConsentClientMod($appId: BigInt!, $modId: String!, $capabilityHash: String!) {
+  execConsentClientMod(appId: $appId, modId: $modId, capabilityHash: $capabilityHash)
+}
+
+mutation ExecTrustAuthor(
+  $appId: BigInt!
+  $gridId: BigInt!
+  $authorId: BigInt!
+  $capabilityHash: String!
+) {
+  execTrustAuthor(
+    appId: $appId
+    gridId: $gridId
+    authorId: $authorId
+    capabilityHash: $capabilityHash
+  )
+}
+
+query ExecModClientArtifact($appId: BigInt!, $modId: String!) {
+  execModClientArtifact(appId: $appId, modId: $modId) {
+    modId
+    name
+    gridId
+    clientVersion
+    digest
+    wasmBase64
+    sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
+    fuelPerDispatch
+    abiVersion
+  }
 })gql";
 inline constexpr std::string_view kExecConnectIsolatedDocument = R"gql(mutation ExecConnect($appId: BigInt!, $nodeType: String, $key: String) {
   execConnect(appId: $appId, nodeType: $nodeType, key: $key) {
@@ -6157,6 +6259,7 @@ inline constexpr std::string_view kExecBuildIsolatedDocument = R"gql(mutation Ex
 fragment ExecBuildFields on ExecBuild {
   buildId
   status
+  kind
   log
   createdAt
   startedAt
@@ -6165,6 +6268,9 @@ fragment ExecBuildFields on ExecBuild {
     crate
     digest
     sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
   }
 })gql";
 inline constexpr std::string_view kExecBuildOperationName = "ExecBuild";
@@ -6177,6 +6283,7 @@ inline constexpr std::string_view kExecBuildStatusIsolatedDocument = R"gql(query
 fragment ExecBuildFields on ExecBuild {
   buildId
   status
+  kind
   log
   createdAt
   startedAt
@@ -6185,6 +6292,9 @@ fragment ExecBuildFields on ExecBuild {
     crate
     digest
     sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
   }
 })gql";
 inline constexpr std::string_view kExecBuildStatusOperationName = "ExecBuildStatus";
@@ -6209,6 +6319,7 @@ inline constexpr std::string_view kExecModBuildIsolatedDocument = R"gql(mutation
 fragment ExecBuildFields on ExecBuild {
   buildId
   status
+  kind
   log
   createdAt
   startedAt
@@ -6217,6 +6328,9 @@ fragment ExecBuildFields on ExecBuild {
     crate
     digest
     sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
   }
 })gql";
 inline constexpr std::string_view kExecModBuildOperationName = "ExecModBuild";
@@ -6229,6 +6343,7 @@ inline constexpr std::string_view kExecModBuildStatusIsolatedDocument = R"gql(qu
 fragment ExecBuildFields on ExecBuild {
   buildId
   status
+  kind
   log
   createdAt
   startedAt
@@ -6237,6 +6352,9 @@ fragment ExecBuildFields on ExecBuild {
     crate
     digest
     sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
   }
 })gql";
 inline constexpr std::string_view kExecModBuildStatusOperationName = "ExecModBuildStatus";
@@ -6370,6 +6488,10 @@ fragment ExecModListingFields on ExecModListing {
   sourceVersion
   digest
   installs
+  clientDigest
+  clientCapabilitySummaryJson
+  clientCapabilityHash
+  clientTickIntervalMs
   createdAt
   delistedAt
 })gql";
@@ -6389,6 +6511,10 @@ fragment ExecModListingFields on ExecModListing {
   sourceVersion
   digest
   installs
+  clientDigest
+  clientCapabilitySummaryJson
+  clientCapabilityHash
+  clientTickIntervalMs
   createdAt
   delistedAt
 })gql";
@@ -6476,6 +6602,117 @@ fragment ExecModSwitchFields on ExecModSwitch {
   createdAt
 })gql";
 inline constexpr std::string_view kExecModSetSwitchOperationName = "ExecModSetSwitch";
+inline constexpr std::string_view kExecModClientBuildIsolatedDocument = R"gql(mutation ExecModClientBuild($appId: BigInt!, $crate: ExecBuildCrateInput!) {
+  execModClientBuild(appId: $appId, crate: $crate) {
+    ...ExecBuildFields
+  }
+}
+
+fragment ExecBuildFields on ExecBuild {
+  buildId
+  status
+  kind
+  log
+  createdAt
+  startedAt
+  finishedAt
+  artifacts {
+    crate
+    digest
+    sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
+  }
+})gql";
+inline constexpr std::string_view kExecModClientBuildOperationName = "ExecModClientBuild";
+inline constexpr std::string_view kExecModClientDeployIsolatedDocument = R"gql(mutation ExecModClientDeploy($appId: BigInt!, $gridId: BigInt!, $name: String!, $buildId: String!) {
+  execModClientDeploy(
+    appId: $appId
+    gridId: $gridId
+    name: $name
+    buildId: $buildId
+  ) {
+    ...ExecModClientFields
+  }
+}
+
+fragment ExecModClientFields on ExecModClient {
+  modId
+  gridId
+  name
+  ownerId
+  clientVersion
+  digest
+  sizeBytes
+  capabilitySummaryJson
+  capabilityHash
+  tickIntervalMs
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecModClientDeployOperationName = "ExecModClientDeploy";
+inline constexpr std::string_view kExecModClientDeleteIsolatedDocument = R"gql(mutation ExecModClientDelete($appId: BigInt!, $gridId: BigInt!, $name: String!) {
+  execModClientDelete(appId: $appId, gridId: $gridId, name: $name)
+})gql";
+inline constexpr std::string_view kExecModClientDeleteOperationName = "ExecModClientDelete";
+inline constexpr std::string_view kExecGridClientModsIsolatedDocument = R"gql(query ExecGridClientMods($appId: BigInt!, $gridId: BigInt!) {
+  execGridClientMods(appId: $appId, gridId: $gridId) {
+    ...ExecGridClientModFields
+  }
+}
+
+fragment ExecGridClientModFields on ExecGridClientMod {
+  modId
+  name
+  gridId
+  authorId
+  listingId
+  clientVersion
+  digest
+  capabilitySummaryJson
+  capabilityHash
+  tickIntervalMs
+  callerConsented
+  authorCapabilitySummaryJson
+  authorCapabilityHash
+  callerTrustsAuthor
+  updatedAt
+})gql";
+inline constexpr std::string_view kExecGridClientModsOperationName = "ExecGridClientMods";
+inline constexpr std::string_view kExecConsentClientModIsolatedDocument = R"gql(mutation ExecConsentClientMod($appId: BigInt!, $modId: String!, $capabilityHash: String!) {
+  execConsentClientMod(
+    appId: $appId
+    modId: $modId
+    capabilityHash: $capabilityHash
+  )
+})gql";
+inline constexpr std::string_view kExecConsentClientModOperationName = "ExecConsentClientMod";
+inline constexpr std::string_view kExecTrustAuthorIsolatedDocument = R"gql(mutation ExecTrustAuthor($appId: BigInt!, $gridId: BigInt!, $authorId: BigInt!, $capabilityHash: String!) {
+  execTrustAuthor(
+    appId: $appId
+    gridId: $gridId
+    authorId: $authorId
+    capabilityHash: $capabilityHash
+  )
+})gql";
+inline constexpr std::string_view kExecTrustAuthorOperationName = "ExecTrustAuthor";
+inline constexpr std::string_view kExecModClientArtifactIsolatedDocument = R"gql(query ExecModClientArtifact($appId: BigInt!, $modId: String!) {
+  execModClientArtifact(appId: $appId, modId: $modId) {
+    modId
+    name
+    gridId
+    clientVersion
+    digest
+    wasmBase64
+    sizeBytes
+    capabilitySummaryJson
+    capabilityHash
+    tickIntervalMs
+    fuelPerDispatch
+    abiVersion
+  }
+})gql";
+inline constexpr std::string_view kExecModClientArtifactOperationName = "ExecModClientArtifact";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecConnect") return kExecConnectIsolatedDocument;
@@ -6507,6 +6744,13 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "ExecAppMods") return kExecAppModsIsolatedDocument;
   if (operationName == "ExecModSwitches") return kExecModSwitchesIsolatedDocument;
   if (operationName == "ExecModSetSwitch") return kExecModSetSwitchIsolatedDocument;
+  if (operationName == "ExecModClientBuild") return kExecModClientBuildIsolatedDocument;
+  if (operationName == "ExecModClientDeploy") return kExecModClientDeployIsolatedDocument;
+  if (operationName == "ExecModClientDelete") return kExecModClientDeleteIsolatedDocument;
+  if (operationName == "ExecGridClientMods") return kExecGridClientModsIsolatedDocument;
+  if (operationName == "ExecConsentClientMod") return kExecConsentClientModIsolatedDocument;
+  if (operationName == "ExecTrustAuthor") return kExecTrustAuthorIsolatedDocument;
+  if (operationName == "ExecModClientArtifact") return kExecModClientArtifactIsolatedDocument;
   return {};
 }
 

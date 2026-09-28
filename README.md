@@ -71,6 +71,23 @@ marketplace's player-code listings and grid attachments. Tier features moved to
 `admin().appAccess()`. Crowdy Studio's SERVER target is a ck-exec mod:
 `CrowdyStudioModRuntime` replaces `CrowdyStudioPlayerComputeRuntime`. Parity pinned to CrowdyJS
 18.0.0. See [MIGRATION.md](MIGRATION.md).
+**v0.49.0: ck-exec CLIENT halves (dev-tier preview).** A mod can carry a CLIENT half: browser WASM
+built from a `crowdy-client-sdk` crate, which its grid serves to visitors who consent to its
+capability hash or trust its author. `client.exec()` adds `modClientBuild`, `modClientDeploy`,
+`modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor` and `modClientArtifact`, and
+`modClientArtifactBytes`, which hands a native sandbox the module only after checking its SHA-256
+against the served digest, its CLIENT ABI (`kExecClientAbiVersion`) and its capability summary.
+The SDK runs no WASM itself. Builds and listings select the new CLIENT fields, so they need ck-api
+v2.24.0. `LocalActorStore` resends a failed send on the next tick. Parity pinned to CrowdyJS
+17.14.0.
+
+**v0.48.0: ck-exec observability (dev-tier preview).** `client.exec()` adds `endpointStats` /
+`endpointStatsAsync` (calls per endpoint by outcome, with latency), the `flow` filter on `logs`
+(`ExecLogsQuery::flow`) and `flow` on every log line, and `manifestJson` on `versions`.
+`ExecReply::rateLimited()` and `retryAfterMs()` expose the gateway's per-player call limit (120
+calls per 10 s per app on a host, refused `Busy` with "rate limited: ...; retry in N ms"); the
+SDK never retries `Busy`, so wait `retryAfterMs()` before calling again. Parity pinned to
+CrowdyJS 17.13.0.
 
 **v0.47.0: ck-exec mods (dev-tier preview).** `client.exec()` adds players' code on grids they
 own: `modStarter`, `modBuild` / `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`,

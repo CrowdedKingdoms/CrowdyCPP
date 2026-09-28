@@ -135,6 +135,17 @@ player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
 strict portable parity complete.
 
+The class scan reads only `src/domains`, `src/kit`, `src/stores`, `world.ts`
+and the Studio modules. A CrowdyJS module outside it enters the matrix through
+`CROSS_CUTTING_EXPORT_MODULES`, where every export is classified and a new one
+fails: the CLIENT-half runner, broker and glue (`src/grid-mods/exec-client-halves.ts`,
+`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`) sit there as
+browser exclusions since 0.49.0, because this SDK runs no WASM. A behaviour
+change that adds no method moves no row: pin it in `CROSS_CUTTING_BEHAVIORS`
+with markers from the CrowdyJS source, as 0.49.0 did for 17.14.0's three World
+Stores changes, so the matrix says what it means here and goes stale when that
+source changes.
+
 ## The legacy engines (removed in 0.48.0)
 
 The game model and its automations, Studio compute, player compute's server

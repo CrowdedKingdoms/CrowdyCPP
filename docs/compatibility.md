@@ -37,7 +37,8 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Surface | CrowdyCPP 0.48.0 | CrowdyJS 18.0.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
-| ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs`, `instances`, `versions`, `status`, `activateVersion`, `setEnabled`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations, builds and mods | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`); ck-exec v0.2 client protocol |
+| ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
+| ck-exec CLIENT halves (dev-tier preview) | `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor`, `modClientArtifact`; `modClientArtifactBytes` refuses bytes that differ from their SHA-256 digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a capability summary that does not parse (`parseExecClientCapabilitySummary`). No WASM runtime: the engine runs the module in its own sandbox | The same operations; `ExecClientHalves` runs a grid's CLIENT halves in `PlayerCodeBroker` (`engine: 'ck-exec'`) in the page's glue worker | Game API dev `execModClientBuild` / `execModClientDeploy` / `execModClientDelete` / `execGridClientMods` / `execConsentClientMod` / `execTrustAuthor` / `execModClientArtifact` (ck-api `v2.24.0`) |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
@@ -69,10 +70,16 @@ credentials remain server-side.
 The only intentional parity waivers are generated in the parity matrix:
 native equivalents for browser UDP/runtime behavior and browser exclusions
 for inherently browser-owned PKCE persistence, DOM/Monaco/VFS worker chrome,
-splitters, embed panel/dock/HUD/styles/focus handling, and worker-entry
-packaging. CLIENT
-artifact-byte decoding is portable and is available through
-`playerCompute().artifactBytes(...)`.
+splitters, embed panel/dock/HUD/styles/focus handling, worker-entry
+packaging, and the player-WASM runner, broker and glue that run CLIENT
+modules in a Web Worker (`ExecClientHalves`, `PlayerCodeBroker`,
+`GlueRuntime`). CLIENT artifact-byte decoding is portable and is available
+through `playerCompute().artifactBytes(...)`,
+`marketplace().clientArtifactBytes(...)` and, for a ck-exec mod's CLIENT
+half, `exec().modClientArtifactBytes(...)`, which also checks the bytes
+against their digest. World Stores behaviour that changes without a method
+(17.14.0's actor resend, autosave retry and bounded chunk hydration) is
+pinned in the matrix's behavior audit.
 Portable gaps, unclassified differences, and stale classifications are zero.
 
 The matrix also lists **held removals**: the legacy engines' root fields (Studio

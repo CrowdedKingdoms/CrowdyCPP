@@ -47,6 +47,57 @@ those fields.
 
 `schema.gql` is unchanged: it drops the legacy fields at the SDL sync after the Game API deletes
 them. Until then the parity gate lists them as held removals.
+## 0.49.0 ck-exec CLIENT halves (dev-tier preview)
+
+Pinned to CrowdyJS 17.14.0 (ck-api `v2.24.0`). Additive, except that builds and listings now need
+ck-api `v2.24.0`: the build fragment selects `kind` and each module's capability fields and the
+listing fragment the `client*` fields, so an older API refuses `build`, `buildStatus`, `modBuild`,
+`modBuildStatus`, the two waits, `modPublish` and `modListings`.
+
+- `client.exec()`: a mod's CLIENT half, browser WASM built from a `crowdy-client-sdk` crate that the
+  mod's grid serves to visitors who consent, each call with an `…Async` twin:
+  `modClientBuild(appId, ExecCrate)` (the build is `kind` `client`; wait with `waitForModBuild`),
+  `modClientDeploy(appId, gridId, name, buildId)`, `modClientDelete(appId, gridId, name)`,
+  `gridClientMods(appId, gridId)`, `consentClientMod(appId, modId, capabilityHash)`,
+  `trustAuthor(appId, gridId, authorId, capabilityHash)` and `modClientArtifact(appId, modId)`.
+- `modClientArtifactBytes(appId, modId)` / `modClientArtifactBytesAsync` decode the served module
+  for a native sandbox as `ExecModClientArtifactBytes` (the bytes, their lowercase `digest`,
+  `fuelPerDispatch` as decimal text, `tickIntervalMs`, the parsed `capabilitySummary`, ...). Bytes
+  whose SHA-256 is not the digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a
+  capability summary without a list of `hostFunctions` are refused: blocking, as a
+  `graphql::CrowdyProtocolError` (an empty result built without exceptions); async, as an outcome
+  of kind `Protocol`. The SDK runs no WASM; let the module call only
+  `capabilitySummary.hostFunctions`.
+- `parseExecClientCapabilitySummary(json)` parses a `capabilitySummaryJson`,
+  `authorCapabilitySummaryJson` or a listing's `clientCapabilitySummaryJson`.
+- Builds carry `kind` (`exec` or `client`) and each module's `capabilitySummaryJson`,
+  `capabilityHash` and `tickIntervalMs` (null for a ck-exec module). Listings carry the CLIENT half
+  the mod had when published (`clientDigest`, `clientCapabilitySummaryJson`, `clientCapabilityHash`,
+  `clientTickIntervalMs`), which `modInstall` attaches to the installer's mod.
+- The legacy grid-attached client mods (`marketplace().gridClientMods`, `consentGridClientMod`,
+  `trustGridAuthor`, `clientArtifact`, `clientArtifactBytes`) are superseded by these and go with
+  the legacy engines.
+- `LocalActorStore`: a send that fails, the loop's or a manual `refresh()` / `moveTo()`, is sent
+  again on the next tick even when nothing changed; it used to wait for the next keyframe.
+- `SaveStateStore::save` built with `CROWDY_NO_EXCEPTIONS`: a save the API refuses keeps the blob
+  cached and `dirty()`, so the next `save()` retries it; it used to be marked saved.
+
+## 0.48.0 ck-exec observability (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.13.0 (ck-api `v2.22.0`).
+
+- `client.exec()`: `endpointStats(appId, nodeType, sinceMinutes)` / `endpointStatsAsync`
+  (`execEndpointStats`): per endpoint `{ nodeType, method, calls, appErrors, busy, denied,
+  deadlineExceeded, otherErrors, timedCalls, latencyMsAvg, latencyMsMax, firstMinute,
+  lastMinute }` over the last `sinceMinutes` (default 60, at most 10080).
+- `ExecLogsQuery::flow` keeps one flow's lines (`logs` only; mod logs take none), and every
+  log line, also from `modLogs`, has `flow`: 32 lowercase hex digits, null outside a call.
+- `versions` lines carry `manifestJson`, the deployed manifest (a spawn seed shown as
+  `seed_bytes`), null when the version's row is gone.
+- `ExecReply::rateLimited()` and `retryAfterMs()`. A call over a player's limit (120 per 10 s
+  per app and host) is answered `Busy` with a message starting "rate limited" and ending
+  "retry in N ms"; wait that long before calling again. The SDK retries only a lost connection
+  and `Moved`, never `Busy`.
 
 ## 0.47.0 ck-exec mods (dev-tier preview)
 

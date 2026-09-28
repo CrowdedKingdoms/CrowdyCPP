@@ -42,6 +42,8 @@
 ///   CROWDY_E2E_CLAIM_CHUNK_X/Y/Z
 ///                               reserved free chunk for SELF_CLAIM coverage
 ///   CROWDY_E2E_STUDIO_GRID_ID   owned grid for Studio draft coverage
+///   CROWDY_E2E_EXEC_MOD_GRID_ID grid the owner account owns in a ck-exec app
+///                               (mods and their CLIENT halves)
 ///   CROWDY_E2E_AGENT=1          enable Agentic Studio public-API coverage
 ///   CROWDY_E2E_AGENT_PROJECT_ID saved project for BUILD-mode coverage
 ///   CROWDY_E2E_AGENT_PLAY=1     enable Play lease grant/revoke coverage

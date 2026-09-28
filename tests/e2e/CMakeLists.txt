@@ -14,10 +14,13 @@ set(E2E_OPTIONAL_SUITES
   e2e_crowdy_studio
   e2e_native_studio_integration
   e2e_cross_server
+  e2e_exec_client_halves
   e2e_exec_gateway
   e2e_marketplace_claims
   e2e_operator
 )
+# Waits on two platform builds (a mod and its CLIENT half).
+set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves)
 
 foreach(src ${E2E_SOURCES})
   get_filename_component(name ${src} NAME_WE)
@@ -26,6 +29,8 @@ foreach(src ${E2E_SOURCES})
   add_test(NAME ${name} COMMAND ${name})
   if(name IN_LIST E2E_SLOW_SUITES)
     set_tests_properties(${name} PROPERTIES LABELS "e2e_slow" TIMEOUT 900)
+  elseif(name IN_LIST E2E_LONG_OPTIONAL_SUITES)
+    set_tests_properties(${name} PROPERTIES LABELS "e2e_optional" TIMEOUT 1200)
   elseif(name IN_LIST E2E_OPTIONAL_SUITES)
     set_tests_properties(${name} PROPERTIES LABELS "e2e_optional" TIMEOUT 300)
   else()

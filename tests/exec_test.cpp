@@ -7,8 +7,10 @@
 #include <thread>
 #include <vector>
 
+#include "crowdy/core/base64.hpp"
 #include "crowdy/domains/exec.hpp"
 #include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
@@ -106,6 +108,20 @@ void testStatusesAndDigests() {
   CHECK(execStatusFromWire(200) == ExecStatus::Unknown);
   CHECK(execStatusRetryable(ExecStatus::Busy));
   CHECK(!execStatusRetryable(ExecStatus::AppError));
+
+  const std::string refusal =
+      "rate limited: a player may make 120 calls per 10000 ms to an app on one host; retry in 250 ms";
+  ExecReply limited{ExecStatus::Busy, refusal};
+  CHECK(limited.retryable());
+  CHECK(limited.rateLimited());
+  CHECK(limited.retryAfterMs() == std::optional<long>(250));
+  ExecReply full{ExecStatus::Busy, "mailbox full"};
+  CHECK(full.retryable());
+  CHECK(!full.rateLimited());
+  CHECK(!full.retryAfterMs().has_value());
+  CHECK((ExecReply{ExecStatus::RateLimited, "slow down"}.rateLimited()));
+  CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in soon"}.retryAfterMs().has_value()));
+  CHECK(!(ExecReply{ExecStatus::Denied, refusal}.rateLimited()));
   CHECK_EQ(execSha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   CHECK_EQ(execSha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   CHECK_EQ(execSha256Hex(unhex("0061736d01000000")), "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476");
@@ -299,6 +315,20 @@ void testConnection() {
   CHECK(r2->status == ExecStatus::AppError);
   CHECK_EQ(r2->message(), "asked to fail");
 
+  // A call over the player's call limit is Busy with its retry hint, and is not sent again.
+  std::optional<ExecReply> limited;
+  const auto sentBefore = c1->frames().size();
+  conn->callRaw("arena", "m1", "spam", "", [&](ExecReply r) { limited = r; });
+  call = last(c1, 0x01);
+  c1->deliver(reply(call->rid, 2,
+                    "rate limited: a player may make 120 calls per 10000 ms to an app on one host; retry in 250 ms"));
+  CHECK(until(*dispatcher, [&] { return limited.has_value(); }));
+  CHECK(limited->status == ExecStatus::Busy);
+  CHECK(limited->rateLimited());
+  CHECK(limited->retryAfterMs() == std::optional<long>(250));
+  dispatcher->drain();
+  CHECK_EQ(c1->frames().size(), sentBefore + 1);
+
   // Pushes reach the handler decoded.
   std::vector<std::int64_t> hps;
   std::optional<ExecReply> subbed;
@@ -396,7 +426,11 @@ class RecordingHttp final : public graphql::IHttpTransport {
     const auto op = body["operationName"].asString();
     const std::string status = R"({"activeVersion":2,"disabled":false,"disabledTypes":["bare"],"budgetPaused":false})";
     if (op == "ExecLogs")
-      return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi"}]}})"};
+      return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi","flow":"0123456789abcdef0123456789abcdef"}]}})"};
+    if (op == "ExecVersions")
+      return {200, R"({"data":{"execVersions":[{"version":2,"createdBy":"user:1","createdAt":"t","types":1,"active":true,"manifestJson":"{\"root\":\"lobby\",\"types\":{\"lobby\":{\"kind\":\"hub\",\"seed_bytes\":4}}}"},{"version":1,"createdBy":"user:1","createdAt":"t","types":1,"active":false,"manifestJson":null}]}})"};
+    if (op == "ExecEndpointStats")
+      return {200, R"({"data":{"execEndpointStats":[{"nodeType":"arena","method":"hit","calls":40,"appErrors":1,"busy":3,"denied":0,"deadlineExceeded":0,"otherErrors":0,"timedCalls":37,"latencyMsAvg":1.5,"latencyMsMax":9,"firstMinute":"t0","lastMinute":"t1"}]}})"};
     if (op == "ExecSetEnabled") return {200, R"({"data":{"execSetEnabled":)" + status + "}}"};
     if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
     if (op == "ExecConnectAsDeveloper")
@@ -430,11 +464,28 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "PlayerComputeDeploy") return {200, R"({"data":{"playerComputeDeploy":{"versionId":"c1"}}})"};
     if (op == "ExecModSetSwitch")
       return {200, R"({"data":{"execModSetSwitch":[{"scope":"GRID","target":"5","reason":"r","createdBy":"user:1","createdAt":"t"}]}})"};
+    if (op == "ExecModClientBuild")
+      return {200, R"({"data":{"execModClientBuild":{"buildId":"cb1","status":"queued","kind":"client","log":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[]}}})"};
+    if (op == "ExecModClientDeploy")
+      return {200, R"({"data":{"execModClientDeploy":{"modId":"900","gridId":"5","name":"turret","ownerId":"42","clientVersion":2,"digest":"ab","sizeBytes":8,"capabilitySummaryJson":"{\"hostFunctions\":[\"hud_set\"]}","capabilityHash":"h1","tickIntervalMs":250,"updatedAt":"t"}}})"};
+    if (op == "ExecModClientDelete") return {200, R"({"data":{"execModClientDelete":true}})"};
+    if (op == "ExecGridClientMods")
+      return {200, R"({"data":{"execGridClientMods":[{"modId":"900","name":"turret","gridId":"5","authorId":"42","listingId":null,"clientVersion":2,"digest":"ab","capabilitySummaryJson":"{\"version\":1,\"target\":\"client\",\"hostFunctions\":[\"hud_set\"]}","capabilityHash":"h1","tickIntervalMs":250,"callerConsented":false,"authorCapabilitySummaryJson":"{\"version\":1,\"target\":\"client\",\"hostFunctions\":[\"hud_set\",\"overlay_draw\"]}","authorCapabilityHash":"a1","callerTrustsAuthor":false,"updatedAt":"t"}]}})"};
+    if (op == "ExecConsentClientMod") return {200, R"({"data":{"execConsentClientMod":true}})"};
+    if (op == "ExecTrustAuthor") return {200, R"({"data":{"execTrustAuthor":true}})"};
+    if (op == "ExecModClientArtifact") {
+      if (artifactNotFound)
+        return {200, R"({"errors":[{"message":"no such CLIENT half","extensions":{"code":"NOT_FOUND"}}],"data":null})"};
+      return {200, R"({"data":{"execModClientArtifact":)" + clientArtifact + "}}"};
+    }
     return {200, R"({"data":{}})"};
   }
 
   int statusCalls = 0;
   int modStatusCalls = 0;
+  /// What `execModClientArtifact` answers, as JSON.
+  std::string clientArtifact = "null";
+  bool artifactNotFound = false;
 
 #ifdef CROWDY_NO_EXCEPTIONS
   graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& r) noexcept override {
@@ -463,6 +514,31 @@ void testOperations() {
   CHECK_EQ(vars["limit"].asInt64(), 10);
   CHECK(vars["key"].isNull());
   CHECK(vars["before"].isNull());
+  CHECK(vars["flow"].isNull());
+  CHECK(lines.at(0)["flow"].isString());
+
+  q.flow = "0123456789abcdef0123456789abcdef";
+  exec.logs("77", q);
+  CHECK_EQ(http->requests.back()["variables"]["flow"].asString(), q.flow);
+
+  auto versions = exec.versions("77");
+  CHECK_EQ(versions.size(), 2u);
+  auto manifest = graphql::Json::parse(versions.at(0)["manifestJson"].asString());
+  CHECK_EQ(manifest["root"].asString(), std::string("lobby"));
+  CHECK_EQ(manifest["types"]["lobby"]["seed_bytes"].asInt64(), 4);
+  CHECK(versions.at(1)["manifestJson"].isNull());
+
+  auto stats = exec.endpointStats("77", "arena", 30);
+  CHECK_EQ(stats.at(0)["busy"].asInt64(), 3);
+  CHECK_EQ(stats.at(0)["latencyMsAvg"].asDouble(), 1.5);
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecEndpointStats"));
+  CHECK_EQ(vars["nodeType"].asString(), std::string("arena"));
+  CHECK_EQ(vars["sinceMinutes"].asInt64(), 30);
+  exec.endpointStats("77");
+  vars = http->requests.back()["variables"];
+  CHECK(vars["nodeType"].isNull());
+  CHECK(vars["sinceMinutes"].isNull());
 
   auto s = exec.setEnabled("77", false, "bare");
   CHECK_EQ(s["disabledTypes"].at(0).asString(), std::string("bare"));
@@ -688,6 +764,261 @@ void testStudioModRuntime() {
   CHECK_EQ(transport->count(), 1u);
 }
 #endif
+// ---- CLIENT halves ----
+
+std::shared_ptr<graphql::GraphQLClient> clientOver(std::shared_ptr<RecordingHttp> http) {
+  return std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000},
+                                                  std::move(http), std::make_shared<graphql::AuthState>());
+}
+
+void testClientHalves() {
+  auto http = std::make_shared<RecordingHttp>();
+  ExecAPI exec(clientOver(http), std::make_shared<FakeTransport>());
+  constexpr auto npos = std::string::npos;
+
+  auto queued = exec.modClientBuild("77", ExecCrate{"hud", {{"Cargo.toml", "c"}, {"src/lib.rs", "l"}}});
+  CHECK_EQ(queued["kind"].asString(), std::string("client"));
+  auto body = http->requests.back();
+  CHECK_EQ(body["operationName"].asString(), std::string("ExecModClientBuild"));
+  auto vars = body["variables"];
+  CHECK_EQ(vars["appId"].asString(), std::string("77"));
+  CHECK_EQ(vars["crate"]["name"].asString(), std::string("hud"));
+  CHECK_EQ(vars["crate"]["files"].at(1)["path"].asString(), std::string("src/lib.rs"));
+  // Every build selects what a CLIENT build adds: its kind and each module's capability fields.
+  for (const std::string_view field : {"kind", "capabilitySummaryJson", "capabilityHash", "tickIntervalMs"}) {
+    CHECK(body["query"].asString().find(field) != npos);
+  }
+  exec.modBuild("77", ExecCrate{"grid-mod", {{"Cargo.toml", "c"}}});
+  CHECK(http->requests.back()["query"].asString().find("capabilityHash") != npos);
+
+  auto attached = exec.modClientDeploy("77", "5", "turret", "cb1");
+  CHECK_EQ(attached["clientVersion"].asInt64(), 2);
+  CHECK_EQ(attached["capabilityHash"].asString(), std::string("h1"));
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecModClientDeploy"));
+  CHECK_EQ(vars["gridId"].asString(), std::string("5"));
+  CHECK_EQ(vars["name"].asString(), std::string("turret"));
+  CHECK_EQ(vars["buildId"].asString(), std::string("cb1"));
+
+  CHECK(exec.modClientDelete("77", "5", "turret").asBool());
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecModClientDelete"));
+  CHECK_EQ(vars["name"].asString(), std::string("turret"));
+  CHECK(vars["buildId"].isNull());
+
+  auto served = exec.gridClientMods("77", "5");
+  CHECK_EQ(served.size(), 1u);
+  CHECK_EQ(http->requests.back()["variables"]["gridId"].asString(), std::string("5"));
+  CHECK(!served.at(0)["callerConsented"].asBool());
+  CHECK(!served.at(0)["callerTrustsAuthor"].asBool());
+  auto own = parseExecClientCapabilitySummary(served.at(0)["capabilitySummaryJson"].asStringView());
+  auto author = parseExecClientCapabilitySummary(served.at(0)["authorCapabilitySummaryJson"].asStringView());
+  CHECK(own.has_value() && author.has_value());
+  CHECK_EQ(own->hostFunctions, std::vector<std::string>{"hud_set"});
+  CHECK_EQ(author->hostFunctions.size(), 2u);
+
+  CHECK(exec.consentClientMod("77", "900", "h1").asBool());
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConsentClientMod"));
+  CHECK_EQ(vars["modId"].asString(), std::string("900"));
+  CHECK_EQ(vars["capabilityHash"].asString(), std::string("h1"));
+
+  CHECK(exec.trustAuthor("77", "5", "42", "a1").asBool());
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecTrustAuthor"));
+  CHECK_EQ(vars["gridId"].asString(), std::string("5"));
+  CHECK_EQ(vars["authorId"].asString(), std::string("42"));
+  CHECK_EQ(vars["capabilityHash"].asString(), std::string("a1"));
+
+  // A listing carries the CLIENT half it was published with.
+  exec.modListings("77");
+  for (const std::string_view field :
+       {"clientDigest", "clientCapabilitySummaryJson", "clientCapabilityHash", "clientTickIntervalMs"}) {
+    CHECK(http->requests.back()["query"].asString().find(field) != npos);
+  }
+
+  // The async twins send the same operations and hand back the root field.
+  std::vector<std::string> sent;
+  std::vector<graphql::Json> answers;
+  auto record = [&](graphql::GraphQLOutcome out) {
+    CHECK(out.ok());
+    sent.push_back(http->requests.back()["operationName"].asString());
+    answers.push_back(out.data);
+  };
+  http->clientArtifact = R"({"modId":"900"})";
+  exec.modClientBuildAsync("77", ExecCrate{"hud", {{"Cargo.toml", "c"}}}, record);
+  exec.modClientDeployAsync("77", "5", "turret", "cb1", record);
+  exec.modClientDeleteAsync("77", "5", "turret", record);
+  exec.gridClientModsAsync("77", "5", record);
+  exec.consentClientModAsync("77", "900", "h1", record);
+  exec.trustAuthorAsync("77", "5", "42", "a1", record);
+  exec.modClientArtifactAsync("77", "900", record);
+  const std::vector<std::string> expected = {"ExecModClientBuild",   "ExecModClientDeploy", "ExecModClientDelete",
+                                             "ExecGridClientMods",   "ExecConsentClientMod", "ExecTrustAuthor",
+                                             "ExecModClientArtifact"};
+  CHECK_EQ(sent, expected);
+  CHECK_EQ(answers.at(0)["kind"].asString(), std::string("client"));
+  CHECK(answers.at(2).asBool());
+  CHECK_EQ(answers.at(3).size(), 1u);
+  CHECK_EQ(answers.at(6)["modId"].asString(), std::string("900"));
+}
+
+void testCapabilitySummary() {
+  CHECK_EQ(kExecClientAbiVersion, 0);
+  auto full = parseExecClientCapabilitySummary(
+      R"({"version":1,"target":"client","imports":["ck.log","ck.host_call"],"hostFunctions":["hud_set"],)"
+      R"("capabilityGroups":["present"],"presentationHooks":["hud_set"],"exportedFunctions":["ck_init","ck_tick"],"extra":{}})");
+  CHECK(full.has_value());
+  CHECK_EQ(full->version, 1);
+  CHECK_EQ(full->target, std::string("client"));
+  CHECK_EQ(full->imports, (std::vector<std::string>{"ck.log", "ck.host_call"}));
+  CHECK_EQ(full->capabilityGroups, std::vector<std::string>{"present"});
+  CHECK_EQ(full->presentationHooks, std::vector<std::string>{"hud_set"});
+  CHECK_EQ(full->exportedFunctions, (std::vector<std::string>{"ck_init", "ck_tick"}));
+  // A module that reaches no host call still has a bound: the empty one.
+  auto none = parseExecClientCapabilitySummary(R"({"hostFunctions":[],"imports":"ck.log"})");
+  CHECK(none.has_value() && none->hostFunctions.empty() && none->imports.empty());
+  // Anything without a list of host call names bounds nothing.
+  for (const std::string_view bad : {"", "not json", "[\"hud_set\"]", "{}", R"({"hostFunctions":"hud_set"})",
+                                     R"({"hostFunctions":["hud_set",7]})", "null"}) {
+    CHECK(!parseExecClientCapabilitySummary(bad).has_value());
+  }
+}
+
+std::string upperHex(std::string hex) {
+  for (char& c : hex) {
+    if (c >= 'a' && c <= 'f') c = static_cast<char>(c - 'a' + 'A');
+  }
+  return hex;
+}
+
+const char* const kSummary =
+    R"({"version":1,"target":"client","imports":["ck.host_call"],"hostFunctions":["hud_set"],)"
+    R"("capabilityGroups":["present"],"presentationHooks":["hud_set"],"exportedFunctions":["ck_init","ck_tick"]})";
+
+/// An `execModClientArtifact` answer serving `wasm` under `digest`.
+std::string servedArtifact(std::string_view wasm, const std::string& digest, const std::string& summary = kSummary,
+                           std::int64_t abi = 0, const std::string& fuel = "100000000") {
+  graphql::JVal a;
+  a["modId"] = graphql::JVal(std::string("900"));
+  a["name"] = graphql::JVal(std::string("turret"));
+  a["gridId"] = graphql::JVal(std::string("5"));
+  a["clientVersion"] = graphql::JVal(std::int64_t{2});
+  a["digest"] = graphql::JVal(digest);
+  a["wasmBase64"] = graphql::JVal(
+      core::base64Encode(Bytes(reinterpret_cast<const std::uint8_t*>(wasm.data()), wasm.size())));
+  a["sizeBytes"] = graphql::JVal(static_cast<std::int64_t>(wasm.size()));
+  a["capabilitySummaryJson"] = graphql::JVal(summary);
+  a["capabilityHash"] = graphql::JVal(std::string("h1"));
+  a["tickIntervalMs"] = graphql::JVal(std::int64_t{250});
+  a["fuelPerDispatch"] = graphql::JVal(fuel);
+  a["abiVersion"] = graphql::JVal(abi);
+  return a.dump();
+}
+
+void testClientArtifactBytes() {
+  auto http = std::make_shared<RecordingHttp>();
+  ExecAPI exec(clientOver(http), std::make_shared<FakeTransport>());
+  const std::string wasm("\0asm\1\0\0\0", 8);
+  const std::string digest = execSha256Hex(wasm);
+
+  // The digest is hex either way round; the result carries it lowercase.
+  http->clientArtifact = servedArtifact(wasm, upperHex(digest));
+  const ExecModClientArtifactBytes a = exec.modClientArtifactBytes("77", "900");
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecModClientArtifact"));
+  CHECK_EQ(http->requests.back()["variables"]["modId"].asString(), std::string("900"));
+  CHECK_EQ(std::string(a.bytes.begin(), a.bytes.end()), wasm);
+  CHECK_EQ(a.digest, digest);
+  CHECK_EQ(a.modId, std::string("900"));
+  CHECK_EQ(a.name, std::string("turret"));
+  CHECK_EQ(a.gridId, std::string("5"));
+  CHECK_EQ(a.clientVersion, 2);
+  CHECK_EQ(a.sizeBytes, 8);
+  CHECK_EQ(a.fuelPerDispatch, std::string("100000000"));
+  CHECK_EQ(a.tickIntervalMs, 250);
+  CHECK_EQ(a.capabilityHash, std::string("h1"));
+  CHECK_EQ(a.abiVersion, kExecClientAbiVersion);
+  CHECK_EQ(a.capabilitySummaryJson, std::string(kSummary));
+  CHECK_EQ(a.capabilitySummary.hostFunctions, std::vector<std::string>{"hud_set"});
+
+  std::optional<graphql::GraphQLOutcome> outcome;
+  ExecModClientArtifactBytes decoded;
+  auto fetch = [&] {
+    outcome.reset();
+    decoded = {};
+    decoded.modId = "untouched";
+    exec.modClientArtifactBytesAsync("77", "900", [&](graphql::GraphQLOutcome o, ExecModClientArtifactBytes d) {
+      outcome = std::move(o);
+      decoded = std::move(d);
+    });
+    CHECK(outcome.has_value());
+  };
+  fetch();
+  CHECK(outcome->ok());
+  CHECK_EQ(decoded.digest, digest);
+  CHECK_EQ(decoded.bytes.size(), 8u);
+
+  // Each refusal reaches the async twin as a Protocol outcome with nothing decoded, and the
+  // blocking call as a CrowdyProtocolError (an empty result without exceptions).
+  auto refused = [&](std::string artifact, const std::string& why) {
+    http->clientArtifact = std::move(artifact);
+    fetch();
+    CHECK(outcome->kind == graphql::GraphQLErrorKind::Protocol);
+    CHECK(outcome->status.code == Errc::Malformed);
+    if (outcome->errorMessage.find(why) == std::string::npos) {
+      std::fprintf(stderr, "refusal \"%s\" does not say \"%s\"\n", outcome->errorMessage.c_str(), why.c_str());
+      CHECK(false);
+    }
+    CHECK(decoded.bytes.empty() && decoded.modId.empty() && decoded.digest.empty());
+#ifndef CROWDY_NO_EXCEPTIONS
+    bool threw = false;
+    try {
+      exec.modClientArtifactBytes("77", "900");
+    } catch (const graphql::CrowdyProtocolError& e) {
+      threw = true;
+      CHECK(std::string(e.what()) == outcome->errorMessage);
+    }
+    CHECK(threw);
+#else
+    CHECK(exec.modClientArtifactBytes("77", "900").bytes.empty());
+#endif
+  };
+  // Bytes other than the ones the digest names are never handed to a runtime.
+  refused(servedArtifact(wasm + "x", digest),
+          "CLIENT half of mod 900: the module's SHA-256 is " + execSha256Hex(wasm + "x") + ", not the digest " +
+              digest + " it was served with");
+  refused(servedArtifact(wasm, digest, kSummary, 1), "CLIENT half of mod 900 is built for CLIENT ABI 1; this SDK runs ABI 0");
+  // The ABI is checked first, as CrowdyJS checks it.
+  refused(servedArtifact(wasm + "x", digest, "not json", 7), "built for CLIENT ABI 7");
+  const std::string noBound = "CLIENT half of mod 900: its capability summary does not parse, so nothing bounds its host calls";
+  refused(servedArtifact(wasm, digest, "not json"), noBound);
+  refused(servedArtifact(wasm, digest, R"({"version":1,"target":"client"})"), noBound);
+  refused(servedArtifact(wasm, digest, R"({"hostFunctions":["hud_set",1]})"), noBound);
+  refused(servedArtifact(wasm, digest, kSummary, 0, "lots"), "its fuel per dispatch is not an integer");
+  refused(R"({"modId":"900","digest":"ab","wasmBase64":"@@@@","abiVersion":0,"capabilitySummaryJson":"{\"hostFunctions\":[]}"})",
+          "CLIENT half of mod 900: its module is not base64");
+  refused(R"({"modId":"900","digest":"ab","abiVersion":0})", "execModClientArtifact returned no CLIENT module");
+  refused("null", "execModClientArtifact returned no CLIENT module");
+
+  // The API's refusals pass through untouched: every refusal to serve is NOT_FOUND.
+  http->artifactNotFound = true;
+  fetch();
+  CHECK(outcome->kind == graphql::GraphQLErrorKind::GraphQL);
+  CHECK_EQ(outcome->errors.at(0).code, std::string("NOT_FOUND"));
+  CHECK(decoded.bytes.empty() && decoded.modId.empty());
+#ifndef CROWDY_NO_EXCEPTIONS
+  bool threw = false;
+  try {
+    exec.modClientArtifactBytes("77", "900");
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    threw = true;
+    CHECK_EQ(e.code(), std::string("NOT_FOUND"));
+  }
+  CHECK(threw);
+#else
+  CHECK(exec.modClientArtifactBytes("77", "900").bytes.empty());
+#endif
+}
 
 int main() {
   testGoldenFrames();
@@ -700,6 +1031,9 @@ int main() {
 #ifndef CROWDY_NO_EXCEPTIONS
   testStudioModRuntime();
 #endif
+  testClientHalves();
+  testCapabilitySummary();
+  testClientArtifactBytes();
   std::puts("exec_test OK");
   return 0;
 }

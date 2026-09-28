@@ -24,6 +24,18 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.49.0 live validation
+
+On 2026-09-27 the dev deployment (ck-api `v2.24.0`) passed live
+`e2e_exec_client_halves` as a grid's owner: the mod starter and a
+`crowdy-client-sdk` crate built on the platform (`kind` `exec` and `client`),
+the CLIENT half attached and was listed for the grid, a stale hash was refused
+as `CONFLICT` and the shown one held, and with an actor standing in the grid
+over native UDP `modClientArtifactBytes` returned the served module (152,724
+bytes) matching its digest, `trustAuthor` held, and the detached CLIENT half
+stopped being listed. An earlier run the same day hit a transient
+`PLATFORM_BUSY` on `execModDeploy`; the suite now retries that refusal.
+
 ## 0.16.0 release validation
 
 The 0.16 release branch adds `e2e_native_studio_integration`, which uses the
@@ -83,6 +95,8 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `payments-economy` | `e2e_payments` | partially implemented; optional live for create/list/idempotent replay; capture excluded |
 | `operator-control-plane` | `e2e_operator` | partially implemented; optional live read-only queries |
 | `malicious-input` | `e2e_malicious_input` | implemented; optional live |
+| `exec-client-halves` | `exec_test` + `e2e_exec_client_halves` | documents, variables, async twins and every `modClientArtifactBytes` refusal in default CI; build → attach → list → consent → trust → fetch → detach optional live with a ck-exec app and a grid its owner owns (fetch and trust accept `NOT_FOUND`: no actor in the grid) |
+| ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames and reconnect in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
 
 ## Game API SDK e2e (public `test/sdk` surface)
 

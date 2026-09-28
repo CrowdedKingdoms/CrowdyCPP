@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/replication/connection.hpp"
 #include "crowdy/session/durable.hpp"
@@ -82,6 +83,7 @@ class PortableTransport final : public graphql::IHttpTransport {
 class DurableTransport final : public graphql::IHttpTransport {
  public:
   int updates = 0;
+  bool refuseUpdates = false;
   graphql::HttpResponse send(const graphql::HttpRequest& request) override {
     if (request.body.find("UserAppState") != std::string::npos &&
         request.body.find("UpdateUserAppState") == std::string::npos) {
@@ -90,6 +92,10 @@ class DurableTransport final : public graphql::IHttpTransport {
     }
     if (request.body.find("UpdateUserAppState") != std::string::npos) {
       ++updates;
+      if (refuseUpdates) {
+        return {200,
+                R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY"}}],"data":null})"};
+      }
       return {200,
               R"({"data":{"updateUserAppState":{"appId":"42","userId":"7","state":"AwQ=","createdAt":"","updatedAt":""}}})"};
     }
@@ -455,6 +461,30 @@ void testDurableStoreObservability() {
   CHECK(save.dirty());
   CHECK_EQ(save.snapshot().at(1), std::uint8_t{9});
   CHECK_EQ(transport->updates, updatesAfterSave);
+
+  // A save the API refuses stays dirty, so the next save() persists it.
+  const auto savedAt = save.lastSavedAt();
+  transport->refuseUpdates = true;
+#ifndef CROWDY_NO_EXCEPTIONS
+  bool threw = false;
+  try {
+    save.save();
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    threw = true;
+    CHECK_EQ(e.code(), std::string("PLATFORM_BUSY"));
+  }
+  CHECK(threw);
+#else
+  save.save();
+#endif
+  CHECK_EQ(transport->updates, updatesAfterSave + 1);
+  CHECK(save.dirty());
+  CHECK(save.lastSavedAt() == savedAt);
+  CHECK_EQ(save.snapshot().at(1), std::uint8_t{9});
+  transport->refuseUpdates = false;
+  save.save();
+  CHECK(!save.dirty());
+  CHECK_EQ(transport->updates, updatesAfterSave + 2);
 
   session::AvatarStateStore avatar(client, "42", "9");
   avatar.load();

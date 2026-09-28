@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: e42540cc7cc1e31123fe9746f7851be88dc07be188535ff521bd8547c34d62d0
-// operations sha256: 6b223bd1ddd87c58df6b307f69b4326bbac5ac9c1d605dfbfa0198dbcb8857f6
+// operations sha256: 654f20fa2934c4143f50e69e05e14ee9404b6287bfc5d03fa11e63a7001a5366
 
 #pragma once
 
@@ -1317,23 +1317,6 @@ inline constexpr std::string_view kMyAppsIsolatedDocument = R"gql(query MyApps {
 })gql";
 inline constexpr std::string_view kMyAppsOperationName = "MyApps";
 
-/// apps/SetAppVisibility.graphql
-inline constexpr std::string_view kSetAppVisibilityDocument = R"gql(mutation SetAppVisibility($appId: BigInt!, $visibility: AppVisibility!) {
-  setAppVisibility(appId: $appId, visibility: $visibility) {
-    appId
-    visibility
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kSetAppVisibilityIsolatedDocument = R"gql(mutation SetAppVisibility($appId: BigInt!, $visibility: AppVisibility!) {
-  setAppVisibility(appId: $appId, visibility: $visibility) {
-    appId
-    visibility
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kSetAppVisibilityOperationName = "SetAppVisibility";
-
 /// apps/UpdateApp.graphql
 inline constexpr std::string_view kUpdateAppDocument = R"gql(mutation UpdateApp($appId: BigInt!, $input: UpdateAppInput!) {
   updateApp(appId: $appId, input: $input) {
@@ -1378,7 +1361,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "MarketplaceApps") return kMarketplaceAppsIsolatedDocument;
   if (operationName == "AppsConnection") return kAppsConnectionIsolatedDocument;
   if (operationName == "MyApps") return kMyAppsIsolatedDocument;
-  if (operationName == "SetAppVisibility") return kSetAppVisibilityIsolatedDocument;
   if (operationName == "UpdateApp") return kUpdateAppIsolatedDocument;
   return {};
 }
@@ -2802,61 +2784,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 
 }  // namespace computeUnits
 
-namespace controlPlane {
-
-/// controlPlane/ControlPlane.graphql
-inline constexpr std::string_view kControlPlaneDocument = R"gql(mutation CpCreditOrgWallet(
-  $orgId: BigInt!
-  $amountCents: BigInt!
-  $reason: String!
-  $referenceId: String
-) {
-  creditOrgWallet(
-    orgId: $orgId
-    amountCents: $amountCents
-    reason: $reason
-    referenceId: $referenceId
-  ) {
-    transactionId
-    walletId
-    orgId
-    amountCents
-    balanceAfter
-    transactionType
-    description
-    referenceId
-    appId
-    createdAt
-  }
-})gql";
-inline constexpr std::string_view kCpCreditOrgWalletIsolatedDocument = R"gql(mutation CpCreditOrgWallet($orgId: BigInt!, $amountCents: BigInt!, $reason: String!, $referenceId: String) {
-  creditOrgWallet(
-    orgId: $orgId
-    amountCents: $amountCents
-    reason: $reason
-    referenceId: $referenceId
-  ) {
-    transactionId
-    walletId
-    orgId
-    amountCents
-    balanceAfter
-    transactionType
-    description
-    referenceId
-    appId
-    createdAt
-  }
-})gql";
-inline constexpr std::string_view kCpCreditOrgWalletOperationName = "CpCreditOrgWallet";
-
-inline constexpr std::string_view documentFor(std::string_view operationName) {
-  if (operationName == "CpCreditOrgWallet") return kCpCreditOrgWalletIsolatedDocument;
-  return {};
-}
-
-}  // namespace controlPlane
-
 namespace crowdyStudio {
 
 /// crowdyStudio/CrowdyStudio.graphql
@@ -3804,65 +3731,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
 
 namespace crowdyStudioAgent {
 
-/// crowdyStudioAgent/CrowdyStudioAgentCatalog.graphql
-inline constexpr std::string_view kCrowdyStudioAgentCatalogDocument = R"gql(query CpCrowdyStudioAgentCatalog {
-  cpCrowdyStudioAgentCatalog {
-    instanceEnabled
-    instanceId
-    datacenterCode
-    provider
-    platformPolicyVersion
-    defaultModelId
-    registryDigest
-    modes
-    riskClasses
-    models {
-      modelId
-      isDefault
-      selectable
-      inputMicrosPerMillion
-      outputMicrosPerMillion
-    }
-    tools {
-      name
-      summary
-      executor
-      modes
-      riskClass
-      approvalRequired
-    }
-  }
-})gql";
-inline constexpr std::string_view kCpCrowdyStudioAgentCatalogIsolatedDocument = R"gql(query CpCrowdyStudioAgentCatalog {
-  cpCrowdyStudioAgentCatalog {
-    instanceEnabled
-    instanceId
-    datacenterCode
-    provider
-    platformPolicyVersion
-    defaultModelId
-    registryDigest
-    modes
-    riskClasses
-    models {
-      modelId
-      isDefault
-      selectable
-      inputMicrosPerMillion
-      outputMicrosPerMillion
-    }
-    tools {
-      name
-      summary
-      executor
-      modes
-      riskClass
-      approvalRequired
-    }
-  }
-})gql";
-inline constexpr std::string_view kCpCrowdyStudioAgentCatalogOperationName = "CpCrowdyStudioAgentCatalog";
-
 /// crowdyStudioAgent/CrowdyStudioAgentManagement.graphql
 inline constexpr std::string_view kCrowdyStudioAgentManagementDocument = R"gql(fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   kind
@@ -4028,28 +3896,6 @@ mutation CrowdyStudioAgentSetPolicy(
   $input: SetCrowdyStudioAgentAppPolicyInput!
 ) {
   setCrowdyStudioAgentPolicy(input: $input) {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-query CpCrowdyStudioAgentPlatformPolicy {
-  cpCrowdyStudioAgentPlatformPolicy {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-mutation CpSetCrowdyStudioAgentPlatformPolicy(
-  $input: SetCrowdyStudioAgentPlatformPolicyInput!
-) {
-  cpSetCrowdyStudioAgentPlatformPolicy(input: $input) {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-mutation CpSetCrowdyStudioAgentAppKill(
-  $input: SetCrowdyStudioAgentOperatorAppKillInput!
-) {
-  cpSetCrowdyStudioAgentAppKill(input: $input) {
     ...CrowdyStudioAgentPolicyFields
   }
 })gql";
@@ -4374,264 +4220,6 @@ fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
   updatedAt
 })gql";
 inline constexpr std::string_view kCrowdyStudioAgentSetPolicyOperationName = "CrowdyStudioAgentSetPolicy";
-inline constexpr std::string_view kCpCrowdyStudioAgentPlatformPolicyIsolatedDocument = R"gql(query CpCrowdyStudioAgentPlatformPolicy {
-  cpCrowdyStudioAgentPlatformPolicy {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
-  kind
-  appId
-  enabled
-  killSwitch
-  operatorKillSwitch
-  disableReasonCode
-  disableReason
-  allowedModelIds
-  allowedToolNames
-  allowedModes
-  allowedRiskClasses
-  turnLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    toolRounds
-    compiles
-    wallClockMs
-    concurrentProviderRequests
-  }
-  sessionLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentRuns
-  }
-  playerDayLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentSessions
-    concurrentRunsPerApp
-  }
-  retention {
-    assistantChunkHours
-    detailedContextHours
-    sessionDataDays
-    usageDays
-  }
-  privacy {
-    requireZdr
-    denyDataCollection
-    allowPrivateSource
-    requirePrivateSourceConsent
-    persistProviderBodies
-  }
-  funding {
-    billingMode
-    payerKind
-    rateCardId
-    walletDebitEnabled
-  }
-  capabilityGaps {
-    mode
-    code
-    detail
-  }
-  revision
-  platformRevision
-  appRevision
-  effectiveRevision
-  createdAt
-  updatedAt
-})gql";
-inline constexpr std::string_view kCpCrowdyStudioAgentPlatformPolicyOperationName = "CpCrowdyStudioAgentPlatformPolicy";
-inline constexpr std::string_view kCpSetCrowdyStudioAgentPlatformPolicyIsolatedDocument = R"gql(mutation CpSetCrowdyStudioAgentPlatformPolicy($input: SetCrowdyStudioAgentPlatformPolicyInput!) {
-  cpSetCrowdyStudioAgentPlatformPolicy(input: $input) {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
-  kind
-  appId
-  enabled
-  killSwitch
-  operatorKillSwitch
-  disableReasonCode
-  disableReason
-  allowedModelIds
-  allowedToolNames
-  allowedModes
-  allowedRiskClasses
-  turnLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    toolRounds
-    compiles
-    wallClockMs
-    concurrentProviderRequests
-  }
-  sessionLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentRuns
-  }
-  playerDayLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentSessions
-    concurrentRunsPerApp
-  }
-  retention {
-    assistantChunkHours
-    detailedContextHours
-    sessionDataDays
-    usageDays
-  }
-  privacy {
-    requireZdr
-    denyDataCollection
-    allowPrivateSource
-    requirePrivateSourceConsent
-    persistProviderBodies
-  }
-  funding {
-    billingMode
-    payerKind
-    rateCardId
-    walletDebitEnabled
-  }
-  capabilityGaps {
-    mode
-    code
-    detail
-  }
-  revision
-  platformRevision
-  appRevision
-  effectiveRevision
-  createdAt
-  updatedAt
-})gql";
-inline constexpr std::string_view kCpSetCrowdyStudioAgentPlatformPolicyOperationName = "CpSetCrowdyStudioAgentPlatformPolicy";
-inline constexpr std::string_view kCpSetCrowdyStudioAgentAppKillIsolatedDocument = R"gql(mutation CpSetCrowdyStudioAgentAppKill($input: SetCrowdyStudioAgentOperatorAppKillInput!) {
-  cpSetCrowdyStudioAgentAppKill(input: $input) {
-    ...CrowdyStudioAgentPolicyFields
-  }
-}
-
-fragment CrowdyStudioAgentPolicyFields on CrowdyStudioAgentPolicy {
-  kind
-  appId
-  enabled
-  killSwitch
-  operatorKillSwitch
-  disableReasonCode
-  disableReason
-  allowedModelIds
-  allowedToolNames
-  allowedModes
-  allowedRiskClasses
-  turnLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    toolRounds
-    compiles
-    wallClockMs
-    concurrentProviderRequests
-  }
-  sessionLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentRuns
-  }
-  playerDayLimits {
-    providerRequests
-    inputTokens
-    outputTokens
-    reasoningTokens
-    totalTokens
-    providerCostMicrousd
-    toolCalls
-    compiles
-    concurrentSessions
-    concurrentRunsPerApp
-  }
-  retention {
-    assistantChunkHours
-    detailedContextHours
-    sessionDataDays
-    usageDays
-  }
-  privacy {
-    requireZdr
-    denyDataCollection
-    allowPrivateSource
-    requirePrivateSourceConsent
-    persistProviderBodies
-  }
-  funding {
-    billingMode
-    payerKind
-    rateCardId
-    walletDebitEnabled
-  }
-  capabilityGaps {
-    mode
-    code
-    detail
-  }
-  revision
-  platformRevision
-  appRevision
-  effectiveRevision
-  createdAt
-  updatedAt
-})gql";
-inline constexpr std::string_view kCpSetCrowdyStudioAgentAppKillOperationName = "CpSetCrowdyStudioAgentAppKill";
 
 /// crowdyStudioAgent/CrowdyStudioModel.graphql
 inline constexpr std::string_view kCrowdyStudioModelDocument = R"gql(# The metered model endpoint's GraphQL companions. The endpoint itself is
@@ -4718,14 +4306,10 @@ inline constexpr std::string_view kCrowdyStudioModelUsageIsolatedDocument = R"gq
 inline constexpr std::string_view kCrowdyStudioModelUsageOperationName = "CrowdyStudioModelUsage";
 
 inline constexpr std::string_view documentFor(std::string_view operationName) {
-  if (operationName == "CpCrowdyStudioAgentCatalog") return kCpCrowdyStudioAgentCatalogIsolatedDocument;
   if (operationName == "CrowdyStudioAgentPolicy") return kCrowdyStudioAgentPolicyIsolatedDocument;
   if (operationName == "CrowdyStudioAgentEffectivePolicy") return kCrowdyStudioAgentEffectivePolicyIsolatedDocument;
   if (operationName == "CrowdyStudioAgentUsage") return kCrowdyStudioAgentUsageIsolatedDocument;
   if (operationName == "CrowdyStudioAgentSetPolicy") return kCrowdyStudioAgentSetPolicyIsolatedDocument;
-  if (operationName == "CpCrowdyStudioAgentPlatformPolicy") return kCpCrowdyStudioAgentPlatformPolicyIsolatedDocument;
-  if (operationName == "CpSetCrowdyStudioAgentPlatformPolicy") return kCpSetCrowdyStudioAgentPlatformPolicyIsolatedDocument;
-  if (operationName == "CpSetCrowdyStudioAgentAppKill") return kCpSetCrowdyStudioAgentAppKillIsolatedDocument;
   if (operationName == "CrowdyStudioProviderConsent") return kCrowdyStudioProviderConsentIsolatedDocument;
   if (operationName == "CrowdyStudioSetProviderConsent") return kCrowdyStudioSetProviderConsentIsolatedDocument;
   if (operationName == "CrowdyStudioModelUsage") return kCrowdyStudioModelUsageIsolatedDocument;
@@ -7191,23 +6775,6 @@ inline constexpr std::string_view kRevokeOrgTokenIsolatedDocument = R"gql(mutati
 })gql";
 inline constexpr std::string_view kRevokeOrgTokenOperationName = "RevokeOrgToken";
 
-/// organizations/SetOrgStatus.graphql
-inline constexpr std::string_view kSetOrgStatusDocument = R"gql(mutation SetOrgStatus($orgId: BigInt!, $status: String!) {
-  setOrgStatus(orgId: $orgId, status: $status) {
-    orgId
-    status
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kSetOrgStatusIsolatedDocument = R"gql(mutation SetOrgStatus($orgId: BigInt!, $status: String!) {
-  setOrgStatus(orgId: $orgId, status: $status) {
-    orgId
-    status
-    updatedAt
-  }
-})gql";
-inline constexpr std::string_view kSetOrgStatusOperationName = "SetOrgStatus";
-
 /// organizations/UpdateOrgMemberRoles.graphql
 inline constexpr std::string_view kUpdateOrgMemberRolesDocument = R"gql(mutation UpdateOrgMemberRoles(
   $orgId: BigInt!
@@ -7293,7 +6860,6 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "OrganizationBySlug") return kOrganizationBySlugIsolatedDocument;
   if (operationName == "RemoveOrgMember") return kRemoveOrgMemberIsolatedDocument;
   if (operationName == "RevokeOrgToken") return kRevokeOrgTokenIsolatedDocument;
-  if (operationName == "SetOrgStatus") return kSetOrgStatusIsolatedDocument;
   if (operationName == "UpdateOrgMemberRoles") return kUpdateOrgMemberRolesIsolatedDocument;
   if (operationName == "UpdateOrgRole") return kUpdateOrgRoleIsolatedDocument;
   if (operationName == "UpdateOrgToken") return kUpdateOrgTokenIsolatedDocument;
@@ -7346,131 +6912,6 @@ inline constexpr std::string_view kCapturePaypalCheckoutIsolatedDocument = R"gql
   }
 })gql";
 inline constexpr std::string_view kCapturePaypalCheckoutOperationName = "CapturePaypalCheckout";
-
-/// payments/Checkouts.graphql
-inline constexpr std::string_view kCheckoutsDocument = R"gql(query Checkouts($filter: CheckoutFilterInput, $limit: Int, $offset: Int) {
-  checkouts(filter: $filter, limit: $limit, offset: $offset) {
-    items {
-      checkoutId
-      userId
-      provider
-      purpose
-      status
-      amountCents
-      currency
-      externalId
-      externalUrl
-      orgId
-      appId
-      tierId
-      createdAt
-      completedAt
-      expiresAt
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-}
-
-query CheckoutsConnection(
-  $first: Int
-  $after: String
-  $filter: CheckoutFilterInput
-) {
-  checkoutsConnection(first: $first, after: $after, filter: $filter) {
-    edges {
-      cursor
-      node {
-        checkoutId
-        userId
-        provider
-        purpose
-        status
-        amountCents
-        currency
-        externalId
-        externalUrl
-        orgId
-        appId
-        tierId
-        error
-        createdAt
-        completedAt
-        expiresAt
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kCheckoutsIsolatedDocument = R"gql(query Checkouts($filter: CheckoutFilterInput, $limit: Int, $offset: Int) {
-  checkouts(filter: $filter, limit: $limit, offset: $offset) {
-    items {
-      checkoutId
-      userId
-      provider
-      purpose
-      status
-      amountCents
-      currency
-      externalId
-      externalUrl
-      orgId
-      appId
-      tierId
-      createdAt
-      completedAt
-      expiresAt
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-})gql";
-inline constexpr std::string_view kCheckoutsOperationName = "Checkouts";
-inline constexpr std::string_view kCheckoutsConnectionIsolatedDocument = R"gql(query CheckoutsConnection($first: Int, $after: String, $filter: CheckoutFilterInput) {
-  checkoutsConnection(first: $first, after: $after, filter: $filter) {
-    edges {
-      cursor
-      node {
-        checkoutId
-        userId
-        provider
-        purpose
-        status
-        amountCents
-        currency
-        externalId
-        externalUrl
-        orgId
-        appId
-        tierId
-        error
-        createdAt
-        completedAt
-        expiresAt
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kCheckoutsConnectionOperationName = "CheckoutsConnection";
 
 /// payments/CreateCheckout.graphql
 inline constexpr std::string_view kCreateCheckoutDocument = R"gql(mutation CreateCheckout($input: CreateCheckoutInput!) {
@@ -7638,106 +7079,11 @@ inline constexpr std::string_view kMyCheckoutsConnectionIsolatedDocument = R"gql
 })gql";
 inline constexpr std::string_view kMyCheckoutsConnectionOperationName = "MyCheckoutsConnection";
 
-/// payments/PaymentEvents.graphql
-inline constexpr std::string_view kPaymentEventsDocument = R"gql(query PaymentEvents($limit: Int, $offset: Int) {
-  paymentEvents(limit: $limit, offset: $offset) {
-    items {
-      eventId
-      provider
-      externalEventId
-      eventType
-      checkoutId
-      processedAt
-      error
-      createdAt
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-}
-
-query PaymentEventsConnection($first: Int, $after: String) {
-  paymentEventsConnection(first: $first, after: $after) {
-    edges {
-      cursor
-      node {
-        eventId
-        provider
-        externalEventId
-        eventType
-        checkoutId
-        processedAt
-        error
-        createdAt
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kPaymentEventsIsolatedDocument = R"gql(query PaymentEvents($limit: Int, $offset: Int) {
-  paymentEvents(limit: $limit, offset: $offset) {
-    items {
-      eventId
-      provider
-      externalEventId
-      eventType
-      checkoutId
-      processedAt
-      error
-      createdAt
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-})gql";
-inline constexpr std::string_view kPaymentEventsOperationName = "PaymentEvents";
-inline constexpr std::string_view kPaymentEventsConnectionIsolatedDocument = R"gql(query PaymentEventsConnection($first: Int, $after: String) {
-  paymentEventsConnection(first: $first, after: $after) {
-    edges {
-      cursor
-      node {
-        eventId
-        provider
-        externalEventId
-        eventType
-        checkoutId
-        processedAt
-        error
-        createdAt
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kPaymentEventsConnectionOperationName = "PaymentEventsConnection";
-
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CapturePaypalCheckout") return kCapturePaypalCheckoutIsolatedDocument;
-  if (operationName == "Checkouts") return kCheckoutsIsolatedDocument;
-  if (operationName == "CheckoutsConnection") return kCheckoutsConnectionIsolatedDocument;
   if (operationName == "CreateCheckout") return kCreateCheckoutIsolatedDocument;
   if (operationName == "MyCheckouts") return kMyCheckoutsIsolatedDocument;
   if (operationName == "MyCheckoutsConnection") return kMyCheckoutsConnectionIsolatedDocument;
-  if (operationName == "PaymentEvents") return kPaymentEventsIsolatedDocument;
-  if (operationName == "PaymentEventsConnection") return kPaymentEventsConnectionIsolatedDocument;
   return {};
 }
 
@@ -9752,15 +9098,6 @@ inline constexpr std::string_view kDeleteMyAccountIsolatedDocument = R"gql(mutat
 })gql";
 inline constexpr std::string_view kDeleteMyAccountOperationName = "DeleteMyAccount";
 
-/// users/ForceLogoutUser.graphql
-inline constexpr std::string_view kForceLogoutUserDocument = R"gql(mutation ForceLogoutUser($userId: BigInt!) {
-  forceLogoutUser(userId: $userId)
-})gql";
-inline constexpr std::string_view kForceLogoutUserIsolatedDocument = R"gql(mutation ForceLogoutUser($userId: BigInt!) {
-  forceLogoutUser(userId: $userId)
-})gql";
-inline constexpr std::string_view kForceLogoutUserOperationName = "ForceLogoutUser";
-
 /// users/FreePlayWindow.graphql
 inline constexpr std::string_view kFreePlayWindowDocument = R"gql(query FreePlayWindow {
   freePlayWindowInfo {
@@ -9815,53 +9152,6 @@ inline constexpr std::string_view kMeIsolatedDocument = R"gql(query Me {
 })gql";
 inline constexpr std::string_view kMeOperationName = "Me";
 
-/// users/SetEarlyAccessOverride.graphql
-inline constexpr std::string_view kSetEarlyAccessOverrideDocument = R"gql(mutation SetEarlyAccessOverride($userId: BigInt!, $value: Boolean!) {
-  setEarlyAccessOverride(userId: $userId, value: $value) {
-    userId
-    grantEarlyAccessOverride
-  }
-})gql";
-inline constexpr std::string_view kSetEarlyAccessOverrideIsolatedDocument = R"gql(mutation SetEarlyAccessOverride($userId: BigInt!, $value: Boolean!) {
-  setEarlyAccessOverride(userId: $userId, value: $value) {
-    userId
-    grantEarlyAccessOverride
-  }
-})gql";
-inline constexpr std::string_view kSetEarlyAccessOverrideOperationName = "SetEarlyAccessOverride";
-
-/// users/SetOperator.graphql
-inline constexpr std::string_view kSetOperatorDocument = R"gql(mutation SetOperator($userId: BigInt!, $value: Boolean!) {
-  setOperator(userId: $userId, value: $value) {
-    userId
-    isOperator
-    isSuperAdmin
-  }
-})gql";
-inline constexpr std::string_view kSetOperatorIsolatedDocument = R"gql(mutation SetOperator($userId: BigInt!, $value: Boolean!) {
-  setOperator(userId: $userId, value: $value) {
-    userId
-    isOperator
-    isSuperAdmin
-  }
-})gql";
-inline constexpr std::string_view kSetOperatorOperationName = "SetOperator";
-
-/// users/SetSuperAdmin.graphql
-inline constexpr std::string_view kSetSuperAdminDocument = R"gql(mutation SetSuperAdmin($userId: BigInt!, $value: Boolean!) {
-  setSuperAdmin(userId: $userId, value: $value) {
-    userId
-    isSuperAdmin
-  }
-})gql";
-inline constexpr std::string_view kSetSuperAdminIsolatedDocument = R"gql(mutation SetSuperAdmin($userId: BigInt!, $value: Boolean!) {
-  setSuperAdmin(userId: $userId, value: $value) {
-    userId
-    isSuperAdmin
-  }
-})gql";
-inline constexpr std::string_view kSetSuperAdminOperationName = "SetSuperAdmin";
-
 /// users/UpdateGamertag.graphql
 inline constexpr std::string_view kUpdateGamertagDocument = R"gql(mutation UpdateGamertag($input: UpdateGamertagInput!) {
   updateGamertag(input: $input) {
@@ -9897,21 +9187,6 @@ inline constexpr std::string_view kUpdateUserStateIsolatedDocument = R"gql(mutat
   }
 })gql";
 inline constexpr std::string_view kUpdateUserStateOperationName = "UpdateUserState";
-
-/// users/UpdateUserType.graphql
-inline constexpr std::string_view kUpdateUserTypeDocument = R"gql(mutation UpdateUserType($userId: BigInt!, $value: String!) {
-  updateUserType(userId: $userId, value: $value) {
-    userId
-    userType
-  }
-})gql";
-inline constexpr std::string_view kUpdateUserTypeIsolatedDocument = R"gql(mutation UpdateUserType($userId: BigInt!, $value: String!) {
-  updateUserType(userId: $userId, value: $value) {
-    userId
-    userType
-  }
-})gql";
-inline constexpr std::string_view kUpdateUserTypeOperationName = "UpdateUserType";
 
 /// users/User.graphql
 inline constexpr std::string_view kUserDocument = R"gql(query User($id: BigInt!) {
@@ -9950,127 +9225,13 @@ inline constexpr std::string_view kUserIsolatedDocument = R"gql(query User($id: 
 })gql";
 inline constexpr std::string_view kUserOperationName = "User";
 
-/// users/UsersPaginated.graphql
-inline constexpr std::string_view kUsersPaginatedDocument = R"gql(query UsersPaginated($query: String, $limit: Int, $offset: Int) {
-  usersPaginated(query: $query, limit: $limit, offset: $offset) {
-    items {
-      userId
-      email
-      gamertag
-      disambiguation
-      isConfirmed
-      createdAt
-      grantEarlyAccess
-      grantEarlyAccessOverride
-      orgId
-      externalId
-      userType
-      isSuperAdmin
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-}
-
-query UsersConnection($first: Int, $after: String, $query: String) {
-  usersConnection(first: $first, after: $after, query: $query) {
-    edges {
-      cursor
-      node {
-        userId
-        email
-        gamertag
-        disambiguation
-        isConfirmed
-        createdAt
-        grantEarlyAccess
-        grantEarlyAccessOverride
-        orgId
-        externalId
-        userType
-        isSuperAdmin
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kUsersPaginatedIsolatedDocument = R"gql(query UsersPaginated($query: String, $limit: Int, $offset: Int) {
-  usersPaginated(query: $query, limit: $limit, offset: $offset) {
-    items {
-      userId
-      email
-      gamertag
-      disambiguation
-      isConfirmed
-      createdAt
-      grantEarlyAccess
-      grantEarlyAccessOverride
-      orgId
-      externalId
-      userType
-      isSuperAdmin
-    }
-    pageInfo {
-      totalCount
-      limit
-      offset
-    }
-  }
-})gql";
-inline constexpr std::string_view kUsersPaginatedOperationName = "UsersPaginated";
-inline constexpr std::string_view kUsersConnectionIsolatedDocument = R"gql(query UsersConnection($first: Int, $after: String, $query: String) {
-  usersConnection(first: $first, after: $after, query: $query) {
-    edges {
-      cursor
-      node {
-        userId
-        email
-        gamertag
-        disambiguation
-        isConfirmed
-        createdAt
-        grantEarlyAccess
-        grantEarlyAccessOverride
-        orgId
-        externalId
-        userType
-        isSuperAdmin
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-})gql";
-inline constexpr std::string_view kUsersConnectionOperationName = "UsersConnection";
-
 inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "DeleteMyAccount") return kDeleteMyAccountIsolatedDocument;
-  if (operationName == "ForceLogoutUser") return kForceLogoutUserIsolatedDocument;
   if (operationName == "FreePlayWindow") return kFreePlayWindowIsolatedDocument;
   if (operationName == "Me") return kMeIsolatedDocument;
-  if (operationName == "SetEarlyAccessOverride") return kSetEarlyAccessOverrideIsolatedDocument;
-  if (operationName == "SetOperator") return kSetOperatorIsolatedDocument;
-  if (operationName == "SetSuperAdmin") return kSetSuperAdminIsolatedDocument;
   if (operationName == "UpdateGamertag") return kUpdateGamertagIsolatedDocument;
   if (operationName == "UpdateUserState") return kUpdateUserStateIsolatedDocument;
-  if (operationName == "UpdateUserType") return kUpdateUserTypeIsolatedDocument;
   if (operationName == "User") return kUserIsolatedDocument;
-  if (operationName == "UsersPaginated") return kUsersPaginatedIsolatedDocument;
-  if (operationName == "UsersConnection") return kUsersConnectionIsolatedDocument;
   return {};
 }
 

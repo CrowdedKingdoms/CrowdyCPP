@@ -68,17 +68,23 @@ int runAll() {
   E2E_CHECK(createdApp["slug"].asString() == appSlug);
   E2E_CHECK(createdApp["visibility"].asString() == "PUBLIC");
 
-  E2E_SUBTEST("updateApp + setVisibility read back");
+  E2E_SUBTEST("updateApp (description, then visibility) read back");
   graphql::JVal updateInput;
   updateInput["description"] = "CrowdyCPP studio-admin e2e app (updated)";
   graphql::Json updatedApp = own.admin().apps().update(newAppId, updateInput);
   E2E_CHECK(updatedApp["description"].asString() ==
             "CrowdyCPP studio-admin e2e app (updated)");
-  graphql::Json unlisted = own.admin().apps().setVisibility(newAppId, "UNLISTED");
+  // Visibility is an org-admin change through updateApp (`manage_apps`); the
+  // platform-wide override setAppVisibility is super-admin only and not wrapped.
+  graphql::JVal unlistInput;
+  unlistInput["visibility"] = "UNLISTED";
+  graphql::Json unlisted = own.admin().apps().update(newAppId, unlistInput);
   E2E_CHECK(unlisted["visibility"].asString() == "UNLISTED");
   E2E_CHECK(own.admin().apps().get(newAppId)["visibility"].asString() == "UNLISTED");
   // Back to PUBLIC for the marketplace + default-access scenarios below.
-  (void)own.admin().apps().setVisibility(newAppId, "PUBLIC");
+  graphql::JVal publicInput;
+  publicInput["visibility"] = "PUBLIC";
+  (void)own.admin().apps().update(newAppId, publicInput);
 
   E2E_SUBTEST("marketplace + marketplaceConnection reads");
   graphql::Json marketplace = own.admin().apps().marketplace();

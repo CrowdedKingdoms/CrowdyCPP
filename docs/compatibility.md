@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.50.0 passes the strict portable-parity gate against CrowdyJS
-**18.0.0**. The gate pins CrowdyJS commit
-`3c85fde4900b7b2e0fd782c2574f4ccdc8baad7e` (`crowdyjsParityTarget` in
+CrowdyCPP 0.51.0 passes the strict portable-parity gate against CrowdyJS
+**18.0.1**. The gate pins CrowdyJS commit
+`71f2b1cebf4ba92003add2b0189842091131dc82` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,9 +34,9 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.50.0 | CrowdyJS 18.0.0 | Required public API generation |
+| Surface | CrowdyCPP 0.51.0 | CrowdyJS 18.0.1 | Required public API generation |
 |---|---|---|---|
-| Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
+| Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
 | ck-exec CLIENT halves (dev-tier preview) | `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor`, `modClientArtifact`; `modClientArtifactBytes` refuses bytes that differ from their SHA-256 digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a capability summary that does not parse (`parseExecClientCapabilitySummary`). No WASM runtime: the engine runs the module in its own sandbox | The same operations; `ExecClientHalves` runs a grid's CLIENT halves in `PlayerCodeBroker` (`engine: 'ck-exec'`) in the page's glue worker | Game API dev `execModClientBuild` / `execModClientDeploy` / `execModClientDelete` / `execGridClientMods` / `execConsentClientMod` / `execTrustAuthor` / `execModClientArtifact` (ck-api `v2.24.0`). The legacy engines' fields are gone from ck-api `v2.27.0`, and so is this SDK's surface for them |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
@@ -48,7 +48,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file; the SERVER target is a ck-exec mod and the CLIENT target its CLIENT half (`CrowdyStudioModRuntime`), run by an engine-owned client runtime | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile`; the SERVER target is a mod and the CLIENT target its CLIENT half, previewed in the page's broker | Game API project roots, `execMod*` and `execModClient*` (Studio previews need ck-api `v2.25.1`); durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Native Studio integration | Owned editor/layout/runtime assembly with explicit maintenance scheduling | Browser Studio composition with the in-browser DSH agent pane | Project/runtime roots |
-| Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and admin writes | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |
+| Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and org-admin writes (the operator platform policy, app kill and catalog are not wrapped) | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |
 | Player-host observation | Typed `PlayerHostAdapterV1` + schemas (observe only) | `PlayerHostAdapterV1` observe for `game_observe` | `crowdy.player-host/1` |
 
 `schema.gql` is the committed snapshot of the published API SDL. Codegen

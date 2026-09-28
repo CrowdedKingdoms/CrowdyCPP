@@ -7,7 +7,6 @@
 #include "crowdy/studio/integration.hpp"
 #endif
 #include "crowdy/domains/admin.hpp"
-#include "crowdy/domains/operator.hpp"
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/replication/connection.hpp"
 
@@ -450,7 +449,6 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   users_ = std::make_unique<domains::UsersAPI>(gql_);
   portal_ = std::make_unique<domains::PortalAPI>(gql_, auth_, *crypto_);
   platform_ = std::make_unique<domains::PlatformAPI>(gql_);
-  operatorApi_ = std::make_unique<domains::OperatorAPI>(gql_);
 
   serverStatus_ = std::make_unique<domains::ServerStatusAPI>(gql_);
   chunks_ = std::make_unique<domains::ChunksAPI>(gql_);
@@ -678,7 +676,6 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   platform_ = std::move(other.platform_);
   crowdyStudioAgent_ = std::move(other.crowdyStudioAgent_);
   admin_ = std::move(other.admin_);
-  operatorApi_ = std::move(other.operatorApi_);
   replication_ = std::move(other.replication_);
   installSelfHandlers();
   return *this;

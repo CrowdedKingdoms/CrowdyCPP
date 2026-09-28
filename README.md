@@ -60,6 +60,17 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.51.0: the SDK is for normal clients.** It wraps nothing only a super-admin or a platform
+operator can call, and is designed for the production environment; org-admin features stay. Gone:
+`client.operator_()` (`creditOrgWallet`), `users()` `paginated` / `listConnection` /
+`setSuperAdmin` / `setOperator` / `setEarlyAccessOverride` / `updateType` / `forceLogout`,
+`admin().organizations().setStatus`, `admin().apps().setVisibility` (use `update` with
+`visibility`), `admin().payments()` `checkouts` / `checkoutsConnection` / `paymentEvents` /
+`paymentEventsConnection` (`myCheckouts` stays), and `crowdyStudioAgent()` `platformPolicy` /
+`setPlatformPolicy` / `setOperatorAppKill`. `admin().quotas().set` refuses a rule naming neither an
+app nor an org before any request. Platform tooling calls the API directly. Parity pinned to
+CrowdyJS 18.0.1. See [MIGRATION.md](MIGRATION.md).
+
 **v0.50.0: the legacy engines are gone.** ck-exec (`client.exec()`) replaced the Game API's game
 model and its automations, Studio compute, player compute and the player model, and the Game API
 deleted them (ck-api v2.27.0 on dev), so their C++ surface is removed: `client.gameModel()`,
@@ -541,7 +552,7 @@ app-scoped token):
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
-| `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage and operator controls. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
+| `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent and metered model usage. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: parties, guilds and chat over teams and channels (`social()`); `crowdy/kit/wire.hpp` (engine pose codec, event parsers) and `crowdy/kit/actions.hpp` stand alone — see [Game Kit](#game-kit-social-helpers-and-wire-codecs). |
@@ -549,10 +560,11 @@ app-scoped token):
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps()` (including player-code
 admission policy) `/ appAccess() / billing() /
-payments() / quotas() / usage() / sharedEnvironment()`.
-Operator surface (platform operations, requires operator rights):
-`client.operator_()`. The SDK never relaxes server-side authorization — these
-are typed wrappers; the caller still needs the right token and permission.
+payments() / quotas() / usage() / sharedEnvironment()`. The SDK carries
+org-admin features but nothing only a super-admin or a platform operator can
+call; platform tooling calls those fields directly. The SDK never relaxes
+server-side authorization — these are typed wrappers; the caller still needs
+the right token and permission.
 
 ## Headless Crowdy Studio
 

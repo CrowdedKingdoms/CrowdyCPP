@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "crowdy/client.hpp"
+#include "crowdy/domains/admin.hpp"
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/http.hpp"
 #include "crowdy/replication/connection.hpp"
@@ -75,6 +76,9 @@ class PortableTransport final : public graphql::IHttpTransport {
       return {
           200,
           R"({"data":{"serverWithLeastClients":{"serverId":"server-1","ip4":"127.0.0.1","ip6":"","clientPort":39001,"status":"READY","peers":[],"clients":"0","cpuPeakPct":0,"updatedAt":"","createdAt":""}}})"};
+    }
+    if (request.body.find("SetQuota") != std::string::npos) {
+      return {200, R"({"data":{"setQuota":{"id":"7"}}})"};
     }
     return {200, R"({"data":{"ok":true}})"};
   }
@@ -544,7 +548,6 @@ void testAMovedClientIsFullyUsable() {
   (void)client.platform();
   (void)client.crowdyStudioAgent();
   (void)client.admin();
-  (void)client.operator_();
   CHECK_EQ(client.graphqlClient().endpoint(),
            "https://game.invalid/graphql");
 
@@ -565,8 +568,69 @@ void testAMovedClientIsFullyUsable() {
 
 }  // namespace
 
+std::size_t setQuotaRequests(const PortableTransport& transport) {
+  std::size_t n = 0;
+  for (const auto& request : transport.requests) {
+    if (request.body.find("SetQuota") != std::string::npos) ++n;
+  }
+  return n;
+}
+
+// The SDK sets app and org quotas only: a platform-global rule (neither appId nor
+// orgId) is refused before any request, as CrowdyJS quotas.set does.
+void testQuotasSetRefusesAPlatformGlobalRule() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient client(portableConfig(transport));
+  const auto& quotas = client.admin().quotas();
+
+  graphql::JVal global;
+  global["metric"] = "replication_messages";
+  global["limitValue"] = std::int64_t{10};
+  graphql::JVal emptyScope = global;
+  emptyScope["orgId"] = "";
+  graphql::JVal nullScope = global;
+  nullScope["appId"] = nullptr;
+
+  for (const graphql::JVal* input : {&global, &emptyScope, &nullScope}) {
+#ifndef CROWDY_NO_EXCEPTIONS
+    bool refused = false;
+    try {
+      (void)quotas.set(*input);
+    } catch (const graphql::CrowdyError& e) {
+      refused = true;
+      CHECK_EQ(e.code(), "INVALID_ARGUMENT");
+      CHECK(std::string(e.what()).find("needs an appId or an orgId") != std::string::npos);
+    }
+    CHECK(refused);
+#else
+    CHECK(!quotas.set(*input).ok());
+#endif
+    bool called = false;
+    quotas.setAsync(*input, [&](graphql::GraphQLOutcome out) {
+      called = true;
+      CHECK(!out.ok());
+      CHECK(out.status.code == Errc::InvalidArgument);
+      CHECK(out.errorMessage.find("needs an appId or an orgId") != std::string::npos);
+    });
+    CHECK(!called);
+    client.poll();
+    CHECK(called);
+  }
+  CHECK_EQ(setQuotaRequests(*transport), std::size_t{0});
+
+  graphql::JVal orgScoped = global;
+  orgScoped["orgId"] = "84056495811584";
+  CHECK_EQ(quotas.set(orgScoped)["id"].asString(), "7");
+  graphql::JVal appTier = global;
+  appTier["appId"] = "92996850034944";
+  appTier["tierId"] = "3";
+  CHECK_EQ(quotas.set(appTier)["id"].asString(), "7");
+  CHECK_EQ(setQuotaRequests(*transport), std::size_t{2});
+}
+
 int main() {
   testAMovedClientIsFullyUsable();
+  testQuotasSetRefusesAPlatformGlobalRule();
   testEndpointNormalization();
   testSynchronousGameplayRefresh();
 #ifndef CROWDY_NO_EXCEPTIONS

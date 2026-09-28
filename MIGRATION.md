@@ -1,5 +1,39 @@
 # CrowdyCPP migration notes
 
+## 0.51.0 The SDK is for normal clients
+
+Breaking. The SDK serves players, developers and org-admins and is designed for the production
+environment (operator decision, 2026-09-28). It carries org-admin features but nothing only a
+super-admin or a platform operator can call; platform tooling and test helpers call those fields
+directly. Pinned to CrowdyJS 18.0.1, which made the same cut. `schema.gql` is unchanged: every
+field below is still in the API, and the replacement for each removed wrapper is **call the API
+directly from your own tooling** (`graphqlClient().request(...)` with your own document, or any
+GraphQL client) with a super-admin or operator session.
+
+| 0.50 | Game API root field (guard) | 0.51 |
+|---|---|---|
+| `client.operator_()` (`domains/operator.hpp`, `OperatorAPI`): `creditOrgWallet` / `creditOrgWalletAsync` | `creditOrgWallet` (`@RequiresOperator`) | Your own tooling |
+| `users().paginated`, `listConnection` | `usersPaginated`, `usersConnection` (`@RequiresSuperAdmin`) | Your own tooling |
+| `users().setSuperAdmin`, `setOperator`, `setEarlyAccessOverride`, `updateType`, `forceLogout` | `setSuperAdmin`, `setOperator`, `setEarlyAccessOverride`, `updateUserType`, `forceLogoutUser` (`@RequiresSuperAdmin`) | Your own tooling. `users().me`, `get`, `updateState`, `updateGamertag`, `deleteMyAccount` stay |
+| `admin().organizations().setStatus` | `setOrgStatus` (`@RequiresSuperAdmin`) | Your own tooling |
+| `admin().apps().setVisibility` | `setAppVisibility` (`@RequiresSuperAdmin`, the platform-wide override) | An org-admin changes their own app's visibility with `admin().apps().update(appId, {visibility})` (`manage_apps`) |
+| `admin().payments().checkouts`, `checkoutsConnection`, `paymentEvents`, `paymentEventsConnection` | `checkouts`, `checkoutsConnection`, `paymentEvents`, `paymentEventsConnection` (`@RequiresSuperAdmin`) | Your own checkouts: `myCheckouts` / `myCheckoutsConnection` (stay). Platform-wide: your own tooling |
+| `crowdyStudioAgent().platformPolicy`, `setPlatformPolicy`, `setOperatorAppKill` | `cpCrowdyStudioAgentPlatformPolicy`, `cpSetCrowdyStudioAgentPlatformPolicy`, `cpSetCrowdyStudioAgentAppKill` (`@RequiresOperator`) | Your own tooling. `policy`, `effectivePolicy`, `usage`, `setPolicy`, provider consent and model usage stay |
+| `gen::crowdyStudioAgent::kCpCrowdyStudioAgentCatalogDocument` (no wrapper) | `cpCrowdyStudioAgentCatalog` (`@RequiresOperator`) | Your own tooling |
+
+Every `…Async` twin went with its method. The generated documents for these fields
+(`gen::users::kUsersPaginatedDocument`, `gen::controlPlane`, and so on) are gone too.
+
+`admin().quotas().set` / `setAsync` now refuse a rule that names neither an `appId` nor an
+`orgId` before any request. That is a platform-global quota, which only a super-admin can set.
+Blocking, the refusal is a `graphql::CrowdyError` with code `INVALID_ARGUMENT` (an empty result
+in a `CROWDY_NO_EXCEPTIONS` build). Async, it is an outcome with status `Errc::InvalidArgument`,
+kind `Protocol` and the reason in `errorMessage`. Scope the rule to an app or an org
+(`tierId` may narrow either). `remove(quotaId)` is unchanged.
+
+`tests/parity/sdk-audience.test.mjs` keeps it this way: CI fails when an SDK document selects a
+root field that only a super-admin or an operator can call.
+
 ## 0.50.0 The legacy engines are gone
 
 Breaking. Pinned to CrowdyJS 18.0.0 and to the Game API after its legacy deletion (ck-api

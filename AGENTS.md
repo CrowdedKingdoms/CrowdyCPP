@@ -1,5 +1,29 @@
 # CrowdyCPP agent guidance
 
+**RULE: THE SDK IS FOR NORMAL CLIENTS, AND IT IS DESIGNED FOR PRODUCTION (operator decision,
+2026-09-28).** It serves players, developers and org-admins. It may carry org-admin features
+(there will be many org-admins), but NEVER a wrapper for something only a super-admin or a
+platform operator can call, and no testing helper. Platform tooling and test helpers live in
+our own repos as scripts that call GraphQL directly. The per-release default origin
+(`kDefaultTier`) is unaffected. So, before wrapping a root field:
+
+- Read its resolver in cks-game-api at the same tier (`git show origin/dev:src/...`).
+  `@RequiresSuperAdmin()`, `@RequiresOperator()`, `OperatorGuard` (on the method or on its
+  resolver class), or a body that refuses everyone but a super-admin or an operator means it
+  does not belong here. Also read the services the body calls for such a refusal.
+- A field with an org-admin path and a platform path is wrapped for the org-admin path only,
+  and the SDK refuses the other before any request: `setQuota` / `deleteQuota` with neither
+  an org nor an app are platform-global, so `admin().quotas().set` needs an `appId` or an
+  `orgId` (`deleteQuota` takes only a quota id, so its scope is the server's to judge).
+- `tests/parity/sdk-audience.test.mjs` (`npm test`, CI `parity-baseline`) fails when any
+  document under `operations/` or inline `R"gql(...)gql"` document in `include/` selects a
+  root field on its platform-only list, or one whose schema description says operator- or
+  super-admin-only. When cks-game-api adds such a field, add it to that list; do not wrap
+  it. CrowdyJS carries the same test (`test/unit/sdk-audience.test.mjs`); this list holds
+  every field on its list, plus the platform-only fields CrowdyJS never wrapped.
+- 0.51.0 removed the last ones (MIGRATION.md lists them). A published release tag is never
+  moved: a change after `dev/vX.Y.Z` shipped is a new version.
+
 CrowdyCPP is a standalone public C++20 SDK. A normal configure, build, install,
 or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed.

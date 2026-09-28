@@ -125,7 +125,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | organizations | `e2e_studio_admin` | implemented; optional live |
 | apps | `e2e_studio_admin` | implemented; optional live |
 | app code admission | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
-| Agentic Studio app/operator policy | `client_portable_test` | typed routing in default CI |
+| Agentic Studio app policy | `client_portable_test` | typed routing in default CI |
 | app-access (tiers + grants) | `e2e_studio_admin` | implemented; optional live |
 | billing | `e2e_billing_quotas` | implemented; optional live |
 | quotas | `e2e_billing_quotas` | implemented; optional live |

@@ -1,5 +1,69 @@
 # CrowdyCPP migration notes
 
+## 0.50.0 The legacy engines are gone
+
+Breaking. Pinned to CrowdyJS 18.0.0 and to the Game API after its legacy deletion (ck-api
+`v2.27.0`, on dev): `schema.gql` no longer has the legacy engines' fields, so neither does this
+SDK.
+
+ck-exec (`client.exec()`) replaced the game model and its automations, Studio compute, player
+compute (both targets) and the player model. Their surface is removed:
+
+| 0.49 | 0.50 |
+|---|---|
+| `client.gameModel()` (`domains/game_model.hpp`): containers, functions, sessions, automations, timers, the container and player-count feeds | ck-exec hubs: state lives in a hub, calls are `ExecConnection::call`, pushes are `subscribe` |
+| `client.compute()` (`domains/compute.hpp`): compute modules, templates, runs | `exec().build` / `deploy` / `logs` / `versions` |
+| `client.playerModel()` (`domains/player_model.hpp`) | A mod's own state (`exec().mod*`) |
+| `client.playerCompute()` (`domains/player_compute.hpp`), SERVER target: `invoke`, `runs`, `logs`, `setEnabled`, `setRequires` | A mod: `modBuild`, `modDeploy`, `modSetEnabled`, `modLogs`, and a call on `connect(appId, {execModType(name), gridId})` |
+| `client.playerCompute()`, CLIENT target: `deploy`, `versions`, `artifact` / `artifactBytes`, `usage`, `setSwitch`, `switches`, `myModules`, `remove` | A mod's CLIENT half: `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `modClientArtifactBytes` (checked against its digest), the kill ladder `modSetSwitch` |
+| `domains::ClientArtifactBytes`, `decodeClientArtifactBytes` | `domains::ExecModClientArtifactBytes` |
+| `marketplace()` player-code listings, versions, acquisitions, installs, grid client mods, trust and consent, `clientArtifact` / `clientArtifactBytes` | The mod marketplace (`exec().modPublish`, `modListings`, `modUnpublish`, `modInstall`) and CLIENT halves (`gridClientMods`, `consentClientMod`, `trustAuthor`). The grid claims and the studio moderation methods stay |
+| `playerWallet().policies`, `setPolicy`, `deletePolicy` (player WASM policies) | None: a mod's compute is billed to its owner's wallet; `setSpendCap` bounds it |
+| `operator_().computePlatformCeilings` / `setComputePlatformCeilings` | None: ck-exec's limits are the manifest's, within platform bounds. `creditOrgWallet` stays |
+| `crowdyStudio().createProjectFromModules` | Create a project and start its SERVER target from `exec().modStarter` |
+| Tier features on the game model | `admin().appAccess()`: `defineFeature`, `features`, `grantTierFeature`, `revokeTierFeature`, `tierFeatures` (and `…Async`), the same Game API fields |
+| Game Kit: the blueprints, `deploy()`, the engines and the model-backed kits (`kit/core.hpp`, `inventory`, `objects`, `npcs`, `plots`, `economy`, `progression`, `loot`, `quests`, `combat`, `matches`, `decks`, `worldsim`, `leaderboards`, `features`, `notifications`, `mobs`, `pets`, and the realtime and session engine headers) | Hubs. `makeKit(client, appId, connection, options)` keeps `social()` (parties, guilds, chat; the guild blueprint went); `kit/wire.hpp` and `kit/actions.hpp` are unchanged |
+| `session::ContainerMirror` (`session/model_mirror.hpp`) | A hub subscription |
+| `studio/model_lint.hpp`, `CrowdyStudioDiagnosticSource::ModelLint` | None |
+| `GraphQLErrorDetail::quarantinedKind`, `quarantinedName`, `quarantineReason` | None: only game-model objects were quarantined |
+| `CrowdyStudioPlayerComputeRuntime` | `CrowdyStudioModRuntime(exec, clientRuntime, pump)` |
+| `CrowdyStudioUsageSnapshot`, `ICrowdyStudioRuntime::usage`, `CrowdyStudioState::usage` | None: there is no compile quota; the Usage surface reads the wallet |
+
+Crowdy Studio:
+
+- The SERVER target is the grid's ck-exec mod. A deploy builds the target's crate files
+  (`Cargo.toml`, `README.md`, `src/**/*.rs`) with `modBuild`, as crate `mod-<name>` when the module
+  name does not start with a letter; `versions()` polls `modBuildStatus` and deploys the first
+  successful build with `modDeploy`; enabling is `modSetEnabled`. The module name must be a valid
+  mod name (`[a-z0-9_-]{1,48}`).
+- The CLIENT target is that mod's CLIENT half, one `crowdy-client-sdk` crate (`crowdy-client-sdk =
+  "0.1.0"`): a deploy builds it with `modClientBuild`, and running it attaches the build to the
+  project's mod (`modClientDeploy`), consents to it as its author (`consentClientMod`), fetches it
+  with `modClientArtifactBytes` and hands `ICrowdyStudioClientRuntime::start` a
+  `CrowdyStudioClientArtifact{versionId, modName, module}`. A CLIENT-only project's CLIENT half
+  rides the mod named for its CLIENT module: the runtime deploys the mod starter under that name
+  when the grid has none of the player's, and switches it on; Stop switches it off. A CLIENT crate
+  that still depends on `crowdy-compute-sdk` fails to compile with CrowdyJS 18's explanation
+  (`kCrowdyStudioLegacyClientCrate`). Previews need ck-api `v2.25.1`.
+- `CrowdyStudioDeployTargetInput` carries `modName` and `clientOnly`; the controller fills them.
+- Invoke calls one of the mod's endpoints (`state` by default) over an exec connection and
+  returns `CrowdyStudioInvokeResult{resultJson, durationUs}`. The runtime waits up to 30 s for
+  the reply and calls the `pump` while it waits; the integration passes one that drains the
+  client's dispatcher, and a caller that drives `poll()` on another thread can pass none.
+- Logs are the project's mod's `ctx.log` lines (`CrowdyStudioLogLine`), a CLIENT-only project's
+  too; the Runs surface (`CrowdyStudioPolledSurface::Runs`, `CrowdyStudioRun`), `setRequires` and
+  a mod's client pairing are gone.
+- `ICrowdyStudioRuntime` drops `setRequires`, `runs` and `usage`; `CrowdyStudioDeployTargetInput`
+  carries the target's `files`.
+
+Generated operations: `gen::compute`, `gen::gameModel`, `gen::playerModel`, `gen::playerCompute`,
+`gen::runAdmission` and `gen::userCodeFaults` are gone, with the enums only they used
+(`PlayerComputeTarget`, `PlayerFaultCode`, `UserCodeFault*`, `GmLint*`, ...). `gen::computeUnits`
+keeps the compute budget documents (`AppComputeBudget`, `SetAppComputeBudget`,
+`ClearAppComputeBudget`); the usage and budget-status reads went with the Game API's fields.
+
+The live suite `e2e_operator` is gone: the operator surface left to test is a wallet credit.
+
 ## 0.49.0 ck-exec CLIENT halves (dev-tier preview)
 
 Pinned to CrowdyJS 17.14.0 (ck-api `v2.24.0`). Additive, except that builds and listings now need
@@ -28,8 +92,8 @@ listing fragment the `client*` fields, so an older API refuses `build`, `buildSt
   the mod had when published (`clientDigest`, `clientCapabilitySummaryJson`, `clientCapabilityHash`,
   `clientTickIntervalMs`), which `modInstall` attaches to the installer's mod.
 - The legacy grid-attached client mods (`marketplace().gridClientMods`, `consentGridClientMod`,
-  `trustGridAuthor`, `clientArtifact`, `clientArtifactBytes`) are superseded by these and go with
-  the legacy engines.
+  `trustGridAuthor`, `clientArtifact`, `clientArtifactBytes`) are superseded by these (removed in
+  0.50.0).
 - `LocalActorStore`: a send that fails, the loop's or a manual `refresh()` / `moveTo()`, is sent
   again on the next tick even when nothing changed; it used to wait for the next keyframe.
 - `SaveStateStore::save` built with `CROWDY_NO_EXCEPTIONS`: a save the API refuses keeps the blob

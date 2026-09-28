@@ -169,8 +169,7 @@ console.log(
     previous.commit.slice(0, 10) +
     "' tests docs\n" +
     '  2. npm run check:release\n' +
-    '  3. Reconfigure existing CMake build dirs (embedded fixture headers).\n' +
-    '  4. The blueprint structural gate (see README.md).',
+    '  3. Reconfigure existing CMake build dirs (embedded fixture headers).',
 );
 
 function run(args) {

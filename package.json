@@ -1,12 +1,12 @@
 {
   "name": "crowdycpp-maintainer-tools",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "private": true,
   "type": "module",
   "description": "Offline parity and schema maintenance tools for CrowdyCPP",
   "crowdyjsParityTarget": {
-    "version": "17.14.0",
-    "commit": "ec9518bc5561947283cd0c21e5c793b656109335"
+    "version": "18.0.0",
+    "commit": "3c85fde4900b7b2e0fd782c2574f4ccdc8baad7e"
   },
   "scripts": {
     "codegen": "node scripts/codegen.mjs",
@@ -29,8 +29,8 @@
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",
-    "sourceBlob": "7bd599fac632665e2b03798675559dce1ea8ef85",
-    "snapshotSha256": "efe68ea6c23a262c713e30a2c08b3d85ddf31783521d15b2c782fafb45c4a523",
-    "syncedAt": "2026-09-27T20:44:40.643Z"
+    "sourceBlob": "a4afcfce72ed984e051c293a9c043f8b4c5f8503",
+    "snapshotSha256": "e42540cc7cc1e31123fe9746f7851be88dc07be188535ff521bd8547c34d62d0",
+    "syncedAt": "2026-09-28T17:15:11.270Z"
   }
 }

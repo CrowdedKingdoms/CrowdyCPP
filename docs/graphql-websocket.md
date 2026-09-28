@@ -4,34 +4,12 @@ CrowdyCPP implements `graphql-transport-ws`. The client authenticates in
 `connection_init`, replays active operations after bounded reconnects, and
 delivers every callback through the shared `Dispatcher`.
 
-## Typed game-model changes
-
-```cpp
-crowdy::domains::GameModelContainerChangedCallbacks callbacks;
-callbacks.next = [&](crowdy::domains::GameModelContainerChange change) {
-  // Metadata-only push: pull caller-visible state after receipt.
-  auto state = game.gameModel().containerState(
-      change.appId, change.containerId);
-  applyState(state);
-};
-callbacks.error = [](crowdy::graphql::GraphQLSubscriptionError error) {
-  log(error.code, error.message);
-};
-callbacks.reconnect = [](crowdy::graphql::GraphQLReconnectInfo info) {
-  // Durable reads remain authoritative after a best-effort feed reconnect.
-};
-
-auto changes = game.gameModel().containerChanged(
-    appId, "Door", sessionId, std::move(callbacks));
-
-while (running) game.poll();
-// changes.cancel() is explicit; destruction also cancels.
-```
-
 ## Generic operations
 
-Use `client.subscriptions()` only for GraphQL subscriptions without a typed
-domain wrapper:
+`client.subscriptions()` runs any GraphQL subscription. The published Game API
+schema's only subscription roots are the legacy game model's feeds, which go at
+ck-exec P4 (CrowdyCPP 0.48.0 removed their typed wrappers); ck-exec pushes
+arrive on an `ExecConnection` subscription instead.
 
 ```cpp
 crowdy::graphql::GraphQLSubscriptionCallbacks callbacks;

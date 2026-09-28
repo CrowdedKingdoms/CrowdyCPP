@@ -48,7 +48,6 @@ When the unified GraphQL surface changes:
    are portable as of 0.38.0 (`saveProject` commits through
    `crowdyStudioGitHubPutFile` / `DeleteFile`); the hosted GitHub settings
    card on `CrowdyStudioController` stays a browser exclusion.
-8. Run the blueprint structural gate documented in `README.md`.
 
 ## Releasing
 
@@ -135,31 +134,26 @@ The class scan reads only `src/domains`, `src/kit`, `src/stores`, `world.ts`
 and the Studio modules. A CrowdyJS module outside it enters the matrix through
 `CROSS_CUTTING_EXPORT_MODULES`, where every export is classified and a new one
 fails: the CLIENT-half runner, broker and glue (`src/grid-mods/exec-client-halves.ts`,
-`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`) sit there as
-browser exclusions since 0.49.0, because this SDK runs no WASM. A behaviour
+`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`,
+`client-host-calls.ts`) sit there as browser exclusions since 0.49.0, because
+this SDK runs no WASM. A behaviour
 change that adds no method moves no row: pin it in `CROSS_CUTTING_BEHAVIORS`
 with markers from the CrowdyJS source, as 0.49.0 did for 17.14.0's three World
 Stores changes, so the matrix says what it means here and goes stale when that
 source changes.
 
-## Game Kit blueprints
+## The legacy engines (removed in 0.50.0)
 
-Kit blueprint builders must emit byte-identical JSON to CrowdyJS's, which the
-structural gate in `README.md` enforces by diffing dumps of a variant matrix.
-Both matrices (`tools/parity/dump-blueprints.mjs` and
-`tools/parity/dump_blueprints.cpp`) must list the same variants, so adding a
-builder option means adding a variant to both or the gate never covers it.
-
-Two things about blueprint content, both learned from live deploys rather than
-from the gate, which only compares the two SDKs to each other:
-
-- **Declare a function before anything references it.** `gameModelSeed`
-  processes functions in array order, so a `timers` effect naming a function
-  defined later in the array warns about an unresolved target.
-- **Expressions have no conditional and no `now()`.** Guards have to be
-  arithmetic — `matchesBlueprint`'s turn deadline keeps a monotonic sequence
-  and compares it rather than branching, which is what makes a timer that
-  fires after its turn ended harmless.
+The game model and its automations, Studio compute, player compute (both
+targets) and the player model are gone, from the Game API too (ck-api
+v2.27.0): ck-exec (`client.exec()`) replaced them. The Game Kit keeps
+`social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's SERVER target
+is a mod and its CLIENT target that mod's CLIENT half (`CrowdyStudioModRuntime`).
+Do not re-add a wrapper for a `gameModel*`, `compute*`, `playerModel*`,
+`playerCompute*`, player-code marketplace or WASM-policy field: the schema no
+longer has them, and codegen refuses an operation that names one. The Game API
+keeps tier features (`admin().appAccess()`), grid claims, the studio moderation
+fields and the compute budget (`gen::computeUnits`).
 
 ## Writing tests against `graphql::Json`
 

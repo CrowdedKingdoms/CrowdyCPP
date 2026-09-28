@@ -204,11 +204,3 @@ mutation CrowdyStudioCommonPublish(
     ...CrowdyStudioCommonFileFields
   }
 }
-
-mutation CrowdyStudioProjectCreateFromModules(
-  $input: CreateCrowdyStudioProjectFromModulesInput!
-) {
-  crowdyStudioProjectCreateFromModules(input: $input) {
-    ...CrowdyStudioProjectFields
-  }
-}

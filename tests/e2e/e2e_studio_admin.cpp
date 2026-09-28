@@ -61,6 +61,7 @@ int runAll() {
   createInput["slug"] = appSlug;
   createInput["description"] = "CrowdyCPP studio-admin e2e app";
   createInput["visibility"] = "PUBLIC";
+  createInput["datacenter"] = e2e::placeableDatacenter(own);
   graphql::Json createdApp = own.admin().apps().create(createInput);
   const std::string newAppId = bigIntStr(createdApp["appId"]);
   E2E_CHECK(!newAppId.empty() && newAppId != "0");

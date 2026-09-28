@@ -423,12 +423,9 @@ const METHOD_ALIASES = {
   'AuthAPI.register': 'registerUser',
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
-  'PlayerComputeAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
-  'GameModelAPI.automations': 'automationsList',
-  'GameModelAPI.getFunction': 'function',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -447,11 +444,6 @@ const METHOD_ALIASES = {
   'SharedEnvironmentAPI.autoBilling': 'orgAutoBilling',
   'SharedEnvironmentAPI.freeAppQuota': 'orgFreeAppQuota',
   'SharedEnvironmentAPI.paymentMethods': 'orgPaymentMethods',
-  'EconomyKit.trades.get': 'trade',
-  'EconomyKit.trades.listMine': 'myTrades',
-  'EconomyKit.trades.offer': 'tradeOffer',
-  'EconomyKit.trades.accept': 'tradeAccept',
-  'EconomyKit.trades.cancel': 'tradeCancel',
   'AvatarStateStore.publicState': 'identityState',
   'ChunkStore.get': 'find',
   'HostTracker.isHost': 'amIHost',
@@ -466,14 +458,6 @@ const ASYNC_TWIN_WAIVERS = {
     'local AuthState read completes synchronously without transport work',
   'AuthAPI.setToken':
     'local AuthState write completes synchronously without transport work',
-  'GameModelAPI.containerChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  'GameModelAPI.activePlayerCountChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  // Same shape as the two above; it entered the matrix with the 17.4.0 re-pin
-  // (the 17.3.0 snapshot predated the session system).
-  'GameModelAPI.sessionChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
   'ExecAPI.waitForBuild':
@@ -497,12 +481,8 @@ const CLASS_MAP = {
   TeleportAPI: 'TeleportAPI',
   TeamsAPI: 'TeamsAPI',
   ChannelsAPI: 'ChannelsAPI',
-  ComputeAPI: 'ComputeAPI',
-  GameModelAPI: 'GameModelAPI',
   GameAppsAPI: 'GameAppsAPI',
   MarketplaceAPI: 'MarketplaceAPI',
-  PlayerComputeAPI: 'PlayerComputeAPI',
-  PlayerModelAPI: 'PlayerModelAPI',
   PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
@@ -513,25 +493,9 @@ const CLASS_MAP = {
   QuotasAPI: 'QuotasAPI',
   UsageAPI: 'UsageAPI',
   SharedEnvironmentAPI: 'SharedEnvironmentAPI',
-  ControlPlaneAPI: 'OperatorAPI',
   WorldClient: 'WorldClient',
   ActorClient: 'ActorClient',
-  GameKitClient: 'GameKitClient',
-  InventoryKit: 'InventoryKit',
-  ObjectsKit: 'ObjectsKit',
-  NpcsKit: 'NpcsKit',
-  PlotsKit: 'PlotsKit',
-  EconomyKit: 'EconomyKit',
-  ProgressionKit: 'ProgressionKit',
-  LootKit: 'LootKit',
-  QuestsKit: 'QuestsKit',
-  CombatKit: 'CombatKit',
-  MatchesKit: 'MatchesKit',
-  DecksKit: 'DecksKit',
-  WorldsimKit: 'WorldsimKit',
   SocialKit: 'SocialKit',
-  LeaderboardsKit: 'LeaderboardsKit',
-  FeaturesKit: 'FeaturesKit',
   LocalActorStore: 'LocalActorStore',
   RemoteActorStore: 'RemoteActorStore',
   ChannelInbox: 'Inbox',
@@ -540,7 +504,6 @@ const CLASS_MAP = {
   HostTracker: 'WorldSession',
   SaveStateStore: 'SaveStateStore',
   AvatarStateStore: 'AvatarStateStore',
-  ContainerMirror: 'ContainerMirror',
   WorldSessionCore: 'WorldSession',
   ChunkStore: 'ChunkStore',
   ErrorStore: 'ErrorStore',
@@ -869,23 +832,34 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   ),
   'src/player-runtime/player-code-broker.ts': exportModule(
     [
-      'ALLOWED_HOST_CALLS',
       'EXEC_CLIENT_HOST_CALLS',
+      'PLAYER_CODE_INVOKE_MAX_BYTES',
+      'PLAYER_CODE_LOG_LINES_PER_SECOND',
+      'PLAYER_CODE_LOG_MAX_CHARS',
       'PlayerCodeBroker',
       'PlayerCodeBrokerOptions',
       'PlayerCodeEngine',
       'PlayerCodeGridBounds',
       'PlayerCodeHostCall',
+      'PlayerCodeLogLevel',
+      'PlayerCodeLogLine',
       'PlayerCodePresentation',
       'PlayerCodeWorkerLike',
     ],
     CATEGORY.BROWSER,
-    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs, the bounded crowdy::log lines and handle_invoke calls); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+  ),
+  // CrowdyJS 18.0.0 moved the broker's allowlist into its own module.
+  'src/player-runtime/client-host-calls.ts': exportModule(
+    ['EXEC_CLIENT_HOST_CALLS'],
+    CATEGORY.BROWSER,
+    'the browser broker\'s deny-by-default host-call allowlist, from the generated host catalog; a native sandbox lets a CLIENT half call only the consented summary\'s hostFunctions',
   ),
   'src/player-runtime/glue-runtime.ts': exportModule(
     [
       'EXEC_CLIENT_ABI_IMPORTS',
       'GLUE_HOST_FUNCTIONS',
+      'GLUE_LOG_MAX_BYTES',
       'GlueDispatchResult',
       'GlueInitMessage',
       'GlueRuntime',
@@ -938,6 +912,28 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.NATIVE,
       'SaveStateStore has no autosave timer: the game calls save() from its own loop, and a save that fails stays dirty() for the next one (0.49.0 made that hold without exceptions)',
+    ),
+  },
+  // CrowdyJS 18.0.0: the runner reaches a running CLIENT half (invoke) and hears its
+  // crowdy::log lines (onLog), and the page answers two more host calls. All of it is the
+  // browser runtime around a module this SDK does not run.
+  'exec-client-halves-invoke-and-logs': {
+    path: 'src/grid-mods/exec-client-halves.ts',
+    markers: [
+      'invoke(modId: string, payload: Uint8Array',
+      'onLog?: (line: PlayerCodeLogLine, mod: ExecGridClientMod) => void;',
+    ],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the browser runner calls a running CLIENT half\'s handle_invoke and forwards its crowdy::log lines through PlayerCodeBroker; a native engine calls and logs its own sandbox',
+    ),
+  },
+  'grid-host-call-answers': {
+    path: 'src/grid-mods/grid-host-calls.ts',
+    markers: ["case 'avatar_state_get': {", "case 'grid_permission_check': {"],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the page answers a CLIENT half\'s avatar_state_get and grid_permission_check from the game\'s own knowledge; a native engine answers its sandbox\'s host calls itself',
     ),
   },
   'chunk-store-bounded-hydration': {
@@ -1686,8 +1682,14 @@ function keyDtoContractResults() {
   const cppAuthFields = dataFields(
     declarationBlock(cppTypes, /struct\s+AuthResponse\s*\{/gu),
   );
+  const cppExec = readFileSync(
+    join(root, 'include', 'crowdy', 'domains', 'exec.hpp'),
+    'utf8',
+  );
+  // The CLIENT half a native sandbox receives (0.50.0: the legacy
+  // ClientArtifactBytes went with player compute).
   const cppArtifactFields = dataFields(
-    declarationBlock(cppTypes, /struct\s+ClientArtifactBytes\s*\{/gu),
+    declarationBlock(cppExec, /struct\s+ExecModClientArtifactBytes\s*\{/gu),
   );
   const tsAuthFields = dataFields(
     declarationBlock(tsAuth, /export\s+interface\s+AuthResponse\s*\{/gu),
@@ -1718,34 +1720,40 @@ function keyDtoContractResults() {
     'string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'bytes',
     'std::vector<std::uint8_t>',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'artifactHash',
+    'digest',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'fuelPerDispatch',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'contractJson',
-    'std::optional<std::string>',
+    'capabilitySummaryJson',
+    'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'versionId',
+    'capabilityHash',
     'std::string',
+  );
+  assertField(
+    'CrowdyCPP.ExecModClientArtifactBytes',
+    cppArtifactFields,
+    'abiVersion',
+    'int',
   );
   return { checked, failures };
 }

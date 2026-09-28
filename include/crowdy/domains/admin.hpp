@@ -476,6 +476,59 @@ class AppAccessAPI : public detail::AdminDomain {
                     two("appId", graphql::JVal(appId), "userId", graphql::JVal(userId)), {},
                     std::move(cb));
   }
+
+  // Tier features: feature keys an access tier grants. A ck-exec hub checks a player's with the
+  // node API's players.features. The fields keep the game model's names
+  // (gameModelDefineFeature, ...); they are served beside access tiers. All need manage_apps.
+
+  /// Define (or re-describe) a feature key; idempotent on (appId, featureKey).
+  graphql::Json defineFeature(const graphql::JVal& input) const {
+    return execUnwrap(gen::appAccess::kDefineAppFeatureDocument, one("input", input));
+  }
+  void defineFeatureAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::appAccess::kDefineAppFeatureDocument, one("input", input), {},
+                    std::move(cb));
+  }
+  /// The feature keys defined for an app.
+  graphql::Json features(std::string_view appId) const {
+    return execUnwrap(gen::appAccess::kAppFeaturesDocument, one("appId", graphql::JVal(appId)));
+  }
+  void featuresAsync(std::string_view appId, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::appAccess::kAppFeaturesDocument, one("appId", graphql::JVal(appId)), {},
+                    std::move(cb));
+  }
+  /// Grant a feature key to an access tier.
+  graphql::Json grantTierFeature(const graphql::JVal& input) const {
+    return execUnwrap(gen::appAccess::kGrantTierFeatureDocument, one("input", input));
+  }
+  void grantTierFeatureAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::appAccess::kGrantTierFeatureDocument, one("input", input), {},
+                    std::move(cb));
+  }
+  /// Revoke a feature key from an access tier; true when a grant was removed.
+  graphql::Json revokeTierFeature(const graphql::JVal& input) const {
+    return execUnwrap(gen::appAccess::kRevokeTierFeatureDocument, one("input", input));
+  }
+  void revokeTierFeatureAsync(const graphql::JVal& input, graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::appAccess::kRevokeTierFeatureDocument, one("input", input), {},
+                    std::move(cb));
+  }
+  /// Tier-to-feature grants for an app, optionally for one tier.
+  graphql::Json tierFeatures(std::string_view appId, std::string_view tierId = {}) const {
+    return execUnwrap(gen::appAccess::kTierFeaturesDocument, tierFeatureVars(appId, tierId));
+  }
+  void tierFeaturesAsync(std::string_view appId, std::string_view tierId,
+                         graphql::GraphQLCallback cb) const {
+    execUnwrapAsync(gen::appAccess::kTierFeaturesDocument, tierFeatureVars(appId, tierId), {},
+                    std::move(cb));
+  }
+
+ private:
+  graphql::JVal tierFeatureVars(std::string_view appId, std::string_view tierId) const {
+    graphql::JVal vars = one("appId", graphql::JVal(appId));
+    if (!tierId.empty()) vars["tierId"] = tierId;
+    return vars;
+  }
 };
 
 /// client.admin().billing() — org wallet + per-app budgets.

@@ -93,7 +93,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `new-app-grid-creation` | `e2e_studio_admin` (grid-creation scenario) | implemented; optional live |
 | `studio-admin` | `e2e_studio_admin` | implemented; optional live |
 | `payments-economy` | `e2e_payments` | partially implemented; optional live for create/list/idempotent replay; capture excluded |
-| `operator-control-plane` | — | excluded: since 0.50.0 the operator surface is `creditOrgWallet`, a money mutation, and `e2e_operator` (the compute-ceiling read) went with the ceilings |
+| `operator-control-plane` | — | excluded: the SDK wraps nothing only an operator or a super-admin can call (0.51.0 removed `client.operator_()`); `e2e_operator` went with the compute ceilings in 0.50.0 |
 | `malicious-input` | `e2e_malicious_input` | implemented; optional live |
 | `exec-client-halves` | `exec_test` + `e2e_exec_client_halves` | documents, variables, async twins and every `modClientArtifactBytes` refusal in default CI; build → attach → list → consent → trust → fetch → detach optional live with a ck-exec app and a grid its owner owns (fetch and trust accept `NOT_FOUND`: no actor in the grid) |
 | ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames and reconnect in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
@@ -125,7 +125,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | organizations | `e2e_studio_admin` | implemented; optional live |
 | apps | `e2e_studio_admin` | implemented; optional live |
 | app code admission | `player_runtime_surface_test` (offline routing/variables) | live e2e pending a deployed P1 player-runtime environment |
-| Agentic Studio app/operator policy | `client_portable_test` | typed routing in default CI |
+| Agentic Studio app policy | `client_portable_test` | typed routing in default CI |
 | app-access (tiers + grants) | `e2e_studio_admin` | implemented; optional live |
 | billing | `e2e_billing_quotas` | implemented; optional live |
 | quotas | `e2e_billing_quotas` | implemented; optional live |

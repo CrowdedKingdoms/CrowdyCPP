@@ -1,7 +1,8 @@
 // Mirrors Management API e2e: payments (checkout lifecycle reads, NO
 // capture). Creates a small org-wallet top-up checkout with an idempotency
-// key, then reads it back through myCheckouts / checkouts (+ Relay connection
-// variants) and paymentEvents. Deployments without a payment provider
+// key, then reads it back through myCheckouts (+ its Relay connection). The
+// platform-wide checkouts / paymentEvents listings are super-admin only and not
+// wrapped (since 0.51.0). Deployments without a payment provider
 // configured must fail with a STRUCTURED error code, which this suite treats
 // as pass-with-note. See https://docs.crowdedkingdoms.com for the payments
 // surface.
@@ -68,36 +69,6 @@ int runAll() {
     });
     E2E_CHECK(sawMine);
     E2E_CHECK(sawMineConn);
-  }
-
-  E2E_SUBTEST("checkouts + checkoutsConnection (admin listing)");
-  try {
-    graphql::JVal listVars;
-    listVars["limit"] = std::int64_t{20};
-    graphql::Json all = own.admin().payments().checkouts(listVars);
-    E2E_CHECK(all["items"].isArray());
-    graphql::JVal connVars;
-    connVars["first"] = std::int64_t{20};
-    graphql::Json allConn = own.admin().payments().checkoutsConnection(connVars);
-    E2E_CHECK(allConn["edges"].isArray());
-  } catch (const graphql::CrowdyGraphQLError& e) {
-    // The cross-user listing may require a higher privilege than this owner.
-    E2E_CHECK(!e.code().empty());
-    std::printf("   note: checkouts listing denied for this account (code=%s)\n",
-                e.code().c_str());
-  }
-
-  E2E_SUBTEST("paymentEvents reads");
-  try {
-    graphql::Json events = own.admin().payments().paymentEvents(20);
-    E2E_CHECK(events["items"].isArray());
-    E2E_CHECK(events["pageInfo"]["totalCount"].asInt64() >= 0);
-    graphql::Json eventsConn = own.admin().payments().paymentEventsConnection(20);
-    E2E_CHECK(eventsConn["edges"].isArray());
-  } catch (const graphql::CrowdyGraphQLError& e) {
-    E2E_CHECK(!e.code().empty());
-    std::printf("   note: paymentEvents denied for this account (code=%s)\n",
-                e.code().c_str());
   }
 
   // Deliberately NO capture: the checkout stays PENDING and expires

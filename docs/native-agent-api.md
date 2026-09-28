@@ -33,8 +33,10 @@ one API origin, gated by permission.
 
 ## Operator
 
-`platformPolicy()`, `setPlatformPolicy(input)`, `setOperatorAppKill(input)`
-and the catalog (`cpCrowdyStudioAgentCatalog`) are unchanged.
+Not wrapped since 0.51.0: the platform policy, the per-app operator kill and the
+catalog (`cpCrowdyStudioAgentPlatformPolicy`, `cpSetCrowdyStudioAgentPlatformPolicy`,
+`cpSetCrowdyStudioAgentAppKill`, `cpCrowdyStudioAgentCatalog`) are operator-only, and the
+SDK wraps nothing for platform roles. Platform tooling calls them directly.
 
 ## The REST endpoint itself
 

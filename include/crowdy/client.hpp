@@ -36,7 +36,6 @@ namespace crowdy {
 
 namespace domains {
 class AdminAPI;
-class OperatorAPI;
 }  // namespace domains
 namespace studio {
 #ifndef CROWDY_NO_EXCEPTIONS
@@ -237,8 +236,8 @@ class CrowdyClient {
   }
 #endif
   domains::PlatformAPI& platform() { return *platform_; }
-  /// Agentic Crowdy Studio policy, sanitized usage, provider-data consent and
-  /// operator controls. The agent itself runs in the player's browser
+  /// Agentic Crowdy Studio policy, sanitized usage and provider-data consent.
+  /// The agent itself runs in the player's browser
   /// (CrowdyJS `dsh`) against the metered `/v1/model` endpoint; this SDK does
   /// not drive it.
   domains::CrowdyStudioAgentAPI& crowdyStudioAgent() {
@@ -286,8 +285,6 @@ class CrowdyClient {
   /// Studio-admin surface (orgs, apps, billing, usage, ...). Drive
   /// with an org/admin token from a trusted context.
   domains::AdminAPI& admin() { return *admin_; }
-  /// Operator control-plane surface (requires is_operator).
-  domains::OperatorAPI& operator_() { return *operatorApi_; }
 
   // ----- Low-level escape hatches ------------------------------------------------
   /// Raw GraphQL against the API endpoint.
@@ -396,7 +393,6 @@ class CrowdyClient {
   std::unique_ptr<domains::PlatformAPI> platform_;
   std::unique_ptr<domains::CrowdyStudioAgentAPI> crowdyStudioAgent_;
   std::unique_ptr<domains::AdminAPI> admin_;
-  std::unique_ptr<domains::OperatorAPI> operatorApi_;
   std::unique_ptr<replication::ReplicationClient> replication_;
 };
 

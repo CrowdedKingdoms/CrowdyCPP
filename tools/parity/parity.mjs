@@ -227,6 +227,42 @@ const ROOT_CLASSIFICATIONS = {
   // browser exclusions: a native host does not mount that card, and
   // connectGitHub opens a browser tab. SetAutosave / Pull / Push left with
   // 17.0.0.
+  // Root fields only a super-admin or a platform operator can call, removed from both SDKs
+  // (CrowdyJS 18.0.1, CrowdyCPP 0.51.0; operator decision 2026-09-28): the SDKs are for
+  // players, developers and org-admins, and platform tooling calls these fields directly.
+  // tests/parity/sdk-audience.test.mjs keeps them unwrapped. checkouts / paymentEvents
+  // are deprecated waivers already, and the hosting / billing / email / retirement roots
+  // above were never wrapped here.
+  ...classifyNames(
+    'Mutation',
+    [
+      'creditOrgWallet',
+      'cpSetCrowdyStudioAgentAppKill',
+      'cpSetCrowdyStudioAgentPlatformPolicy',
+      'forceLogoutUser',
+      'setAppVisibility',
+      'setEarlyAccessOverride',
+      'setOperator',
+      'setOrgStatus',
+      'setSuperAdmin',
+      'updateUserType',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    [
+      'checkoutsConnection',
+      'cpCrowdyStudioAgentCatalog',
+      'cpCrowdyStudioAgentPlatformPolicy',
+      'paymentEventsConnection',
+      'usersConnection',
+      'usersPaginated',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -242,7 +278,6 @@ const METHOD_CLASSIFICATIONS = {
     'HostingAPI',
     [
       'abandonPublish',
-      'all',
       'beginPublish',
       'claim',
       'completePublish',
@@ -251,8 +286,6 @@ const METHOD_CLASSIFICATIONS = {
       'mine',
       'publishes',
       'setEnabled',
-      'setListing',
-      'takeDown',
     ],
     CATEGORY.BROWSER,
     'wrapper over the Crowdy Games hosting roots (browser bundles); no native client publishes one',
@@ -433,12 +466,8 @@ const METHOD_ALIASES = {
   'AppAccessAPI.usersByAppConnection': 'userAccessConnection',
   'OrganizationsAPI.bySlug': 'getBySlug',
   'OrganizationsAPI.setMemberRoles': 'updateMemberRoles',
-  'PaymentsAPI.all': 'checkouts',
-  'PaymentsAPI.allConnection': 'checkoutsConnection',
   'PaymentsAPI.capturePaypal': 'capturePaypalCheckout',
   'PaymentsAPI.create': 'createCheckout',
-  'PaymentsAPI.events': 'paymentEvents',
-  'PaymentsAPI.eventsConnection': 'paymentEventsConnection',
   'PaymentsAPI.mine': 'myCheckouts',
   'PaymentsAPI.mineConnection': 'myCheckoutsConnection',
   'SharedEnvironmentAPI.autoBilling': 'orgAutoBilling',

@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.48.0 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.50.0 passes the strict portable-parity gate against CrowdyJS
 **18.0.0**. The gate pins CrowdyJS commit
-`1bd0e4d8c73d1f603d49e2b827a8f9a0a77e68a3` (`crowdyjsParityTarget` in
+`3c85fde4900b7b2e0fd782c2574f4ccdc8baad7e` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,18 +34,18 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.48.0 | CrowdyJS 18.0.0 | Required public API generation |
+| Surface | CrowdyCPP 0.50.0 | CrowdyJS 18.0.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported | Supported | Current published Management + Game SDL |
 | ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
-| ck-exec CLIENT halves (dev-tier preview) | `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor`, `modClientArtifact`; `modClientArtifactBytes` refuses bytes that differ from their SHA-256 digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a capability summary that does not parse (`parseExecClientCapabilitySummary`). No WASM runtime: the engine runs the module in its own sandbox | The same operations; `ExecClientHalves` runs a grid's CLIENT halves in `PlayerCodeBroker` (`engine: 'ck-exec'`) in the page's glue worker | Game API dev `execModClientBuild` / `execModClientDeploy` / `execModClientDelete` / `execGridClientMods` / `execConsentClientMod` / `execTrustAuthor` / `execModClientArtifact` (ck-api `v2.24.0`) |
+| ck-exec CLIENT halves (dev-tier preview) | `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `gridClientMods`, `consentClientMod`, `trustAuthor`, `modClientArtifact`; `modClientArtifactBytes` refuses bytes that differ from their SHA-256 digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a capability summary that does not parse (`parseExecClientCapabilitySummary`). No WASM runtime: the engine runs the module in its own sandbox | The same operations; `ExecClientHalves` runs a grid's CLIENT halves in `PlayerCodeBroker` (`engine: 'ck-exec'`) in the page's glue worker | Game API dev `execModClientBuild` / `execModClientDeploy` / `execModClientDelete` / `execGridClientMods` / `execConsentClientMod` / `execTrustAuthor` / `execModClientArtifact` (ck-api `v2.24.0`). The legacy engines' fields are gone from ck-api `v2.27.0`, and so is this SDK's surface for them |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
 | Generic GraphQL WebSocket | `GraphQLSubscriptionClient` | `graphql-ws` | `graphql-transport-ws` endpoint |
 | App listing-version administration | `marketplace().appListingVersions` | `marketplace.appListings` (no listing-version method) | Management API 2026-07-24+ |
 | Tier features | `admin().appAccess().defineFeature` / `features` / `grantTierFeature` / `revokeTierFeature` / `tierFeatures` | `appAccess.defineFeature` / `features` / `grantTierFeature` / `revokeTierFeature` / `tierFeatures` | `gameModelDefineFeature` … `gameModelTierFeatures`, served beside access tiers |
-| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file; the SERVER target is a ck-exec mod (`CrowdyStudioModRuntime`), the CLIENT target compiles on player compute | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile`; the SERVER target is a mod (`mods: client.exec`) | Game API project roots, `execMod*`, and `playerComputeDeploy` / `Versions` / `Artifact` for CLIENT modules; durable checkpoint mutations require an injected bridge |
+| Crowdy Studio projects/runtime | Headless native controller, typed diagnostics/wallet observation; a GITHUB project's `saveProject` commits each changed file; the SERVER target is a ck-exec mod and the CLIENT target its CLIENT half (`CrowdyStudioModRuntime`), run by an engine-owned client runtime | Browser/headless controller; bound saves commit through `crowdyStudioGitHubPutFile` / `DeleteFile`; the SERVER target is a mod and the CLIENT target its CLIENT half, previewed in the page's broker | Game API project roots, `execMod*` and `execModClient*` (Studio previews need ck-api `v2.25.1`); durable checkpoint mutations require an injected bridge |
 | Crowdy Studio pane layout | Headless controller with injected storage | Headless controller with browser-local default storage | None |
 | Native Studio integration | Owned editor/layout/runtime assembly with explicit maintenance scheduling | Browser Studio composition with the in-browser DSH agent pane | Project/runtime roots |
 | Agentic Studio policy, consent, metered usage | `CrowdyStudioAgentAPI` reads and admin writes | `CrowdyStudioDshTransport` reads; the harness spends through REST `/v1/model` | Game API with the metered model endpoint (removes the 21 `crowdyStudioAgent*` session/run/lease/tool roots) |
@@ -73,20 +73,13 @@ for inherently browser-owned PKCE persistence, DOM/Monaco/VFS worker chrome,
 splitters, embed panel/dock/HUD/styles/focus handling, worker-entry
 packaging, and the player-WASM runner, broker and glue that run CLIENT
 modules in a Web Worker (`ExecClientHalves`, `PlayerCodeBroker`,
-`GlueRuntime`). CLIENT artifact-byte decoding is portable and is available
-through `playerCompute().artifactBytes(...)`,
-`marketplace().clientArtifactBytes(...)` and, for a ck-exec mod's CLIENT
-half, `exec().modClientArtifactBytes(...)`, which also checks the bytes
-against their digest. World Stores behaviour that changes without a method
-(17.14.0's actor resend, autosave retry and bounded chunk hydration) is
-pinned in the matrix's behavior audit.
+`GlueRuntime`, the host-call allowlist, and 18.0.0's `invoke` / `onLog` on
+the runner and grid host-call answers). CLIENT artifact-byte decoding is
+portable: `exec().modClientArtifactBytes(...)` fetches a mod's CLIENT half and
+checks the bytes against their digest. World Stores behaviour that changes
+without a method (17.14.0's actor resend, autosave retry and bounded chunk
+hydration) is pinned in the matrix's behavior audit.
 Portable gaps, unclassified differences, and stale classifications are zero.
-
-The matrix also lists **held removals**: the legacy engines' root fields (Studio
-compute, the game model and its automations, player compute's server side, the
-player model), which `schema.gql` still carries until the SDL sync that follows
-the Game API's deletion at ck-exec P4. Neither SDK wraps them; the sync removes
-them, and the gate then reports these entries stale until they are deleted.
 
 ## CrowdyCPP 0.x source and ABI policy
 

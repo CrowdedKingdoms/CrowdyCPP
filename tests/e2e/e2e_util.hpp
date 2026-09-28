@@ -37,7 +37,6 @@
 ///   CROWDY_E2E_EMAIL_2          fixed second email (legacy two-client mode)
 ///   CROWDY_E2E_APP_ID_2         a second app on the same deployment
 ///                               (cross-app isolation suites)
-///   CROWDY_E2E_OPERATOR_EMAIL   an is_operator account (operator suite)
 ///   CROWDY_E2E_MULTI_SERVER=1   deployment runs 2+ replication servers
 ///   CROWDY_E2E_CLAIM_CHUNK_X/Y/Z
 ///                               reserved free chunk for SELF_CLAIM coverage
@@ -145,7 +144,6 @@ struct E2eConfig {
   std::string appId;
   std::string appId2;
   std::string ownerEmail;
-  std::string operatorEmail;
 };
 
 /// Load the config or skip the test (exit 77).
@@ -163,7 +161,6 @@ inline E2eConfig requireConfig(bool needSecondPlayer = false) {
   cfg.appId = envOr("CROWDY_E2E_APP_ID");
   cfg.appId2 = envOr("CROWDY_E2E_APP_ID_2");
   cfg.ownerEmail = envOr("CROWDY_E2E_OWNER_EMAIL");
-  cfg.operatorEmail = envOr("CROWDY_E2E_OPERATOR_EMAIL");
   if (cfg.apiUrl.empty() || cfg.email.empty() || cfg.appId.empty() ||
       (needSecondPlayer && cfg.email2.empty() && cfg.ownerEmail.empty())) {
     std::puts("CROWDY_E2E_* not configured; skipping");

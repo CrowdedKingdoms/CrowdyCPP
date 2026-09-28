@@ -93,7 +93,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `new-app-grid-creation` | `e2e_studio_admin` (grid-creation scenario) | implemented; optional live |
 | `studio-admin` | `e2e_studio_admin` | implemented; optional live |
 | `payments-economy` | `e2e_payments` | partially implemented; optional live for create/list/idempotent replay; capture excluded |
-| `operator-control-plane` | `e2e_operator` | partially implemented; optional live read-only queries |
+| `operator-control-plane` | — | excluded: since 0.50.0 the operator surface is `creditOrgWallet`, a money mutation, and `e2e_operator` (the compute-ceiling read) went with the ceilings |
 | `malicious-input` | `e2e_malicious_input` | implemented; optional live |
 | `exec-client-halves` | `exec_test` + `e2e_exec_client_halves` | documents, variables, async twins and every `modClientArtifactBytes` refusal in default CI; build → attach → list → consent → trust → fetch → detach optional live with a ck-exec app and a grid its owner owns (fetch and trust accept `NOT_FOUND`: no actor in the grid) |
 | ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames and reconnect in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
@@ -112,7 +112,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teams / channels | `e2e_teams_channels` | implemented; optional live |
 | generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds, the published schema's only subscription roots |
 | ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |
-| player compute (CLIENT) + mods + grid ownership | `player_runtime_surface_test` + `exec_test` (the Studio mod runtime) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) | typed surface in default CI; the Studio round trip optional live on an owned grid |
+| mods, CLIENT halves + grid ownership | `player_runtime_surface_test` (grid ownership) + `exec_test` (the Studio mod runtime, both targets) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) + `e2e_exec_client_halves` | typed surface and the Studio runtime in default CI; SERVER and CLIENT round trips optional live on an owned grid |
 | player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | exact documents/output mapping in default CI; app-token round trip optional live |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 
@@ -133,7 +133,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | payments | `e2e_payments` | partially implemented; optional live, with capture excluded |
 | org-token-auth | `e2e_studio_admin` (create/update/revoke) | implemented; optional live |
 | cross-tenant | `e2e_cross_tenant` | implemented; optional live |
-| environments | `e2e_operator` (read-only) | partially implemented; optional live, provisioning excluded |
+| environments | — | excluded: environments moved to infra-control-plane; no Game API read is left to exercise |
 | shared-environment | — | excluded: publishing mutates billing/runtime infra; not safe for a headless suite |
 
 ## Replication API behaviors (native UDP)

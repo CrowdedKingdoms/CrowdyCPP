@@ -60,17 +60,18 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
-**v0.48.0: the legacy engines are gone (held until ck-exec reaches P4).** ck-exec
-(`client.exec()`) replaced the Game API's game model and its automations, Studio compute and
-player compute's server side, so their C++ surface is removed: `client.gameModel()`,
-`client.compute()`, `client.playerModel()`, the Game Kit's blueprints, `deploy()`, engines and
-model-backed kits (`makeKit` keeps `social()`; `kit/wire.hpp` and `kit/actions.hpp` stay), the
-session layer's `ContainerMirror`, model lint and `CrowdyStudioDiagnosticSource::ModelLint`, the
-quarantine fields of `GraphQLErrorDetail`, `playerCompute()`'s SERVER half and the
-marketplace's player-code listings and grid attachments. Tier features moved to
-`admin().appAccess()`. Crowdy Studio's SERVER target is a ck-exec mod:
-`CrowdyStudioModRuntime` replaces `CrowdyStudioPlayerComputeRuntime`. Parity pinned to CrowdyJS
-18.0.0. See [MIGRATION.md](MIGRATION.md).
+**v0.50.0: the legacy engines are gone.** ck-exec (`client.exec()`) replaced the Game API's game
+model and its automations, Studio compute, player compute and the player model, and the Game API
+deleted them (ck-api v2.27.0 on dev), so their C++ surface is removed: `client.gameModel()`,
+`client.compute()`, `client.playerModel()`, `client.playerCompute()` (its CLIENT path too: a
+mod's CLIENT half replaces it), the Game Kit's blueprints, `deploy()`, engines and model-backed
+kits (`makeKit` keeps `social()`; `kit/wire.hpp` and `kit/actions.hpp` stay), the session layer's
+`ContainerMirror`, model lint, the quarantine fields of `GraphQLErrorDetail`, the marketplace's
+player-code listings and grid attachments, the player wallet's WASM policies and the operator's
+compute ceilings. Tier features moved to `admin().appAccess()`. Crowdy Studio's SERVER target is
+a ck-exec mod and its CLIENT target that mod's CLIENT half (`CrowdyStudioModRuntime`). Parity
+pinned to CrowdyJS 18.0.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.49.0: ck-exec CLIENT halves (dev-tier preview).** A mod can carry a CLIENT half: browser WASM
 built from a `crowdy-client-sdk` crate, which its grid serves to visitors who consent to its
 capability hash or trust its author. `client.exec()` adds `modClientBuild`, `modClientDeploy`,
@@ -534,10 +535,9 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
-| `client.exec()` | **ck-exec (dev-tier preview):** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `activateVersion`, `setEnabled`), and players' mods on grids they own (`mod*`). |
-| `client.playerCompute()` | Players' CLIENT modules: compile a project's CLIENT target (`deploy`), `versions`, `artifact` / `artifactBytes` for a native sandbox, compile quota (`usage`), list and remove modules, and the studio kill ladder (`setSwitch`, `switches`). Server-side player code is a mod. |
+| `client.exec()` | **ck-exec (dev-tier preview):** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
-| `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, copy-by-value imports, and authored-module recovery. |
+| `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
@@ -565,11 +565,10 @@ The API exposes no raw operation executor.
 For an engine-owned editor, construct the controller from injected interfaces:
 
 ```cpp
-// The SERVER target is the grid's ck-exec mod; the CLIENT target compiles on
-// player compute and runs in the engine's artifact runtime.
+// The SERVER target is the grid's ck-exec mod; the CLIENT target is that mod's
+// CLIENT half, which the engine's artifact runtime runs.
 crowdy::studio::CrowdyStudioModRuntime runtime(
-    game.exec(), game.playerCompute(), &engineArtifactRuntime,
-    [&game] { game.poll(); });
+    game.exec(), &engineArtifactRuntime, [&game] { game.poll(); });
 crowdy::studio::CrowdyStudioController studio(
     {.appId = appId, .gridId = gridId},
     game.crowdyStudio(), runtime, engineCrypto, engineClock,
@@ -625,7 +624,7 @@ external approval gate.
 The synchronization and runtime interfaces are intentionally server-free in
 unit tests. They do not grant grid permissions or source visibility: Game API
 ownership, target write/run permissions, and admission checks still execute on
-every mod and player compute call. The installed Studio parity fixtures pin the common
+every mod and CLIENT-half call. The installed Studio parity fixtures pin the common
 CrowdyJS runtime projection while retaining native content-hash, module, and
 pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
 runtime-ownership notes.
@@ -962,12 +961,6 @@ shown as missing work and is not presented as parity; native equivalents and
 inherently browser-only surfaces are the only waivers. New differences and
 stale classifications fail. `--strict` additionally fails on every remaining
 portable gap and is the strict portable-parity release gate used by CI.
-
-A **held removal** is a legacy engine root field (Studio compute, the game
-model and its automations, player compute's server side, the player model) that
-`schema.gql` still carries until the SDL sync after the Game API deletes it at
-ck-exec P4. Neither SDK wraps one; the sync removes them, and the gate then
-reports the entries stale until they are deleted from `tools/parity/parity.mjs`.
 
 When intentionally changing the target, update the pinned CrowdyJS SHA, sync
 the descriptor/preemption, control-gate, 11-tool Studio host, and layout

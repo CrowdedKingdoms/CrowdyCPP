@@ -123,12 +123,7 @@ Parity classifications are strict:
   removed as work lands;
 - `native equivalent` is allowed only when CrowdyCPP provides the same contract
   through its native architecture;
-- `browser exclusion` is allowed only for browser/UI/worker-specific behavior;
-- `held removal` (0.48.0) is only for the legacy engines' root fields (Studio
-  compute, the game model and its automations, player compute's server side,
-  the player model), which `schema.gql` keeps until the SDL sync after the Game
-  API deletes them at ck-exec P4. That sync makes the entries stale; delete
-  them then, with `LEGACY_ENGINE_REASON` in `tools/parity/parity.mjs`.
+- `browser exclusion` is allowed only for browser/UI/worker-specific behavior.
 
 Do not label planned native WebSockets, Crowdy Studio, agent control, leases, or
 player-host work as browser-only. New differences and stale classifications
@@ -139,24 +134,26 @@ The class scan reads only `src/domains`, `src/kit`, `src/stores`, `world.ts`
 and the Studio modules. A CrowdyJS module outside it enters the matrix through
 `CROSS_CUTTING_EXPORT_MODULES`, where every export is classified and a new one
 fails: the CLIENT-half runner, broker and glue (`src/grid-mods/exec-client-halves.ts`,
-`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`) sit there as
-browser exclusions since 0.49.0, because this SDK runs no WASM. A behaviour
+`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`,
+`client-host-calls.ts`) sit there as browser exclusions since 0.49.0, because
+this SDK runs no WASM. A behaviour
 change that adds no method moves no row: pin it in `CROSS_CUTTING_BEHAVIORS`
 with markers from the CrowdyJS source, as 0.49.0 did for 17.14.0's three World
 Stores changes, so the matrix says what it means here and goes stale when that
 source changes.
 
-## The legacy engines (removed in 0.48.0)
+## The legacy engines (removed in 0.50.0)
 
-The game model and its automations, Studio compute, player compute's server
-side and the player model are gone: ck-exec (`client.exec()`) replaced them. The
-Game Kit keeps `social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's
-SERVER target is a mod (`CrowdyStudioModRuntime`), its CLIENT target still
-compiles on player compute. Do not re-add a wrapper for a `gameModel*`,
-`compute*`, `playerModel*` or SERVER `playerCompute*` field. The Game API keeps
-tier features (`admin().appAccess()`), grid claims, the studio moderation
-fields, compute budgets (`gen::computeUnits`), user-code faults
-(`gen::userCodeFaults`) and `gameModelFunctionCircuits` (`gen::runAdmission`).
+The game model and its automations, Studio compute, player compute (both
+targets) and the player model are gone, from the Game API too (ck-api
+v2.27.0): ck-exec (`client.exec()`) replaced them. The Game Kit keeps
+`social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's SERVER target
+is a mod and its CLIENT target that mod's CLIENT half (`CrowdyStudioModRuntime`).
+Do not re-add a wrapper for a `gameModel*`, `compute*`, `playerModel*`,
+`playerCompute*`, player-code marketplace or WASM-policy field: the schema no
+longer has them, and codegen refuses an operation that names one. The Game API
+keeps tier features (`admin().appAccess()`), grid claims, the studio moderation
+fields and the compute budget (`gen::computeUnits`).
 
 ## Writing tests against `graphql::Json`
 

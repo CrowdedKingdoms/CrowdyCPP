@@ -22,7 +22,6 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players) |
 | `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
-| `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
@@ -86,7 +85,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_operator` | project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / operator |
+| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims` | project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate |
 
 ## Notes for reruns
 

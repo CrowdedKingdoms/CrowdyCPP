@@ -304,6 +304,19 @@ inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
   return *cached;
 }
 
+/// A datacenter createApp accepts now (its `input.datacenter`, required and
+/// permanent): a placeable one, serving clients when one is. Empty when none is.
+inline std::string placeableDatacenter(crowdy::CrowdyClient& admin) {
+  std::string placeable;
+  std::string serving;
+  admin.admin().apps().placeableDatacenters()["datacenters"].forEach([&](crowdy::graphql::Json dc) {
+    if (!dc["placeable"].asBool()) return;
+    if (placeable.empty()) placeable = dc["code"].asString();
+    if (serving.empty() && dc["serving"].asString() == "SERVING") serving = dc["code"].asString();
+  });
+  return serving.empty() ? placeable : serving;
+}
+
 /// Find-or-create the e2e access tier carrying every gameplay runtime
 /// permission. Idempotent across runs (keyed by name, not suffix). Renamed at
 /// 0.30.0 when `use_video_chat` joined the list: the old "crowdycpp-e2e" tier

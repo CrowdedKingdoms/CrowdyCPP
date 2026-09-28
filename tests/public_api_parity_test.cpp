@@ -8,15 +8,16 @@
 #include <utility>
 #include <vector>
 
-#include "crowdy/domains/player_compute.hpp"
+#include "crowdy/domains/exec.hpp"
 #include "crowdy/domains/portal.hpp"
 #include "crowdy/domains/types.hpp"
 
 namespace {
 
 using crowdy::domains::AuthResponse;
-using crowdy::domains::ClientArtifactBytes;
-using crowdy::domains::PlayerComputeAPI;
+using crowdy::domains::ExecAPI;
+using crowdy::domains::ExecModClientArtifactBytes;
+using crowdy::domains::ExecModClientArtifactBytesCallback;
 using crowdy::domains::PortalAPI;
 using crowdy::graphql::GraphQLCallback;
 using crowdy::graphql::JVal;
@@ -26,27 +27,24 @@ static_assert(std::same_as<
               decltype(std::declval<AuthResponse>().gameTokenId),
               std::string>);
 static_assert(std::same_as<
-              decltype(std::declval<ClientArtifactBytes>().bytes),
+              decltype(std::declval<ExecModClientArtifactBytes>().bytes),
               std::vector<std::uint8_t>>);
+// GraphQL BigInt fuel stays decimal text so a native engine picks its own width.
 static_assert(std::same_as<
-              decltype(std::declval<ClientArtifactBytes>().fuelPerDispatch),
+              decltype(std::declval<ExecModClientArtifactBytes>().fuelPerDispatch),
               std::string>);
 static_assert(std::same_as<
-              decltype(std::declval<ClientArtifactBytes>().contractJson),
-              std::optional<std::string>>);
+              decltype(std::declval<ExecModClientArtifactBytes>().capabilitySummary.hostFunctions),
+              std::vector<std::string>>);
 
 template <typename API>
-concept PlayerComputeParity =
-    requires(API& api, std::string_view id, GraphQLCallback callback,
-             API::ArtifactBytesCallback artifactCallback) {
-      // Three arguments proves the optional version id remains omitted.
-      { api.artifactBytes(id, id, id) } ->
-          std::same_as<ClientArtifactBytes>;
-      { api.artifactBytesAsync(id, id, id, artifactCallback) } ->
-          std::same_as<void>;
+concept ClientHalfParity =
+    requires(const API& api, std::string id, ExecModClientArtifactBytesCallback callback) {
+      { api.modClientArtifactBytes(id, id) } -> std::same_as<ExecModClientArtifactBytes>;
+      { api.modClientArtifactBytesAsync(id, id, callback) } -> std::same_as<void>;
     };
 
-static_assert(PlayerComputeParity<PlayerComputeAPI>);
+static_assert(ClientHalfParity<ExecAPI>);
 
 using AuthorizeAppSignature = Json (PortalAPI::*)(
     std::string_view,

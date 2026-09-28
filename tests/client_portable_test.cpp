@@ -538,7 +538,6 @@ void testAMovedClientIsFullyUsable() {
 #ifndef CROWDY_NO_EXCEPTIONS
   (void)client.crowdyStudio();
 #endif
-  (void)client.playerCompute();
   (void)client.playerWallet();
   (void)client.marketplace();
   (void)client.gameApps();

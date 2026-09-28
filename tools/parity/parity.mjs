@@ -46,15 +46,7 @@ const CATEGORY = Object.freeze({
   NATIVE: 'native-equivalent',
   BROWSER: 'browser-exclusion',
   COVERED: 'covered-extension',
-  HELD: 'held-removal',
 });
-
-// The legacy engines' fields (Studio compute, the game model and its automations, player
-// compute's server side, the player model). Their wrappers went in the held deletion that
-// merges at ck-exec P4; the schema keeps the fields until the P4 SDL sync removes them, and
-// then these entries go stale and the gate asks for them to be deleted.
-const LEGACY_ENGINE_REASON =
-  'a legacy engine field; its wrapper went in the held deletion, and the P4 SDL sync removes it';
 
 // CrowdyCPP syncs schema.gql from the published SDL, so it currently runs ahead
 // of CrowdyJS's committed snapshot rather than matching it.
@@ -87,136 +79,6 @@ const SCHEMA_BASELINE = {
 };
 
 const ROOT_CLASSIFICATIONS = {
-  ...classifyNames(
-    'Query',
-    [
-      'computeAppDiagnostics',
-      'computeModule',
-      'computeModuleLogs',
-      'computeModulePolicy',
-      'computeModuleRuns',
-      'computeModuleStats',
-      'computeModuleTriggers',
-      'computeModuleVersions',
-      'computeModules',
-      'computeTemplates',
-      'gameModelActivePlayerCount',
-      'gameModelAppDiagnostics',
-      'gameModelAutomation',
-      'gameModelAutomationPolicy',
-      'gameModelAutomationRuns',
-      'gameModelAutomationStats',
-      'gameModelAutomationTriggers',
-      'gameModelAutomations',
-      'gameModelContainer',
-      'gameModelContainerState',
-      'gameModelContainerStates',
-      'gameModelContainerTypes',
-      'gameModelContainers',
-      'gameModelEventsConnection',
-      'gameModelFlow',
-      'gameModelFunction',
-      'gameModelFunctions',
-      'gameModelLint',
-      'gameModelPolicy',
-      'gameModelPropertyDefs',
-      'gameModelSession',
-      'gameModelSessionEvents',
-      'gameModelSessionInspect',
-      'gameModelSessionSnapshot',
-      'gameModelSessions',
-      'gameModelTimers',
-      'gameModelTraverse',
-      'gameModelTypeSchema',
-      'gridClientMods',
-      'myPlayerCodeAcquisitions',
-      'myPlayerCodeInstalls',
-      'playerAutomations',
-      'playerCodeClientArtifact',
-      'playerCodeListingVersions',
-      'playerCodeListings',
-      'playerComputeLogs',
-      'playerComputeRuns',
-      'playerModelContainer',
-      'playerModelContainers',
-    ],
-    CATEGORY.HELD,
-    LEGACY_ENGINE_REASON,
-  ),
-  ...classifyNames(
-    'Mutation',
-    [
-      'acquirePlayerCode',
-      'computeDeleteModule',
-      'computeDeleteTrigger',
-      'computeDeployTemplate',
-      'computeDeployVersion',
-      'computeInvoke',
-      'computeResetBreaker',
-      'computeSetModuleEnabled',
-      'computeSetPolicy',
-      'computeUpsertModule',
-      'computeUpsertTrigger',
-      'consentGridClientMod',
-      'gameModelAddEdge',
-      'gameModelCancelTimer',
-      'gameModelCreateContainer',
-      'gameModelCreateSession',
-      'gameModelDeleteAutomation',
-      'gameModelDeleteAutomationTrigger',
-      'gameModelDeleteContainer',
-      'gameModelDeleteContainerType',
-      'gameModelDeleteEdge',
-      'gameModelDeleteFunction',
-      'gameModelDeletePropertyDef',
-      'gameModelEndSession',
-      'gameModelEnsureContainer',
-      'gameModelInvoke',
-      'gameModelJoinSession',
-      'gameModelLeaveSession',
-      'gameModelRunAutomation',
-      'gameModelScheduleInvoke',
-      'gameModelSeed',
-      'gameModelSetAutomationEnabled',
-      'gameModelSetAutomationPolicy',
-      'gameModelSetPolicy',
-      'gameModelSetProperty',
-      'gameModelSetSessionAdmission',
-      'gameModelSetSessionTurn',
-      'gameModelTransferSessionHost',
-      'gameModelUpsertAutomation',
-      'gameModelUpsertAutomationTrigger',
-      'gameModelUpsertContainerType',
-      'gameModelUpsertFunction',
-      'gameModelUpsertPropertyDef',
-      'installPlayerCode',
-      'playerAutomationCreate',
-      'playerAutomationDelete',
-      'playerAutomationSetEnabled',
-      'playerComputeInvoke',
-      'playerComputeSetEnabled',
-      'playerComputeSetRequires',
-      'playerModelCreateContainer',
-      'playerModelDeleteContainer',
-      'playerModelSetProperty',
-      'publishPlayerCode',
-      'publishPlayerCodeVersion',
-      'trustGridAuthor',
-      'uninstallPlayerCode',
-    ],
-    CATEGORY.HELD,
-    LEGACY_ENGINE_REASON,
-  ),
-  ...classifyNames(
-    'Subscription',
-    [
-      'gameModelActivePlayerCountChanged',
-      'gameModelContainerChanged',
-      'gameModelSessionChanged',
-    ],
-    CATEGORY.HELD,
-    LEGACY_ENGINE_REASON,
-  ),
   // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games.
   // A publish uploads a BROWSER game bundle (a Vite build served under the
   // crowdy.games web host) with an identity session holding manage_apps; the
@@ -561,7 +423,6 @@ const METHOD_ALIASES = {
   'AuthAPI.register': 'registerUser',
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
-  'PlayerComputeAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
@@ -622,7 +483,6 @@ const CLASS_MAP = {
   ChannelsAPI: 'ChannelsAPI',
   GameAppsAPI: 'GameAppsAPI',
   MarketplaceAPI: 'MarketplaceAPI',
-  PlayerComputeAPI: 'PlayerComputeAPI',
   PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
@@ -633,7 +493,6 @@ const CLASS_MAP = {
   QuotasAPI: 'QuotasAPI',
   UsageAPI: 'UsageAPI',
   SharedEnvironmentAPI: 'SharedEnvironmentAPI',
-  ControlPlaneAPI: 'OperatorAPI',
   WorldClient: 'WorldClient',
   ActorClient: 'ActorClient',
   SocialKit: 'SocialKit',
@@ -973,23 +832,34 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   ),
   'src/player-runtime/player-code-broker.ts': exportModule(
     [
-      'ALLOWED_HOST_CALLS',
       'EXEC_CLIENT_HOST_CALLS',
+      'PLAYER_CODE_INVOKE_MAX_BYTES',
+      'PLAYER_CODE_LOG_LINES_PER_SECOND',
+      'PLAYER_CODE_LOG_MAX_CHARS',
       'PlayerCodeBroker',
       'PlayerCodeBrokerOptions',
       'PlayerCodeEngine',
       'PlayerCodeGridBounds',
       'PlayerCodeHostCall',
+      'PlayerCodeLogLevel',
+      'PlayerCodeLogLine',
       'PlayerCodePresentation',
       'PlayerCodeWorkerLike',
     ],
     CATEGORY.BROWSER,
-    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs, the bounded crowdy::log lines and handle_invoke calls); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+  ),
+  // CrowdyJS 18.0.0 moved the broker's allowlist into its own module.
+  'src/player-runtime/client-host-calls.ts': exportModule(
+    ['EXEC_CLIENT_HOST_CALLS'],
+    CATEGORY.BROWSER,
+    'the browser broker\'s deny-by-default host-call allowlist, from the generated host catalog; a native sandbox lets a CLIENT half call only the consented summary\'s hostFunctions',
   ),
   'src/player-runtime/glue-runtime.ts': exportModule(
     [
       'EXEC_CLIENT_ABI_IMPORTS',
       'GLUE_HOST_FUNCTIONS',
+      'GLUE_LOG_MAX_BYTES',
       'GlueDispatchResult',
       'GlueInitMessage',
       'GlueRuntime',
@@ -1044,6 +914,28 @@ const CROSS_CUTTING_BEHAVIORS = {
       'SaveStateStore has no autosave timer: the game calls save() from its own loop, and a save that fails stays dirty() for the next one (0.49.0 made that hold without exceptions)',
     ),
   },
+  // CrowdyJS 18.0.0: the runner reaches a running CLIENT half (invoke) and hears its
+  // crowdy::log lines (onLog), and the page answers two more host calls. All of it is the
+  // browser runtime around a module this SDK does not run.
+  'exec-client-halves-invoke-and-logs': {
+    path: 'src/grid-mods/exec-client-halves.ts',
+    markers: [
+      'invoke(modId: string, payload: Uint8Array',
+      'onLog?: (line: PlayerCodeLogLine, mod: ExecGridClientMod) => void;',
+    ],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the browser runner calls a running CLIENT half\'s handle_invoke and forwards its crowdy::log lines through PlayerCodeBroker; a native engine calls and logs its own sandbox',
+    ),
+  },
+  'grid-host-call-answers': {
+    path: 'src/grid-mods/grid-host-calls.ts',
+    markers: ["case 'avatar_state_get': {", "case 'grid_permission_check': {"],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the page answers a CLIENT half\'s avatar_state_get and grid_permission_check from the game\'s own knowledge; a native engine answers its sandbox\'s host calls itself',
+    ),
+  },
   'chunk-store-bounded-hydration': {
     path: 'src/stores/chunks.ts',
     markers: ['const HYDRATE_CONCURRENCY = 8;', 'async function whenNotBusy<T>('],
@@ -1088,7 +980,6 @@ const state = {
   native: [],
   browser: [],
   covered: [],
-  held: [],
   deprecated: [],
   usedSchemaClassifications: new Set(),
   usedRootClassifications: new Set(),
@@ -1336,7 +1227,6 @@ report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;
 report += `- Covered schema extensions: ${state.covered.length}\n`;
-report += `- Held-removal waivers: ${state.held.length}\n`;
 report += `- Deprecated waivers: ${state.deprecated.length}\n`;
 report += `- Unclassified differences: ${state.unclassified.length}\n`;
 report += `- Stale classifications: ${state.stale.length}\n\n`;
@@ -1593,7 +1483,6 @@ function renderClassification(value) {
   if (value.category === CATEGORY.PORTABLE) return `portable gap — ${value.reason}`;
   if (value.category === CATEGORY.NATIVE) return `native equivalent — ${value.reason}`;
   if (value.category === CATEGORY.BROWSER) return `browser exclusion — ${value.reason}`;
-  if (value.category === CATEGORY.HELD) return `held removal — ${value.reason}`;
   return `covered — ${value.reason}`;
 }
 
@@ -1602,7 +1491,6 @@ function recordClassification(state, value, id) {
   else if (value.category === CATEGORY.NATIVE) state.native.push(id);
   else if (value.category === CATEGORY.BROWSER) state.browser.push(id);
   else if (value.category === CATEGORY.COVERED) state.covered.push(id);
-  else if (value.category === CATEGORY.HELD) state.held.push(id);
   else state.unclassified.push(`${id} (unknown classification ${value.category})`);
 }
 
@@ -1794,8 +1682,14 @@ function keyDtoContractResults() {
   const cppAuthFields = dataFields(
     declarationBlock(cppTypes, /struct\s+AuthResponse\s*\{/gu),
   );
+  const cppExec = readFileSync(
+    join(root, 'include', 'crowdy', 'domains', 'exec.hpp'),
+    'utf8',
+  );
+  // The CLIENT half a native sandbox receives (0.50.0: the legacy
+  // ClientArtifactBytes went with player compute).
   const cppArtifactFields = dataFields(
-    declarationBlock(cppTypes, /struct\s+ClientArtifactBytes\s*\{/gu),
+    declarationBlock(cppExec, /struct\s+ExecModClientArtifactBytes\s*\{/gu),
   );
   const tsAuthFields = dataFields(
     declarationBlock(tsAuth, /export\s+interface\s+AuthResponse\s*\{/gu),
@@ -1826,34 +1720,40 @@ function keyDtoContractResults() {
     'string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'bytes',
     'std::vector<std::uint8_t>',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'artifactHash',
+    'digest',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'fuelPerDispatch',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'contractJson',
-    'std::optional<std::string>',
+    'capabilitySummaryJson',
+    'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'versionId',
+    'capabilityHash',
     'std::string',
+  );
+  assertField(
+    'CrowdyCPP.ExecModClientArtifactBytes',
+    cppArtifactFields,
+    'abiVersion',
+    'int',
   );
   return { checked, failures };
 }

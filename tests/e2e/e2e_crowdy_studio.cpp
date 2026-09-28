@@ -77,7 +77,7 @@ int main() {
   E2E_CHECK(project.files.size() == starterFiles.size());
 
   E2E_SUBTEST("build the exact saved SERVER crate as the grid's mod");
-  studio::CrowdyStudioModRuntime runtime(game.exec(), game.playerCompute());
+  studio::CrowdyStudioModRuntime runtime(game.exec());
   studio::CrowdyStudioDeployTargetInput draft;
   draft.scope = {cfg.appId, gridId};
   draft.target = studio::CrowdyStudioTarget::Server;

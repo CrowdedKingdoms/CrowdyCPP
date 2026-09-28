@@ -102,7 +102,7 @@ void testSharedDiagnosticFixture() {
         "crowdy.studio-diagnostics/1");
   CHECK(fixture["crowdyJs"]["version"].asStringView() == "18.0.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "1bd0e4d8c73d1f603d49e2b827a8f9a0a77e68a3");
+        "3c85fde4900b7b2e0fd782c2574f4ccdc8baad7e");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -281,7 +281,6 @@ class FakeProjectProvider final : public ICrowdyStudioProjectProvider {
 
 class FakeRuntime final : public ICrowdyStudioRuntime {
  public:
-  int usageCalls = 0;
   std::string compileStatus = "succeeded";
   std::string compileLog;
 
@@ -308,13 +307,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
       std::string_view,
       const std::optional<std::string>&) override {
     return {};
-  }
-
-  std::optional<CrowdyStudioUsageSnapshot> usage(
-      std::string_view) override {
-    ++usageCalls;
-    return CrowdyStudioUsageSnapshot{
-        "3", "9", "100", "500", 1, 20, "active", std::nullopt};
   }
 };
 
@@ -413,8 +405,6 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   const std::optional<CrowdyStudioWalletSnapshot> expectedWallet =
       CrowdyStudioWalletSnapshot{"2500000", "0", "250", "USD"};
   CHECK(controller.getState().wallet == expectedWallet);
-  // A SERVER-only project spends no player compute quota: its target is a mod.
-  CHECK(!controller.getState().usage.has_value());
 
   controller.setPageVisible(false);
   clock.monotonic = 100;
@@ -426,7 +416,6 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   controller.tick();
   CHECK_EQ(wallet.calls, 2);
   CHECK(!controller.getState().wallet);
-  CHECK(!controller.getState().usage.has_value());
 
   controller.updateFile(CrowdyStudioTarget::Server, "src/lib.rs",
                         "fn still_authors() {}");

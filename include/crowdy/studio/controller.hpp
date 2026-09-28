@@ -97,7 +97,6 @@ struct CrowdyStudioState {
   std::vector<CrowdyStudioDiagnostic> authoritativeDiagnostics;
   std::vector<CrowdyStudioDiagnostic> localDiagnostics;
   std::vector<CrowdyStudioLogLine> logs;
-  std::optional<CrowdyStudioUsageSnapshot> usage;
   std::optional<CrowdyStudioWalletSnapshot> wallet;
   std::optional<CrowdyStudioInvokeResult> invokeResult;
 };
@@ -966,13 +965,16 @@ class CrowdyStudioController {
         result.failures.push_back(std::string("Client: ") + error.what());
       }
     }
-    if (containsTarget(targets, CrowdyStudioTarget::Server)) {
+    // A CLIENT-only project's CLIENT half rides a mod too: switched off, it is
+    // no longer served to visitors.
+    {
       result.serverStopped = false;
       try {
         const std::string serverName =
-            state_.runtimeSync.runningServerModuleName
+            containsTarget(targets, CrowdyStudioTarget::Server) &&
+                    state_.runtimeSync.runningServerModuleName
                 ? *state_.runtimeSync.runningServerModuleName
-                : moduleName(project, CrowdyStudioTarget::Server);
+                : projectModName(project);
         runtime_.setEnabled(scope(),
                             serverName, false);
         result.serverStopped = true;
@@ -1054,24 +1056,24 @@ class CrowdyStudioController {
 
   void refreshSurface(CrowdyStudioPolledSurface surface) {
     if (!state_.project) return;
-    const std::string serverName =
-        state_.project->metadata.serverModuleName.value_or("");
     if (surface == CrowdyStudioPolledSurface::Logs) {
-      state_.logs = serverName.empty()
+      // The `ctx.log` lines of the project's mod, which a CLIENT-only
+      // project's CLIENT half rides.
+      std::string modName;
+      try {
+        modName = projectModName(*state_.project);
+      } catch (const std::exception&) {
+      }
+      state_.logs = modName.empty()
                         ? std::vector<CrowdyStudioLogLine>{}
-                        : runtime_.logs(scope(), serverName);
+                        : runtime_.logs(scope(), modName);
     } else {
-      // Only the CLIENT target's compiles spend player compute quota.
-      state_.usage = containsTarget(projectTargets(state_.project->kind),
-                                    CrowdyStudioTarget::Client)
-                         ? runtime_.usage(options_.appId)
-                         : std::nullopt;
       if (walletProvider_) {
         try {
           state_.wallet = walletProvider_->balance();
         } catch (...) {
           // Wallet observation is optional and never blocks project authoring,
-          // compilation, deployment, or the independent usage snapshot.
+          // compilation or deployment.
           state_.wallet.reset();
         }
       } else {
@@ -1188,7 +1190,6 @@ class CrowdyStudioController {
     state_.authoritativeDiagnostics.clear();
     state_.localDiagnostics.clear();
     state_.logs.clear();
-    state_.usage.reset();
     state_.wallet.reset();
     state_.invokeResult.reset();
     notify();
@@ -1319,17 +1320,33 @@ class CrowdyStudioController {
     if (files.empty()) {
       throw std::runtime_error("Crowdy Studio target has no project files");
     }
+    if (target == CrowdyStudioTarget::Client) {
+      for (const auto& file : files) {
+        if (file.path != "Cargo.toml" ||
+            !crowdyStudioIsLegacyClientCrate(file.content)) {
+          continue;
+        }
+        recordBuild(target, std::string(kCrowdyStudioLegacyClientCrate));
+        state_.runtime = {
+            CrowdyStudioPhase::CompileFailed, target,
+            name + " is a legacy player compute crate; a CLIENT half builds on crowdy-client-sdk"};
+        notify();
+        return std::nullopt;
+      }
+    }
     state_.runtime = {CrowdyStudioPhase::Compiling, target,
                       "Submitting " + name};
     notify();
     if (onEffectStart) onEffectStart();
-    // A CLIENT compile resolves the source from the project (its saved files,
-    // or the rust at the mirror commit for a project bound to GitHub); the
-    // SERVER target's mod build compiles these files.
+    // Both targets build these files: the SERVER target as the project's mod,
+    // the CLIENT target as that mod's CLIENT half.
     CrowdyStudioDeployTargetInput submission;
     submission.scope = scope();
     submission.target = target;
     submission.moduleName = name;
+    submission.modName = projectModName(project);
+    submission.clientOnly = !containsTarget(projectTargets(project.kind),
+                                            CrowdyStudioTarget::Server);
     submission.projectId = project.projectId;
     submission.files = files;
     if (project.github && project.github->sha) {
@@ -1716,6 +1733,16 @@ class CrowdyStudioController {
       CrowdyStudioTarget target) {
     return std::find(targets.begin(), targets.end(), target) !=
            targets.end();
+  }
+
+  /// The mod the project runs as: its SERVER module's name, or for a
+  /// CLIENT-only project the CLIENT module's, which names the mod its CLIENT
+  /// half rides.
+  static std::string projectModName(const CrowdyStudioProject& project) {
+    return moduleName(project, containsTarget(projectTargets(project.kind),
+                                              CrowdyStudioTarget::Server)
+                                   ? CrowdyStudioTarget::Server
+                                   : CrowdyStudioTarget::Client);
   }
 
   static std::string moduleName(const CrowdyStudioProject& project,

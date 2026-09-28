@@ -12,7 +12,6 @@
 #include "crowdy/domains/realtime_control.hpp"
 #include "crowdy/domains/game_apps.hpp"
 #include "crowdy/domains/crowdy_studio_agent.hpp"
-#include "crowdy/domains/player_compute.hpp"
 #include "crowdy/domains/player_wallet.hpp"
 #include "crowdy/domains/marketplace.hpp"
 #include "crowdy/domains/groups.hpp"
@@ -222,8 +221,6 @@ class CrowdyClient {
   /// ck-exec (dev-tier preview): an app's server code as hubs and spokes, and
   /// players' mods on grids they own.
   domains::ExecAPI& exec() { return *exec_; }
-  /// Players' CLIENT modules (compile, artifact, compile quota).
-  domains::PlayerComputeAPI& playerCompute() { return *playerCompute_; }
   domains::PlayerWalletAPI& playerWallet() { return *playerWallet_; }
   /// Grid claims and the app's player-code administration.
   domains::MarketplaceAPI& marketplace() { return *marketplace_; }
@@ -389,7 +386,6 @@ class CrowdyClient {
   std::unique_ptr<domains::ChannelsAPI> channels_;
   std::unique_ptr<domains::GridsAPI> grids_;
   std::unique_ptr<domains::ExecAPI> exec_;
-  std::unique_ptr<domains::PlayerComputeAPI> playerCompute_;
   std::unique_ptr<domains::PlayerWalletAPI> playerWallet_;
   std::unique_ptr<domains::MarketplaceAPI> marketplace_;
   std::unique_ptr<domains::GameAppsAPI> gameApps_;

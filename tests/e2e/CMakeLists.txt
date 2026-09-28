@@ -17,7 +17,6 @@ set(E2E_OPTIONAL_SUITES
   e2e_exec_client_halves
   e2e_exec_gateway
   e2e_marketplace_claims
-  e2e_operator
 )
 # Waits on two platform builds (a mod and its CLIENT half).
 set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves)

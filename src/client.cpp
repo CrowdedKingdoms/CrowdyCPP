@@ -464,7 +464,6 @@ CrowdyClient::CrowdyClient(ClientConfig config) : config_(std::move(config)) {
   channels_ = std::make_unique<domains::ChannelsAPI>(gql_);
   grids_ = std::make_unique<domains::GridsAPI>(gql_);
   exec_ = std::make_unique<domains::ExecAPI>(gql_, webSocketTransport_);
-  playerCompute_ = std::make_unique<domains::PlayerComputeAPI>(gql_);
   playerWallet_ = std::make_unique<domains::PlayerWalletAPI>(gql_);
   marketplace_ = std::make_unique<domains::MarketplaceAPI>(gql_);
   gameApps_ = std::make_unique<domains::GameAppsAPI>(gql_);
@@ -669,7 +668,6 @@ CrowdyClient& CrowdyClient::operator=(CrowdyClient&& other) noexcept {
   channels_ = std::move(other.channels_);
   grids_ = std::move(other.grids_);
   exec_ = std::move(other.exec_);
-  playerCompute_ = std::move(other.playerCompute_);
   playerWallet_ = std::move(other.playerWallet_);
   marketplace_ = std::move(other.marketplace_);
   gameApps_ = std::move(other.gameApps_);
@@ -720,13 +718,11 @@ CrowdyClient::createCrowdyStudioIntegration(
 
   auto projectApi =
       std::make_shared<domains::CrowdyStudioAPI>(gql_);
-  auto playerCompute =
-      std::make_shared<domains::PlayerComputeAPI>(gql_);
   auto exec =
       std::make_shared<domains::ExecAPI>(gql_, webSocketTransport_);
   auto runtime =
       std::make_shared<studio::CrowdyStudioModRuntime>(
-          exec, playerCompute, options.clientRuntime,
+          exec, options.clientRuntime,
           [dispatcher = dispatcher_] {
             if (dispatcher) dispatcher->drain();
           });

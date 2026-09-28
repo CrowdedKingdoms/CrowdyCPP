@@ -6,8 +6,8 @@
 #include "crowdy/domains/domain_base.hpp"
 #include "crowdy/generated/operations.hpp"
 
-/// Operator surface — client.operator_(): the platform-wide compute ceilings and
-/// org wallet credits. As of the unified API (v13) this is otherwise reduced:
+/// Operator surface — client.operator_(): org wallet credits. As of the unified
+/// API (v13) this is otherwise reduced:
 /// dedicated customer environments were retired, and the infrastructure
 /// control plane (environments, change orders, secrets, release management,
 /// audit) moved to the separate infra-control-plane service with its own auth
@@ -18,29 +18,6 @@ namespace crowdy::domains {
 class OperatorAPI : public DomainBase {
  public:
   using DomainBase::DomainBase;
-
-  /// Platform-wide compute ceilings (the maxima computeSetPolicy clamps to).
-  /// Nullable knobs: null = no operator override (game-api bootstrap default).
-  graphql::Json computePlatformCeilings() const {
-    return run("CpComputePlatformCeilings", graphql::JVal());
-  }
-  void computePlatformCeilingsAsync(graphql::GraphQLCallback cb) const {
-    runAsync("CpComputePlatformCeilings", graphql::JVal(), std::move(cb));
-  }
-  /// Patch the compute ceilings. Per knob: omit = unchanged, explicit null =
-  /// clear the override, positive value = set. Replica-syncs to game-api
-  /// (no restart, <=30s cache bound) and writes an audit entry.
-  graphql::Json setComputePlatformCeilings(const graphql::JVal& input) const {
-    graphql::JVal vars;
-    vars["input"] = input;
-    return run("CpSetComputePlatformCeilings", vars);
-  }
-  void setComputePlatformCeilingsAsync(const graphql::JVal& input,
-                                       graphql::GraphQLCallback cb) const {
-    graphql::JVal vars;
-    vars["input"] = input;
-    runAsync("CpSetComputePlatformCeilings", vars, std::move(cb));
-  }
 
   /// Credit an org wallet. The ONLY sanctioned way to put funds in one.
   ///

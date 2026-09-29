@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <map>
@@ -170,6 +171,28 @@ Result<ServerFrame> decode(std::string_view b) {
 }
 
 }  // namespace exec_wire
+
+namespace {
+
+/// `s` as a query-string value: everything outside RFC 3986's unreserved set percent-encoded,
+/// as CrowdyJS's `encodeURIComponent` does for the connect token.
+std::string queryValue(std::string_view s) {
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(s.size());
+  for (unsigned char c : s) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out.push_back(static_cast<char>(c));
+    } else {
+      out.push_back('%');
+      out.push_back(kHex[c >> 4]);
+      out.push_back(kHex[c & 0x0f]);
+    }
+  }
+  return out;
+}
+
+}  // namespace
 
 // ---- SHA-256 (FIPS 180-4), for deploy digests ------------------------------------
 
@@ -453,7 +476,7 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
         std::string url = endpoint_.gatewayUrl;
         while (!url.empty() && url.back() == '/') url.pop_back();
         graphql::WebSocketConnectRequest req;
-        req.url = url + "/v1/connect?token=" + endpoint_.token;
+        req.url = url + "/v1/connect?token=" + queryValue(endpoint_.token);
         req.subprotocol.clear();
         req.connectTimeoutMs = opts_.openTimeoutMs;
         ws = transport_ ? transport_->createConnection(req) : nullptr;
@@ -1401,11 +1424,16 @@ graphql::JVal consentVariables(const std::string& appId, const std::string& modI
   return vars;
 }
 
-graphql::JVal trustVariables(const std::string& appId, const std::string& gridId, const std::string& authorId,
-                             const std::string& capabilityHash) {
+graphql::JVal authorVariables(const std::string& appId, const std::string& gridId, const std::string& authorId) {
   graphql::JVal vars = appVariables(appId);
   vars["gridId"] = graphql::JVal(gridId);
   vars["authorId"] = graphql::JVal(authorId);
+  return vars;
+}
+
+graphql::JVal trustVariables(const std::string& appId, const std::string& gridId, const std::string& authorId,
+                             const std::string& capabilityHash) {
+  graphql::JVal vars = authorVariables(appId, gridId, authorId);
   vars["capabilityHash"] = graphql::JVal(capabilityHash);
   return vars;
 }
@@ -1568,6 +1596,27 @@ void ExecAPI::trustAuthorAsync(std::string appId, std::string gridId, std::strin
   execAsync(gen::exec::kExecTrustAuthorIsolatedDocument, "execTrustAuthor",
             trustVariables(appId, gridId, authorId, capabilityHash), gen::exec::kExecTrustAuthorOperationName,
             std::move(done));
+}
+
+graphql::Json ExecAPI::revokeClientModConsent(std::string appId, std::string modId) const {
+  return exec(gen::exec::kExecRevokeClientModConsentIsolatedDocument, "execRevokeClientModConsent",
+              modIdVariables(appId, modId), gen::exec::kExecRevokeClientModConsentOperationName);
+}
+
+void ExecAPI::revokeClientModConsentAsync(std::string appId, std::string modId, graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecRevokeClientModConsentIsolatedDocument, "execRevokeClientModConsent",
+            modIdVariables(appId, modId), gen::exec::kExecRevokeClientModConsentOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::revokeAuthorTrust(std::string appId, std::string gridId, std::string authorId) const {
+  return exec(gen::exec::kExecRevokeAuthorTrustIsolatedDocument, "execRevokeAuthorTrust",
+              authorVariables(appId, gridId, authorId), gen::exec::kExecRevokeAuthorTrustOperationName);
+}
+
+void ExecAPI::revokeAuthorTrustAsync(std::string appId, std::string gridId, std::string authorId,
+                                     graphql::GraphQLCallback done) const {
+  execAsync(gen::exec::kExecRevokeAuthorTrustIsolatedDocument, "execRevokeAuthorTrust",
+            authorVariables(appId, gridId, authorId), gen::exec::kExecRevokeAuthorTrustOperationName, std::move(done));
 }
 
 graphql::Json ExecAPI::modClientArtifact(std::string appId, std::string modId) const {

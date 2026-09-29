@@ -884,11 +884,16 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'the browser broker\'s deny-by-default host-call allowlist, from the generated host catalog; a native sandbox lets a CLIENT half call only the consented summary\'s hostFunctions',
   ),
+  // CrowdyJS 18.0.2 bounds what the glue copies out of a module (host-call requests, state
+  // blobs, invoke replies); a native sandbox bounds its own copies.
   'src/player-runtime/glue-runtime.ts': exportModule(
     [
       'EXEC_CLIENT_ABI_IMPORTS',
+      'GLUE_HOST_CALL_REQUEST_MAX_BYTES',
       'GLUE_HOST_FUNCTIONS',
+      'GLUE_INVOKE_REPLY_MAX_BYTES',
       'GLUE_LOG_MAX_BYTES',
+      'GLUE_STATE_MAX_BYTES',
       'GlueDispatchResult',
       'GlueInitMessage',
       'GlueRuntime',
@@ -962,7 +967,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     markers: ["case 'avatar_state_get': {", "case 'grid_permission_check': {"],
     classification: classification(
       CATEGORY.BROWSER,
-      'the page answers a CLIENT half\'s avatar_state_get and grid_permission_check from the game\'s own knowledge; a native engine answers its sandbox\'s host calls itself',
+      'the page answers a CLIENT half\'s avatar_state_get and grid_permission_check from the game\'s own knowledge (the latter for the four code-permission keys only, since 18.0.2, which also derives the uuid of a half\'s spatial and channel sends); a native engine answers its sandbox\'s host calls itself, by the same rules',
     ),
   },
   'chunk-store-bounded-hydration': {

@@ -469,6 +469,17 @@ class ExecAPI : public DomainBase {
                             std::string capabilityHash) const;
   void trustAuthorAsync(std::string appId, std::string gridId, std::string authorId, std::string capabilityHash,
                         graphql::GraphQLCallback done) const;
+  /// Take back your consent to one mod's CLIENT half, whatever hash you consented to
+  /// (`execRevokeClientModConsent`); `true` when you had consented. While you trust its author on
+  /// its grid it is still served to you: `revokeAuthorTrust` takes that back.
+  graphql::Json revokeClientModConsent(std::string appId, std::string modId) const;
+  void revokeClientModConsentAsync(std::string appId, std::string modId, graphql::GraphQLCallback done) const;
+  /// Stop trusting an author on a grid and take back your consent to each of their CLIENT halves
+  /// there (`execRevokeAuthorTrust`), so none is served to you until you consent or trust again;
+  /// `true` when anything was taken back. Works from anywhere, not only inside the grid.
+  graphql::Json revokeAuthorTrust(std::string appId, std::string gridId, std::string authorId) const;
+  void revokeAuthorTrustAsync(std::string appId, std::string gridId, std::string authorId,
+                              graphql::GraphQLCallback done) const;
   /// A served CLIENT half's module, base64, with what a runtime needs to run it
   /// (`execModClientArtifact`): `{ modId, name, gridId, clientVersion, digest, wasmBase64,
   /// sizeBytes, capabilitySummaryJson, capabilityHash, tickIntervalMs, fuelPerDispatch, abiVersion }`.

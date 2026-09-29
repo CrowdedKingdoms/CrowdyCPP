@@ -1,5 +1,34 @@
 # CrowdyCPP migration notes
 
+## 0.52.0 Parity with CrowdyJS 18.0.3 (the P3 W5 client security review)
+
+Not breaking. Pinned to CrowdyJS 18.0.3. `schema.gql` is cks-game-api `dev`'s after #431
+(`scripts/schema-sync.mjs --game <that schema.gql>`, then `node scripts/codegen.mjs`): it adds
+the two revoke mutations.
+
+- `exec().revokeClientModConsent(appId, modId)` takes back the player's consent to one CLIENT
+  half, whatever hash they consented to (`true` when they had); while they trust its author on
+  its grid it is still served to them. `exec().revokeAuthorTrust(appId, gridId, authorId)` stops
+  trusting an author on a grid and takes back the consent to each of their CLIENT halves there.
+  Both have `…Async` twins and need ck-api `dev/v2.28.0` (OI-2026-09-28-001). A native engine
+  that runs CLIENT halves offers the player both beside each running half, and stops the half
+  itself: CrowdyJS's `ExecClientHalves.revoke` / `forgetAuthor` are the browser's runner.
+- `ExecConnection` percent-encodes the connect token in the gateway URL
+  (`/v1/connect?token=…`), as CrowdyJS's `encodeURIComponent` does. Tokens today are base64url
+  JWS, which needed no escaping; a token with `+`, `/`, `=` or `&` would have been mangled.
+- `modClientArtifactBytes` already refused a capability summary whose `hostFunctions` are not
+  all strings; CrowdyJS refuses it now too.
+- CrowdyJS 18.0.2 holds a CLIENT half to rules of its own on the page: `grid_permission_check`
+  answers only for `write_server_code`, `run_server_code`, `write_client_code` and
+  `run_client_code` and refuses any other key; a half's `emit_spatial` / `emit_channel` go out
+  as `clientHalfActorUuid(gridId, name)` (the first 16 bytes of SHA-256 over
+  `crowdy/client-half-actor/v1`, NUL, the grid id, NUL and the uuid the half named, as 32 hex
+  characters), never the uuid the half named; `voxel_set` takes voxels 0-15 of type 0-255; a
+  call naming its chunk a second way (`chunk`, `chunk_x`, …) is refused; and the glue caps the
+  host-call requests (257 KiB), state blobs (1 MiB) and invoke replies (256 KiB) it copies out
+  of a module. This SDK runs no CLIENT half; a native engine that does answers its sandbox's host
+  calls itself, and should apply the same rules.
+
 ## 0.51.0 The SDK is for normal clients
 
 Breaking. The SDK serves players, developers and org-admins and is designed for the production

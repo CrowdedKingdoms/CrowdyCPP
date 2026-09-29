@@ -277,7 +277,9 @@ void testConnection() {
   std::atomic<int> dials{0};
   ExecDial dial = [&dials](std::function<void(Result<ExecEndpoint>)> found) {
     const int n = ++dials;
-    found(ExecEndpoint{"wss://gw" + std::to_string(n) + ".example/", "tok" + std::to_string(n), "host-" + std::to_string(n)});
+    // The second token carries characters a query string must escape.
+    found(ExecEndpoint{"wss://gw" + std::to_string(n) + ".example/", "tok" + std::to_string(n) + (n == 2 ? "+/=&" : ""),
+                       "host-" + std::to_string(n)});
   };
   ExecConnectOptions opts;
   opts.callTimeoutMs = 2000;
@@ -350,7 +352,7 @@ void testConnection() {
   c1->drop();
   CHECK(until(*dispatcher, [&] { return transport->count() == 2; }));
   auto c2 = transport->at(1);
-  CHECK_EQ(c2->url, "wss://gw2.example/v1/connect?token=tok2");
+  CHECK_EQ(c2->url, "wss://gw2.example/v1/connect?token=tok2%2B%2F%3D%26");
   c2->open();
   CHECK(until(*dispatcher, [&] { return reconnected.size() == 1; }));
   CHECK_EQ(reconnected[0], "host-2");
@@ -474,6 +476,8 @@ class RecordingHttp final : public graphql::IHttpTransport {
       return {200, R"({"data":{"execGridClientMods":[{"modId":"900","name":"turret","gridId":"5","authorId":"42","listingId":null,"clientVersion":2,"digest":"ab","capabilitySummaryJson":"{\"version\":1,\"target\":\"client\",\"hostFunctions\":[\"hud_set\"]}","capabilityHash":"h1","tickIntervalMs":250,"callerConsented":false,"authorCapabilitySummaryJson":"{\"version\":1,\"target\":\"client\",\"hostFunctions\":[\"hud_set\",\"overlay_draw\"]}","authorCapabilityHash":"a1","callerTrustsAuthor":false,"updatedAt":"t"}]}})"};
     if (op == "ExecConsentClientMod") return {200, R"({"data":{"execConsentClientMod":true}})"};
     if (op == "ExecTrustAuthor") return {200, R"({"data":{"execTrustAuthor":true}})"};
+    if (op == "ExecRevokeClientModConsent") return {200, R"({"data":{"execRevokeClientModConsent":true}})"};
+    if (op == "ExecRevokeAuthorTrust") return {200, R"({"data":{"execRevokeAuthorTrust":false}})"};
     if (op == "ExecModClientArtifact") {
       if (artifactNotFound)
         return {200, R"({"errors":[{"message":"no such CLIENT half","extensions":{"code":"NOT_FOUND"}}],"data":null})"};
@@ -708,6 +712,20 @@ void testClientHalves() {
   CHECK_EQ(vars["authorId"].asString(), std::string("42"));
   CHECK_EQ(vars["capabilityHash"].asString(), std::string("a1"));
 
+  // Taking them back (0.52.0): the consent to one CLIENT half, and the trust in its author.
+  CHECK(exec.revokeClientModConsent("77", "900").asBool());
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecRevokeClientModConsent"));
+  CHECK_EQ(vars["appId"].asString(), std::string("77"));
+  CHECK_EQ(vars["modId"].asString(), std::string("900"));
+  CHECK(vars["capabilityHash"].isNull());
+  CHECK(!exec.revokeAuthorTrust("77", "5", "42").asBool());
+  vars = http->requests.back()["variables"];
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecRevokeAuthorTrust"));
+  CHECK_EQ(vars["gridId"].asString(), std::string("5"));
+  CHECK_EQ(vars["authorId"].asString(), std::string("42"));
+  CHECK(vars["capabilityHash"].isNull());
+
   // A listing carries the CLIENT half it was published with.
   exec.modListings("77");
   for (const std::string_view field :
@@ -731,14 +749,19 @@ void testClientHalves() {
   exec.consentClientModAsync("77", "900", "h1", record);
   exec.trustAuthorAsync("77", "5", "42", "a1", record);
   exec.modClientArtifactAsync("77", "900", record);
-  const std::vector<std::string> expected = {"ExecModClientBuild",   "ExecModClientDeploy", "ExecModClientDelete",
-                                             "ExecGridClientMods",   "ExecConsentClientMod", "ExecTrustAuthor",
-                                             "ExecModClientArtifact"};
+  exec.revokeClientModConsentAsync("77", "900", record);
+  exec.revokeAuthorTrustAsync("77", "5", "42", record);
+  const std::vector<std::string> expected = {"ExecModClientBuild",         "ExecModClientDeploy", "ExecModClientDelete",
+                                             "ExecGridClientMods",         "ExecConsentClientMod", "ExecTrustAuthor",
+                                             "ExecModClientArtifact",      "ExecRevokeClientModConsent",
+                                             "ExecRevokeAuthorTrust"};
   CHECK_EQ(sent, expected);
   CHECK_EQ(answers.at(0)["kind"].asString(), std::string("client"));
   CHECK(answers.at(2).asBool());
   CHECK_EQ(answers.at(3).size(), 1u);
   CHECK_EQ(answers.at(6)["modId"].asString(), std::string("900"));
+  CHECK(answers.at(7).asBool());
+  CHECK(!answers.at(8).asBool());
 }
 
 void testCapabilitySummary() {

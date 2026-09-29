@@ -60,6 +60,17 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.52.0: parity with CrowdyJS 18.0.3, the P3 W5 client security review.** A player takes
+back consent to a CLIENT half and trust in its author: `exec().revokeClientModConsent(appId,
+modId)` and `revokeAuthorTrust(appId, gridId, authorId)` (and their `…Async` twins; ck-api
+`dev/v2.28.0`). The exec connect token is percent-encoded in the gateway URL, as CrowdyJS
+encodes it. CrowdyJS's page
+now holds a CLIENT half to rules of its own (`grid_permission_check` answers only for the four
+code-permission keys, a half's spatial and channel sends go out under a uuid the page derives,
+`voxel_set` takes voxels 0-15 of type 0-255, a chunk named a second way is refused, and the glue
+caps what it copies out of a module); a native engine that runs CLIENT halves answers its
+sandbox's host calls by the same rules. See [MIGRATION.md](MIGRATION.md).
+
 **v0.51.0: the SDK is for normal clients.** It wraps nothing only a super-admin or a platform
 operator can call, and is designed for the production environment; org-admin features stay. Gone:
 `client.operator_()` (`creditOrgWallet`), `users()` `paginated` / `listConnection` /

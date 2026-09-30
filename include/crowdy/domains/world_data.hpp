@@ -99,6 +99,14 @@ class ChunksAPI : public DomainBase {
     execUnwrapAsync(gen::chunks::kUpdateChunkDocument, vars, {}, std::move(cb));
   }
 
+  /// update(), blocking and never throwing: the whole outcome (`data` is the
+  /// response's `data`), so a caller can branch on the refusal in either build.
+  graphql::GraphQLOutcome updateOutcome(const graphql::JVal& input) const {
+    graphql::JVal vars;
+    vars["input"] = input;
+    return gql_->requestOutcome(gen::chunks::kUpdateChunkDocument, vars);
+  }
+
   graphql::Json updateState(const graphql::JVal& input) const {
     graphql::JVal vars;
     vars["input"] = input;

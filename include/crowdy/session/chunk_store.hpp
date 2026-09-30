@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/replication/connection.hpp"
 #include "crowdy/session/keys.hpp"
 
@@ -35,13 +36,57 @@ struct ChunkData {
   std::int64_t hydratedAtMs = 0;
 };
 
+/// Why the store stopped trying a chunk's write-back.
+enum class ChunkWriteBackDrop {
+  /// The server will refuse it again unchanged: no permission on the chunk (someone
+  /// else's claimed plot, a safe zone), a closed wilderness, an invalid request.
+  Refused,
+  /// Every attempt failed with an error that could have cleared (busy, network, a
+  /// timeout, a server error).
+  Exhausted,
+};
+
+/// A chunk write-back the store stopped trying. The chunk keeps its local voxels
+/// and is no longer dirty, so it can be pruned and loaded again from the server's
+/// copy; the store does not undo the edit.
+struct ChunkWriteBackFailure {
+  ChunkCoord coord{};
+  ChunkWriteBackDrop reason = ChunkWriteBackDrop::Refused;
+  /// Attempts made, the last one included.
+  int attempts = 0;
+  /// The last attempt's outcome: `kind`, `httpStatus`, and the GraphQL errors
+  /// with their extensions (`code`, `retryable`, `httpStatus`).
+  graphql::GraphQLOutcome error;
+};
+
+/// What ChunkStore::flush() did.
+struct ChunkFlushResult {
+  /// Chunks persisted.
+  std::size_t persisted = 0;
+  /// Write-backs dropped along the way (also reported through onWriteBackFailed).
+  std::vector<ChunkWriteBackFailure> dropped;
+};
+
 class ChunkStore {
  public:
   struct Options {
     /// Persist locally generated / edited chunks back through chunks.update,
     /// at most one chunk per writeBackIntervalMs (0 disables write-back).
+    ///
+    /// A write the server refuses (FORBIDDEN, SCOPE_MISSING, a validation error,
+    /// NOT_FOUND, `extensions.retryable: false`, HTTP 400/403/404/413/422) is dropped
+    /// after that one attempt. One that fails for a reason that can clear
+    /// (PLATFORM_BUSY, UNAUTHENTICATED, network, a timeout, a server error) is tried
+    /// again after 0.7 s, 1.4 s, 2.8 s and 5.6 s, then dropped. Both are reported
+    /// through onWriteBackFailed, and neither holds up any other chunk.
     std::int64_t writeBackIntervalMs = 700;
     std::uint8_t voxelSendDistance = 8;
+    /// Attempts for a write-back whose failures can clear.
+    int writeBackAttempts = 5;
+    /// Wait before the second attempt; doubles for each attempt after it.
+    std::int64_t writeBackBackoffMs = 700;
+    /// How flush() waits out a backoff (defaults to sleeping this thread).
+    std::function<void(std::int64_t ms)> sleep;
   };
 
   ChunkStore(replication::Connection& conn, domains::ChunksAPI* chunksApi, std::string appId,
@@ -106,38 +151,48 @@ class ChunkStore {
   }
 
   /// Evict cached chunks farther than `distance` (Chebyshev) from `center`.
-  /// Dirty chunks are persisted first when a durable store is attached.
+  /// A dirty chunk gets one write-back attempt first when a durable store is
+  /// attached: persisted or dropped (refused, or out of attempts), it is evicted;
+  /// one whose failure can still clear stays, dirty, for the next tick.
   std::size_t pruneBeyond(const ChunkCoord& center, int distance) {
+    std::vector<ChunkCoord> far;
+    for (const auto& [coord, chunk] : chunks_) {
+      if (chebyshev(coord, center) > distance) far.push_back(coord);
+    }
     std::size_t pruned = 0;
-    for (auto it = chunks_.begin(); it != chunks_.end();) {
-      if (chebyshev(it->first, center) > distance) {
-        if (it->second.dirty && !flushOne(it->second)) {
-          ++it;
-          continue;
-        }
-        it = chunks_.erase(it);
-        revision_.fetch_add(1, std::memory_order_relaxed);
-        ++pruned;
-      } else {
-        ++it;
+    for (const ChunkCoord& coord : far) {
+      auto it = chunks_.find(coord);
+      if (it == chunks_.end()) continue;
+      if (it->second.dirty && chunksApi_) {
+        if (attemptWriteBack(it->second, lastTickMs_, nullptr) == WriteBack::Retry) continue;
+        // The callbacks it fired may have changed the store.
+        it = chunks_.find(coord);
+        if (it == chunks_.end()) continue;
       }
+      if (it->second.dirty) setDirty(it->second, false);
+      forgetWriteBack(coord);
+      chunks_.erase(it);
+      revision_.fetch_add(1, std::memory_order_relaxed);
+      ++pruned;
     }
     return pruned;
   }
 
-  /// Persist every dirty chunk now (ignoring the write-back throttle).
-  /// Returns the number persisted; chunks that fail stay dirty.
-  std::size_t flush() {
-    std::size_t flushed = 0;
-    for (auto& [coord, chunk] : chunks_) {
-      if (chunk.dirty && flushOne(chunk)) ++flushed;
-    }
-    return flushed;
-  }
+  /// Persist every dirty chunk now (ignoring the write-back throttle), waiting
+  /// out the backoff of one whose attempt fails for a reason that can clear.
+  /// Returns what was persisted and the write-backs dropped along the way; a
+  /// dropped chunk is no longer dirty.
+  ChunkFlushResult flush();
 
   /// Observe realtime/local chunk changes (fired on ingest and setVoxel).
   void onChunkChanged(std::function<void(const ChunkData&)> cb) {
     onChunkChanged_ = std::move(cb);
+  }
+
+  /// Observe write-backs the store gave up on (refused, or out of attempts).
+  /// Undo or flag the local edit here; the store does not revert it.
+  void onWriteBackFailed(std::function<void(const ChunkWriteBackFailure&)> cb) {
+    onWriteBackFailed_ = std::move(cb);
   }
 
   /// Insert a locally generated chunk (worldgen write-back pattern: chunks
@@ -220,17 +275,32 @@ class ChunkStore {
     if (onChunkChanged_) onChunkChanged_(chunk);
   }
 
-  /// Persist one chunk through the durable store; defined in
-  /// world_session.cpp (keeps the header free of domain includes).
-  bool flushOne(ChunkData& chunk);
+  enum class WriteBack { Persisted, Retry, Dropped };
+
+  /// One write-back attempt through the durable store; on Dropped the chunk is no
+  /// longer dirty, the failure is reported, and copied to `dropped` when given.
+  /// Defined in world_session.cpp (keeps the header free of domain includes).
+  WriteBack attemptWriteBack(ChunkData& chunk, std::int64_t nowMs,
+                             std::vector<ChunkWriteBackFailure>* dropped);
+
+  void forgetWriteBack(const ChunkCoord& coord) {
+    writeBackAttempts_.erase(coord);
+    writeBackDueAt_.erase(coord);
+  }
 
   replication::Connection& conn_;
   domains::ChunksAPI* chunksApi_;  // may be null (offline / tests): no hydrate/write-back
   std::string appId_;
   Options options_;
   std::unordered_map<ChunkCoord, ChunkData, ChunkCoordHash> chunks_;
+  /// Failed attempts so far, per chunk whose write-back is being retried.
+  std::unordered_map<ChunkCoord, int, ChunkCoordHash> writeBackAttempts_;
+  /// When such a chunk may be tried again (tick clock).
+  std::unordered_map<ChunkCoord, std::int64_t, ChunkCoordHash> writeBackDueAt_;
   std::int64_t lastWriteBackMs_ = 0;
+  std::int64_t lastTickMs_ = 0;
   std::function<void(const ChunkData&)> onChunkChanged_;
+  std::function<void(const ChunkWriteBackFailure&)> onWriteBackFailed_;
   std::atomic<std::uint64_t> revision_{0};
   std::atomic<std::size_t> pendingWriteBacks_{0};
 };

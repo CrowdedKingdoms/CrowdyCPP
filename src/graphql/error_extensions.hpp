@@ -39,6 +39,8 @@ inline GraphQLErrorDetail readGraphQLError(Json entry, std::string_view fallback
   // one distinction this field exists to preserve.
   const Json retryAfterMs = extensions["retryAfterMs"];
   if (retryAfterMs.isNumber()) detail.retryAfterMs = retryAfterMs.asInt64();
+  const Json httpStatus = extensions["httpStatus"];
+  if (httpStatus.isNumber()) detail.httpStatus = static_cast<int>(httpStatus.asInt64());
   detail.cause = extensions["cause"].asString();
 
   const Json path = entry["path"];

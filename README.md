@@ -60,6 +60,15 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.53.0: parity with CrowdyJS 18.0.4, chunk write-backs the server refuses.** One chunk
+the server refused, or one that kept failing, no longer stops every other chunk from being
+written back. `ChunkStore` sends a refused write-back (FORBIDDEN, a validation error,
+`retryable: false`, HTTP 400/403/404/413/422) once and drops it, retries one that can clear up
+to 5 attempts (0.7/1.4/2.8/5.6 s) and drops it, and reports both through
+`onWriteBackFailed`; `flush()` returns a `ChunkFlushResult` that lists what it dropped, and
+`pruneBeyond` evicts a refused chunk. The app queries and `createApp` / `updateApp` select
+`wildernessWritesOpen` (ck-api `dev/v2.30.0`). See [MIGRATION.md](MIGRATION.md).
+
 **v0.52.0: parity with CrowdyJS 18.0.3, the P3 W5 client security review.** A player takes
 back consent to a CLIENT half and trust in its author: `exec().revokeClientModConsent(appId,
 modId)` and `revokeAuthorTrust(appId, gridId, authorId)` (and their `…Async` twins; ck-api
@@ -745,7 +754,7 @@ design, so reads never lock).
 | `LocalActorStore` (`session.self()`) | your presence loop | Joins the world, re-sends state at a fixed Hz with send-on-change dedup, periodic keyframes, and cheap idle heartbeats so presence never lapses; tracks `lastAck()` from self-echoes. You just `setState(bytes)` from the game loop — or `moveTo(chunk)` on boundary crossings for an immediate send. |
 | `RemoteActorStore` (`session.actors()`) | everyone-else tracking | Self-filtered registry keyed by actor uuid with staleness reaping, `onJoin`/`onLeave`/`onUpdate` callbacks, and a per-actor sample history (state + server timestamp pairs) ready for interpolation/extrapolation. Render directly from `list()`. |
 | `RemoteActorLane` (`actors().lane("mobs", ...)`) | per-kind actor lists | Filtered sub-registries (players vs mobs vs vehicles) so each kind is classified once at ingest — no per-frame re-scanning or re-decoding of the full registry. |
-| `ChunkStore` (`session.chunks()`) | terrain sync | Chunk/voxel cache: bulk `ensureAround()` hydration from the durable store, realtime merge of incoming voxel edits, optimistic `setVoxel()` (applies locally, replicates, queues persistence), worldgen write-back via `seed()`, `pruneBeyond()`/`flush()` for streaming worlds, and `voxelTypeAt()`/`voxelStateAt()` reads for meshing/collision. |
+| `ChunkStore` (`session.chunks()`) | terrain sync | Chunk/voxel cache: bulk `ensureAround()` hydration from the durable store, realtime merge of incoming voxel edits, optimistic `setVoxel()` (applies locally, replicates, queues persistence), worldgen write-back via `seed()`, `pruneBeyond()`/`flush()` for streaming worlds, `onWriteBackFailed()` for write-backs it dropped (refused, or out of attempts), and `voxelTypeAt()`/`voxelStateAt()` reads for meshing/collision. |
 | `EventRouter` (`session.events()`) | RPC dispatch switch | Routes typed client/server events (`[u16 eventType][state]`) to per-type handlers and retains `lastEvent(type)` — your gameplay events become `events().on(kDoorOpened, ...)` instead of a hand-rolled switch over payload bytes. |
 | `Inbox` (`channelInbox()` / `directInbox()`) | chat/message queues | Bounded queues for channel and direct messages with `drain()`, non-consuming `messages()`, `onMessage` callbacks, and channel discovery — plus `send()` helpers back through the connection. |
 | `ErrorStore` (`session.errors()`) | "why was that send rejected?" | Correlates server error frames (sequence-numbered, uint8 wrap) with the *kind* of send that used that sequence, so a permission denial points at "your voxel edit", not a bare error code. |

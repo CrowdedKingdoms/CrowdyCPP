@@ -85,6 +85,10 @@ struct GraphQLErrorDetail {
   /// number. Treat it as a deadline from receipt, not as an interval to
   /// reuse.
   std::optional<std::int64_t> retryAfterMs;
+  /// extensions.httpStatus: the HTTP status the server maps this code to, which a
+  /// GraphQL error carries even when the response itself was a 200. Absent when the
+  /// key is missing or not a JSON number.
+  std::optional<int> httpStatus;
   /// extensions.cause: why an open circuit opened, when the server knows.
   /// `watchdog_timeout` means the failures were watchdog kills. Empty when
   /// the key is absent.

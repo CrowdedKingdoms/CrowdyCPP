@@ -18,8 +18,9 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_API_URL` | yes | API base URL (shared entry origin). `CROWDY_E2E_MANAGEMENT_URL` is still read as a fallback — same origin now |
 | `CROWDY_E2E_HTTP_URL` | no | per-game API base URL (falls back to the minted `gameApiUrl`) |
 | `CROWDY_E2E_EMAIL` | yes | base email; suites derive fresh accounts by plus-addressing |
+| `CROWDY_E2E_EMAIL_2` | two-player suites | the second player's address (`e2e_world_session` registers it as given, so use a fresh one per run); unset, `signIn` registers an empty address and the suite aborts with a GraphQL error |
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
-| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players) |
+| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players). `e2e_chunk_store_live` also closes the app's wilderness for up to ~45 s and reopens it, so do not run chunk-writing suites against the same app at the same time |
 | `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |

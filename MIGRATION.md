@@ -1,5 +1,48 @@
 # CrowdyCPP migration notes
 
+## 0.53.0 Parity with CrowdyJS 18.0.4 (chunk write-backs the server refuses)
+
+Breaking for callers of `ChunkStore::flush()`, whose return type changed. Pinned to CrowdyJS
+18.0.4. `schema.gql` is cks-game-api `dev`'s after #434 (`dev/v2.30.0`): it adds
+`App.wildernessWritesOpen` and `UpdateAppInput.wildernessWritesOpen`.
+
+- `ChunkStore` no longer retries a write-back forever. 0.52.0 caught every failure and left the
+  chunk dirty, and because `tick()` always tried the first dirty chunk, one chunk the server
+  refused (a claimed plot, a safe zone, a closed wilderness) or one that kept failing stopped
+  every other chunk from being written back. Now:
+  - a refusal the server will not change is sent once and dropped: `extensions.code`
+    FORBIDDEN, SCOPE_MISSING, NOT_ALLOWED, BAD_REQUEST, BAD_USER_INPUT, INVALID_REQUEST,
+    GRAPHQL_VALIDATION_FAILED or NOT_FOUND, `extensions.retryable: false`, or HTTP / an
+    `extensions.httpStatus` of 400, 403, 404, 413 or 422;
+  - any other failure (PLATFORM_BUSY, UNAUTHENTICATED, network, a timeout, a 5xx) is tried
+    again after 0.7, 1.4, 2.8 and 5.6 s (`Options::writeBackAttempts` 5,
+    `writeBackBackoffMs` 700) and then dropped;
+  - a chunk waiting out its backoff does not hold up the others: `tick()` persists the first
+    dirty chunk that is due.
+
+  A dropped chunk keeps its local voxels and is no longer dirty; the store does not undo the
+  edit. `onWriteBackFailed(cb)` reports each drop as a `ChunkWriteBackFailure{coord, reason
+  (ChunkWriteBackDrop::Refused | Exhausted), attempts, error}`, where `error` is the last
+  attempt's `graphql::GraphQLOutcome` (its `kind`, `httpStatus` and GraphQL errors). Undo or flag
+  the edit there.
+- `ChunkStore::flush()` returns a `ChunkFlushResult{persisted, dropped}` instead of a count:
+  `persisted` is the old count and `dropped` the write-backs it gave up on. It waits out the
+  backoff of a chunk whose failure can clear (`Options::sleep` replaces the wait, for tests).
+  Replace `flush() >= n` with `flush().persisted >= n`.
+- `pruneBeyond` gives a dirty chunk one attempt, as before, and now evicts it when that attempt
+  is refused (reporting it) instead of keeping it dirty forever; one whose failure can clear
+  still stays for the next tick.
+- `GraphQLClient::requestOutcome(document, variables, operationName)` is the blocking twin of
+  `requestAsync`: it returns the `GraphQLOutcome` instead of throwing, in both builds, so a
+  no-exceptions build can tell a refusal from a network failure too.
+  `ChunksAPI::updateOutcome(input)` is `update` through it.
+- `GraphQLErrorDetail::httpStatus` carries `extensions.httpStatus` when the server sends it.
+- `App`, `AppBySlug`, `AppsForOrg`, `MyApps`, `CreateApp` and `UpdateApp` select
+  `wildernessWritesOpen`: whether players may write the app's wilderness (chunks only the app's
+  world grid covers). An org-admin closes it with `admin().apps().update(appId,
+  {wildernessWritesOpen: false})` (manage_apps); every replica refuses those writes within
+  15 seconds.
+
 ## 0.52.0 Parity with CrowdyJS 18.0.3 (the P3 W5 client security review)
 
 Not breaking. Pinned to CrowdyJS 18.0.3. `schema.gql` is cks-game-api `dev`'s after #431

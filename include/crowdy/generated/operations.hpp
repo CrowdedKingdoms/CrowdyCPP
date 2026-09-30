@@ -2,8 +2,8 @@
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
-// schema.gql sha256: a575a8c915faba21e00d621ce4a7c490992034ac0b1d2904779ca529af3106cd
-// operations sha256: 4156ce5353dce206365ffd8d8ca8efe0a7a0f6988f6693cec74a4f0dd890d234
+// schema.gql sha256: a4fc571e3a18bcb2be84563897cce4e44ded26ef9015079bae89cfbb94a9c207
+// operations sha256: a4069ba386039a2e4dc03aeff68f07c9605d5352901d31eeaa9260aad0493f5d
 
 #pragma once
 
@@ -845,6 +845,7 @@ inline constexpr std::string_view kAppDocument = R"gql(query App($appId: BigInt!
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     deploymentTarget
     reservedUdpBytesPerSec
@@ -871,6 +872,7 @@ inline constexpr std::string_view kAppIsolatedDocument = R"gql(query App($appId:
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     deploymentTarget
     reservedUdpBytesPerSec
@@ -900,6 +902,7 @@ inline constexpr std::string_view kAppBySlugDocument = R"gql(query AppBySlug($or
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -921,6 +924,7 @@ inline constexpr std::string_view kAppBySlugIsolatedDocument = R"gql(query AppBy
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -964,6 +968,7 @@ inline constexpr std::string_view kAppsForOrgDocument = R"gql(query AppsForOrg($
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -980,6 +985,7 @@ inline constexpr std::string_view kAppsForOrgIsolatedDocument = R"gql(query Apps
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -1119,6 +1125,7 @@ inline constexpr std::string_view kCreateAppDocument = R"gql(mutation CreateApp(
     visibility
     status
     metadata
+    wildernessWritesOpen
     createdAt
   }
 })gql";
@@ -1132,6 +1139,7 @@ inline constexpr std::string_view kCreateAppIsolatedDocument = R"gql(mutation Cr
     visibility
     status
     metadata
+    wildernessWritesOpen
     createdAt
   }
 })gql";
@@ -1283,6 +1291,7 @@ inline constexpr std::string_view kMyAppsDocument = R"gql(query MyApps {
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -1304,6 +1313,7 @@ inline constexpr std::string_view kMyAppsIsolatedDocument = R"gql(query MyApps {
     visibility
     status
     metadata
+    wildernessWritesOpen
     splitMode
     gameApiUrl
     createdAt
@@ -1328,6 +1338,7 @@ inline constexpr std::string_view kUpdateAppDocument = R"gql(mutation UpdateApp(
     visibility
     status
     metadata
+    wildernessWritesOpen
     updatedAt
   }
 })gql";
@@ -1341,6 +1352,7 @@ inline constexpr std::string_view kUpdateAppIsolatedDocument = R"gql(mutation Up
     visibility
     status
     metadata
+    wildernessWritesOpen
     updatedAt
   }
 })gql";

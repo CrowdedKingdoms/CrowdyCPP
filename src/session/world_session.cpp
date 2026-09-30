@@ -1,5 +1,9 @@
 #include "crowdy/session/world_session.hpp"
 
+#include <chrono>
+#include <string_view>
+#include <thread>
+
 #include "crowdy/client.hpp"
 #include "crowdy/core/base64.hpp"
 
@@ -170,37 +174,129 @@ std::size_t ChunkStore::ensureAround(const ChunkCoord& center, int distance) {
   return hydrated;
 }
 
-bool ChunkStore::flushOne(ChunkData& chunk) {
-  if (!chunksApi_) return false;
-#ifndef CROWDY_NO_EXCEPTIONS
-  try {
-#endif
-    graphql::JVal input;
-    input["appId"] = appId_;
-    input["coordinates"] =
-        domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
-    input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
-    const graphql::Json updated = chunksApi_->update(input);
-    if (!updated.ok()) return false;
+namespace {
+
+bool isWriteBackRefusalCode(std::string_view code) {
+  static constexpr std::string_view kCodes[] = {
+      "FORBIDDEN",      "SCOPE_MISSING",   "NOT_ALLOWED",
+      "BAD_REQUEST",    "BAD_USER_INPUT",  "INVALID_REQUEST",
+      "GRAPHQL_VALIDATION_FAILED",         "NOT_FOUND",
+  };
+  for (std::string_view refused : kCodes) {
+    if (code == refused) return true;
+  }
+  return false;
+}
+
+bool isWriteBackRefusalStatus(int status) {
+  return status == 400 || status == 403 || status == 404 || status == 413 || status == 422;
+}
+
+/// Whether a failed write-back can succeed if sent again unchanged. A permission or
+/// validation refusal cannot; a busy platform, an expired session, a network drop, a
+/// timeout or a server error can. Mirrors CrowdyJS `writeBackRetryable`.
+bool writeBackRetryable(const graphql::GraphQLOutcome& out) {
+  switch (out.kind) {
+    case graphql::GraphQLErrorKind::Network:
+    case graphql::GraphQLErrorKind::Timeout:
+    case graphql::GraphQLErrorKind::Protocol:
+      return true;
+    case graphql::GraphQLErrorKind::Http:
+      return !isWriteBackRefusalStatus(out.httpStatus);
+    case graphql::GraphQLErrorKind::GraphQL:
+      break;
+    case graphql::GraphQLErrorKind::None:
+      return true;
+  }
+  for (const auto& error : out.errors) {
+    if (error.code == "PLATFORM_BUSY" || error.code == "UNAUTHENTICATED") continue;
+    if (!error.retryable) return false;
+    if (isWriteBackRefusalCode(error.code)) return false;
+    if (error.httpStatus && isWriteBackRefusalStatus(*error.httpStatus)) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+ChunkStore::WriteBack ChunkStore::attemptWriteBack(ChunkData& chunk, std::int64_t nowMs,
+                                                   std::vector<ChunkWriteBackFailure>* dropped) {
+  graphql::JVal input;
+  input["appId"] = appId_;
+  input["coordinates"] =
+      domains::ChunkRef{chunk.coord.x, chunk.coord.y, chunk.coord.z}.toInput();
+  input["voxels"] = core::base64Encode(Bytes(chunk.voxels.data(), chunk.voxels.size()));
+  graphql::GraphQLOutcome out = chunksApi_->updateOutcome(input);
+  if (out.ok()) {
+    forgetWriteBack(chunk.coord);
     setDirty(chunk, false);
     chunk.storedOnServer = true;
     touch(chunk);
-    return true;
-#ifndef CROWDY_NO_EXCEPTIONS
-  } catch (const std::exception&) {
-    return false;  // leave dirty; retried later
+    return WriteBack::Persisted;
   }
-#endif
+
+  const int attempts = writeBackAttempts_[chunk.coord] + 1;
+  const bool retryable = writeBackRetryable(out);
+  if (retryable && attempts < options_.writeBackAttempts) {
+    writeBackAttempts_[chunk.coord] = attempts;
+    writeBackDueAt_[chunk.coord] =
+        nowMs + (options_.writeBackBackoffMs << (attempts - 1));
+    return WriteBack::Retry;
+  }
+
+  forgetWriteBack(chunk.coord);
+  setDirty(chunk, false);
+  ChunkWriteBackFailure failure;
+  failure.coord = chunk.coord;
+  failure.reason = retryable ? ChunkWriteBackDrop::Exhausted : ChunkWriteBackDrop::Refused;
+  failure.attempts = attempts;
+  failure.error = std::move(out);
+  if (onWriteBackFailed_) onWriteBackFailed_(failure);
+  if (dropped) dropped->push_back(std::move(failure));
+  return WriteBack::Dropped;
+}
+
+ChunkFlushResult ChunkStore::flush() {
+  ChunkFlushResult result;
+  if (!chunksApi_) return result;
+  std::vector<ChunkCoord> dirty;
+  for (const auto& [coord, chunk] : chunks_) {
+    if (chunk.dirty) dirty.push_back(coord);
+  }
+  for (const ChunkCoord& coord : dirty) {
+    for (;;) {
+      auto it = chunks_.find(coord);
+      if (it == chunks_.end() || !it->second.dirty) break;
+      auto pending = writeBackAttempts_.find(coord);
+      if (pending != writeBackAttempts_.end() && pending->second > 0) {
+        const std::int64_t waitMs = options_.writeBackBackoffMs << (pending->second - 1);
+        if (options_.sleep) {
+          options_.sleep(waitMs);
+        } else {
+          std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+        }
+      }
+      const WriteBack done = attemptWriteBack(it->second, lastTickMs_, &result.dropped);
+      if (done == WriteBack::Persisted) ++result.persisted;
+      if (done != WriteBack::Retry) break;
+    }
+  }
+  return result;
 }
 
 void ChunkStore::tick(std::int64_t nowMs) {
+  lastTickMs_ = nowMs;
   if (!chunksApi_ || options_.writeBackIntervalMs <= 0) return;
   if (nowMs - lastWriteBackMs_ < options_.writeBackIntervalMs) return;
 
+  // The first dirty chunk that is due: one waiting out a backoff does not hold up
+  // the others.
   for (auto& [coord, chunk] : chunks_) {
     if (!chunk.dirty) continue;
+    auto due = writeBackDueAt_.find(coord);
+    if (due != writeBackDueAt_.end() && due->second > nowMs) continue;
     lastWriteBackMs_ = nowMs;
-    flushOne(chunk);
+    attemptWriteBack(chunk, nowMs, nullptr);
     break;  // at most one chunk per interval
   }
 }

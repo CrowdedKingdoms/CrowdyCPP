@@ -1,0 +1,313 @@
+// ChunkStore durable write-back failures: a refusal the server will not change
+// is sent once and dropped, a failure that can clear is retried with backoff and
+// then dropped, and neither holds up the other chunks' write-backs.
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "crowdy/core/crypto.hpp"
+#include "crowdy/domains/world_data.hpp"
+#include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/graphql/http.hpp"
+#include "crowdy/replication/connection.hpp"
+#include "crowdy/session/chunk_store.hpp"
+#include "test_util.hpp"
+
+using namespace crowdy;
+using namespace crowdy::session;
+
+namespace {
+
+/// How the fake Game API answers UpdateChunk for a chunk whose x coordinate is
+/// the key; other chunks are stored.
+enum class Answer {
+  Forbidden,            // GraphQL FORBIDDEN, extensions.httpStatus 403
+  BadRequest,           // HTTP 400 carrying a BAD_REQUEST error
+  BusyTwice,            // PLATFORM_BUSY twice, then stored
+  NetworkDown,          // the request never completes
+  UnauthenticatedOnce,  // UNAUTHENTICATED once, then stored
+  NotRetryable,         // an unknown code with extensions.retryable: false
+  PayloadTooLarge,      // HTTP 413 with a non-GraphQL body
+  ServerErrorOnce,      // HTTP 503 once, then stored
+};
+
+class ChunkApiTransport final : public graphql::IHttpTransport {
+ public:
+  std::map<std::int64_t, Answer> answers;
+  std::map<std::int64_t, int> calls;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& request) override {
+    return sendOutcome(request).response;
+  }
+
+  graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& request) noexcept override {
+    const graphql::Json body = graphql::Json::parse(request.body);
+    const std::int64_t x = body["variables"]["input"]["coordinates"]["x"].asBigInt(-1);
+    const int n = ++calls[x];
+    const auto it = answers.find(x);
+    if (it == answers.end()) return stored();
+    switch (it->second) {
+      case Answer::Forbidden:
+        return {Errc::Ok,
+                {200, R"({"errors":[{"message":"You do not have permission to write this chunk","extensions":{"code":"FORBIDDEN","httpStatus":403}}],"data":null})"},
+                {}};
+      case Answer::BadRequest:
+        return {Errc::Ok,
+                {400, R"({"errors":[{"message":"voxels must be 4096 bytes","extensions":{"code":"BAD_REQUEST","httpStatus":400}}]})"},
+                {}};
+      case Answer::BusyTwice:
+        if (n > 2) return stored();
+        return {Errc::Ok,
+                {200, R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY","retryable":true,"httpStatus":503}}],"data":null})"},
+                {}};
+      case Answer::NetworkDown:
+        return {Errc::SocketError, {}, "connection refused"};
+      case Answer::UnauthenticatedOnce:
+        if (n > 1) return stored();
+        return {Errc::Ok,
+                {200, R"({"errors":[{"message":"token expired","extensions":{"code":"UNAUTHENTICATED","httpStatus":401}}],"data":null})"},
+                {}};
+      case Answer::NotRetryable:
+        return {Errc::Ok,
+                {200, R"({"errors":[{"message":"no","extensions":{"code":"SOMETHING_NEW","retryable":false}}],"data":null})"},
+                {}};
+      case Answer::PayloadTooLarge:
+        return {Errc::Ok, {413, "request entity too large"}, {}};
+      case Answer::ServerErrorOnce:
+        if (n > 1) return stored();
+        return {Errc::Ok, {503, "service unavailable"}, {}};
+    }
+    return stored();
+  }
+
+ private:
+  static graphql::HttpOutcome stored() {
+    return {Errc::Ok, {200, R"({"data":{"updateChunk":{"appId":"42"}}})"}, {}};
+  }
+};
+
+struct NoProvider final : replication::ISessionProvider {
+  Result<replication::Assignment> assignServer() override { return Errc::NotConnected; }
+  Result<replication::TokenInfo> refreshToken() override { return Errc::NotConnected; }
+};
+
+/// A ChunkStore over the fake Game API; the replication connection is never opened.
+struct Fixture {
+  std::shared_ptr<ChunkApiTransport> http = std::make_shared<ChunkApiTransport>();
+  std::shared_ptr<graphql::GraphQLClient> gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+      std::make_shared<graphql::AuthState>());
+  domains::ChunksAPI chunksApi{gql};
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  std::vector<std::int64_t> sleeps;
+  std::vector<ChunkWriteBackFailure> reported;
+  std::unique_ptr<ChunkStore> store;
+
+  Fixture() {
+    ChunkStore::Options options;
+    options.writeBackIntervalMs = 100;
+    options.sleep = [this](std::int64_t ms) { sleeps.push_back(ms); };
+    store = std::make_unique<ChunkStore>(conn, &chunksApi, "42", options);
+    store->onWriteBackFailed(
+        [this](const ChunkWriteBackFailure& failure) { reported.push_back(failure); });
+  }
+
+  void seed(std::int64_t x, Answer answer) {
+    http->answers[x] = answer;
+    seed(x);
+  }
+  void seed(std::int64_t x) { store->seed(at(x), {}); }
+
+  static ChunkCoord at(std::int64_t x) { return ChunkCoord{x, 0, 0}; }
+
+  const ChunkWriteBackFailure* reportedFor(std::int64_t x) const {
+    for (const auto& failure : reported)
+      if (failure.coord == at(x)) return &failure;
+    return nullptr;
+  }
+};
+
+bool hasCode(const ChunkWriteBackFailure& failure, const char* code) {
+  return !failure.error.errors.empty() && failure.error.errors.front().code == code;
+}
+
+// The throttled tick loop: refused chunks are sent once, busy/network ones are
+// retried on the 0.7/1.4/2.8/5.6 s schedule, and the rest persist regardless.
+void testTickDropsRefusalsAndRetriesTheRest() {
+  Fixture f;
+  f.seed(1, Answer::Forbidden);
+  f.seed(2, Answer::BadRequest);
+  f.seed(3, Answer::BusyTwice);
+  f.seed(4, Answer::NetworkDown);
+  f.seed(5, Answer::UnauthenticatedOnce);
+  f.seed(6, Answer::NotRetryable);
+  f.seed(7, Answer::PayloadTooLarge);
+  f.seed(8, Answer::ServerErrorOnce);
+  f.seed(9);
+  CHECK_EQ(f.store->pendingWriteBacks(), 9u);
+
+  // Enough 100 ms ticks for every backoff (0.7 + 1.4 + 2.8 + 5.6 s) to run out.
+  for (std::int64_t now = 1000; now <= 30000; now += 100) f.store->tick(now);
+
+  CHECK_EQ(f.store->pendingWriteBacks(), 0u);
+  CHECK_EQ(f.http->calls[1], 1);
+  CHECK_EQ(f.http->calls[2], 1);
+  CHECK_EQ(f.http->calls[3], 3);
+  CHECK_EQ(f.http->calls[4], 5);
+  CHECK_EQ(f.http->calls[5], 2);
+  CHECK_EQ(f.http->calls[6], 1);
+  CHECK_EQ(f.http->calls[7], 1);
+  CHECK_EQ(f.http->calls[8], 2);
+  CHECK_EQ(f.http->calls[9], 1);
+
+  for (std::int64_t x : {3, 5, 8, 9}) {
+    const ChunkData* c = f.store->find(Fixture::at(x));
+    CHECK(c != nullptr && !c->dirty && c->storedOnServer);
+    CHECK(f.reportedFor(x) == nullptr);
+  }
+
+  CHECK_EQ(f.reported.size(), 5u);
+  for (std::int64_t x : {1, 2, 6, 7}) {
+    const ChunkWriteBackFailure* failure = f.reportedFor(x);
+    CHECK(failure != nullptr);
+    CHECK(failure->reason == ChunkWriteBackDrop::Refused);
+    CHECK_EQ(failure->attempts, 1);
+    const ChunkData* c = f.store->find(Fixture::at(x));
+    CHECK(c != nullptr && !c->dirty && !c->storedOnServer);  // local voxels kept
+  }
+  CHECK(hasCode(*f.reportedFor(1), "FORBIDDEN"));
+  CHECK(f.reportedFor(1)->error.errors.front().httpStatus == 403);
+  CHECK(hasCode(*f.reportedFor(2), "BAD_REQUEST"));
+  CHECK_EQ(f.reportedFor(2)->error.httpStatus, 400);
+  CHECK(hasCode(*f.reportedFor(6), "SOMETHING_NEW"));
+  CHECK_EQ(f.reportedFor(7)->error.httpStatus, 413);
+
+  const ChunkWriteBackFailure* exhausted = f.reportedFor(4);
+  CHECK(exhausted != nullptr);
+  CHECK(exhausted->reason == ChunkWriteBackDrop::Exhausted);
+  CHECK_EQ(exhausted->attempts, 5);
+  CHECK(exhausted->error.kind == graphql::GraphQLErrorKind::Network);
+}
+
+// One refused chunk must not hold up the others: each persists on its own tick.
+void testARefusedChunkDoesNotBlockTheOthers() {
+  Fixture f;
+  f.seed(1, Answer::Forbidden);
+  f.seed(2);
+  f.seed(3);
+  f.seed(4);
+  for (std::int64_t now = 1000; now < 1000 + 4 * 100; now += 100) f.store->tick(now);
+  CHECK_EQ(f.store->pendingWriteBacks(), 0u);
+  CHECK_EQ(f.http->calls[1], 1);
+  for (std::int64_t x : {2, 3, 4}) CHECK(f.store->find(Fixture::at(x))->storedOnServer);
+}
+
+// A chunk waiting out its backoff does not hold up the others either.
+void testABackingOffChunkDoesNotBlockTheOthers() {
+  Fixture f;
+  f.seed(1, Answer::NetworkDown);
+  f.store->tick(1000);  // attempt 1 fails; next try due at 1700
+  f.seed(2);
+  f.store->tick(1100);
+  CHECK(f.store->find(Fixture::at(2))->storedOnServer);
+  CHECK_EQ(f.http->calls[1], 1);
+  f.store->tick(1600);  // chunk 1 is not due yet
+  CHECK_EQ(f.http->calls[1], 1);
+  f.store->tick(1700);
+  CHECK_EQ(f.http->calls[1], 2);
+}
+
+// flush() waits out the backoff, reports what it dropped, and a re-seeded
+// refused chunk is sent once more (and dropped again).
+void testFlushReportsDroppedWriteBacks() {
+  Fixture f;
+  f.seed(1, Answer::Forbidden);
+  f.seed(2, Answer::BadRequest);
+  f.seed(3, Answer::BusyTwice);
+  f.seed(4, Answer::NetworkDown);
+  f.seed(5);
+
+  const ChunkFlushResult result = f.store->flush();
+  CHECK_EQ(result.persisted, 2u);
+  CHECK_EQ(result.dropped.size(), 3u);
+  CHECK_EQ(f.reported.size(), 3u);
+  CHECK_EQ(f.store->pendingWriteBacks(), 0u);
+  CHECK_EQ(f.http->calls[1], 1);
+  CHECK_EQ(f.http->calls[2], 1);
+  CHECK_EQ(f.http->calls[3], 3);
+  CHECK_EQ(f.http->calls[4], 5);
+  for (const auto& dropped : result.dropped) {
+    if (dropped.coord == Fixture::at(4)) {
+      CHECK(dropped.reason == ChunkWriteBackDrop::Exhausted);
+      CHECK_EQ(dropped.attempts, 5);
+    } else {
+      CHECK(dropped.coord == Fixture::at(1) || dropped.coord == Fixture::at(2));
+      CHECK(dropped.reason == ChunkWriteBackDrop::Refused);
+      CHECK_EQ(dropped.attempts, 1);
+    }
+  }
+  std::vector<std::int64_t> waits = f.sleeps;
+  std::sort(waits.begin(), waits.end());
+  const std::vector<std::int64_t> expected{700, 700, 1400, 1400, 2800, 5600};
+  CHECK(waits == expected);
+
+  f.seed(1);
+  const ChunkFlushResult again = f.store->flush();
+  CHECK_EQ(again.persisted, 0u);
+  CHECK_EQ(again.dropped.size(), 1u);
+  CHECK(again.dropped.front().reason == ChunkWriteBackDrop::Refused);
+  CHECK_EQ(f.http->calls[1], 2);
+  CHECK_EQ(f.store->pendingWriteBacks(), 0u);
+}
+
+// pruneBeyond evicts a refused chunk instead of keeping it dirty forever; one
+// whose failure can clear stays, dirty, for the next tick.
+void testPruneBeyondEvictsRefusedChunks() {
+  Fixture f;
+  f.seed(0);
+  f.seed(10, Answer::Forbidden);
+  f.seed(11);
+  f.seed(12, Answer::NetworkDown);
+
+  const std::size_t pruned = f.store->pruneBeyond(Fixture::at(0), 2);
+  CHECK_EQ(pruned, 2u);
+  CHECK(f.store->find(Fixture::at(10)) == nullptr);
+  CHECK(f.store->find(Fixture::at(11)) == nullptr);
+  const ChunkData* retrying = f.store->find(Fixture::at(12));
+  CHECK(retrying != nullptr && retrying->dirty);
+  CHECK(f.store->find(Fixture::at(0)) != nullptr);
+  CHECK_EQ(f.http->calls[10], 1);
+  CHECK_EQ(f.reported.size(), 1u);
+  CHECK(f.reported.front().coord == Fixture::at(10));
+  CHECK(f.reported.front().reason == ChunkWriteBackDrop::Refused);
+}
+
+// A failure callback may change the store (here it caches enough chunks to rehash
+// it) while pruneBeyond is evicting.
+void testPruneBeyondSurvivesACallbackThatChangesTheStore() {
+  Fixture f;
+  f.seed(0);
+  f.seed(10, Answer::Forbidden);
+  f.store->onWriteBackFailed([&](const ChunkWriteBackFailure&) {
+    for (std::int64_t y = 1; y <= 256; ++y) f.store->insertGenerated(ChunkCoord{0, y, 0}, {});
+  });
+  CHECK_EQ(f.store->pruneBeyond(Fixture::at(0), 2), 1u);
+  CHECK(f.store->find(Fixture::at(10)) == nullptr);
+  CHECK_EQ(f.store->size(), 257u);
+}
+
+}  // namespace
+
+int main() {
+  testTickDropsRefusalsAndRetriesTheRest();
+  testARefusedChunkDoesNotBlockTheOthers();
+  testABackingOffChunkDoesNotBlockTheOthers();
+  testFlushReportsDroppedWriteBacks();
+  testPruneBeyondEvictsRefusedChunks();
+  testPruneBeyondSurvivesACallbackThatChangesTheStore();
+  std::puts("chunk_store_test OK");
+  return 0;
+}

@@ -98,6 +98,10 @@ add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)
 
+add_executable(chunk_store_test chunk_store_test.cpp)
+target_link_libraries(chunk_store_test PRIVATE crowdy)
+add_test(NAME chunk_store_test COMMAND chunk_store_test)
+
 if(NOT CROWDY_NO_EXCEPTIONS)
   if(CROWDY_WITH_OPENSSL)
     add_executable(crowdy_studio_test crowdy_studio_test.cpp)

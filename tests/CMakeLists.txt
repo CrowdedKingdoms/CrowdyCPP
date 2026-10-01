@@ -102,6 +102,10 @@ add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
 add_test(NAME chunk_store_test COMMAND chunk_store_test)
 
+add_executable(windows_macros_test windows_macros_test.cpp)
+target_link_libraries(windows_macros_test PRIVATE crowdy)
+add_test(NAME windows_macros_test COMMAND windows_macros_test)
+
 if(NOT CROWDY_NO_EXCEPTIONS)
   if(CROWDY_WITH_OPENSSL)
     add_executable(crowdy_studio_test crowdy_studio_test.cpp)

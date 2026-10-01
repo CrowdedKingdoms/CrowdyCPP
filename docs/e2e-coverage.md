@@ -97,6 +97,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `malicious-input` | `e2e_malicious_input` | implemented; optional live |
 | `exec-client-halves` | `exec_test` + `e2e_exec_client_halves` | documents, variables, async twins and every `modClientArtifactBytes` refusal in default CI; build → attach → list → consent → trust → fetch → detach optional live with a ck-exec app and a grid its owner owns (fetch and trust accept `NOT_FOUND`: no actor in the grid) |
 | ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames and reconnect in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
+| `open-grid-and-exec-gateway` | `exec_test` (the shared gateway cases, a refused upgrade, 4401) + `e2e_open_grid_exec_gateway` | default CI offline; optional live as a throwaway org admin (`CROWDY_E2E_THROWAWAY_OWNER=1`): open, read, a player's keys, a refused code key, close; the tier's gateway passes the pin, pings, and refuses a tampered token as `Denied` (needs a WebSocket transport) |
 
 ## Game API SDK e2e (public `test/sdk` surface)
 

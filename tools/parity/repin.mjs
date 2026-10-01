@@ -21,7 +21,7 @@
  * build dir so the embedded fixture headers pick up the new content.
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -139,6 +139,16 @@ function discoverCppSuites() {
     .map((entry) => String(entry))
     .filter((entry) => entry.endsWith('.cpp'))
     .map((entry) => join(root, 'tests', entry));
+}
+
+// Copied fixtures: CrowdyJS owns the cases, exec_test runs the copy, and
+// tests/parity/exec-gateway-fixture.test.mjs refuses a copy that is not the pin's.
+const copiedFixtures = [
+  ['test/unit/fixtures/exec-gateway-cases.json', 'tools/parity/fixtures/exec-gateway-cases.json'],
+];
+for (const [from, to] of copiedFixtures) {
+  copyFileSync(join(crowdyjs, ...from.split('/')), join(root, ...to.split('/')));
+  console.log(`  copied ${from}`);
 }
 
 // Regenerate everything the pin feeds. Order matters only in that the matrix

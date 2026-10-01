@@ -132,9 +132,12 @@ files on conflict, re-pins, runs `check:release` with `CROWDYJS_PATH` at that
 worktree, and opens the PR. It refuses when CrowdyJS at `origin/<to>` is not the
 version this repo's pin names: promote CrowdyJS first.
 
-`parity:repin` rewrites the pin and reruns all five fixture generators plus the
-matrix; it prints the steps it cannot do for you. Four things reliably bite
-when this is done by hand:
+`parity:repin` rewrites the pin, copies the fixtures CrowdyJS owns (the ck-exec
+gateway cases, `tools/parity/fixtures/exec-gateway-cases.json`, which
+`exec-gateway-fixture.test.mjs` holds to the pinned commit's), and reruns the
+fixture generators plus the matrix; it prints the steps it cannot do for you.
+`docs/compatibility.md` names the pin too and is edited by hand. Four things
+reliably bite when this is done by hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
   CrowdyJS behavior cannot go green until that CrowdyJS commit is fetchable

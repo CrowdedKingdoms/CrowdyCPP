@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -435,7 +436,8 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "ExecSetEnabled") return {200, R"({"data":{"execSetEnabled":)" + status + "}}"};
     if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
     if (op == "ExecConnectAsDeveloper")
-      return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":"wss://gw","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
+      return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":")" + gatewayUrl +
+                       R"(","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
     if (op == "ExecStarters")
       return {200, R"({"data":{"execStarters":{"manifestJson":"{\"root\":\"world\"}","starters":[{"crate":"world-tick","nodeType":"world","description":"d","files":[{"path":"Cargo.toml","content":"c"}]}]}}})"};
     const std::string build = R"({"buildId":"b1","log":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
@@ -459,7 +461,8 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "ExecModDeploy") return {200, R"({"data":{"execModDeploy":)" + mod + "}}"};
     if (op == "ExecModSetEnabled") return {200, R"({"data":{"execModSetEnabled":)" + mod + "}}"};
     if (op == "ExecConnect")
-      return {200, R"({"data":{"execConnect":{"gatewayUrl":"wss://gw","token":"t1","host":"h1","expiresAt":"2026-09-26T00:01:00.000Z"}}})"};
+      return {200, R"({"data":{"execConnect":{"gatewayUrl":")" + gatewayUrl +
+                       R"(","token":"t1","host":"h1","expiresAt":"2026-09-26T00:01:00.000Z"}}})"};
     if (op == "ExecModLogs")
       return {200, R"({"data":{"execModLogs":[{"id":"2","nodeType":"mod:3d-server","key":"5","level":0,"host":"h","at":"2026-09-26T00:00:02.000Z","text":"boom"},{"id":"1","nodeType":"mod:3d-server","key":"5","level":2,"host":"h","at":"2026-09-26T00:00:01.000Z","text":"visited"}]}})"};
     if (op == "ExecMyMods") return {200, R"({"data":{"execMyMods":[]}})"};
@@ -488,6 +491,8 @@ class RecordingHttp final : public graphql::IHttpTransport {
 
   int statusCalls = 0;
   int modStatusCalls = 0;
+  /// The gateway `execConnect` names: on the test Game API's own host by default.
+  std::string gatewayUrl = "wss://test";
   /// What `execModClientArtifact` answers, as JSON.
   std::string clientArtifact = "null";
   /// The digest `execModClientDeploy` reports for the CLIENT half it attached.
@@ -1155,11 +1160,144 @@ void testStudioModRuntime() {
 }
 #endif
 
+// ---- where a connect token may go, and what a gateway's refusal says ----
+
+void testGatewayRefusal() {
+  // The cases are CrowdyJS's (test/unit/fixtures/exec-gateway-cases.json): both SDKs answer alike.
+  std::ifstream in(std::string(CROWDY_PARITY_FIXTURE_DIR) + "/exec-gateway-cases.json");
+  std::stringstream text;
+  text << in.rdbuf();
+  graphql::Json fx = graphql::Json::parse(text.str());
+  CHECK(fx["cases"].size() >= 15);
+  fx["cases"].forEach([](graphql::Json c) {
+    const auto why = execGatewayRefusal(c["gameApi"].asString(), c["gateway"].asString());
+    if (why.has_value() == c["dials"].asBool()) {
+      std::fprintf(stderr, "%s: %s -> %s (%s)\n", c["note"].asString().c_str(), c["gameApi"].asString().c_str(),
+                   c["gateway"].asString().c_str(), why.value_or("dials").c_str());
+    }
+    CHECK(why.has_value() != c["dials"].asBool());
+  });
+  CHECK_EQ(execGatewayRefusal("https://ck.dev.crowdedkingdoms.com/graphql", "ws://ckx-or-1.exec.dev.crowdedkingdoms.com")
+               .value_or(""),
+           std::string("a game API on https: hands out wss: gateways only"));
+  CHECK(execGatewayRefusal("https://ck.dev.crowdedkingdoms.com/graphql", "wss://gw.example.org")
+            .value_or("")
+            .rfind("gw.example.org is outside the estate of ck.dev.crowdedkingdoms.com", 0) == 0);
+
+  // Through the Game API: a gateway the check refuses is never dialed, and the attempt says why.
+  auto http = std::make_shared<RecordingHttp>();
+  http->gatewayUrl = "ws://ckx-or-1.exec.dev.crowdedkingdoms.com";
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"https://ck.dev.crowdedkingdoms.com/graphql", 1000}, http,
+      std::make_shared<graphql::AuthState>());
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  gql->setDispatcher(dispatcher);
+  auto transport = std::make_shared<FakeTransport>();
+  ExecAPI exec(gql, transport);
+  std::optional<Errc> failed;
+  exec.connectAsync("77", {}, [&](Result<std::shared_ptr<ExecConnection>> r) { failed = r.error(); });
+  CHECK(until(*dispatcher, [&] { return failed.has_value(); }));
+  CHECK(*failed == Errc::NotConnected);
+  const std::string why =
+      "refusing the gateway ws://ckx-or-1.exec.dev.crowdedkingdoms.com: a game API on https: hands out wss: gateways only";
+  for (const bool developer : {false, true}) {
+    auto conn = developer ? exec.connectAsDeveloper("77") : exec.connect("77");
+    std::optional<ExecReply> refused;
+    conn->callRaw("arena", "m1", "state", "", [&](ExecReply r) { refused = r; });
+    CHECK(until(*dispatcher, [&] { return refused.has_value(); }));
+    CHECK(refused->status == ExecStatus::Unavailable);
+    CHECK_EQ(refused->message(), why);
+    CHECK(conn->lastFailure().has_value());
+    CHECK_EQ(conn->lastFailure()->message(), why);
+    conn->close();
+  }
+  CHECK_EQ(transport->count(), 0u);
+
+  // A gateway on the Game API's estate is dialed.
+  http->gatewayUrl = "wss://ckx-or-1.exec.dev.crowdedkingdoms.com";
+  auto conn = exec.connect("77");
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  CHECK_EQ(transport->at(0)->url, std::string("wss://ckx-or-1.exec.dev.crowdedkingdoms.com/v1/connect?token=t1"));
+  conn->close();
+}
+
+WebSocketEvent refusedUpgrade(int status, std::string body) {
+  WebSocketEvent ev;
+  ev.kind = WebSocketEventKind::Error;
+  ev.error.message = "WebSocket handshake failed: Refused WebSockets upgrade: " + std::to_string(status);
+  ev.error.httpStatus = status;
+  ev.error.httpBody = std::move(body);
+  return ev;
+}
+
+void testRefusedUpgrade() {
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  struct Case {
+    int status;
+    std::string body;
+    ExecStatus expected;
+    Errc waiter;
+    std::string message;
+  };
+  const std::vector<Case> cases = {
+      // ck-exec 0.10.0+: a refused connect token, with the reason as the body.
+      {401, "token expired\n", ExecStatus::Denied, Errc::Rejected,
+       "the gateway refused the connection (HTTP 401: token expired)"},
+      // libcurl reports the status alone.
+      {401, "", ExecStatus::Denied, Errc::Rejected, "the gateway refused the connection (HTTP 401)"},
+      // A player past their session cap: retryable, so Unavailable, with the reason.
+      {429, "a player may hold 16 sessions to an app", ExecStatus::Unavailable, Errc::NotConnected,
+       "the gateway refused the connection (HTTP 429: a player may hold 16 sessions to an app)"},
+  };
+  for (const auto& c : cases) {
+    auto transport = std::make_shared<FakeTransport>();
+    auto dispatcher = std::make_shared<graphql::Dispatcher>();
+    auto conn = ExecConnection::open(transport, dispatcher, ExecEndpoint{"ws://127.0.0.1:7721", "stale", "h"}, opts);
+    std::optional<Status> opened;
+    conn->connect([&](Status s) { opened = s; });
+    std::optional<ExecReply> r;
+    conn->callRaw("arena", "m1", "state", "", [&](ExecReply x) { r = x; });
+    CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+    transport->at(0)->emit(refusedUpgrade(c.status, c.body));
+    CHECK(until(*dispatcher, [&] { return r.has_value() && opened.has_value(); }));
+    CHECK(r->status == c.expected);
+    CHECK_EQ(r->message(), c.message);
+    CHECK(opened->code == c.waiter);
+    CHECK(conn->lastFailure().has_value() && conn->lastFailure()->status == c.expected);
+    CHECK_EQ(conn->lastFailure()->message(), c.message);
+    conn->close();
+  }
+
+  // A gateway before 0.10.0 upgraded, then closed 4401: a call in flight is Denied too.
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  auto conn = ExecConnection::open(transport, dispatcher, ExecEndpoint{"ws://127.0.0.1:7721", "stale", "h"}, opts);
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  transport->at(0)->open();
+  std::optional<ExecReply> r;
+  conn->callRaw("arena", "m1", "state", "", [&](ExecReply x) { r = x; });
+  CHECK(until(*dispatcher, [&] { return last(transport->at(0), 0x01).has_value(); }));
+  CHECK(!conn->lastFailure().has_value());
+  WebSocketEvent closed;
+  closed.kind = WebSocketEventKind::Close;
+  closed.close.code = 4401;
+  closed.close.reason = "token expired";
+  transport->at(0)->emit(closed);
+  CHECK(until(*dispatcher, [&] { return r.has_value(); }));
+  CHECK(r->status == ExecStatus::Denied);
+  CHECK_EQ(r->message(), std::string("token expired"));
+  CHECK(conn->lastFailure().has_value() && conn->lastFailure()->status == ExecStatus::Denied);
+  conn->close();
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
   testConnection();
   testCallTimesOut();
+  testGatewayRefusal();
+  testRefusedUpgrade();
   testOperations();
   testBuilds();
   testMods();

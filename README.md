@@ -60,6 +60,15 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.55.0: parity with CrowdyJS 18.1.0, open grids and where a connect token may go.**
+`gameApps().setOpenPermissions` / `openPermissions` open a grid to every player with access
+(cks-game-api #436): a zone everyone may build in must grant `update_voxel_data` itself now.
+`exec().connect` and `connectAsDeveloper` dial only a gateway `execGatewayRefusal` passes (`wss:`
+under an `https:` Game API, on the platform's estate; loopback for a loopback Game API), and a
+gateway's refusal of the connect token (`HTTP 401`, ck-exec 0.10.0+) is `Denied` again, with its
+reason where the transport can read it; `ExecConnection::lastFailure()` says why an attempt
+failed. Also carries #134's `<windows.h>` `far` / `near` fix. See [MIGRATION.md](MIGRATION.md).
+
 **v0.54.0: seams for wrapping the native core.** `Config::onEventsReady` wakes an event loop when notifications are waiting (at most once per `poll()` cycle), `IChunkSource` and `IHostElection` let `ChunkStore` and `WorldSession` run over injected durable services (`WorldSessionServices`) instead of a `CrowdyClient`, and `WorldSessionConfig::onText` forwards proximity text the session used to drop. Additive; no wire or parity change (still CrowdyJS 18.0.4). [CrowdyPy](https://github.com/CrowdedKingdoms/CrowdyPy), the Python SDK, binds this release. See [MIGRATION.md](MIGRATION.md).
 
 **v0.53.0: parity with CrowdyJS 18.0.4, chunk write-backs the server refuses.** One chunk

@@ -28,6 +28,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
 | `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app |
 | `CROWDY_E2E_EXEC_GATEWAY` / `CROWDY_E2E_EXEC_TOKEN` | no | a ck-exec gateway running the demo app and a connect token for it (`e2e_exec_gateway`) |
+| `CROWDY_E2E_THROWAWAY_OWNER=1` | no | `e2e_open_grid_exec_gateway` registers its own owner, org and app and a player (from `CROWDY_E2E_EMAIL`, plus-addressed), opens and closes a grid, and checks the tier's ck-exec gateway; it needs only `CROWDY_E2E_API_URL` and `CROWDY_E2E_EMAIL` besides, and leaves the org behind |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
@@ -86,7 +87,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims` | project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate |
+| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway` | project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
 
 ## Notes for reruns
 

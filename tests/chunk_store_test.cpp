@@ -301,8 +301,87 @@ void testPruneBeyondSurvivesACallbackThatChangesTheStore() {
 
 }  // namespace
 
+/// 0.54.0: an injected IChunkSource hydrates and writes back with the same
+/// refusal / retry classification the Game API path uses.
+class ScriptedSource final : public IChunkSource {
+ public:
+  std::vector<StoredChunk> stored;
+  /// Per chunk x: outcomes handed out in order; once exhausted, the write succeeds.
+  std::map<std::int64_t, std::vector<graphql::GraphQLOutcome>> answers;
+  std::vector<ChunkCoord> written;
+  int lastDistance = 0;
+
+  std::vector<StoredChunk> chunksAround(const std::string& appId, const ChunkCoord&,
+                                        int distance) override {
+    CHECK_EQ(appId, std::string("42"));
+    lastDistance = distance;
+    return stored;
+  }
+
+  graphql::GraphQLOutcome writeChunk(const std::string& appId, const ChunkCoord& coord,
+                                     Bytes voxels) override {
+    CHECK_EQ(appId, std::string("42"));
+    CHECK_EQ(voxels.size(), static_cast<std::size_t>(kChunkVolume));
+    written.push_back(coord);
+    auto& queue = answers[coord.x];
+    if (queue.empty()) return graphql::GraphQLOutcome{};
+    graphql::GraphQLOutcome out = queue.front();
+    queue.erase(queue.begin());
+    return out;
+  }
+};
+
+graphql::GraphQLOutcome graphqlError(const char* code, bool retryable) {
+  graphql::GraphQLOutcome out;
+  out.status = Errc::Rejected;
+  out.kind = graphql::GraphQLErrorKind::GraphQL;
+  graphql::GraphQLErrorDetail detail;
+  detail.code = code;
+  detail.retryable = retryable;
+  out.errors.push_back(detail);
+  return out;
+}
+
+void testAnInjectedSourceHydratesAndWritesBack() {
+  ScriptedSource source;
+  StoredChunk stored;
+  stored.coord = {5, 0, 0};
+  stored.voxels.assign(kChunkVolume, 9);
+  source.stored.push_back(stored);
+  source.answers[1] = {graphqlError("FORBIDDEN", true)};
+  source.answers[2] = {graphqlError("PLATFORM_BUSY", true)};
+
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore::Options options;
+  options.writeBackIntervalMs = 100;
+  options.sleep = [](std::int64_t) {};
+  ChunkStore store(conn, &source, "42", options);
+  std::vector<ChunkWriteBackFailure> reported;
+  store.onWriteBackFailed([&](const ChunkWriteBackFailure& f) { reported.push_back(f); });
+
+  CHECK_EQ(store.ensureAround({0, 0, 0}, 12), 1u);
+  CHECK_EQ(source.lastDistance, 8);  // clamped to the durable query's 1-8
+  CHECK_EQ(store.voxelTypeAt({5, 0, 0}, 1, 2, 3), 9);
+
+  store.seed({1, 0, 0}, {});
+  store.seed({2, 0, 0}, {});
+  ChunkFlushResult result = store.flush();
+  CHECK_EQ(result.persisted, 1u);  // chunk 2, on its second attempt
+  CHECK_EQ(result.dropped.size(), 1u);
+  CHECK((result.dropped.front().coord == ChunkCoord{1, 0, 0}));
+  CHECK(result.dropped.front().reason == ChunkWriteBackDrop::Refused);
+  CHECK_EQ(result.dropped.front().attempts, 1);
+  CHECK_EQ(reported.size(), 1u);
+  CHECK_EQ(store.pendingWriteBacks(), 0u);
+
+  ChunkStore offline(conn, nullptr, "42", options);  // no durable store
+  CHECK_EQ(offline.ensureAround({0, 0, 0}, 1), 0u);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
+  testAnInjectedSourceHydratesAndWritesBack();
   testARefusedChunkDoesNotBlockTheOthers();
   testABackingOffChunkDoesNotBlockTheOthers();
   testFlushReportsDroppedWriteBacks();

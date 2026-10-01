@@ -60,6 +60,8 @@ reconcile against a bill -- billing counts egress only, at the platform's NIC, i
 headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
 15.4.2.
 
+**v0.54.0: seams for wrapping the native core.** `Config::onEventsReady` wakes an event loop when notifications are waiting (at most once per `poll()` cycle), `IChunkSource` and `IHostElection` let `ChunkStore` and `WorldSession` run over injected durable services (`WorldSessionServices`) instead of a `CrowdyClient`, and `WorldSessionConfig::onText` forwards proximity text the session used to drop. Additive; no wire or parity change (still CrowdyJS 18.0.4). [CrowdyPy](https://github.com/CrowdedKingdoms/CrowdyPy), the Python SDK, binds this release. See [MIGRATION.md](MIGRATION.md).
+
 **v0.53.0: parity with CrowdyJS 18.0.4, chunk write-backs the server refuses.** One chunk
 the server refused, or one that kept failing, no longer stops every other chunk from being
 written back. `ChunkStore` sends a refused write-back (FORBIDDEN, a validation error,

@@ -1,6 +1,6 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.53.0 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.54.0 passes the strict portable-parity gate against CrowdyJS
 **18.0.4**. The gate pins CrowdyJS commit
 `c8634082689dbc9c11d720eaf4e05e828ad775d9` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.53.0 | CrowdyJS 18.0.4 | Required public API generation |
+| Surface | CrowdyCPP 0.54.0 | CrowdyJS 18.0.4 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec (dev-tier preview) | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -42,6 +42,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
+| Wrapper seams | `Config::onEventsReady` (wake an event loop when notifications are waiting), `IChunkSource` for `ChunkStore` and `IHostElection` + `WorldSessionServices` for `WorldSession` (durable services without a `CrowdyClient`), `WorldSessionConfig::onText` (0.54.0) | No counterpart: the browser SDK has no native core to wrap | None; native-only API |
 | Chunk write-back failures | `ChunkStore` sends a refused write-back once and drops it, retries one that can clear up to 5 attempts (waits 0.7/1.4/2.8/5.6 s) and drops it, and reports both through `onWriteBackFailed`; `flush()` returns a `ChunkFlushResult` (0.53.0) | `ChunkStore` does the same; `onWriteBackFailed`, and `flush()` returns the failures (18.0.4) | `extensions.code` / `retryable` / `httpStatus` on Game API errors; a closed wilderness (`App.wildernessWritesOpen`, ck-api `dev/v2.30.0`) refuses with FORBIDDEN |
 | Generic GraphQL WebSocket | `GraphQLSubscriptionClient` | `graphql-ws` | `graphql-transport-ws` endpoint |
 | App listing-version administration | `marketplace().appListingVersions` | `marketplace.appListings` (no listing-version method) | Management API 2026-07-24+ |

@@ -73,6 +73,17 @@ When the unified GraphQL surface changes:
    `crowdyStudioGitHubPutFile` / `DeleteFile`); the hosted GitHub settings
    card on `CrowdyStudioController` stays a browser exclusion.
 
+### CrowdyPy wraps this tree
+
+CrowdyPy (the Python SDK) vendors this repository at a pinned release and binds the
+replication `Connection`, `WorldSession` and the wrapper seams added for it in 0.54.0:
+`Config::onEventsReady`, `IChunkSource` with the injectable `ChunkStore` constructor,
+`IHostElection` and `WorldSessionServices`. A change to those contracts is a change to
+CrowdyPy too: say so in `MIGRATION.md`, and CrowdyPy re-vendors at its next release
+(`scripts/vendor_crowdycpp.py`). Its Windows build includes these headers after
+`<windows.h>`, whose `far` and `near` macros are empty, so no public header may use
+either as an identifier (`tests/windows_macros_test.cpp` holds that).
+
 ## Releasing
 
 **Cut the tag.** This SDK has no registry — consumers clone a ref and

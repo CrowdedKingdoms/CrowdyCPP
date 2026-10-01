@@ -1,5 +1,50 @@
 # CrowdyCPP migration notes
 
+## 0.55.0 Parity with CrowdyJS 18.1.0 (open grids; where a connect token may go)
+
+Pinned to CrowdyJS 18.1.0 (`806b141`). `schema.gql` is cks-game-api `dev`'s after #436
+(`dev/v2.31.0`; `scripts/schema-sync.mjs --game <that schema.gql>`, then
+`node scripts/codegen.mjs`). Breaking only for a connection that dialed a gateway the new check
+refuses, and for code that reads the `connect` callback's `Errc` (below).
+
+- `gameApps().setOpenPermissions({appId, gridId, permissionKeys})` and
+  `openPermissions(appId, gridId)` (with `…Async` twins; also `admin().grids()`) wrap
+  `setGridOpenPermissions` / `gridOpenPermissions` (`manage_apps`). The first replaces the keys a
+  grid grants every player with active access to the app, within its limits, and players who
+  gain access later get them too; an empty `permissionKeys` closes it. Since #436 the most
+  specific grid covering a chunk decides who may build there, so a zone nested in the world grid
+  that everyone may build in must grant `update_voxel_data` itself. `BAD_REQUEST` refuses the
+  app's world grid, the four player-code keys, an inactive key and a 33rd open grid in one app.
+  (OI-2026-09-30-007)
+- `exec().connect`, `connectAsync`, `connectAsDeveloper` and `connectAsDeveloperAsync` send the
+  connect token only to a gateway that `execGatewayRefusal(gameApiUrl, gatewayUrl)` passes:
+  `ws:` or `wss:`, `wss:` whenever the Game API is `https:`, no credentials in the URL, on the
+  estate of the Game API (the client's `endpoint()` at each dial) or of `kDefaultHttpOrigin`,
+  as `graphql::isSameEstate` bounds a move, and two IP literals only when equal. A loopback Game
+  API may name a loopback gateway (ck-exec's local cluster). Any other gateway is never dialed:
+  calls waiting fail `Unavailable` ("refusing the gateway …"), the `connect` callback gets
+  `Errc::NotConnected`, and a reconnect asks the Game API again. `ExecConnection::open` still
+  dials what it is given. The cases are `tools/parity/fixtures/exec-gateway-cases.json`, a copy
+  of CrowdyJS's, and `tests/parity/exec-gateway-fixture.test.mjs` holds the copy to the pinned
+  commit's. (OI-2026-09-30-010)
+- A gateway that refuses the connect token is `Denied` again. Since ck-exec 0.10.0 a gateway
+  answers the upgrade `HTTP 401` with the reason as its body, before any WebSocket exists, which
+  this SDK reported as `Unavailable`. `graphql::WebSocketError` gained `httpStatus` and
+  `httpBody`: an injected transport sets both; the curl transport sets the status only, since
+  libcurl ends a refused upgrade at its headers. A `401` is `Denied` with the message `the
+  gateway refused the connection (HTTP 401: <reason>)` (no `: <reason>` without a body), and
+  the first connection's `connect` callback gets `Errc::Rejected` where it got
+  `Errc::NotConnected`. A `429` (a player past 16 sessions to one app through a gateway, or a
+  gateway past its total) is `Unavailable` with its reason. A gateway before 0.10.0 closed with
+  4401, which stays `Denied`; the calls queued on a first connection that never opened now fail
+  with the attempt's status (they were always `Unavailable`). (OI-2026-09-29-002)
+- `ExecConnection::lastFailure()`: why the last attempt to connect failed, or the open
+  connection was lost (`ExecReply`: status and reason); nullopt again once a connection opens.
+- Also in this release, merged on `dev` after 0.54.0 (#134): `ChunkStore::pruneBeyond` no longer
+  names a local `far`, which `<windows.h>` defines as nothing, so a Windows consumer that
+  includes `<windows.h>` before `chunk_store.hpp` compiles again; `windows_macros_test` compiles
+  the session and replication headers after `far` and `near` are defined.
+
 ## 0.54.0 Seams for wrapping the native core (no wire or parity change)
 
 Additive. Pinned to CrowdyJS 18.0.4, as 0.53.0. These are the hooks a language binding needs

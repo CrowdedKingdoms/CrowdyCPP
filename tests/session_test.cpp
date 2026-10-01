@@ -591,8 +591,79 @@ void runTickFlushesBundle() {
   conn->disconnect();
 }
 
+// 0.54.0: a WorldSession over injected services heartbeats host election through
+// IHostElection, and forwards proximity text through onText.
+struct ScriptedHost final : IHostElection {
+  int beats = 0;
+  Beat heartbeat(const std::string& appId) override {
+    CHECK_EQ(appId, std::string("7"));
+    ++beats;
+    Beat beat;
+    beat.ok = beats != 2;  // the second call fails: the cached host must survive it
+    beat.hostUserId = beats == 1 ? "u1" : "u2";
+    beat.amIHost = beats >= 3;
+    return beat;
+  }
+};
+
+void runInjectedServices() {
+  FakeServer server;
+  server.start();
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  auto conn = std::make_shared<Connection>(cfg, std::make_shared<StubProvider>(server.port),
+                                           core::defaultCrypto());
+  CHECK(conn->connect().ok());
+
+  ScriptedHost host;
+  int texts = 0;
+  WorldSessionConfig sess;
+  sess.appId = "7";
+  sess.hostHeartbeatIntervalMs = 1;
+  sess.self.heartbeatIntervalMs = 0;
+  sess.onText = [&](const SpatialNotification& n) {
+    ++texts;
+    CHECK_EQ(std::string(reinterpret_cast<const char*>(n.payload.data()), n.payload.size()),
+             std::string("hi"));
+  };
+  WorldSession session(conn, WorldSessionServices{nullptr, &host}, sess);
+  std::vector<std::string> hosts;
+  session.onHostChanged([&](const std::string& h) { hosts.push_back(h); });
+
+  for (int i = 0; i < 3; ++i) {
+    session.tick();
+    ::usleep(3 * 1000);
+  }
+  CHECK_EQ(host.beats, 3);
+  CHECK_EQ(hosts.size(), std::size_t{2});
+  CHECK_EQ(hosts[0], std::string("u1"));
+  CHECK_EQ(hosts[1], std::string("u2"));
+  CHECK(session.amIHost());
+  CHECK_EQ(session.chunks().ensureAround({0, 0, 0}, 1), std::size_t{0});  // no chunk source
+
+  const std::uint8_t pose[] = {1};
+  CHECK(session.join({0, 0, 0}, Bytes(pose, sizeof(pose))).ok());
+  (void)server.recvOne();
+  const std::uint8_t text[] = {'h', 'i'};
+  auto note = makeNotification(wire::MessageType::ClientTextNotification, uuidOf('z'), {0, 0, 0},
+                               Bytes(text, sizeof(text)), 5, 1);
+  server.reply(note.data(), note.size());
+  for (int i = 0; i < 50 && texts == 0; ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(texts, 1);
+  session.dispose();
+}
+
 int main() {
   run();
+  runInjectedServices();
   runHeartbeatNotSent();
   runTickFlushesBundle();
   std::puts("session_test OK");

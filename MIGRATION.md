@@ -1,5 +1,29 @@
 # CrowdyCPP migration notes
 
+## 0.54.0 Seams for wrapping the native core (no wire or parity change)
+
+Additive. Pinned to CrowdyJS 18.0.4, as 0.53.0. These are the hooks a language binding needs
+to run the replication core and the session stores without a `CrowdyClient`: CrowdyPy (the
+Python SDK) binds this release.
+
+- `Config::onEventsReady`: called when notifications are waiting for `poll()`, at most once
+  between two `poll()` calls, from the thread that queued the first of them (the net thread, or
+  the `pump()` caller), and again from `poll()` when a `maxEvents` bound left events queued. An
+  event loop writes to a wake descriptor there and sleeps until there is something to dispatch,
+  instead of polling on a timer. It must not block, throw, or call back into the connection.
+- `IChunkSource`: where a `ChunkStore` hydrates from (`chunksAround`) and writes back to
+  (`writeChunk`, whose `GraphQLOutcome` is classified exactly as a `ChunksAPI` write is). New
+  constructor `ChunkStore(Connection&, IChunkSource*, appId, Options)`; the `ChunksAPI*`
+  constructor is unchanged and now builds an adapter over the same interface. A literal
+  `nullptr` still means "no durable store".
+- `IHostElection` and `WorldSessionServices{chunks, host}`: a `WorldSession` built over
+  injected services instead of a `CrowdyClient` (new constructor). The `CrowdyClient*`
+  constructor is unchanged and builds adapters over both interfaces; the host heartbeat
+  behaves as before (best-effort; a failed beat keeps the cached host).
+- `WorldSessionConfig::onText`: proximity text, which the session has no store for, is
+  forwarded to the game like `onAudio` / `onVideo`. It used to be dropped once a session owned
+  the connection's handlers.
+
 ## 0.53.0 Parity with CrowdyJS 18.0.4 (chunk write-backs the server refuses)
 
 Breaking for callers of `ChunkStore::flush()`, whose return type changed. Pinned to CrowdyJS

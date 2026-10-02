@@ -111,7 +111,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | teleport | `e2e_teleport` | implemented; optional live |
 | host discovery | `e2e_host_election` | implemented; optional live |
 | teams / channels | `e2e_teams_channels` | implemented; optional live |
-| generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds, the published schema's only subscription roots |
+| generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds; the published schema's only subscription root now is `udpNotifications`, which CrowdyCPP replaces natively |
 | ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |
 | mods, CLIENT halves + grid ownership | `player_runtime_surface_test` (grid ownership) + `exec_test` (the Studio mod runtime, both targets) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) + `e2e_exec_client_halves` | typed surface and the Studio runtime in default CI; SERVER and CLIENT round trips optional live on an owned grid |
 | player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | exact documents/output mapping in default CI; app-token round trip optional live |

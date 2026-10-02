@@ -7,9 +7,8 @@ delivers every callback through the shared `Dispatcher`.
 ## Generic operations
 
 `client.subscriptions()` runs any GraphQL subscription. The published Game API
-schema's only subscription roots are the legacy game model's feeds, which go at
-ck-exec P4 (CrowdyCPP 0.48.0 removed their typed wrappers); ck-exec pushes
-arrive on an `ExecConnection` subscription instead.
+schema's only subscription root is `udpNotifications`, which CrowdyCPP replaces
+natively; ck-exec pushes arrive on an `ExecConnection` subscription instead.
 
 ```cpp
 crowdy::graphql::GraphQLSubscriptionCallbacks callbacks;

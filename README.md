@@ -31,35 +31,6 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.28.0 reads the quarantine extensions:** a game-model function or automation can be
-refused because an enforced `gameModelLint` error stands against it, and
-`GraphQLErrorDetail` now carries `quarantinedKind`, `quarantinedName` and
-`quarantineReason`. `readGraphQLError` had ignored all three, so a caller was told nothing
-it could act on — `quarantineReason` names the finding to fix. Do **not** gate on
-`code == "OBJECT_QUARANTINED"`: on `gameModelInvoke` the server rebuilds the error at the
-user-code boundary and the code arrives as `USER_CODE_ERROR` with blame `AUTHOR`, while
-those three survive. Also new: `crowdy/kit/notifications.hpp`, whose `sessionChannel`
-builder addresses the app's own session channel by NAME, so a model copied between apps
-follows the app it runs in. Schema synced to ck-api v1.67; parity pinned to CrowdyJS
-15.3.0.
-
-**v0.29.0: nothing runs for an app with no player in it.** A compute module ticks only
-while its app has at least one player connected, and `alwaysOn` is retired --
-`compute().upsertModule()` now REFUSES `alwaysOn: true`, and `compute.hpp` used to tell
-you to set it. Scheduled automations due while an app is empty are skipped and rescheduled
-from the moment a player returns; timers wait and fire late. The Game Kit headers for
-`worldsim`, `combat` and `economy` said their automations run "with no client online",
-which was true and is not; all three now say how to write against the rule instead
-(advance by elapsed time, store expiries as timestamps).
-
-Reservations split into `reservedUdpBytesPerSec` and `reservedGraphqlOpsPerSec`, and mean
-something different: a reservation is a capacity FLOOR, not a rate-limit bypass and not a
-data allowance. Funding the wallet lifts the ~1 MB/s free-tier shaping, not reserving. And
-`Connection::Stats` byte counters are now documented as a local diagnostic that will not
-reconcile against a bill -- billing counts egress only, at the platform's NIC, including
-headers these counters exclude. Schema synced to ck-api v1.73; parity pinned to CrowdyJS
-15.4.2.
-
 **v0.55.0: parity with CrowdyJS 18.1.0, open grids and where a connect token may go.**
 `gameApps().setOpenPermissions` / `openPermissions` open a grid to every player with access
 (cks-game-api #436): a zone everyone may build in must grant `update_voxel_data` itself now.
@@ -553,9 +524,8 @@ while (running) game.poll();  // all callbacks are delivered here
 // subscription.cancel() is explicit; destruction also cancels.
 ```
 
-The published Game API schema's only subscription roots are the legacy game
-model's container, session and player-count feeds, which go at ck-exec P4
-(CrowdyCPP 0.48.0 removed their typed wrappers); ck-exec pushes arrive on an
+The published Game API schema's only subscription root is `udpNotifications`, which
+CrowdyCPP replaces natively (it replicates over UDP itself); ck-exec pushes arrive on an
 `ExecConnection` subscription instead. The generic client remains for
 application-specific subscriptions.
 See

@@ -1,5 +1,30 @@
 # CrowdyCPP migration notes
 
+## 0.56.0 Chunk loads apply recorded voxel edits
+
+Still pinned to CrowdyJS 18.1.0 (`806b141`); needs ck-api `dev/v2.33.0` (cks-game-api #445) for
+the edits to arrive. Additive for callers; breaking only for an `IChunkSource` that should report
+states and does not. (OI-2026-10-02-006)
+
+- Every voxel write but a chunk write-back (`updateChunk`) lands only in the chunk's edit log: a
+  hub's or mod's `world.set_voxels`, `updateVoxel`, and realtime voxel updates. Since #445,
+  `getChunk` and `getChunksByDistance` return each recorded edit as a `voxelStates` entry
+  (`getChunksByDistance` only when `voxelStates` is selected) with its type, over a stored
+  `voxels` that holds none of them. `ChunkStore::ensureAround` read `voxels` alone, so a block a
+  hub placed was gone after a reload.
+- `GetChunksByDistance` selects `voxelStates` (as `GetChunk` does), so `chunks().byDistance` and
+  `ensureAround` get them in the same round trip. `ensureAround` puts each entry over the grid:
+  its `voxelType` at the voxel's index, its state into `voxelStates` (an entry without a state
+  clears the cached one), an entry outside 0-15 ignored. A chunk stored with `voxels: null`
+  starts from zeros, as before.
+- `IChunkSource::chunksAround` reports them in the new `StoredChunk::voxelStates`
+  (`StoredVoxelState{x, y, z, voxelType, state}`). A source that leaves them empty keeps the old
+  behaviour, cached states included, and loses every edit the grid lacks. A binding that
+  supplies its own source should select `voxelStates` and fill them: CrowdyPy's, at its next
+  re-vendor.
+- A chunk the server has never stored is returned by neither read, even when its edit log has
+  entries (a mod writing into an empty chunk).
+
 ## 0.55.0 Parity with CrowdyJS 18.1.0 (open grids; where a connect token may go)
 
 Pinned to CrowdyJS 18.1.0 (`806b141`). `schema.gql` is cks-game-api `dev`'s after #436

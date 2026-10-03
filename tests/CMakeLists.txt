@@ -100,6 +100,8 @@ add_test(NAME client_portable_test COMMAND client_portable_test)
 
 add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
+target_compile_definitions(chunk_store_test PRIVATE
+  CROWDY_TEST_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures")
 add_test(NAME chunk_store_test COMMAND chunk_store_test)
 
 add_executable(windows_macros_test windows_macros_test.cpp)

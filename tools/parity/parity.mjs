@@ -975,7 +975,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     markers: ['const HYDRATE_CONCURRENCY = 8;', 'async function whenNotBusy<T>('],
     classification: classification(
       CATEGORY.NATIVE,
-      'ChunkStore::ensureAround is one blocking byDistance request with no per-chunk state hydration to bound or keep; a refused load, PLATFORM_BUSY included, throws to the caller, and the next call requests every chunk again',
+      'ChunkStore::ensureAround is one blocking byDistance request that selects voxelStates, so the states and every recorded voxel edit (ck-api v2.33.0) arrive with the bulk load and there is no per-chunk hydration to bound or keep (0.56.0); a refused load, PLATFORM_BUSY included, throws to the caller, and the next call requests every chunk again',
     ),
   },
 };

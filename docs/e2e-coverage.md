@@ -171,6 +171,8 @@ transitions only through the named offline tests.
 | local actor loop + acks, remote-actor lanes, EventRouter, AndWait | `e2e_stores_live` |
 | chunk cache: hydrate, optimistic edit + write-back, seed, prune, flush; a write-back refused in a closed wilderness (`wildernessWritesOpen: false`) is dropped after one attempt | `e2e_chunk_store_live` |
 | chunk write-back failures: refusals sent once, busy/network retried on the 0.7/1.4/2.8/5.6 s backoff then dropped, none blocking the others, `flush()` / `pruneBeyond` dropping refused chunks | `chunk_store_test` |
+| chunk loads apply recorded voxel edits: the bulk load selects `voxelStates` and puts each entry over the stored grid (a recorded dev response, including a chunk stored with `voxels: null`); a reload takes the server's states, and a source without states keeps the cached ones | `chunk_store_test` |
+| a block a hub places (the node API's `world.set_voxels`, recorded in the edit log only) shows in a fresh `ChunkStore` load, and is mined back | `e2e_chunk_recorded_edits` |
 | SaveState / AvatarState stores, UUID persistence | `e2e_durable_stores` |
 | revisions, pending write-backs, dirty/save timestamps, error totals, local actor status, private avatar snapshots | `session_test` + `client_portable_test` |
 

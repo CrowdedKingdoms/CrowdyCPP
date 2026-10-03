@@ -2,11 +2,15 @@
 // is sent once and dropped, a failure that can clear is retried with backoff and
 // then dropped, and neither holds up the other chunks' write-backs.
 #include <algorithm>
+#include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include "crowdy/core/base64.hpp"
 #include "crowdy/core/crypto.hpp"
 #include "crowdy/domains/world_data.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
@@ -379,9 +383,157 @@ void testAnInjectedSourceHydratesAndWritesBack() {
   CHECK_EQ(offline.ensureAround({0, 0, 0}, 1), 0u);
 }
 
+/// Answers every request with one getChunksByDistance response recorded from dev (ck-api
+/// v2.33.0, 2026-10-03): three chunks of a voxel game's build area, the app id, chunk ids,
+/// owner and the actor uuids inside voxel states replaced. Keeps the last request.
+class RecordedChunksTransport final : public graphql::IHttpTransport {
+ public:
+  std::string response;
+  std::string lastBody;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& request) override {
+    return sendOutcome(request).response;
+  }
+
+  graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& request) noexcept override {
+    lastBody = request.body;
+    return {Errc::Ok, {200, response}, {}};
+  }
+};
+
+std::string readFixture(const char* name) {
+  std::ifstream in(std::string(CROWDY_TEST_FIXTURE_DIR) + "/" + name, std::ios::binary);
+  CHECK(in.good());
+  std::ostringstream text;
+  text << in.rdbuf();
+  return text.str();
+}
+
+std::vector<std::uint8_t> decoded(const graphql::Json& base64) {
+  auto bytes = core::base64Decode(base64.asStringView());
+  return bytes ? *bytes : std::vector<std::uint8_t>{};
+}
+
+ChunkCoord coordOf(const graphql::Json& chunk) {
+  return {chunk["coordinates"]["x"].asBigInt(), chunk["coordinates"]["y"].asBigInt(),
+          chunk["coordinates"]["z"].asBigInt()};
+}
+
+// Since ck-api v2.33.0 every voxel edit recorded for a chunk (a hub's or mod's world.set_voxels,
+// updateVoxel, a realtime voxel update) comes back as a voxelStates entry, and none of them is in
+// `voxels`. The bulk load selects the entries and puts each over the stored grid.
+void testABulkLoadAppliesTheRecordedEdits() {
+  auto http = std::make_shared<RecordedChunksTransport>();
+  http->response = readFixture("chunks-by-distance-recorded-edits.json");
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+      std::make_shared<graphql::AuthState>());
+  domains::ChunksAPI chunksApi{gql};
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore store(conn, &chunksApi, "42", ChunkStore::Options{});
+
+  CHECK_EQ(store.ensureAround({2, 1, -1}, 1), 3u);
+  const graphql::Json request = graphql::Json::parse(http->lastBody);
+  CHECK(request["query"].asString().find("voxelStates") != std::string::npos);
+  CHECK_EQ(request["variables"]["input"]["maxDistance"].asInt64(), 1);
+
+  const graphql::Json fixture = graphql::Json::parse(http->response);
+  graphql::Json placedChunk;
+  std::size_t entries = 0;
+  fixture["data"]["getChunksByDistance"]["chunks"].forEach([&](graphql::Json chunk) {
+    const ChunkCoord coord = coordOf(chunk);
+    if (coord == ChunkCoord{2, 1, -1}) placedChunk = chunk;
+    // The stored grid (zeros for a chunk stored with `voxels: null`), each entry's type over it.
+    std::vector<std::uint8_t> expected = decoded(chunk["voxels"]);
+    if (expected.size() != static_cast<std::size_t>(kChunkVolume)) expected.assign(kChunkVolume, 0);
+    chunk["voxelStates"].forEach([&](graphql::Json entry) {
+      const int x = static_cast<int>(entry["voxelCoord"]["x"].asInt64());
+      const int y = static_cast<int>(entry["voxelCoord"]["y"].asInt64());
+      const int z = static_cast<int>(entry["voxelCoord"]["z"].asInt64());
+      expected[static_cast<std::size_t>(voxelIndex(x, y, z))] =
+          static_cast<std::uint8_t>(entry["voxelType"].asInt64());
+      const VoxelState* state = store.voxelStateAt(coord, x, y, z);
+      if (entry["state"].isString()) {
+        CHECK(state != nullptr);
+        CHECK_EQ(state->voxelType, entry["voxelType"].asInt64());
+        CHECK(state->state == decoded(entry["state"]));
+      } else {
+        CHECK(state == nullptr);
+      }
+      ++entries;
+    });
+    const ChunkData* cached = store.find(coord);
+    CHECK(cached != nullptr && cached->storedOnServer);
+    CHECK(std::memcmp(cached->voxels.data(), expected.data(), expected.size()) == 0);
+  });
+  CHECK_EQ(entries, 16u);
+
+  // Two edits disagree with the stored grid: a block placed where it held 5, and one mined where
+  // it held 4. A load that read `voxels` alone showed neither.
+  const ChunkCoord placed{2, 1, -1};
+  const std::vector<std::uint8_t> storedGrid = decoded(placedChunk["voxels"]);
+  CHECK_EQ(storedGrid[static_cast<std::size_t>(voxelIndex(11, 1, 4))], 5);
+  CHECK_EQ(store.voxelTypeAt(placed, 11, 1, 4), 2);
+  CHECK_EQ(storedGrid[static_cast<std::size_t>(voxelIndex(13, 2, 2))], 4);
+  CHECK_EQ(store.voxelTypeAt(placed, 13, 2, 2), 0);
+  const VoxelState* state = store.voxelStateAt(placed, 10, 1, 3);
+  CHECK(state != nullptr);
+  CHECK(std::string(state->state.begin(), state->state.end()) ==
+        R"({"actorUuid":"00000000000000000000000000000001"})");
+}
+
+// A load takes the server's states over the cache: an entry's state replaces the cached one, an
+// entry without one clears it, an entry outside the chunk is ignored, and a source that reports no
+// states leaves the cached ones as they were.
+void testALoadTakesTheServersStates() {
+  ScriptedSource source;
+  StoredChunk stored;
+  stored.coord = {5, 0, 0};
+  stored.voxels.assign(kChunkVolume, 9);
+  stored.voxelStates.push_back({1, 2, 3, 7, {0xab}});
+  stored.voxelStates.push_back({4, 5, 6, 0, {}});
+  stored.voxelStates.push_back({16, 0, 0, 5, {0x01}});
+  stored.voxelStates.push_back({0, -1, 0, 5, {0x01}});
+  source.stored.push_back(stored);
+
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore::Options options;
+  options.writeBackIntervalMs = 0;  // the local edits below stay local
+  ChunkStore store(conn, &source, "42", options);
+  const ChunkCoord at{5, 0, 0};
+  const std::uint8_t local[] = {0x55};
+  (void)store.setVoxel(at, 1, 2, 3, 3, Bytes(local, 1), core::ActorUuid{});
+  (void)store.setVoxel(at, 4, 5, 6, 3, Bytes(local, 1), core::ActorUuid{});
+  CHECK(store.voxelStateAt(at, 4, 5, 6) != nullptr);
+
+  CHECK_EQ(store.ensureAround(at, 1), 1u);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 7);
+  const VoxelState* kept = store.voxelStateAt(at, 1, 2, 3);
+  CHECK(kept != nullptr && kept->voxelType == 7 && kept->state == std::vector<std::uint8_t>{0xab});
+  CHECK_EQ(store.voxelTypeAt(at, 4, 5, 6), 0);
+  CHECK(store.voxelStateAt(at, 4, 5, 6) == nullptr);
+  CHECK_EQ(store.find(at)->voxelStates.size(), 1u);
+  CHECK_EQ(store.voxelTypeAt(at, 0, 1, 0), 9);  // where (16,0,0) would land unchecked
+  for (int i = 0; i < kChunkVolume; ++i) {
+    if (i == voxelIndex(1, 2, 3) || i == voxelIndex(4, 5, 6)) continue;
+    CHECK_EQ(store.find(at)->voxels[static_cast<std::size_t>(i)], 9);
+  }
+
+  // A source that reports no states (any written before 0.56.0) keeps the cached ones.
+  source.stored.front().voxelStates.clear();
+  (void)store.setVoxel(at, 4, 5, 6, 3, Bytes(local, 1), core::ActorUuid{});
+  CHECK_EQ(store.ensureAround(at, 1), 1u);
+  CHECK(store.voxelStateAt(at, 4, 5, 6) != nullptr);
+  CHECK(store.voxelStateAt(at, 1, 2, 3) != nullptr);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
   testAnInjectedSourceHydratesAndWritesBack();
+  testABulkLoadAppliesTheRecordedEdits();
+  testALoadTakesTheServersStates();
   testARefusedChunkDoesNotBlockTheOthers();
   testABackingOffChunkDoesNotBlockTheOthers();
   testFlushReportsDroppedWriteBacks();

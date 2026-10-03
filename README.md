@@ -31,6 +31,14 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.56.0: chunk loads apply recorded voxel edits.** A hub's or mod's `world.set_voxels`,
+`updateVoxel` and realtime voxel updates land in a chunk's edit log, never in its stored
+`voxels`; since ck-api `dev/v2.33.0` the chunk reads return each of them as a `voxelStates`
+entry. `ChunkStore::ensureAround`'s one `getChunksByDistance` now selects the entries and puts
+each over the grid, so a block a hub placed is there after a reload; before, it vanished.
+`IChunkSource::chunksAround` reports them in `StoredChunk::voxelStates`. Still pinned to CrowdyJS
+18.1.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.55.0: parity with CrowdyJS 18.1.0, open grids and where a connect token may go.**
 `gameApps().setOpenPermissions` / `openPermissions` open a grid to every player with access
 (cks-game-api #436): a zone everyone may build in must grant `update_voxel_data` itself now.
@@ -735,7 +743,7 @@ design, so reads never lock).
 | `LocalActorStore` (`session.self()`) | your presence loop | Joins the world, re-sends state at a fixed Hz with send-on-change dedup, periodic keyframes, and cheap idle heartbeats so presence never lapses; tracks `lastAck()` from self-echoes. You just `setState(bytes)` from the game loop — or `moveTo(chunk)` on boundary crossings for an immediate send. |
 | `RemoteActorStore` (`session.actors()`) | everyone-else tracking | Self-filtered registry keyed by actor uuid with staleness reaping, `onJoin`/`onLeave`/`onUpdate` callbacks, and a per-actor sample history (state + server timestamp pairs) ready for interpolation/extrapolation. Render directly from `list()`. |
 | `RemoteActorLane` (`actors().lane("mobs", ...)`) | per-kind actor lists | Filtered sub-registries (players vs mobs vs vehicles) so each kind is classified once at ingest — no per-frame re-scanning or re-decoding of the full registry. |
-| `ChunkStore` (`session.chunks()`) | terrain sync | Chunk/voxel cache: bulk `ensureAround()` hydration from the durable store, realtime merge of incoming voxel edits, optimistic `setVoxel()` (applies locally, replicates, queues persistence), worldgen write-back via `seed()`, `pruneBeyond()`/`flush()` for streaming worlds, `onWriteBackFailed()` for write-backs it dropped (refused, or out of attempts), and `voxelTypeAt()`/`voxelStateAt()` reads for meshing/collision. |
+| `ChunkStore` (`session.chunks()`) | terrain sync | Chunk/voxel cache: bulk `ensureAround()` hydration from the durable store (with each chunk's recorded voxel edits, its `voxelStates`), realtime merge of incoming voxel edits, optimistic `setVoxel()` (applies locally, replicates, queues persistence), worldgen write-back via `seed()`, `pruneBeyond()`/`flush()` for streaming worlds, `onWriteBackFailed()` for write-backs it dropped (refused, or out of attempts), and `voxelTypeAt()`/`voxelStateAt()` reads for meshing/collision. |
 | `EventRouter` (`session.events()`) | RPC dispatch switch | Routes typed client/server events (`[u16 eventType][state]`) to per-type handlers and retains `lastEvent(type)` — your gameplay events become `events().on(kDoorOpened, ...)` instead of a hand-rolled switch over payload bytes. |
 | `Inbox` (`channelInbox()` / `directInbox()`) | chat/message queues | Bounded queues for channel and direct messages with `drain()`, non-consuming `messages()`, `onMessage` callbacks, and channel discovery — plus `send()` helpers back through the connection. |
 | `ErrorStore` (`session.errors()`) | "why was that send rejected?" | Correlates server error frames (sequence-numbered, uint8 wrap) with the *kind* of send that used that sequence, so a permission denial points at "your voxel edit", not a bare error code. |

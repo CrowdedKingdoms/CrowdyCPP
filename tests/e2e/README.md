@@ -28,6 +28,8 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
 | `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app |
 | `CROWDY_E2E_EXEC_GATEWAY` / `CROWDY_E2E_EXEC_TOKEN` | no | a ck-exec gateway running the demo app and a connect token for it (`e2e_exec_gateway`) |
+| `CROWDY_E2E_PLAYER_FILE` | no | a JSON file `{"email", "password"}` of an existing player, which `e2e_chunk_recorded_edits` signs in with `login`; read by the suite, never printed |
+| `CROWDY_E2E_HUB_EDIT_APP_ID` / `CROWDY_E2E_HUB_EDIT_CHUNK` | no | an app running a Blocks with Friends player hub, and `x,y,z` of a stored chunk there where that player holds dirt and may build: `e2e_chunk_recorded_edits` places one block through the hub (the node API writes it), loads the chunk with a fresh `ChunkStore`, and mines the block back |
 | `CROWDY_E2E_THROWAWAY_OWNER=1` | no | `e2e_open_grid_exec_gateway` registers its own owner, org and app and a player (from `CROWDY_E2E_EMAIL`, plus-addressed), opens and closes a grid, and checks the tier's ck-exec gateway; it needs only `CROWDY_E2E_API_URL` and `CROWDY_E2E_EMAIL` besides, and leaves the org behind |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
@@ -87,7 +89,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway` | project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
+| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
 
 ## Notes for reruns
 
@@ -96,6 +98,10 @@ Run a single suite directly for its per-subtest output:
 - Each suite owns a disjoint chunk-coordinate band (base
   `{100000..500000 + suite*100, 0, ...}`) so parallel suites don't cross
   spatial fan-out.
+- `e2e_chunk_recorded_edits` calls a hub over ck-exec, so it needs the curl WebSocket transport
+  (libcurl 8.13 or newer; the suite skips without it: point `CURL_INCLUDE_DIR` /
+  `CURL_LIBRARY` at a newer build when the system's is older). It places into a voxel whose
+  last recorded edit is air first, which its own mine-back leaves, so reruns reuse one voxel.
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.

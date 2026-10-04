@@ -96,7 +96,7 @@ jobs:
             CrowdyJS/package-lock.json
       - name: Install CrowdyCPP maintainer tooling
         run: npm ci
-      - name: Build pinned CrowdyJS fixtures and blueprints
+      - name: Build pinned CrowdyJS fixtures
         working-directory: CrowdyJS
         run: npm ci && npm run build
       - name: Parser and gate unit tests
@@ -137,23 +137,6 @@ jobs:
         run: >
           node tools/parity/layout-fixtures.mjs
           --crowdyjs "$GITHUB_WORKSPACE/CrowdyJS"
-      - name: Install native parity dependencies
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
-      - name: Configure blueprint parity tool
-        run: >
-          cmake -S . -B build-parity -DCMAKE_BUILD_TYPE=Release
-          -DCROWDY_BUILD_PARITY_TOOLS=ON
-          -DCROWDY_BUILD_TESTS=OFF
-          -DCROWDY_BUILD_E2E=OFF
-          -DCROWDY_BUILD_BENCHMARKS=OFF
-          -DCROWDY_BUILD_EXAMPLES=OFF
-      - name: Build blueprint parity tool
-        run: cmake --build build-parity --target crowdy_blueprint_dump -j 4
-      - name: Check blueprint parity
-        run: |
-          node tools/parity/dump-blueprints.mjs "$GITHUB_WORKSPACE/CrowdyJS" > "$RUNNER_TEMP/crowdyjs-blueprints.json"
-          ./build-parity/crowdy_blueprint_dump > "$RUNNER_TEMP/crowdycpp-blueprints.json"
-          node tools/parity/blueprints-diff.mjs "$RUNNER_TEMP/crowdyjs-blueprints.json" "$RUNNER_TEMP/crowdycpp-blueprints.json"
 
   build-test:
     # Bounded because an unbounded job runs to the six-hour default, and on the day
@@ -221,7 +204,6 @@ jobs:
           cmake --install build-no-exceptions --prefix "$RUNNER_TEMP/crowdy-noexceptions"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/agent/controller.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/player_host/player_host.hpp"
-          test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/compute.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/domains/crowdy_studio_github.hpp"
           test ! -e "$RUNNER_TEMP/crowdy-noexceptions/include/crowdy/studio/github.hpp"

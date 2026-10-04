@@ -100,9 +100,9 @@ void testSharedDiagnosticFixture() {
   CHECK(fixture.ok());
   CHECK(fixture["contractVersion"].asString() ==
         "crowdy.studio-diagnostics/1");
-  CHECK(fixture["crowdyJs"]["version"].asStringView() == "17.8.0");
+  CHECK(fixture["crowdyJs"]["version"].asStringView() == "18.2.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "e975436fd7a771043b3794086c5d0d506416631f");
+        "269966d158f45749e9a563abf6032369ae0c258a");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),
@@ -281,7 +281,6 @@ class FakeProjectProvider final : public ICrowdyStudioProjectProvider {
 
 class FakeRuntime final : public ICrowdyStudioRuntime {
  public:
-  int usageCalls = 0;
   std::string compileStatus = "succeeded";
   std::string compileLog;
 
@@ -298,10 +297,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
   void setEnabled(const CrowdyStudioProjectScope&, std::string_view,
                   bool) override {}
 
-  void setRequires(
-      const CrowdyStudioProjectScope&, std::string_view,
-      const std::optional<std::string>&) override {}
-
   void startClient(const CrowdyStudioProjectScope&, std::string_view,
                    std::string_view) override {}
 
@@ -312,13 +307,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
       std::string_view,
       const std::optional<std::string>&) override {
     return {};
-  }
-
-  std::optional<CrowdyStudioUsageSnapshot> usage(
-      std::string_view) override {
-    ++usageCalls;
-    return CrowdyStudioUsageSnapshot{
-        "3", "9", "100", "500", 1, 20, "active", std::nullopt};
   }
 };
 
@@ -417,7 +405,6 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   const std::optional<CrowdyStudioWalletSnapshot> expectedWallet =
       CrowdyStudioWalletSnapshot{"2500000", "0", "250", "USD"};
   CHECK(controller.getState().wallet == expectedWallet);
-  CHECK(controller.getState().usage.has_value());
 
   controller.setPageVisible(false);
   clock.monotonic = 100;
@@ -429,7 +416,6 @@ void testControllerDiagnosticsCompatibilityAndWallet() {
   controller.tick();
   CHECK_EQ(wallet.calls, 2);
   CHECK(!controller.getState().wallet);
-  CHECK(controller.getState().usage.has_value());
 
   controller.updateFile(CrowdyStudioTarget::Server, "src/lib.rs",
                         "fn still_authors() {}");

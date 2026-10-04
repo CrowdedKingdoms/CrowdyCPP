@@ -48,6 +48,7 @@ int runAll() {
   const std::string orgId = bigIntStr(e2eApp["orgId"]);
   const std::string orgSlug = e2eApp["org"]["slug"].asString();
   E2E_CHECK(!orgId.empty() && !orgSlug.empty());
+  E2E_CHECK(e2eApp["wildernessWritesOpen"].isBool());
   graphql::Json orgById = own.admin().organizations().get(orgId);
   E2E_CHECK(orgById["slug"].asString() == orgSlug);
   graphql::Json orgBySlug = own.admin().organizations().getBySlug(orgSlug);
@@ -61,23 +62,40 @@ int runAll() {
   createInput["slug"] = appSlug;
   createInput["description"] = "CrowdyCPP studio-admin e2e app";
   createInput["visibility"] = "PUBLIC";
+  createInput["datacenter"] = e2e::placeableDatacenter(own);
   graphql::Json createdApp = own.admin().apps().create(createInput);
   const std::string newAppId = bigIntStr(createdApp["appId"]);
   E2E_CHECK(!newAppId.empty() && newAppId != "0");
   E2E_CHECK(createdApp["slug"].asString() == appSlug);
+  E2E_CHECK(createdApp["wildernessWritesOpen"].isBool() &&
+            createdApp["wildernessWritesOpen"].asBool());  // open by default
   E2E_CHECK(createdApp["visibility"].asString() == "PUBLIC");
 
-  E2E_SUBTEST("updateApp + setVisibility read back");
+  E2E_SUBTEST("updateApp (description, then visibility) read back");
   graphql::JVal updateInput;
   updateInput["description"] = "CrowdyCPP studio-admin e2e app (updated)";
   graphql::Json updatedApp = own.admin().apps().update(newAppId, updateInput);
   E2E_CHECK(updatedApp["description"].asString() ==
             "CrowdyCPP studio-admin e2e app (updated)");
-  graphql::Json unlisted = own.admin().apps().setVisibility(newAppId, "UNLISTED");
+  // Visibility is an org-admin change through updateApp (`manage_apps`); the
+  // platform-wide override setAppVisibility is super-admin only and not wrapped.
+  graphql::JVal unlistInput;
+  unlistInput["visibility"] = "UNLISTED";
+  graphql::Json unlisted = own.admin().apps().update(newAppId, unlistInput);
   E2E_CHECK(unlisted["visibility"].asString() == "UNLISTED");
   E2E_CHECK(own.admin().apps().get(newAppId)["visibility"].asString() == "UNLISTED");
+  // Closing and reopening the wilderness is an org-admin updateApp too.
+  graphql::JVal closeWilderness;
+  closeWilderness["wildernessWritesOpen"] = false;
+  E2E_CHECK(!own.admin().apps().update(newAppId, closeWilderness)["wildernessWritesOpen"].asBool(true));
+  E2E_CHECK(!own.admin().apps().get(newAppId)["wildernessWritesOpen"].asBool(true));
+  graphql::JVal openWilderness;
+  openWilderness["wildernessWritesOpen"] = true;
+  E2E_CHECK(own.admin().apps().update(newAppId, openWilderness)["wildernessWritesOpen"].asBool());
   // Back to PUBLIC for the marketplace + default-access scenarios below.
-  (void)own.admin().apps().setVisibility(newAppId, "PUBLIC");
+  graphql::JVal publicInput;
+  publicInput["visibility"] = "PUBLIC";
+  (void)own.admin().apps().update(newAppId, publicInput);
 
   E2E_SUBTEST("marketplace + marketplaceConnection reads");
   graphql::Json marketplace = own.admin().apps().marketplace();

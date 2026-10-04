@@ -21,7 +21,7 @@
  * build dir so the embedded fixture headers pick up the new content.
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -141,6 +141,16 @@ function discoverCppSuites() {
     .map((entry) => join(root, 'tests', entry));
 }
 
+// Copied fixtures: CrowdyJS owns the cases, exec_test runs the copy, and
+// tests/parity/exec-gateway-fixture.test.mjs refuses a copy that is not the pin's.
+const copiedFixtures = [
+  ['test/unit/fixtures/exec-gateway-cases.json', 'tools/parity/fixtures/exec-gateway-cases.json'],
+];
+for (const [from, to] of copiedFixtures) {
+  copyFileSync(join(crowdyjs, ...from.split('/')), join(root, ...to.split('/')));
+  console.log(`  copied ${from}`);
+}
+
 // Regenerate everything the pin feeds. Order matters only in that the matrix
 // is written last, so it reports against the refreshed fixtures.
 // The agent, control-gate and Studio-host generators went with the Crowdy
@@ -169,8 +179,7 @@ console.log(
     previous.commit.slice(0, 10) +
     "' tests docs\n" +
     '  2. npm run check:release\n' +
-    '  3. Reconfigure existing CMake build dirs (embedded fixture headers).\n' +
-    '  4. The blueprint structural gate (see README.md).',
+    '  3. Reconfigure existing CMake build dirs (embedded fixture headers).',
 );
 
 function run(args) {

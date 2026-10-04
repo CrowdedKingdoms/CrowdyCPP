@@ -227,6 +227,42 @@ const ROOT_CLASSIFICATIONS = {
   // browser exclusions: a native host does not mount that card, and
   // connectGitHub opens a browser tab. SetAutosave / Pull / Push left with
   // 17.0.0.
+  // Root fields only a super-admin or a platform operator can call, removed from both SDKs
+  // (CrowdyJS 18.0.1, CrowdyCPP 0.51.0; operator decision 2026-09-28): the SDKs are for
+  // players, developers and org-admins, and platform tooling calls these fields directly.
+  // tests/parity/sdk-audience.test.mjs keeps them unwrapped. checkouts / paymentEvents
+  // are deprecated waivers already, and the hosting / billing / email / retirement roots
+  // above were never wrapped here.
+  ...classifyNames(
+    'Mutation',
+    [
+      'creditOrgWallet',
+      'cpSetCrowdyStudioAgentAppKill',
+      'cpSetCrowdyStudioAgentPlatformPolicy',
+      'forceLogoutUser',
+      'setAppVisibility',
+      'setEarlyAccessOverride',
+      'setOperator',
+      'setOrgStatus',
+      'setSuperAdmin',
+      'updateUserType',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    [
+      'checkoutsConnection',
+      'cpCrowdyStudioAgentCatalog',
+      'cpCrowdyStudioAgentPlatformPolicy',
+      'paymentEventsConnection',
+      'usersConnection',
+      'usersPaginated',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -242,7 +278,6 @@ const METHOD_CLASSIFICATIONS = {
     'HostingAPI',
     [
       'abandonPublish',
-      'all',
       'beginPublish',
       'claim',
       'completePublish',
@@ -251,8 +286,6 @@ const METHOD_CLASSIFICATIONS = {
       'mine',
       'publishes',
       'setEnabled',
-      'setListing',
-      'takeDown',
     ],
     CATEGORY.BROWSER,
     'wrapper over the Crowdy Games hosting roots (browser bundles); no native client publishes one',
@@ -423,12 +456,9 @@ const METHOD_ALIASES = {
   'AuthAPI.register': 'registerUser',
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
-  'PlayerComputeAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',
   'ChannelsAPI.remove': 'remove',
   'StateAPI.delete': 'remove',
-  'GameModelAPI.automations': 'automationsList',
-  'GameModelAPI.getFunction': 'function',
   'AppsAPI.app': 'get',
   'AppsAPI.appBySlug': 'getBySlug',
   'AppsAPI.myApps': 'mine',
@@ -436,22 +466,13 @@ const METHOD_ALIASES = {
   'AppAccessAPI.usersByAppConnection': 'userAccessConnection',
   'OrganizationsAPI.bySlug': 'getBySlug',
   'OrganizationsAPI.setMemberRoles': 'updateMemberRoles',
-  'PaymentsAPI.all': 'checkouts',
-  'PaymentsAPI.allConnection': 'checkoutsConnection',
   'PaymentsAPI.capturePaypal': 'capturePaypalCheckout',
   'PaymentsAPI.create': 'createCheckout',
-  'PaymentsAPI.events': 'paymentEvents',
-  'PaymentsAPI.eventsConnection': 'paymentEventsConnection',
   'PaymentsAPI.mine': 'myCheckouts',
   'PaymentsAPI.mineConnection': 'myCheckoutsConnection',
   'SharedEnvironmentAPI.autoBilling': 'orgAutoBilling',
   'SharedEnvironmentAPI.freeAppQuota': 'orgFreeAppQuota',
   'SharedEnvironmentAPI.paymentMethods': 'orgPaymentMethods',
-  'EconomyKit.trades.get': 'trade',
-  'EconomyKit.trades.listMine': 'myTrades',
-  'EconomyKit.trades.offer': 'tradeOffer',
-  'EconomyKit.trades.accept': 'tradeAccept',
-  'EconomyKit.trades.cancel': 'tradeCancel',
   'AvatarStateStore.publicState': 'identityState',
   'ChunkStore.get': 'find',
   'HostTracker.isHost': 'amIHost',
@@ -466,16 +487,12 @@ const ASYNC_TWIN_WAIVERS = {
     'local AuthState read completes synchronously without transport work',
   'AuthAPI.setToken':
     'local AuthState write completes synchronously without transport work',
-  'GameModelAPI.containerChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  'GameModelAPI.activePlayerCountChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
-  // Same shape as the two above; it entered the matrix with the 17.4.0 re-pin
-  // (the 17.3.0 snapshot predated the session system).
-  'GameModelAPI.sessionChanged':
-    'returns an asynchronous subscription handle rather than a one-shot callback',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
+  'ExecAPI.waitForBuild':
+    'a blocking poll over buildStatus; an event loop polls buildStatusAsync on its own timer',
+  'ExecAPI.waitForModBuild':
+    'a blocking poll over modBuildStatus; an event loop polls modBuildStatusAsync on its own timer',
 };
 
 const CLASS_MAP = {
@@ -493,12 +510,8 @@ const CLASS_MAP = {
   TeleportAPI: 'TeleportAPI',
   TeamsAPI: 'TeamsAPI',
   ChannelsAPI: 'ChannelsAPI',
-  ComputeAPI: 'ComputeAPI',
-  GameModelAPI: 'GameModelAPI',
   GameAppsAPI: 'GameAppsAPI',
   MarketplaceAPI: 'MarketplaceAPI',
-  PlayerComputeAPI: 'PlayerComputeAPI',
-  PlayerModelAPI: 'PlayerModelAPI',
   PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
@@ -509,25 +522,9 @@ const CLASS_MAP = {
   QuotasAPI: 'QuotasAPI',
   UsageAPI: 'UsageAPI',
   SharedEnvironmentAPI: 'SharedEnvironmentAPI',
-  ControlPlaneAPI: 'OperatorAPI',
   WorldClient: 'WorldClient',
   ActorClient: 'ActorClient',
-  GameKitClient: 'GameKitClient',
-  InventoryKit: 'InventoryKit',
-  ObjectsKit: 'ObjectsKit',
-  NpcsKit: 'NpcsKit',
-  PlotsKit: 'PlotsKit',
-  EconomyKit: 'EconomyKit',
-  ProgressionKit: 'ProgressionKit',
-  LootKit: 'LootKit',
-  QuestsKit: 'QuestsKit',
-  CombatKit: 'CombatKit',
-  MatchesKit: 'MatchesKit',
-  DecksKit: 'DecksKit',
-  WorldsimKit: 'WorldsimKit',
   SocialKit: 'SocialKit',
-  LeaderboardsKit: 'LeaderboardsKit',
-  FeaturesKit: 'FeaturesKit',
   LocalActorStore: 'LocalActorStore',
   RemoteActorStore: 'RemoteActorStore',
   ChannelInbox: 'Inbox',
@@ -536,7 +533,6 @@ const CLASS_MAP = {
   HostTracker: 'WorldSession',
   SaveStateStore: 'SaveStateStore',
   AvatarStateStore: 'AvatarStateStore',
-  ContainerMirror: 'ContainerMirror',
   WorldSessionCore: 'WorldSession',
   ChunkStore: 'ChunkStore',
   ErrorStore: 'ErrorStore',
@@ -846,6 +842,69 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'embed panel owns responsive DOM docking, modal focus, and gameplay-input suppression',
   ),
+  // CrowdyJS 17.14.0: ck-exec mods' CLIENT halves. The ExecAPI operations are
+  // portable and wrapped (0.49.0, with modClientArtifactBytes' digest, ABI and
+  // summary checks). What runs the module is not: these three modules host
+  // player WASM in the page's glue Web Worker, and CrowdyCPP has no WASM runtime.
+  'src/grid-mods/exec-client-halves.ts': exportModule(
+    [
+      'ExecClientHalfBroker',
+      'ExecClientHalfError',
+      'ExecClientHalfPrompt',
+      'ExecClientHalfStopReason',
+      'ExecClientHalves',
+      'ExecClientHalvesGrid',
+      'ExecClientHalvesOptions',
+    ],
+    CATEGORY.BROWSER,
+    'runs the CLIENT halves a grid serves in browser Web Workers through PlayerCodeBroker; a native engine drives exec().gridClientMods, consentClientMod / trustAuthor and modClientArtifactBytes into its own sandbox',
+  ),
+  'src/player-runtime/player-code-broker.ts': exportModule(
+    [
+      'EXEC_CLIENT_HOST_CALLS',
+      'PLAYER_CODE_INVOKE_MAX_BYTES',
+      'PLAYER_CODE_LOG_LINES_PER_SECOND',
+      'PLAYER_CODE_LOG_MAX_CHARS',
+      'PlayerCodeBroker',
+      'PlayerCodeBrokerOptions',
+      'PlayerCodeEngine',
+      'PlayerCodeGridBounds',
+      'PlayerCodeHostCall',
+      'PlayerCodeLogLevel',
+      'PlayerCodeLogLine',
+      'PlayerCodePresentation',
+      'PlayerCodeWorkerLike',
+    ],
+    CATEGORY.BROWSER,
+    'page-side broker for player WASM in the browser glue Web Worker (worker lifecycle, host-call allowlists, rate caps, watchdogs, the bounded crowdy::log lines and handle_invoke calls); a native sandbox bounds a CLIENT half by the consented summary in ExecModClientArtifactBytes',
+  ),
+  // CrowdyJS 18.0.0 moved the broker's allowlist into its own module.
+  'src/player-runtime/client-host-calls.ts': exportModule(
+    ['EXEC_CLIENT_HOST_CALLS'],
+    CATEGORY.BROWSER,
+    'the browser broker\'s deny-by-default host-call allowlist, from the generated host catalog; a native sandbox lets a CLIENT half call only the consented summary\'s hostFunctions',
+  ),
+  // CrowdyJS 18.0.2 bounds what the glue copies out of a module (host-call requests, state
+  // blobs, invoke replies); a native sandbox bounds its own copies.
+  'src/player-runtime/glue-runtime.ts': exportModule(
+    [
+      'EXEC_CLIENT_ABI_IMPORTS',
+      'GLUE_HOST_CALL_REQUEST_MAX_BYTES',
+      'GLUE_HOST_FUNCTIONS',
+      'GLUE_INVOKE_REPLY_MAX_BYTES',
+      'GLUE_LOG_MAX_BYTES',
+      'GLUE_STATE_MAX_BYTES',
+      'GlueDispatchResult',
+      'GlueInitMessage',
+      'GlueRuntime',
+      'GlueRuntimeOptions',
+      'GuestExports',
+      'parseFuelBudget',
+      'runWithWatchdog',
+    ],
+    CATEGORY.BROWSER,
+    'glue that instantiates player WASM inside the browser Web Worker (CLIENT ABI imports, ck_fuel, watchdog); a native sandbox implements CLIENT ABI kExecClientAbiVersion itself',
+  ),
 };
 
 const STRICT_NATIVE_EXPORT_MODULES = new Set([
@@ -868,6 +927,55 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.BROWSER,
       'published subpath is the browser Web Worker entry; native CLIENT runtimes use injected engine sandboxes',
+    ),
+  },
+  // CrowdyJS 17.14.0 changed three World Stores without adding a method, so no
+  // method row moves; these pin what each change means here, and go stale when
+  // the CrowdyJS source they describe changes.
+  'local-actor-send-retry': {
+    path: 'src/stores/actors.ts',
+    markers: ['private resendDue = false;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'LocalActorStore sends synchronously and returns the Status: a send that fails lands on lastError() and the next tick sends again, changed or not (0.49.0)',
+    ),
+  },
+  'save-state-autosave-retry': {
+    path: 'src/stores/durable.ts',
+    markers: ['this.save().catch(() => {})'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'SaveStateStore has no autosave timer: the game calls save() from its own loop, and a save that fails stays dirty() for the next one (0.49.0 made that hold without exceptions)',
+    ),
+  },
+  // CrowdyJS 18.0.0: the runner reaches a running CLIENT half (invoke) and hears its
+  // crowdy::log lines (onLog), and the page answers two more host calls. All of it is the
+  // browser runtime around a module this SDK does not run.
+  'exec-client-halves-invoke-and-logs': {
+    path: 'src/grid-mods/exec-client-halves.ts',
+    markers: [
+      'invoke(modId: string, payload: Uint8Array',
+      'onLog?: (line: PlayerCodeLogLine, mod: ExecGridClientMod) => void;',
+    ],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the browser runner calls a running CLIENT half\'s handle_invoke and forwards its crowdy::log lines through PlayerCodeBroker; a native engine calls and logs its own sandbox',
+    ),
+  },
+  'grid-host-call-answers': {
+    path: 'src/grid-mods/grid-host-calls.ts',
+    markers: ["case 'avatar_state_get': {", "case 'grid_permission_check': {"],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the page answers a CLIENT half\'s avatar_state_get and grid_permission_check from the game\'s own knowledge (the latter for the four code-permission keys only, since 18.0.2, which also derives the uuid of a half\'s spatial and channel sends); a native engine answers its sandbox\'s host calls itself, by the same rules',
+    ),
+  },
+  'chunk-store-bounded-hydration': {
+    path: 'src/stores/chunks.ts',
+    markers: ['const HYDRATE_CONCURRENCY = 8;', 'async function whenNotBusy<T>('],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::ensureAround is one blocking byDistance request that selects voxelStates, so the states and every recorded voxel edit (ck-api v2.33.0) arrive with the bulk load and there is no per-chunk hydration to bound or keep (0.56.0); a refused load, PLATFORM_BUSY included, throws to the caller, and the next call requests every chunk again',
     ),
   },
 };
@@ -1097,7 +1205,7 @@ for (const [tsClass, methods] of Object.entries(tsAll).sort(([left], [right]) =>
   report += '\n';
 }
 
-report += '## Crowdy Studio cross-cutting export audit\n\n';
+report += '## Cross-cutting export and behavior audit\n\n';
 report +=
   '| CrowdyJS export | Classification |\n' +
   '|---|---|\n';
@@ -1144,9 +1252,9 @@ report +=
   `- Reviewed async-twin waivers: ${state.usedAsyncTwinWaivers.size}\n`;
 report += `- Key DTO fields type-checked: ${state.dtoFieldsChecked}\n`;
 report +=
-  `- Cross-cutting Studio exports checked: ${state.crossCuttingExportsChecked}\n`;
+  `- Cross-cutting exports checked: ${state.crossCuttingExportsChecked}\n`;
 report +=
-  `- Cross-cutting browser behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
+  `- Cross-cutting behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
 report += `- Reviewed method aliases checked: ${state.usedMethodAliases.size}\n`;
 report += `- Reviewed class maps checked: ${state.usedClassMaps.size}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
@@ -1608,8 +1716,14 @@ function keyDtoContractResults() {
   const cppAuthFields = dataFields(
     declarationBlock(cppTypes, /struct\s+AuthResponse\s*\{/gu),
   );
+  const cppExec = readFileSync(
+    join(root, 'include', 'crowdy', 'domains', 'exec.hpp'),
+    'utf8',
+  );
+  // The CLIENT half a native sandbox receives (0.50.0: the legacy
+  // ClientArtifactBytes went with player compute).
   const cppArtifactFields = dataFields(
-    declarationBlock(cppTypes, /struct\s+ClientArtifactBytes\s*\{/gu),
+    declarationBlock(cppExec, /struct\s+ExecModClientArtifactBytes\s*\{/gu),
   );
   const tsAuthFields = dataFields(
     declarationBlock(tsAuth, /export\s+interface\s+AuthResponse\s*\{/gu),
@@ -1640,34 +1754,40 @@ function keyDtoContractResults() {
     'string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'bytes',
     'std::vector<std::uint8_t>',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'artifactHash',
+    'digest',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
     'fuelPerDispatch',
     'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'contractJson',
-    'std::optional<std::string>',
+    'capabilitySummaryJson',
+    'std::string',
   );
   assertField(
-    'CrowdyCPP.ClientArtifactBytes',
+    'CrowdyCPP.ExecModClientArtifactBytes',
     cppArtifactFields,
-    'versionId',
+    'capabilityHash',
     'std::string',
+  );
+  assertField(
+    'CrowdyCPP.ExecModClientArtifactBytes',
+    cppArtifactFields,
+    'abiVersion',
+    'int',
   );
   return { checked, failures };
 }

@@ -284,9 +284,13 @@ class CurlWebSocketConnection final
 
     std::array<char, CURL_ERROR_SIZE> errorBuffer{};
     curl_slist* headers = nullptr;
-    const std::string protocolHeader =
-        "Sec-WebSocket-Protocol: " + request_.subprotocol;
-    headers = curl_slist_append(headers, protocolHeader.c_str());
+    // No subprotocol requested (the ck-exec gateway speaks none): send no header,
+    // rather than an empty one.
+    if (!request_.subprotocol.empty()) {
+      const std::string protocolHeader =
+          "Sec-WebSocket-Protocol: " + request_.subprotocol;
+      headers = curl_slist_append(headers, protocolHeader.c_str());
+    }
     curl_easy_setopt(curl, CURLOPT_URL, request_.url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
@@ -303,16 +307,21 @@ class CurlWebSocketConnection final
 
     CURLcode result = curl_easy_perform(curl);
     curl_slist_free_all(headers);
+    long responseCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
     if (result != CURLE_OK) {
-      const WebSocketError error =
+      WebSocketError error =
           curlError(result, "WebSocket handshake failed", errorBuffer.data());
+      // libcurl refuses an upgrade answered >= 200 with CURLE_HTTP_RETURNED_ERROR at the
+      // end of its headers, and never reads the body: the status is all there is.
+      if (result == CURLE_HTTP_RETURNED_ERROR && responseCode >= 200) {
+        error.httpStatus = static_cast<int>(responseCode);
+      }
       curl_easy_cleanup(curl);
-      finishWithError(error);
+      finishWithError(std::move(error));
       return;
     }
 
-    long responseCode = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
     if (responseCode != 101) {
       WebSocketError error;
       error.kind = WebSocketErrorKind::Protocol;
@@ -320,6 +329,7 @@ class CurlWebSocketConnection final
       error.message = "WebSocket handshake returned HTTP " +
                       std::to_string(responseCode);
       error.retryable = responseCode >= 500;
+      if (responseCode >= 200) error.httpStatus = static_cast<int>(responseCode);
       curl_easy_cleanup(curl);
       finishWithError(std::move(error));
       return;
@@ -328,7 +338,9 @@ class CurlWebSocketConnection final
       WebSocketError error;
       error.kind = WebSocketErrorKind::Protocol;
       error.status = Errc::Malformed;
-      error.message = "Server did not negotiate graphql-transport-ws";
+      error.message = request_.subprotocol.empty()
+                          ? "Server selected a subprotocol that was not requested"
+                          : "Server did not negotiate " + request_.subprotocol;
       error.retryable = false;
       curl_easy_cleanup(curl);
       finishWithError(std::move(error));

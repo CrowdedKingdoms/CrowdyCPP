@@ -555,7 +555,7 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
-| `client.exec()` | **ck-exec (dev-tier preview):** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
+| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
@@ -886,8 +886,8 @@ deployments:
   `state` input verbatim and re-encoded on read (reads returned
   base64(base64(bytes))); newer builds round-trip symmetrically. Decode
   defensively if you must read rows written through an old server.
-- **ck-exec (`client.exec()`):** a dev-tier preview; a Game API that does not
-  serve the `exec*` roots rejects the call with a GraphQL validation error.
+- **ck-exec (`client.exec()`):** a Game API that does not serve the `exec*`
+  roots rejects the call with a GraphQL validation error.
 
 ## Errors
 

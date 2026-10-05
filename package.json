@@ -24,7 +24,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@graphql-tools/merge": "^9.2.4",
+    "@graphql-tools/merge": "^9.2.6",
     "graphql": "^16.14.2"
   },
   "publishedSchemaSnapshot": {

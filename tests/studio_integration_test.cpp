@@ -307,12 +307,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
     }
   }
 
-  void setRequires(
-      const CrowdyStudioProjectScope&, std::string_view,
-      const std::optional<std::string>&) override {
-    calls.push_back("requires");
-  }
-
   void startClient(const CrowdyStudioProjectScope&, std::string_view,
                    std::string_view) override {
     calls.push_back("start-client");
@@ -331,7 +325,7 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
       throw std::runtime_error(
           "runtime invoke response was lost");
     }
-    return {std::nullopt, R"({"ok":true})", "4", 2};
+    return {R"({"ok":true})", 2};
   }
 };
 

@@ -17,6 +17,16 @@ add_executable(json_test json_test.cpp)
 target_link_libraries(json_test PRIVATE crowdy_graphql)
 add_test(NAME json_test COMMAND json_test)
 
+add_executable(msgpack_test msgpack_test.cpp)
+target_link_libraries(msgpack_test PRIVATE crowdy_graphql)
+add_test(NAME msgpack_test COMMAND msgpack_test)
+
+add_executable(exec_test exec_test.cpp)
+target_link_libraries(exec_test PRIVATE crowdy Threads::Threads)
+target_compile_definitions(exec_test PRIVATE
+  CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+add_test(NAME exec_test COMMAND exec_test)
+
 add_executable(datacenter_redirect_test datacenter_redirect_test.cpp)
 target_link_libraries(datacenter_redirect_test PRIVATE crowdy_graphql)
 add_test(NAME datacenter_redirect_test COMMAND datacenter_redirect_test)
@@ -88,6 +98,16 @@ add_executable(client_portable_test client_portable_test.cpp)
 target_link_libraries(client_portable_test PRIVATE crowdy)
 add_test(NAME client_portable_test COMMAND client_portable_test)
 
+add_executable(chunk_store_test chunk_store_test.cpp)
+target_link_libraries(chunk_store_test PRIVATE crowdy)
+target_compile_definitions(chunk_store_test PRIVATE
+  CROWDY_TEST_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures")
+add_test(NAME chunk_store_test COMMAND chunk_store_test)
+
+add_executable(windows_macros_test windows_macros_test.cpp)
+target_link_libraries(windows_macros_test PRIVATE crowdy)
+add_test(NAME windows_macros_test COMMAND windows_macros_test)
+
 if(NOT CROWDY_NO_EXCEPTIONS)
   if(CROWDY_WITH_OPENSSL)
     add_executable(crowdy_studio_test crowdy_studio_test.cpp)
@@ -98,9 +118,6 @@ if(NOT CROWDY_NO_EXCEPTIONS)
     target_link_libraries(studio_github_test PRIVATE crowdy)
     add_test(NAME studio_github_test COMMAND studio_github_test)
 
-    add_executable(model_lint_test model_lint_test.cpp)
-    target_link_libraries(model_lint_test PRIVATE crowdy)
-    add_test(NAME model_lint_test COMMAND model_lint_test)
 
     add_executable(crowdy_studio_state_test crowdy_studio_state_test.cpp)
     target_link_libraries(crowdy_studio_state_test PRIVATE crowdy)
@@ -135,9 +152,6 @@ target_include_directories(socket_send_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
 add_test(NAME socket_send_test COMMAND socket_send_test)
 
 if(NOT CROWDY_NO_EXCEPTIONS)
-  add_executable(kit_test kit_test.cpp)
-  target_link_libraries(kit_test PRIVATE crowdy)
-  add_test(NAME kit_test COMMAND kit_test)
 
   add_executable(kit_wire_test kit_wire_test.cpp)
   target_link_libraries(kit_wire_test PRIVATE crowdy)

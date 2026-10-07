@@ -18,14 +18,19 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_API_URL` | yes | API base URL (shared entry origin). `CROWDY_E2E_MANAGEMENT_URL` is still read as a fallback — same origin now |
 | `CROWDY_E2E_HTTP_URL` | no | per-game API base URL (falls back to the minted `gameApiUrl`) |
 | `CROWDY_E2E_EMAIL` | yes | base email; suites derive fresh accounts by plus-addressing |
+| `CROWDY_E2E_EMAIL_2` | two-player suites | the second player's address (`e2e_world_session` registers it as given, so use a fresh one per run); unset, `signIn` registers an empty address and the suite aborts with a GraphQL error |
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
-| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players, deploys kit blueprints) |
+| `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players). `e2e_chunk_store_live` also closes the app's wilderness for up to ~45 s and reopens it, so do not run chunk-writing suites against the same app at the same time |
 | `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
-| `CROWDY_E2E_OPERATOR_EMAIL` | no | `is_operator` account (operator read-only suite) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
+| `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app |
+| `CROWDY_E2E_EXEC_GATEWAY` / `CROWDY_E2E_EXEC_TOKEN` | no | a ck-exec gateway running the demo app and a connect token for it (`e2e_exec_gateway`) |
+| `CROWDY_E2E_PLAYER_FILE` | no | a JSON file `{"email", "password"}` of an existing player, which `e2e_chunk_recorded_edits` signs in with `login`; read by the suite, never printed |
+| `CROWDY_E2E_HUB_EDIT_APP_ID` / `CROWDY_E2E_HUB_EDIT_CHUNK` | no | an app running a Blocks with Friends player hub, and `x,y,z` of a stored chunk there where that player holds dirt and may build: `e2e_chunk_recorded_edits` places one block through the hub (the node API writes it), loads the chunk with a fresh `ChunkStore`, and mines the block back |
+| `CROWDY_E2E_THROWAWAY_OWNER=1` | no | `e2e_open_grid_exec_gateway` registers its own owner, org and app and a player (from `CROWDY_E2E_EMAIL`, plus-addressed), opens and closes a grid, and checks the tier's ck-exec gateway; it needs only `CROWDY_E2E_API_URL` and `CROWDY_E2E_EMAIL` besides, and leaves the org behind |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
@@ -84,21 +89,32 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_agentic_studio`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_graphql_websocket`, `e2e_marketplace_claims`, `e2e_operator` | explicit feature flag / project+grid+Play host / multi-server / WebSocket transport / claim coordinate / operator |
+| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
 
 ## Notes for reruns
 
-- Suites derive fresh accounts (plus-addressed with a per-run suffix) and
-  use unique kit blueprint prefixes, so back-to-back runs never collide on a
-  shared app.
+- Suites derive fresh accounts (plus-addressed with a per-run suffix), so
+  back-to-back runs never collide on a shared app.
 - Each suite owns a disjoint chunk-coordinate band (base
   `{100000..500000 + suite*100, 0, ...}`) so parallel suites don't cross
   spatial fan-out.
+- `e2e_chunk_recorded_edits` calls a hub over ck-exec, so it needs the curl WebSocket transport
+  (libcurl 8.13 or newer; the suite skips without it: point `CURL_INCLUDE_DIR` /
+  `CURL_LIBRARY` at a newer build when the system's is older). It places into a voxel whose
+  last recorded edit is air first, which its own mine-back leaves, so reruns reuse one voxel.
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.
+- `e2e_crowdy_studio` creates its project from the mod starter, builds the
+  exact saved SERVER crate as the grid's mod, then archives the project.
 - `e2e_crowdy_studio` archives its unique project after submitting the exact
   saved revision as a draft player-compute version.
+- `e2e_exec_client_halves` deploys a mod named `e2e-cpp-hud-<run>` on the grid
+  and deletes it however the run ends; it also deletes such mods a killed run
+  left behind. It stands an actor in the grid's low corner chunk over native UDP,
+  because the API serves a CLIENT half's module, and lets a player trust its
+  author, only while one of that player's actors is in the grid. It retries
+  `PLATFORM_BUSY`, which means the work never started.
 - `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
   asks the configured server-side provider to run. The suite uses the
   production controller factory for create/attach/replay/heartbeat and binds a
@@ -114,10 +130,6 @@ Run a single suite directly for its per-subtest output:
   generic approved-restore capability, so that live subtest is skipped unless
   an independent synchronization and approval provider is injected. Setting
   the capability assertion without such a provider fails closed.
-- `e2e_graphql_websocket` exits 77 when the client has neither an injected nor
-  compatible default WebSocket transport. With its explicit flag set,
-  endpoint/protocol failures are failures and structured GraphQL details are
-  printed.
 - `assignServer failed: No available servers found` during connect is
   transient on small deployments (server-status heartbeats briefly lapse) and
   is absorbed by the harness's assignment retry — not a failure.

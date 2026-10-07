@@ -37,11 +37,12 @@
 ///   CROWDY_E2E_EMAIL_2          fixed second email (legacy two-client mode)
 ///   CROWDY_E2E_APP_ID_2         a second app on the same deployment
 ///                               (cross-app isolation suites)
-///   CROWDY_E2E_OPERATOR_EMAIL   an is_operator account (operator suite)
 ///   CROWDY_E2E_MULTI_SERVER=1   deployment runs 2+ replication servers
 ///   CROWDY_E2E_CLAIM_CHUNK_X/Y/Z
 ///                               reserved free chunk for SELF_CLAIM coverage
 ///   CROWDY_E2E_STUDIO_GRID_ID   owned grid for Studio draft coverage
+///   CROWDY_E2E_EXEC_MOD_GRID_ID grid the owner account owns in a ck-exec app
+///                               (mods and their CLIENT halves)
 ///   CROWDY_E2E_AGENT=1          enable Agentic Studio public-API coverage
 ///   CROWDY_E2E_AGENT_PROJECT_ID saved project for BUILD-mode coverage
 ///   CROWDY_E2E_AGENT_PLAY=1     enable Play lease grant/revoke coverage
@@ -143,7 +144,6 @@ struct E2eConfig {
   std::string appId;
   std::string appId2;
   std::string ownerEmail;
-  std::string operatorEmail;
 };
 
 /// Load the config or skip the test (exit 77).
@@ -161,7 +161,6 @@ inline E2eConfig requireConfig(bool needSecondPlayer = false) {
   cfg.appId = envOr("CROWDY_E2E_APP_ID");
   cfg.appId2 = envOr("CROWDY_E2E_APP_ID_2");
   cfg.ownerEmail = envOr("CROWDY_E2E_OWNER_EMAIL");
-  cfg.operatorEmail = envOr("CROWDY_E2E_OPERATOR_EMAIL");
   if (cfg.apiUrl.empty() || cfg.email.empty() || cfg.appId.empty() ||
       (needSecondPlayer && cfg.email2.empty() && cfg.ownerEmail.empty())) {
     std::puts("CROWDY_E2E_* not configured; skipping");
@@ -211,48 +210,6 @@ inline std::string derivePassword(const std::string& email) {
 inline std::string deriveEmail(const E2eConfig& cfg, const std::string& tag) {
   const auto at = cfg.email.find('@');
   return cfg.email.substr(0, at) + "+" + tag + "-" + runSuffix() + cfg.email.substr(at);
-}
-
-/// A CamelCase-safe unique kit typePrefix for this run: "Ct" + digits is a
-/// valid GraphQL type-name fragment.
-inline std::string kitPrefix(const char* base) { return std::string(base) + runSuffix(); }
-
-/// Run-suffixed names leave residue on the shared app (every kit run deploys
-/// fresh automations, and apps cap automations — e.g. 100). Prune automations
-/// from PREVIOUS runs: any name embedding a >=6-digit run marker at least an
-/// hour older than this process's runSuffix (so concurrently running suites,
-/// whose markers are seconds apart, are never touched). Call it as admin
-/// before deploying automation-bearing blueprints; failures are non-fatal.
-inline void pruneStaleAutomations(crowdy::CrowdyClient& adminGame, const std::string& appId) {
-  constexpr long long kWrap = 100000000;         // runSuffix() = epochMs % 1e8
-  constexpr long long kMinAgeMs = 60LL * 60000;  // 1 hour
-  const long long now = std::strtoll(runSuffix().c_str(), nullptr, 10);
-  try {
-    adminGame.gameModel().automationsList(appId).forEach([&](crowdy::graphql::Json a) {
-      const std::string name = a["name"].asString();
-      // Longest digit run in the name is the candidate run marker.
-      std::string best, cur;
-      for (char c : name) {
-        if (c >= '0' && c <= '9') {
-          cur += c;
-        } else {
-          if (cur.size() > best.size()) best = cur;
-          cur.clear();
-        }
-      }
-      if (cur.size() > best.size()) best = cur;
-      if (best.size() < 6) return;  // no run marker: not e2e residue
-      const long long marker = std::strtoll(best.c_str(), nullptr, 10);
-      const long long age = ((now - marker) % kWrap + kWrap) % kWrap;
-      if (age < kMinAgeMs || age > kWrap - kMinAgeMs) return;  // current or clock-wrapped
-      try {
-        adminGame.gameModel().deleteAutomation(appId, name);
-      } catch (const std::exception&) { /* another run may have pruned it already */
-      }
-    });
-  } catch (const std::exception& e) {
-    std::printf("(automation prune skipped: %s)\n", e.what());
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +302,19 @@ inline crowdy::CrowdyClient& ownerGame(const E2eConfig& cfg) {
     cached->setToken(minted.token);
   }
   return *cached;
+}
+
+/// A datacenter createApp accepts now (its `input.datacenter`, required and
+/// permanent): a placeable one, serving clients when one is. Empty when none is.
+inline std::string placeableDatacenter(crowdy::CrowdyClient& admin) {
+  std::string placeable;
+  std::string serving;
+  admin.admin().apps().placeableDatacenters()["datacenters"].forEach([&](crowdy::graphql::Json dc) {
+    if (!dc["placeable"].asBool()) return;
+    if (placeable.empty()) placeable = dc["code"].asString();
+    if (serving.empty() && dc["serving"].asString() == "SERVING") serving = dc["code"].asString();
+  });
+  return serving.empty() ? placeable : serving;
 }
 
 /// Find-or-create the e2e access tier carrying every gameplay runtime

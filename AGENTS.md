@@ -1,5 +1,29 @@
 # CrowdyCPP agent guidance
 
+**RULE: THE SDK IS FOR NORMAL CLIENTS, AND IT IS DESIGNED FOR PRODUCTION (operator decision,
+2026-09-28).** It serves players, developers and org-admins. It may carry org-admin features
+(there will be many org-admins), but NEVER a wrapper for something only a super-admin or a
+platform operator can call, and no testing helper. Platform tooling and test helpers live in
+our own repos as scripts that call GraphQL directly. The per-release default origin
+(`kDefaultTier`) is unaffected. So, before wrapping a root field:
+
+- Read its resolver in cks-game-api at the same tier (`git show origin/dev:src/...`).
+  `@RequiresSuperAdmin()`, `@RequiresOperator()`, `OperatorGuard` (on the method or on its
+  resolver class), or a body that refuses everyone but a super-admin or an operator means it
+  does not belong here. Also read the services the body calls for such a refusal.
+- A field with an org-admin path and a platform path is wrapped for the org-admin path only,
+  and the SDK refuses the other before any request: `setQuota` / `deleteQuota` with neither
+  an org nor an app are platform-global, so `admin().quotas().set` needs an `appId` or an
+  `orgId` (`deleteQuota` takes only a quota id, so its scope is the server's to judge).
+- `tests/parity/sdk-audience.test.mjs` (`npm test`, CI `parity-baseline`) fails when any
+  document under `operations/` or inline `R"gql(...)gql"` document in `include/` selects a
+  root field on its platform-only list, or one whose schema description says operator- or
+  super-admin-only. When cks-game-api adds such a field, add it to that list; do not wrap
+  it. CrowdyJS carries the same test (`test/unit/sdk-audience.test.mjs`); this list holds
+  every field on its list, plus the platform-only fields CrowdyJS never wrapped.
+- 0.51.0 removed the last ones (MIGRATION.md lists them). A published release tag is never
+  moved: a change after `dev/vX.Y.Z` shipped is a new version.
+
 CrowdyCPP is a standalone public C++20 SDK. A normal configure, build, install,
 or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed.
@@ -48,7 +72,17 @@ When the unified GraphQL surface changes:
    are portable as of 0.38.0 (`saveProject` commits through
    `crowdyStudioGitHubPutFile` / `DeleteFile`); the hosted GitHub settings
    card on `CrowdyStudioController` stays a browser exclusion.
-8. Run the blueprint structural gate documented in `README.md`.
+
+### CrowdyPy wraps this tree
+
+CrowdyPy (the Python SDK) vendors this repository at a pinned release and binds the
+replication `Connection`, `WorldSession` and the wrapper seams added for it in 0.54.0:
+`Config::onEventsReady`, `IChunkSource` with the injectable `ChunkStore` constructor,
+`IHostElection` and `WorldSessionServices`. A change to those contracts is a change to
+CrowdyPy too: say so in `MIGRATION.md`, and CrowdyPy re-vendors at its next release
+(`scripts/vendor_crowdycpp.py`). Its Windows build includes these headers after
+`<windows.h>`, whose `far` and `near` macros are empty, so no public header may use
+either as an identifier (`tests/windows_macros_test.cpp` holds that).
 
 ## Releasing
 
@@ -98,9 +132,12 @@ files on conflict, re-pins, runs `check:release` with `CROWDYJS_PATH` at that
 worktree, and opens the PR. It refuses when CrowdyJS at `origin/<to>` is not the
 version this repo's pin names: promote CrowdyJS first.
 
-`parity:repin` rewrites the pin and reruns all five fixture generators plus the
-matrix; it prints the steps it cannot do for you. Four things reliably bite
-when this is done by hand:
+`parity:repin` rewrites the pin, copies the fixtures CrowdyJS owns (the ck-exec
+gateway cases, `tools/parity/fixtures/exec-gateway-cases.json`, which
+`exec-gateway-fixture.test.mjs` holds to the pinned commit's), and reruns the
+fixture generators plus the matrix; it prints the steps it cannot do for you.
+`docs/compatibility.md` names the pin too and is edited by hand. Four things
+reliably bite when this is done by hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
   CrowdyJS behavior cannot go green until that CrowdyJS commit is fetchable
@@ -131,24 +168,30 @@ player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
 strict portable parity complete.
 
-## Game Kit blueprints
+The class scan reads only `src/domains`, `src/kit`, `src/stores`, `world.ts`
+and the Studio modules. A CrowdyJS module outside it enters the matrix through
+`CROSS_CUTTING_EXPORT_MODULES`, where every export is classified and a new one
+fails: the CLIENT-half runner, broker and glue (`src/grid-mods/exec-client-halves.ts`,
+`src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`,
+`client-host-calls.ts`) sit there as browser exclusions since 0.49.0, because
+this SDK runs no WASM. A behaviour
+change that adds no method moves no row: pin it in `CROSS_CUTTING_BEHAVIORS`
+with markers from the CrowdyJS source, as 0.49.0 did for 17.14.0's three World
+Stores changes, so the matrix says what it means here and goes stale when that
+source changes.
 
-Kit blueprint builders must emit byte-identical JSON to CrowdyJS's, which the
-structural gate in `README.md` enforces by diffing dumps of a variant matrix.
-Both matrices (`tools/parity/dump-blueprints.mjs` and
-`tools/parity/dump_blueprints.cpp`) must list the same variants, so adding a
-builder option means adding a variant to both or the gate never covers it.
+## The legacy engines (removed in 0.50.0)
 
-Two things about blueprint content, both learned from live deploys rather than
-from the gate, which only compares the two SDKs to each other:
-
-- **Declare a function before anything references it.** `gameModelSeed`
-  processes functions in array order, so a `timers` effect naming a function
-  defined later in the array warns about an unresolved target.
-- **Expressions have no conditional and no `now()`.** Guards have to be
-  arithmetic — `matchesBlueprint`'s turn deadline keeps a monotonic sequence
-  and compares it rather than branching, which is what makes a timer that
-  fires after its turn ended harmless.
+The game model and its automations, Studio compute, player compute (both
+targets) and the player model are gone, from the Game API too (ck-api
+v2.27.0): ck-exec (`client.exec()`) replaced them. The Game Kit keeps
+`social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's SERVER target
+is a mod and its CLIENT target that mod's CLIENT half (`CrowdyStudioModRuntime`).
+Do not re-add a wrapper for a `gameModel*`, `compute*`, `playerModel*`,
+`playerCompute*`, player-code marketplace or WASM-policy field: the schema no
+longer has them, and codegen refuses an operation that names one. The Game API
+keeps tier features (`admin().appAccess()`), grid claims, the studio moderation
+fields and the compute budget (`gen::computeUnits`).
 
 ## Writing tests against `graphql::Json`
 

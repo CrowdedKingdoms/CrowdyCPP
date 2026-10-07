@@ -443,13 +443,6 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
                     (enabled ? "true" : "false"));
   }
 
-  void setRequires(
-      const CrowdyStudioProjectScope&, std::string_view serverName,
-      const std::optional<std::string>& clientName) override {
-    calls.push_back("requires:" + std::string(serverName) + ":" +
-                    clientName.value_or("<none>"));
-  }
-
   void startClient(const CrowdyStudioProjectScope&,
                    std::string_view moduleName,
                    std::string_view versionId) override {
@@ -465,7 +458,7 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
       const std::optional<std::string>&) override {
     calls.push_back("invoke:" + std::string(moduleName) + ":" +
                     std::string(exportName));
-    return {std::nullopt, R"({"ok":true})", "4", 2};
+    return {R"({"ok":true})", 2};
   }
 };
 
@@ -804,7 +797,6 @@ void testDeploymentBindingsAndRuntimeState() {
             "poll:weather-client",
             "deploy:SERVER:LIVE",
             "poll:weather-server",
-            "requires:weather-server:weather-client",
             "enabled:weather-server:true",
             "start:weather-client:client-v1",
         }));
@@ -824,7 +816,7 @@ void testDeploymentBindingsAndRuntimeState() {
         CrowdyStudioRuntimeSyncState::RunningStale);
   const auto invoked = controller.invoke(
       "status", std::nullopt, CrowdyStudioDeployment::Live);
-  CHECK(invoked.resultJson == std::optional<std::string>{R"({"ok":true})"});
+  CHECK(invoked.resultJson == R"({"ok":true})");
   CHECK(runtime.calls.back() == "invoke:weather-server:status");
 
   bool environmentMismatch = false;

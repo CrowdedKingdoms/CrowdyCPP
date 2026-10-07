@@ -969,8 +969,56 @@ void runBundlingNetThread() {
   conn.disconnect();
 }
 
+// 0.54.0: onEventsReady fires once per poll cycle, from the thread that queued
+// the first event, and again from a bounded poll() that left events queued.
+void runEventsReadyHook() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  int signals = 0;
+
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.advertiseCapabilities = false;
+  cfg.onEventsReady = [&] { ++signals; };
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  CHECK_EQ(signals, 1);  // the Connecting status
+
+  // The fake server learns the client's address from its first datagram.
+  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
+  CHECK(conn.flushSends().ok());
+  (void)server.recvOne();
+  conn.pump(0);  // Connected: queued, but the cycle already signalled
+  CHECK_EQ(signals, 1);
+  CHECK(conn.poll() >= 1);
+  CHECK_EQ(signals, 1);  // drained: nothing left to signal
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  auto note = makeNotification(wire::MessageType::ActorUpdateNotification, Bytes(pose, 4), 1000, 1);
+  server.sendToClient(note.data(), note.size());
+  server.sendToClient(note.data(), note.size());
+  for (int i = 0; i < 50 && conn.stats().messagesReceived < 2; ++i) conn.pump(20);
+  CHECK_EQ(conn.stats().messagesReceived, 2u);
+  CHECK_EQ(signals, 2);  // two queued, one signal
+
+  CHECK_EQ(conn.poll(1), 1u);  // the bound left one queued
+  CHECK_EQ(signals, 3);
+  CHECK_EQ(conn.poll(), 1u);
+  CHECK_EQ(signals, 3);
+
+  server.sendToClient(note.data(), note.size());
+  for (int i = 0; i < 50 && conn.stats().messagesReceived < 3; ++i) conn.pump(20);
+  CHECK_EQ(signals, 4);  // a new cycle signals again
+  conn.disconnect();
+}
+
 int main() {
   run();
+  runEventsReadyHook();
   runBundling();
   runBundlingNetThread();
   runSendPath();

@@ -1,0 +1,33 @@
+fragment AppComputeBudgetInfoFields on AppComputeBudgetInfo {
+  appId
+  unitsPerMinute
+  enforce
+  note
+  updatedAt
+}
+
+query AppComputeBudget($appId: BigInt!) {
+  appComputeBudget(appId: $appId) {
+    ...AppComputeBudgetInfoFields
+  }
+}
+
+mutation SetAppComputeBudget(
+  $appId: BigInt!
+  $unitsPerMinute: Int!
+  $enforce: Boolean
+  $note: String
+) {
+  setAppComputeBudget(
+    appId: $appId
+    unitsPerMinute: $unitsPerMinute
+    enforce: $enforce
+    note: $note
+  ) {
+    ...AppComputeBudgetInfoFields
+  }
+}
+
+mutation ClearAppComputeBudget($appId: BigInt!) {
+  clearAppComputeBudget(appId: $appId)
+}

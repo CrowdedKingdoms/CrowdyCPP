@@ -1,5 +1,397 @@
 # CrowdyCPP migration notes
 
+## 0.56.0 Chunk loads apply recorded voxel edits
+
+Still pinned to CrowdyJS 18.1.0 (`806b141`); needs ck-api `dev/v2.33.0` (cks-game-api #445) for
+the edits to arrive. Additive for callers; breaking only for an `IChunkSource` that should report
+states and does not. (OI-2026-10-02-006)
+
+- Every voxel write but a chunk write-back (`updateChunk`) lands only in the chunk's edit log: a
+  hub's or mod's `world.set_voxels`, `updateVoxel`, and realtime voxel updates. Since #445,
+  `getChunk` and `getChunksByDistance` return each recorded edit as a `voxelStates` entry
+  (`getChunksByDistance` only when `voxelStates` is selected) with its type, over a stored
+  `voxels` that holds none of them. `ChunkStore::ensureAround` read `voxels` alone, so a block a
+  hub placed was gone after a reload.
+- `GetChunksByDistance` selects `voxelStates` (as `GetChunk` does), so `chunks().byDistance` and
+  `ensureAround` get them in the same round trip. `ensureAround` puts each entry over the grid:
+  its `voxelType` at the voxel's index, its state into `voxelStates` (an entry without a state
+  clears the cached one), an entry outside 0-15 ignored. A chunk stored with `voxels: null`
+  starts from zeros, as before.
+- `IChunkSource::chunksAround` reports them in the new `StoredChunk::voxelStates`
+  (`StoredVoxelState{x, y, z, voxelType, state}`). A source that leaves them empty keeps the old
+  behaviour, cached states included, and loses every edit the grid lacks. A binding that
+  supplies its own source should select `voxelStates` and fill them: CrowdyPy's, at its next
+  re-vendor.
+- A chunk the server has never stored is returned by neither read, even when its edit log has
+  entries (a mod writing into an empty chunk).
+
+## 0.55.0 Parity with CrowdyJS 18.1.0 (open grids; where a connect token may go)
+
+Pinned to CrowdyJS 18.1.0 (`806b141`). `schema.gql` is cks-game-api `dev`'s after #436
+(`dev/v2.31.0`; `scripts/schema-sync.mjs --game <that schema.gql>`, then
+`node scripts/codegen.mjs`). Breaking only for a connection that dialed a gateway the new check
+refuses, and for code that reads the `connect` callback's `Errc` (below).
+
+- `gameApps().setOpenPermissions({appId, gridId, permissionKeys})` and
+  `openPermissions(appId, gridId)` (with `…Async` twins; also `admin().grids()`) wrap
+  `setGridOpenPermissions` / `gridOpenPermissions` (`manage_apps`). The first replaces the keys a
+  grid grants every player with active access to the app, within its limits, and players who
+  gain access later get them too; an empty `permissionKeys` closes it. Since #436 the most
+  specific grid covering a chunk decides who may build there, so a zone nested in the world grid
+  that everyone may build in must grant `update_voxel_data` itself. `BAD_REQUEST` refuses the
+  app's world grid, the four player-code keys, an inactive key and a 33rd open grid in one app.
+  (OI-2026-09-30-007)
+- `exec().connect`, `connectAsync`, `connectAsDeveloper` and `connectAsDeveloperAsync` send the
+  connect token only to a gateway that `execGatewayRefusal(gameApiUrl, gatewayUrl)` passes:
+  `ws:` or `wss:`, `wss:` whenever the Game API is `https:`, no credentials in the URL, on the
+  estate of the Game API (the client's `endpoint()` at each dial) or of `kDefaultHttpOrigin`,
+  as `graphql::isSameEstate` bounds a move, and two IP literals only when equal. A loopback Game
+  API may name a loopback gateway (ck-exec's local cluster). Any other gateway is never dialed:
+  calls waiting fail `Unavailable` ("refusing the gateway …"), the `connect` callback gets
+  `Errc::NotConnected`, and a reconnect asks the Game API again. `ExecConnection::open` still
+  dials what it is given. The cases are `tools/parity/fixtures/exec-gateway-cases.json`, a copy
+  of CrowdyJS's, and `tests/parity/exec-gateway-fixture.test.mjs` holds the copy to the pinned
+  commit's. (OI-2026-09-30-010)
+- A gateway that refuses the connect token is `Denied` again. Since ck-exec 0.10.0 a gateway
+  answers the upgrade `HTTP 401` with the reason as its body, before any WebSocket exists, which
+  this SDK reported as `Unavailable`. `graphql::WebSocketError` gained `httpStatus` and
+  `httpBody`: an injected transport sets both; the curl transport sets the status only, since
+  libcurl ends a refused upgrade at its headers. A `401` is `Denied` with the message `the
+  gateway refused the connection (HTTP 401: <reason>)` (no `: <reason>` without a body), and
+  the first connection's `connect` callback gets `Errc::Rejected` where it got
+  `Errc::NotConnected`. A `429` (a player past 16 sessions to one app through a gateway, or a
+  gateway past its total) is `Unavailable` with its reason. A gateway before 0.10.0 closed with
+  4401, which stays `Denied`; the calls queued on a first connection that never opened now fail
+  with the attempt's status (they were always `Unavailable`). (OI-2026-09-29-002)
+- `ExecConnection::lastFailure()`: why the last attempt to connect failed, or the open
+  connection was lost (`ExecReply`: status and reason); nullopt again once a connection opens.
+- Also in this release, merged on `dev` after 0.54.0 (#134): `ChunkStore::pruneBeyond` no longer
+  names a local `far`, which `<windows.h>` defines as nothing, so a Windows consumer that
+  includes `<windows.h>` before `chunk_store.hpp` compiles again; `windows_macros_test` compiles
+  the session and replication headers after `far` and `near` are defined.
+
+## 0.54.0 Seams for wrapping the native core (no wire or parity change)
+
+Additive. Pinned to CrowdyJS 18.0.4, as 0.53.0. These are the hooks a language binding needs
+to run the replication core and the session stores without a `CrowdyClient`: CrowdyPy (the
+Python SDK) binds this release.
+
+- `Config::onEventsReady`: called when notifications are waiting for `poll()`, at most once
+  between two `poll()` calls, from the thread that queued the first of them (the net thread, or
+  the `pump()` caller), and again from `poll()` when a `maxEvents` bound left events queued. An
+  event loop writes to a wake descriptor there and sleeps until there is something to dispatch,
+  instead of polling on a timer. It must not block, throw, or call back into the connection.
+- `IChunkSource`: where a `ChunkStore` hydrates from (`chunksAround`) and writes back to
+  (`writeChunk`, whose `GraphQLOutcome` is classified exactly as a `ChunksAPI` write is). New
+  constructor `ChunkStore(Connection&, IChunkSource*, appId, Options)`; the `ChunksAPI*`
+  constructor is unchanged and now builds an adapter over the same interface. A literal
+  `nullptr` still means "no durable store".
+- `IHostElection` and `WorldSessionServices{chunks, host}`: a `WorldSession` built over
+  injected services instead of a `CrowdyClient` (new constructor). The `CrowdyClient*`
+  constructor is unchanged and builds adapters over both interfaces; the host heartbeat
+  behaves as before (best-effort; a failed beat keeps the cached host).
+- `WorldSessionConfig::onText`: proximity text, which the session has no store for, is
+  forwarded to the game like `onAudio` / `onVideo`. It used to be dropped once a session owned
+  the connection's handlers.
+
+## 0.53.0 Parity with CrowdyJS 18.0.4 (chunk write-backs the server refuses)
+
+Breaking for callers of `ChunkStore::flush()`, whose return type changed. Pinned to CrowdyJS
+18.0.4. `schema.gql` is cks-game-api `dev`'s after #434 (`dev/v2.30.0`): it adds
+`App.wildernessWritesOpen` and `UpdateAppInput.wildernessWritesOpen`.
+
+- `ChunkStore` no longer retries a write-back forever. 0.52.0 caught every failure and left the
+  chunk dirty, and because `tick()` always tried the first dirty chunk, one chunk the server
+  refused (a claimed plot, a safe zone, a closed wilderness) or one that kept failing stopped
+  every other chunk from being written back. Now:
+  - a refusal the server will not change is sent once and dropped: `extensions.code`
+    FORBIDDEN, SCOPE_MISSING, NOT_ALLOWED, BAD_REQUEST, BAD_USER_INPUT, INVALID_REQUEST,
+    GRAPHQL_VALIDATION_FAILED or NOT_FOUND, `extensions.retryable: false`, or HTTP / an
+    `extensions.httpStatus` of 400, 403, 404, 413 or 422;
+  - any other failure (PLATFORM_BUSY, UNAUTHENTICATED, network, a timeout, a 5xx) is tried
+    again after 0.7, 1.4, 2.8 and 5.6 s (`Options::writeBackAttempts` 5,
+    `writeBackBackoffMs` 700) and then dropped;
+  - a chunk waiting out its backoff does not hold up the others: `tick()` persists the first
+    dirty chunk that is due.
+
+  A dropped chunk keeps its local voxels and is no longer dirty; the store does not undo the
+  edit. `onWriteBackFailed(cb)` reports each drop as a `ChunkWriteBackFailure{coord, reason
+  (ChunkWriteBackDrop::Refused | Exhausted), attempts, error}`, where `error` is the last
+  attempt's `graphql::GraphQLOutcome` (its `kind`, `httpStatus` and GraphQL errors). Undo or flag
+  the edit there.
+- `ChunkStore::flush()` returns a `ChunkFlushResult{persisted, dropped}` instead of a count:
+  `persisted` is the old count and `dropped` the write-backs it gave up on. It waits out the
+  backoff of a chunk whose failure can clear (`Options::sleep` replaces the wait, for tests).
+  Replace `flush() >= n` with `flush().persisted >= n`.
+- `pruneBeyond` gives a dirty chunk one attempt, as before, and now evicts it when that attempt
+  is refused (reporting it) instead of keeping it dirty forever; one whose failure can clear
+  still stays for the next tick.
+- `GraphQLClient::requestOutcome(document, variables, operationName)` is the blocking twin of
+  `requestAsync`: it returns the `GraphQLOutcome` instead of throwing, in both builds, so a
+  no-exceptions build can tell a refusal from a network failure too.
+  `ChunksAPI::updateOutcome(input)` is `update` through it.
+- `GraphQLErrorDetail::httpStatus` carries `extensions.httpStatus` when the server sends it.
+- `App`, `AppBySlug`, `AppsForOrg`, `MyApps`, `CreateApp` and `UpdateApp` select
+  `wildernessWritesOpen`: whether players may write the app's wilderness (chunks only the app's
+  world grid covers). An org-admin closes it with `admin().apps().update(appId,
+  {wildernessWritesOpen: false})` (manage_apps); every replica refuses those writes within
+  15 seconds.
+
+## 0.52.0 Parity with CrowdyJS 18.0.3 (the P3 W5 client security review)
+
+Not breaking. Pinned to CrowdyJS 18.0.3. `schema.gql` is cks-game-api `dev`'s after #431
+(`scripts/schema-sync.mjs --game <that schema.gql>`, then `node scripts/codegen.mjs`): it adds
+the two revoke mutations.
+
+- `exec().revokeClientModConsent(appId, modId)` takes back the player's consent to one CLIENT
+  half, whatever hash they consented to (`true` when they had); while they trust its author on
+  its grid it is still served to them. `exec().revokeAuthorTrust(appId, gridId, authorId)` stops
+  trusting an author on a grid and takes back the consent to each of their CLIENT halves there.
+  Both have `…Async` twins and need ck-api `dev/v2.28.0` (OI-2026-09-28-001). A native engine
+  that runs CLIENT halves offers the player both beside each running half, and stops the half
+  itself: CrowdyJS's `ExecClientHalves.revoke` / `forgetAuthor` are the browser's runner.
+- `ExecConnection` percent-encodes the connect token in the gateway URL
+  (`/v1/connect?token=…`), as CrowdyJS's `encodeURIComponent` does. Tokens today are base64url
+  JWS, which needed no escaping; a token with `+`, `/`, `=` or `&` would have been mangled.
+- `modClientArtifactBytes` already refused a capability summary whose `hostFunctions` are not
+  all strings; CrowdyJS refuses it now too.
+- CrowdyJS 18.0.2 holds a CLIENT half to rules of its own on the page: `grid_permission_check`
+  answers only for `write_server_code`, `run_server_code`, `write_client_code` and
+  `run_client_code` and refuses any other key; a half's `emit_spatial` / `emit_channel` go out
+  as `clientHalfActorUuid(gridId, name)` (the first 16 bytes of SHA-256 over
+  `crowdy/client-half-actor/v1`, NUL, the grid id, NUL and the uuid the half named, as 32 hex
+  characters), never the uuid the half named; `voxel_set` takes voxels 0-15 of type 0-255; a
+  call naming its chunk a second way (`chunk`, `chunk_x`, …) is refused; and the glue caps the
+  host-call requests (257 KiB), state blobs (1 MiB) and invoke replies (256 KiB) it copies out
+  of a module. This SDK runs no CLIENT half; a native engine that does answers its sandbox's host
+  calls itself, and should apply the same rules.
+
+## 0.51.0 The SDK is for normal clients
+
+Breaking. The SDK serves players, developers and org-admins and is designed for the production
+environment (operator decision, 2026-09-28). It carries org-admin features but nothing only a
+super-admin or a platform operator can call; platform tooling and test helpers call those fields
+directly. Pinned to CrowdyJS 18.0.1, which made the same cut. `schema.gql` is unchanged: every
+field below is still in the API, and the replacement for each removed wrapper is **call the API
+directly from your own tooling** (`graphqlClient().request(...)` with your own document, or any
+GraphQL client) with a super-admin or operator session.
+
+| 0.50 | Game API root field (guard) | 0.51 |
+|---|---|---|
+| `client.operator_()` (`domains/operator.hpp`, `OperatorAPI`): `creditOrgWallet` / `creditOrgWalletAsync` | `creditOrgWallet` (`@RequiresOperator`) | Your own tooling |
+| `users().paginated`, `listConnection` | `usersPaginated`, `usersConnection` (`@RequiresSuperAdmin`) | Your own tooling |
+| `users().setSuperAdmin`, `setOperator`, `setEarlyAccessOverride`, `updateType`, `forceLogout` | `setSuperAdmin`, `setOperator`, `setEarlyAccessOverride`, `updateUserType`, `forceLogoutUser` (`@RequiresSuperAdmin`) | Your own tooling. `users().me`, `get`, `updateState`, `updateGamertag`, `deleteMyAccount` stay |
+| `admin().organizations().setStatus` | `setOrgStatus` (`@RequiresSuperAdmin`) | Your own tooling |
+| `admin().apps().setVisibility` | `setAppVisibility` (`@RequiresSuperAdmin`, the platform-wide override) | An org-admin changes their own app's visibility with `admin().apps().update(appId, {visibility})` (`manage_apps`) |
+| `admin().payments().checkouts`, `checkoutsConnection`, `paymentEvents`, `paymentEventsConnection` | `checkouts`, `checkoutsConnection`, `paymentEvents`, `paymentEventsConnection` (`@RequiresSuperAdmin`) | Your own checkouts: `myCheckouts` / `myCheckoutsConnection` (stay). Platform-wide: your own tooling |
+| `crowdyStudioAgent().platformPolicy`, `setPlatformPolicy`, `setOperatorAppKill` | `cpCrowdyStudioAgentPlatformPolicy`, `cpSetCrowdyStudioAgentPlatformPolicy`, `cpSetCrowdyStudioAgentAppKill` (`@RequiresOperator`) | Your own tooling. `policy`, `effectivePolicy`, `usage`, `setPolicy`, provider consent and model usage stay |
+| `gen::crowdyStudioAgent::kCpCrowdyStudioAgentCatalogDocument` (no wrapper) | `cpCrowdyStudioAgentCatalog` (`@RequiresOperator`) | Your own tooling |
+
+Every `…Async` twin went with its method. The generated documents for these fields
+(`gen::users::kUsersPaginatedDocument`, `gen::controlPlane`, and so on) are gone too.
+
+`admin().quotas().set` / `setAsync` now refuse a rule that names neither an `appId` nor an
+`orgId` before any request. That is a platform-global quota, which only a super-admin can set.
+Blocking, the refusal is a `graphql::CrowdyError` with code `INVALID_ARGUMENT` (an empty result
+in a `CROWDY_NO_EXCEPTIONS` build). Async, it is an outcome with status `Errc::InvalidArgument`,
+kind `Protocol` and the reason in `errorMessage`. Scope the rule to an app or an org
+(`tierId` may narrow either). `remove(quotaId)` is unchanged.
+
+`tests/parity/sdk-audience.test.mjs` keeps it this way: CI fails when an SDK document selects a
+root field that only a super-admin or an operator can call.
+
+## 0.50.0 The legacy engines are gone
+
+Breaking. Pinned to CrowdyJS 18.0.0 and to the Game API after its legacy deletion (ck-api
+`v2.27.0`, on dev): `schema.gql` no longer has the legacy engines' fields, so neither does this
+SDK.
+
+ck-exec (`client.exec()`) replaced the game model and its automations, Studio compute, player
+compute (both targets) and the player model. Their surface is removed:
+
+| 0.49 | 0.50 |
+|---|---|
+| `client.gameModel()` (`domains/game_model.hpp`): containers, functions, sessions, automations, timers, the container and player-count feeds | ck-exec hubs: state lives in a hub, calls are `ExecConnection::call`, pushes are `subscribe` |
+| `client.compute()` (`domains/compute.hpp`): compute modules, templates, runs | `exec().build` / `deploy` / `logs` / `versions` |
+| `client.playerModel()` (`domains/player_model.hpp`) | A mod's own state (`exec().mod*`) |
+| `client.playerCompute()` (`domains/player_compute.hpp`), SERVER target: `invoke`, `runs`, `logs`, `setEnabled`, `setRequires` | A mod: `modBuild`, `modDeploy`, `modSetEnabled`, `modLogs`, and a call on `connect(appId, {execModType(name), gridId})` |
+| `client.playerCompute()`, CLIENT target: `deploy`, `versions`, `artifact` / `artifactBytes`, `usage`, `setSwitch`, `switches`, `myModules`, `remove` | A mod's CLIENT half: `exec().modClientBuild`, `modClientDeploy`, `modClientDelete`, `modClientArtifactBytes` (checked against its digest), the kill ladder `modSetSwitch` |
+| `domains::ClientArtifactBytes`, `decodeClientArtifactBytes` | `domains::ExecModClientArtifactBytes` |
+| `marketplace()` player-code listings, versions, acquisitions, installs, grid client mods, trust and consent, `clientArtifact` / `clientArtifactBytes` | The mod marketplace (`exec().modPublish`, `modListings`, `modUnpublish`, `modInstall`) and CLIENT halves (`gridClientMods`, `consentClientMod`, `trustAuthor`). The grid claims and the studio moderation methods stay |
+| `playerWallet().policies`, `setPolicy`, `deletePolicy` (player WASM policies) | None: a mod's compute is billed to its owner's wallet; `setSpendCap` bounds it |
+| `operator_().computePlatformCeilings` / `setComputePlatformCeilings` | None: ck-exec's limits are the manifest's, within platform bounds. `creditOrgWallet` stays |
+| `crowdyStudio().createProjectFromModules` | Create a project and start its SERVER target from `exec().modStarter` |
+| Tier features on the game model | `admin().appAccess()`: `defineFeature`, `features`, `grantTierFeature`, `revokeTierFeature`, `tierFeatures` (and `…Async`), the same Game API fields |
+| Game Kit: the blueprints, `deploy()`, the engines and the model-backed kits (`kit/core.hpp`, `inventory`, `objects`, `npcs`, `plots`, `economy`, `progression`, `loot`, `quests`, `combat`, `matches`, `decks`, `worldsim`, `leaderboards`, `features`, `notifications`, `mobs`, `pets`, and the realtime and session engine headers) | Hubs. `makeKit(client, appId, connection, options)` keeps `social()` (parties, guilds, chat; the guild blueprint went); `kit/wire.hpp` and `kit/actions.hpp` are unchanged |
+| `session::ContainerMirror` (`session/model_mirror.hpp`) | A hub subscription |
+| `studio/model_lint.hpp`, `CrowdyStudioDiagnosticSource::ModelLint` | None |
+| `GraphQLErrorDetail::quarantinedKind`, `quarantinedName`, `quarantineReason` | None: only game-model objects were quarantined |
+| `CrowdyStudioPlayerComputeRuntime` | `CrowdyStudioModRuntime(exec, clientRuntime, pump)` |
+| `CrowdyStudioUsageSnapshot`, `ICrowdyStudioRuntime::usage`, `CrowdyStudioState::usage` | None: there is no compile quota; the Usage surface reads the wallet |
+
+Crowdy Studio:
+
+- The SERVER target is the grid's ck-exec mod. A deploy builds the target's crate files
+  (`Cargo.toml`, `README.md`, `src/**/*.rs`) with `modBuild`, as crate `mod-<name>` when the module
+  name does not start with a letter; `versions()` polls `modBuildStatus` and deploys the first
+  successful build with `modDeploy`; enabling is `modSetEnabled`. The module name must be a valid
+  mod name (`[a-z0-9_-]{1,48}`).
+- The CLIENT target is that mod's CLIENT half, one `crowdy-client-sdk` crate (`crowdy-client-sdk =
+  "0.1.0"`): a deploy builds it with `modClientBuild`, and running it attaches the build to the
+  project's mod (`modClientDeploy`), consents to it as its author (`consentClientMod`), fetches it
+  with `modClientArtifactBytes` and hands `ICrowdyStudioClientRuntime::start` a
+  `CrowdyStudioClientArtifact{versionId, modName, module}`. A CLIENT-only project's CLIENT half
+  rides the mod named for its CLIENT module: the runtime deploys the mod starter under that name
+  when the grid has none of the player's, and switches it on; Stop switches it off. A CLIENT crate
+  that still depends on `crowdy-compute-sdk` fails to compile with CrowdyJS 18's explanation
+  (`kCrowdyStudioLegacyClientCrate`). Previews need ck-api `v2.25.1`.
+- `CrowdyStudioDeployTargetInput` carries `modName` and `clientOnly`; the controller fills them.
+- Invoke calls one of the mod's endpoints (`state` by default) over an exec connection and
+  returns `CrowdyStudioInvokeResult{resultJson, durationUs}`. The runtime waits up to 30 s for
+  the reply and calls the `pump` while it waits; the integration passes one that drains the
+  client's dispatcher, and a caller that drives `poll()` on another thread can pass none.
+- Logs are the project's mod's `ctx.log` lines (`CrowdyStudioLogLine`), a CLIENT-only project's
+  too; the Runs surface (`CrowdyStudioPolledSurface::Runs`, `CrowdyStudioRun`), `setRequires` and
+  a mod's client pairing are gone.
+- `ICrowdyStudioRuntime` drops `setRequires`, `runs` and `usage`; `CrowdyStudioDeployTargetInput`
+  carries the target's `files`.
+
+Generated operations: `gen::compute`, `gen::gameModel`, `gen::playerModel`, `gen::playerCompute`,
+`gen::runAdmission` and `gen::userCodeFaults` are gone, with the enums only they used
+(`PlayerComputeTarget`, `PlayerFaultCode`, `UserCodeFault*`, `GmLint*`, ...). `gen::computeUnits`
+keeps the compute budget documents (`AppComputeBudget`, `SetAppComputeBudget`,
+`ClearAppComputeBudget`); the usage and budget-status reads went with the Game API's fields.
+
+The live suite `e2e_operator` is gone: the operator surface left to test is a wallet credit.
+
+## 0.49.0 ck-exec CLIENT halves (dev-tier preview)
+
+Pinned to CrowdyJS 17.14.0 (ck-api `v2.24.0`). Additive, except that builds and listings now need
+ck-api `v2.24.0`: the build fragment selects `kind` and each module's capability fields and the
+listing fragment the `client*` fields, so an older API refuses `build`, `buildStatus`, `modBuild`,
+`modBuildStatus`, the two waits, `modPublish` and `modListings`.
+
+- `client.exec()`: a mod's CLIENT half, browser WASM built from a `crowdy-client-sdk` crate that the
+  mod's grid serves to visitors who consent, each call with an `…Async` twin:
+  `modClientBuild(appId, ExecCrate)` (the build is `kind` `client`; wait with `waitForModBuild`),
+  `modClientDeploy(appId, gridId, name, buildId)`, `modClientDelete(appId, gridId, name)`,
+  `gridClientMods(appId, gridId)`, `consentClientMod(appId, modId, capabilityHash)`,
+  `trustAuthor(appId, gridId, authorId, capabilityHash)` and `modClientArtifact(appId, modId)`.
+- `modClientArtifactBytes(appId, modId)` / `modClientArtifactBytesAsync` decode the served module
+  for a native sandbox as `ExecModClientArtifactBytes` (the bytes, their lowercase `digest`,
+  `fuelPerDispatch` as decimal text, `tickIntervalMs`, the parsed `capabilitySummary`, ...). Bytes
+  whose SHA-256 is not the digest, a CLIENT ABI other than `kExecClientAbiVersion` (0) and a
+  capability summary without a list of `hostFunctions` are refused: blocking, as a
+  `graphql::CrowdyProtocolError` (an empty result built without exceptions); async, as an outcome
+  of kind `Protocol`. The SDK runs no WASM; let the module call only
+  `capabilitySummary.hostFunctions`.
+- `parseExecClientCapabilitySummary(json)` parses a `capabilitySummaryJson`,
+  `authorCapabilitySummaryJson` or a listing's `clientCapabilitySummaryJson`.
+- Builds carry `kind` (`exec` or `client`) and each module's `capabilitySummaryJson`,
+  `capabilityHash` and `tickIntervalMs` (null for a ck-exec module). Listings carry the CLIENT half
+  the mod had when published (`clientDigest`, `clientCapabilitySummaryJson`, `clientCapabilityHash`,
+  `clientTickIntervalMs`), which `modInstall` attaches to the installer's mod.
+- The legacy grid-attached client mods (`marketplace().gridClientMods`, `consentGridClientMod`,
+  `trustGridAuthor`, `clientArtifact`, `clientArtifactBytes`) are superseded by these (removed in
+  0.50.0).
+- `LocalActorStore`: a send that fails, the loop's or a manual `refresh()` / `moveTo()`, is sent
+  again on the next tick even when nothing changed; it used to wait for the next keyframe.
+- `SaveStateStore::save` built with `CROWDY_NO_EXCEPTIONS`: a save the API refuses keeps the blob
+  cached and `dirty()`, so the next `save()` retries it; it used to be marked saved.
+
+## 0.48.0 ck-exec observability (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.13.0 (ck-api `v2.22.0`).
+
+- `client.exec()`: `endpointStats(appId, nodeType, sinceMinutes)` / `endpointStatsAsync`
+  (`execEndpointStats`): per endpoint `{ nodeType, method, calls, appErrors, busy, denied,
+  deadlineExceeded, otherErrors, timedCalls, latencyMsAvg, latencyMsMax, firstMinute,
+  lastMinute }` over the last `sinceMinutes` (default 60, at most 10080).
+- `ExecLogsQuery::flow` keeps one flow's lines (`logs` only; mod logs take none), and every
+  log line, also from `modLogs`, has `flow`: 32 lowercase hex digits, null outside a call.
+- `versions` lines carry `manifestJson`, the deployed manifest (a spawn seed shown as
+  `seed_bytes`), null when the version's row is gone.
+- `ExecReply::rateLimited()` and `retryAfterMs()`. A call over a player's limit (120 per 10 s
+  per app and host) is answered `Busy` with a message starting "rate limited" and ending
+  "retry in N ms"; wait that long before calling again. The SDK retries only a lost connection
+  and `Moved`, never `Busy`.
+
+## 0.47.0 ck-exec mods (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.12.0.
+
+- `client.exec()`: mods, players' code on grids they own, each call with an `…Async` twin:
+  `modStarter`, `modBuild(appId, ExecCrate)`, `modBuildStatus`, `modDeploy(appId, gridId, name,
+  buildId)`, `modSetEnabled`, `modDelete`, `mods(appId, gridId)`, `myMods`, `modLogs`,
+  `modPublish`, `modListings`, `modUnpublish`, `modInstall`, `appMods`, `modSwitches` and
+  `modSetSwitch(appId, gen::ExecModScope, off, target, reason)`. `waitForModBuild` polls
+  `modBuildStatus` blocking and has no twin, like `waitForBuild`.
+- `execModType(name)`: the node type players call a mod by (`mod:<name>`), keyed by its grid id.
+
+## 0.46.0 ck-exec builds (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.11.0.
+
+- `client.exec()`: `starters(appId)` (`execStarters`: the four starter crates and a manifest),
+  `build(appId, std::vector<ExecCrate>)` (`execBuild`, returns the build queued) and
+  `buildStatus(appId, buildId)` (`execBuildStatus`), each with an `…Async` twin, and
+  `waitForBuild(appId, buildId, intervalMs, timeoutMs)`, which polls `buildStatus` blocking and
+  has no twin (poll `buildStatusAsync` from an event loop).
+- `deploy(appId, root, types, buildId)`: with a build's id, an `ExecNodeType` may leave `wasm`
+  empty and set `crate`. The `deployAsync` overload without a build id is unchanged.
+
+## 0.45.0 ck-exec operations (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.10.0.
+
+- `client.exec()`: `connectAsDeveloper(appId, ExecConnectOptions)` / `connectAsDeveloperAsync`
+  and `developerEndpoint` / `developerEndpointAsync` (`execConnectAsDeveloper`: your own session
+  with the org's `manage_compute`; the session calls any node type as `Caller::Developer`).
+- `logs(appId, ExecLogsQuery)`, `instances`, `versions`, `status` (`view_compute_diagnostics`),
+  and `activateVersion(appId, version)` and `setEnabled(appId, enabled, nodeType)`
+  (`manage_compute`), each with an `…Async` twin. They return the GraphQL JSON.
+
+## 0.44.0 ck-exec (dev-tier preview)
+
+Additive. Pinned to CrowdyJS 17.9.0.
+
+- `client.exec()`: `connect(appId, ExecConnectOptions)` / `connectAsync`, `endpoint` /
+  `endpointAsync` (`execConnect`), `deploy` / `deployAsync` (`execDeploy`, digests computed).
+- `ExecConnection`: `call` (JVal args as MessagePack), `callRaw`, `subscribe` / `unsubscribe`,
+  `ping`, `onReconnect`, `host`, `connected`, `close`; `ExecConnection::open(transport,
+  dispatcher, endpoint)` for a known gateway and token. Replies are `ExecReply` (`status`,
+  `value()`, `message()`), pushes `ExecPush`.
+- `crowdy::domains::exec_wire` encodes and decodes the client protocol (golden frames in
+  `tools/parity/fixtures/exec-client-frames.json`, a copy of ck-exec's).
+- `graphql::Json::toMsgpack()` and `Json::fromMsgpack()`.
+- The curl WebSocket transport sends no `Sec-WebSocket-Protocol` header when no subprotocol is
+  requested (the ck-exec gateway speaks none).
+
+## 0.43.1 Circuit open cause
+
+Additive. Pinned to CrowdyJS 17.8.0.
+
+- `GraphQLErrorDetail::cause` is filled from `extensions.cause`. `watchdog_timeout` means the circuit opened on watchdog kills.
+- `PlayerFaultCode::CIRCUIT_OPEN` is distinct from `TEMPORARILY_DISABLED`.
+
+## 0.43.0 Grids (DN-10)
+
+Additive. Pinned to CrowdyJS 17.7.0.
+
+- `client.grids()`: `mintToken(appId, gridId, ttlSeconds)` (a grid-scoped
+  token: an app token narrowed to one grid, deny-by-default on the server and
+  refused by the binary relay), `createChannel(appId, gridId, name)` (a grid
+  channel; grid owner only) and `channels(appId, gridId)`, each with an
+  `...Async` twin.
+- `gameModel().sessions(..., gridId)`: only sessions hosted inside a grid.
+  Session JSON carries `gridId`.
+- `PlayerWasmPolicy` / `SetPlayerWasmPolicyInput` gain `channelEgress`,
+  `spatialMaxDistance`, `gridEventEgress` (schema only; set them through the
+  raw GraphQL client).
+- The browser-only CrowdyJS additions (`GridScope`, `grid-program`,
+  `startGridMod`, the crowdy-dsh bridge v4 grid requests) are classified
+  browser exclusions in `docs/parity-matrix.md`.
+
 ## 0.42.1 CLIENT_CAPABILITIES is sent
 
 Bugfix. No signature changes. Same CrowdyJS 17.6.0 pin as 0.42.0.

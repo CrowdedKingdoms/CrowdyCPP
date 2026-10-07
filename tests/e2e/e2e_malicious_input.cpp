@@ -77,10 +77,9 @@ int run() {
   {
     graphql::JVal vars;
     vars["appId"] = cfg.appId;
-    vars["visibility"] = "TOTALLY_NOT_A_VISIBILITY";
+    vars["input"]["visibility"] = "TOTALLY_NOT_A_VISIBILITY";
     const std::string code = expectCodedError([&] {
-      p.identity->graphqlClient().request(gen::apps::kSetAppVisibilityDocument, vars,
-                                             "SetAppVisibility");
+      p.identity->graphqlClient().request(gen::apps::kUpdateAppDocument, vars, "UpdateApp");
     });
     E2E_CHECK(!code.empty());
     std::printf("   invalid enum -> %s\n", code.c_str());

@@ -56,6 +56,7 @@ int runAll() {
   appInput["name"] = "CrowdyCPP E2E Billing " + e2e::runSuffix();
   appInput["slug"] = "cpp-e2e-billing-" + e2e::runSuffix();
   appInput["description"] = "CrowdyCPP billing/quotas e2e app";
+  appInput["datacenter"] = e2e::placeableDatacenter(own);
   graphql::Json suiteApp = own.admin().apps().create(appInput);
   const std::string suiteAppId = bigIntStr(suiteApp["appId"]);
   E2E_CHECK(!suiteAppId.empty() && suiteAppId != "0");

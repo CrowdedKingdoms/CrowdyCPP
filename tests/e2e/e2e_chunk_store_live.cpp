@@ -1,9 +1,11 @@
 // Data-structure e2e: the ChunkStore against a live deployment — durable
 // hydration (ensureAround), optimistic edits with write-back persistence,
-// worldgen seeding (seed + flush), and streaming-world eviction
-// (pruneBeyond) that persists dirty chunks before dropping them.
+// worldgen seeding (seed + flush), streaming-world eviction (pruneBeyond)
+// that persists dirty chunks before dropping them, and a write-back refused
+// in a closed wilderness being dropped after one attempt.
 #include <array>
 #include <cstring>
+#include <vector>
 
 #include "e2e_util.hpp"
 
@@ -80,7 +82,11 @@ int main() try {
   const wire::ChunkCoord genCoord{510005, 0, 510000};
   const auto generated = patternVoxels(2);
   session.chunks().seed(genCoord, generated);
-  E2E_CHECK(session.chunks().flush() >= 1);
+  {
+    const ChunkFlushResult flushed = session.chunks().flush();
+    E2E_CHECK(flushed.persisted >= 1);
+    E2E_CHECK(flushed.dropped.empty());
+  }
   {
     WorldSessionConfig sc2;
     sc2.appId = cfg.appId;
@@ -108,6 +114,70 @@ int main() try {
     WorldSession fresh(p.conn, p.game.get(), sc2);
     E2E_CHECK(fresh.chunks().ensureAround(farCoord, 0) >= 1);
     E2E_CHECK(fresh.chunks().find(farCoord) != nullptr);
+  }
+
+  E2E_SUBTEST("closed wilderness: the refused write-back is dropped after one attempt");
+  {
+    // The org admin closes the app's wilderness (UpdateApp selects
+    // wildernessWritesOpen); within ~15 s every replica refuses the player's chunk
+    // writes there with FORBIDDEN. E2E_CHECK exits without unwinding, so the
+    // observations are recorded first and the wilderness is reopened before any
+    // of them is checked.
+    auto& own = e2e::owner(cfg);
+    graphql::JVal closeInput;
+    closeInput["wildernessWritesOpen"] = false;
+    const graphql::Json closed = own.admin().apps().update(cfg.appId, closeInput);
+    const bool readBackClosed =
+        closed["wildernessWritesOpen"].isBool() && !closed["wildernessWritesOpen"].asBool();
+
+    std::vector<ChunkWriteBackFailure> reported;
+    session.chunks().onWriteBackFailed(
+        [&](const ChunkWriteBackFailure& failure) { reported.push_back(failure); });
+    const wire::ChunkCoord refusedCoord{510090, 0, 510000};
+    ChunkFlushResult refused;
+    const auto closeStart = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - closeStart < std::chrono::seconds(45)) {
+      session.chunks().seed(refusedCoord, patternVoxels(4));
+      refused = session.chunks().flush();
+      if (!refused.dropped.empty()) break;
+      std::this_thread::sleep_for(std::chrono::seconds(2));  // not yet on this replica
+    }
+    const ChunkData* refusedChunk = session.chunks().find(refusedCoord);
+    const bool refusedNotDirty = refusedChunk != nullptr && !refusedChunk->dirty;
+    const std::size_t pendingAfter = session.chunks().pendingWriteBacks();
+
+    graphql::JVal openInput;
+    openInput["wildernessWritesOpen"] = true;
+    bool reopened = false;
+    try {
+      reopened = own.admin().apps().update(cfg.appId, openInput)["wildernessWritesOpen"].asBool();
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "reopening the wilderness failed: %s\n", e.what());
+    }
+    E2E_CHECK(reopened);
+    E2E_CHECK(readBackClosed);
+    E2E_CHECK(refused.dropped.size() == 1);
+    const ChunkWriteBackFailure& failure = refused.dropped.front();
+    E2E_CHECK(failure.reason == ChunkWriteBackDrop::Refused);
+    E2E_CHECK(failure.attempts == 1);
+    E2E_CHECK(!failure.error.errors.empty() && failure.error.errors.front().code == "FORBIDDEN");
+    E2E_CHECK(reported.size() == 1 && reported.front().coord == refusedCoord);
+    E2E_CHECK(refusedNotDirty);
+    E2E_CHECK(pendingAfter == 0);
+    std::printf("   refused after %d attempt(s): %s\n", failure.attempts,
+                failure.error.errors.front().message.c_str());
+
+    // Reopened, the same chunk writes back again (once every replica has it).
+    bool persistedAgain = false;
+    const auto openStart = std::chrono::steady_clock::now();
+    while (!persistedAgain &&
+           std::chrono::steady_clock::now() - openStart < std::chrono::seconds(45)) {
+      session.chunks().seed(refusedCoord, patternVoxels(5));
+      persistedAgain = session.chunks().flush().persisted == 1;
+      if (!persistedAgain) std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+    E2E_CHECK(persistedAgain);
+    session.chunks().onWriteBackFailed({});
   }
 
   E2E_SUBTEST("onChunkChanged fires for realtime merges");

@@ -31,6 +31,14 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.57.0: the terms and age gate.** Since ck-api v2.35.0 a gameplay token (`portal().mintAppToken`,
+the portal code, `portal().refresh`) is refused with `LEGAL_ACCEPTANCE_REQUIRED` until the player has
+agreed to the current required legal documents and attested the age of majority. A native game
+shows its own two checkboxes, then calls `auth().recordPlayerConsents(true, true)` with the
+session token; `auth().playerLegalAcceptance()` says whether that is still needed, and
+`auth().registerUser` has an overload carrying both. Pinned to CrowdyJS 18.4.0. See
+[MIGRATION.md](MIGRATION.md).
+
 **v0.56.0: chunk loads apply recorded voxel edits.** A hub's or mod's `world.set_voxels`,
 `updateVoxel` and realtime voxel updates land in a chunk's edit log, never in its stored
 `voxels`; since ck-api `dev/v2.33.0` the chunk reads return each of them as a `voxelStates`

@@ -257,6 +257,9 @@ inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg
   auto auth = client->auth().registerUser(email, derivePassword(email));
   E2E_CHECK(!auth.token.empty());
   if (userId) *userId = auth.userId;
+  // ck-api v2.35.0+ issues no gameplay token until the terms and the age attestation are
+  // stored. These are the harness's own throwaway accounts, so it records them here.
+  E2E_CHECK(client->auth().recordPlayerConsents(true, true));
   return client;
 }
 
@@ -279,6 +282,8 @@ inline crowdy::CrowdyClient& owner(const E2eConfig& cfg) {
       auto auth = cached->auth().login(cfg.ownerEmail, ownerPassword);
       E2E_CHECK(!auth.token.empty());
       cached->setToken(auth.token);
+      // The owner credential mints too (ownerGame); idempotent once stored.
+      E2E_CHECK(cached->auth().recordPlayerConsents(true, true));
     } else {
       cached = identityClient(cfg, cfg.ownerEmail);
     }

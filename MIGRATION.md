@@ -1,5 +1,27 @@
 # CrowdyCPP migration notes
 
+## 0.57.0 The terms and age gate
+
+Pinned to CrowdyJS 18.4.0 (`4e7e595`); needs ck-api `v2.35.0` (cks-game-api #437) for the two new
+calls. Additive: nothing existing changes shape, and CrowdyPy needs nothing beyond re-vendoring.
+
+- Since `v2.35.0` no gameplay token is issued — `portal().mintAppToken`, the portal authorization
+  code, `portal().refresh` — until the player has agreed to the current required legal documents (Game
+  Terms, API Terms, SDK Developer Terms, Free Tier and Billing Basis, Overworld Privacy Policy) and
+  attested that they are at least 18, or the age of majority where they live if that is higher.
+  The refusal's GraphQL error code is `LEGAL_ACCEPTANCE_REQUIRED`.
+- A native game shows its own two checkboxes, linking each document, then calls
+  `auth().recordPlayerConsents(true, true)` (or `recordPlayerConsentsAsync`) with the session
+  token. `auth().playerLegalAcceptance()` says whether that is still needed. Call it only for a
+  player who ticked both boxes: it records their agreement.
+- A refresh refused this way cannot succeed on retry: the player never stored the terms, or a
+  document has a new version. Ask again, record them, and mint again.
+- `auth().registerUser(email, password, gamertag, acceptLegal, attestAgeOfMajority)` sends both
+  fields. A request with a browser origin must send both `true`; a native one may use the
+  three-argument overload and record them later.
+
+`schema.gql` is docs.dev's SDL after cks-docs `dev/v0.2.90` (the gate's fields only).
+
 ## 0.56.0 Chunk loads apply recorded voxel edits
 
 Still pinned to CrowdyJS 18.1.0 (`806b141`); needs ck-api `dev/v2.33.0` (cks-game-api #445) for

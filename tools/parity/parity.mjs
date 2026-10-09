@@ -265,6 +265,44 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
+  // The dev/test staff-only gate (cks-game-api #482, 2026-10-09). The operator list, grants,
+  // provisioning tokens and inventory are operator roots and the mode is super-admin, so they
+  // join the platform-role list above; tests/parity/sdk-audience.test.mjs keeps them unwrapped.
+  ...classifyNames(
+    'Mutation',
+    [
+      'addTierAccessRule',
+      'createTierAccessProvisioningToken',
+      'endTierAccessSessions',
+      'grantTierAccessByPattern',
+      'revokeTierAccessProvisioningToken',
+      'revokeTierAccessRule',
+      'setTierAccessMode',
+      'setUserTierAccess',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    [
+      'tierAccessInventory',
+      'tierAccessProvisioningTokens',
+      'tierAccessRules',
+      'tierAccessSettings',
+      'userTierAccess',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // The public half: Studio's staff-only notice and gate read these on dev and test. A native
+  // client sees TIER_ACCESS_REQUIRED and its message instead, and prod never restricts.
+  ...classifyNames(
+    'Query',
+    ['myTierAccess', 'tierAccessPolicy'],
+    CATEGORY.BROWSER,
+    "Studio's dev/test staff-only notice and gate; a native client reads TIER_ACCESS_REQUIRED's message instead",
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting

@@ -2,8 +2,10 @@
 
 ## 0.59.0 The input log
 
-Pinned to CrowdyJS 18.6.0 (`a3301eb`); needs ck-api with the input log. Additive: nothing existing
-changes shape, and CrowdyPy needs nothing beyond re-vendoring.
+Pinned to CrowdyJS 18.6.0 (`ca9fbb5`); needs ck-api with the input log. Additive: nothing existing
+changes shape, and CrowdyPy needs nothing beyond re-vendoring. The schema snapshot also carries
+ck-api's dev/test staff-only gate; as in CrowdyJS, nothing wraps it (its operator fields are
+platform-only).
 
 - `client.inputLog().sessions(appId, first = 50, after = {}, filter = {})` lists an app's recorded
   sessions, newest first, as an `InputLogSessionConnection` (`edges[].node`, `pageInfo`,

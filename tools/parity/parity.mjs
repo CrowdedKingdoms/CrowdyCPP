@@ -265,6 +265,46 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
+  // ck-api v2.39.0: the dev/test staff-only gate (cks-game-api #482). Its operator
+  // surface (rules, grants, provisioning tokens, inventory; the mode is super-admin) is
+  // on tests/parity/sdk-audience.test.mjs's platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Mutation',
+    [
+      'addTierAccessRule',
+      'createTierAccessProvisioningToken',
+      'endTierAccessSessions',
+      'grantTierAccessByPattern',
+      'revokeTierAccessProvisioningToken',
+      'revokeTierAccessRule',
+      'setTierAccessMode',
+      'setUserTierAccess',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    [
+      'tierAccessInventory',
+      'tierAccessProvisioningTokens',
+      'tierAccessRules',
+      'tierAccessSettings',
+      'userTierAccess',
+    ],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // Its two ordinary fields are read by the sign-in pages (Studio, the hosted
+  // /authorize) and CrowdyJS 18.6.0 wraps neither, so there is nothing to port.
+  // Classified during the 0.59.0 re-pin (2026-10-09), because the tier-access train
+  // left CrowdyCPP's schema behind; the tier-access owner may overrule.
+  ...classifyNames(
+    'Query',
+    ['myTierAccess', 'tierAccessPolicy'],
+    CATEGORY.BROWSER,
+    'the dev/test staff-only gate as sign-in pages show it; CrowdyJS wraps neither',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting

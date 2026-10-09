@@ -254,6 +254,91 @@ void testChannelRoundTrip() {
              .ok());
 }
 
+std::string toHex(const std::uint8_t* data, std::size_t n) {
+  static const char* digits = "0123456789abcdef";
+  std::string out;
+  for (std::size_t i = 0; i < n; ++i) {
+    out.push_back(digits[data[i] >> 4]);
+    out.push_back(digits[data[i] & 0xf]);
+  }
+  return out;
+}
+
+core::ActorUuid uuidOf(const char* s) {
+  core::ActorUuid u;
+  std::memcpy(u.data(), s, 32);
+  return u;
+}
+
+void testRangedChannelGolden() {
+  CHECK_EQ(channel_ranged::kHeaderSize, 79u);
+  CHECK_EQ(channel_ranged::kMinRequestSize, 121u);
+  CHECK_EQ(static_cast<int>(MessageType::ChannelMessageRangedRequest), 32);
+
+  // The cross-implementation vector (Buddy's integration builder, cks-game-api's spec and
+  // CrowdyJS's binary-wire test pin the same bytes).
+  {
+    RangedChannelMessageParams p;
+    p.channelId = 100;
+    p.uuid = uuidOf("uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu");
+    p.appId = 2;
+    p.origin = {-3, 4, 5};
+    p.maxDistance = 12;
+    const std::uint8_t payload[] = {'h', 'i'};
+    p.payload = Bytes(payload, sizeof(payload));
+    p.gameTokenId = 555;
+    p.sequence = 9;
+    std::uint8_t buf[256];
+    auto n = encodeRangedChannelMessage(crypto(), p, *Token64::fromString(std::string(64, 'A')),
+                                        MutableBytes(buf, sizeof(buf)));
+    CHECK(n.ok());
+    CHECK_EQ(n.value(), rangedChannelRequestSize(2));
+    CHECK_EQ(toHex(buf, n.value()),
+             std::string("20640000000000000075757575757575757575757575757575757575757575757575757575757575"
+                         "750200000000000000fdffffffffffffff040000000000000005000000000000000c000000020068"
+                         "69017f1c386fd1ec421f0a72745fae881f8adbcb17bcd8a0bb3e446565651d18533d2b0200000000"
+                         "000009"));
+  }
+
+  // CrowdyJS's binary-wire fixture row, which cks-game-api's generator produced.
+  {
+    RangedChannelMessageParams p;
+    p.channelId = 987654321;
+    p.uuid = uuidOf("actor-0123456789abcdef0123456789");
+    p.appId = 42;
+    p.origin = {3, -2, 7};
+    p.maxDistance = 12;
+    const std::string payload = "ranged-payload";
+    p.payload = Bytes(reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size());
+    p.gameTokenId = 123456789;
+    p.sequence = 34;
+    std::uint8_t buf[256];
+    auto n = encodeRangedChannelMessage(
+        crypto(), p,
+        *Token64::fromString("AbCdEfGhIjKlMnOpQrStUvWxYz012345aBcDeFgHiJkLmNoPqRsTuVwXyZ543210"),
+        MutableBytes(buf, sizeof(buf)));
+    CHECK(n.ok());
+    CHECK_EQ(toHex(buf, n.value()),
+             std::string("20b168de3a000000006163746f722d30313233343536373839616263646566303132333435363738"
+                         "392a000000000000000300000000000000feffffffffffffff07000000000000000c0000000e0072"
+                         "616e6765642d7061796c6f616401d267f8843637856bc224a652a7eab03c8fbf5c9622ce941cc405"
+                         "1493e408623915cd5b070000000022"));
+  }
+
+  // Refused before anything is sent: a distance over the ceiling, a payload over the cap.
+  RangedChannelMessageParams p;
+  p.uuid = testUuid();
+  p.maxDistance = channel_ranged::kMaxDistance;
+  std::uint8_t buf[2048];
+  CHECK(encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+  p.maxDistance = channel_ranged::kMaxDistance + 1u;
+  CHECK(!encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+  p.maxDistance = 5;
+  std::vector<std::uint8_t> big(channel::kMaxPayload + 1, 0);
+  p.payload = Bytes(big.data(), big.size());
+  CHECK(!encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+}
+
 void testGenericError() {
   const std::uint8_t frame[] = {3, 42, 32};
   auto v = parseGenericError(Bytes(frame, sizeof(frame)));
@@ -592,6 +677,7 @@ int main() {
   testVoxelPayloadRoundTrip();
   testEventPayloadRoundTrip();
   testChannelRoundTrip();
+  testRangedChannelGolden();
   testGenericError();
   testBundleIteration();
   testBundleWriter();

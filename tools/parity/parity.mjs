@@ -213,6 +213,8 @@ const ROOT_CLASSIFICATIONS = {
       'sendClientEvent',
       'sendSingleActorMessage',
       'sendChannelMessage',
+      // 18.5.0 / 0.58.0: the distance-limited channel publish (Connection::sendRangedChannelMessage).
+      'sendRangedChannelMessage',
     ],
     CATEGORY.NATIVE,
     'browser GraphQL UDP proxy maps to CrowdyCPP native signed UDP',

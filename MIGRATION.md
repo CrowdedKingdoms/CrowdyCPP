@@ -1,5 +1,26 @@
 # CrowdyCPP migration notes
 
+## 0.58.0 Channel messages limited by distance
+
+Pinned to CrowdyJS 18.5.0 (`ae249cb`); needs Buddy v0.35.0 on the server side. Additive: nothing
+existing changes shape, and CrowdyPy needs nothing beyond re-vendoring.
+
+- `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)` publishes to
+  a channel like `sendChannelMessage`, but only members near `origin` receive it: a member gets it
+  when one of its live actors is in this connection's app within `maxDistance` chunks of `origin`,
+  measured as the straight-line distance between chunk coordinates, boundary included. A member
+  with no live actor does not receive it. `maxDistance` runs from 0 (the origin chunk only) to
+  `wire::channel_ranged::kMaxDistance` (2147483647); above it the call returns `InvalidArgument`
+  before anything is sent. It is not the 0-8 Chebyshev ring count spatial sends take.
+- Members receive the ordinary `ChannelNotification` through `Handlers::channelMessage`, so a
+  receiver needs no change. A refusal (no send right: `UNAUTHORIZED`) arrives as a `GenericError`
+  for the returned sequence; an older Buddy drops opcode 32 silently.
+- `wire::encodeRangedChannelMessage` / `RangedChannelMessageParams` / `wire::channel_ranged` are the
+  codec (`MessageType::ChannelMessageRangedRequest = 32`).
+
+`schema.gql` is the game API branch's SDL with `sendRangedChannelMessage` (it also carries `dev`'s
+rate-card bands); resync from docs.dev's SDL once cks-docs publishes it.
+
 ## 0.57.0 The terms and age gate
 
 Pinned to CrowdyJS 18.4.0 (`4e7e595`); needs ck-api `v2.35.0` (cks-game-api #437) for the two new

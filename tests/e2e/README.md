@@ -22,6 +22,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_APP_ID` | yes | the app under test |
 | `CROWDY_E2E_OWNER_EMAIL` | yes* | account with `manage_apps` + `manage_access_tiers` on the app (entitles players). `e2e_chunk_store_live` also closes the app's wilderness for up to ~45 s and reopens it, so do not run chunk-writing suites against the same app at the same time |
 | `CROWDY_E2E_OWNER_PASSWORD` | no | sign the owner in with `login` instead of registering a fresh derived owner. Required against a deployed tier, whose owner is a real account (`infra-cp/<tier>/org-admin/...`) that `register` refuses with EMAIL_ALREADY_REGISTERED. Same knob as CrowdyJS's `CROWDY_OWNER_PASSWORD` |
+| `CROWDY_E2E_PROVISIONING_TOKEN` | dev/test | sent as `X-CK-Provisioning-Token` by the client that registers players. Dev and test are staff-only: without it a new derived account is refused (`TIER_ACCESS_REQUIRED`). The token must cover the derived addresses: mint it for `<local>+*@<domain>` of `CROWDY_E2E_EMAIL` (Secrets Manager `infra-cp/<tier>/loadtest/provisioning-token-sdk-e2e`). Other tiers ignore it |
 | `CROWDY_E2E_APP_ID_2` | no | second app on the same deployment (cross-app isolation) |
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |

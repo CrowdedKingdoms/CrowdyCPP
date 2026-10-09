@@ -16,7 +16,8 @@ changes shape, and CrowdyPy needs nothing beyond re-vendoring.
   is true**: a page can be short, or empty, when it reached the server's time or scan limit.
   Another user's session answers `NOT_FOUND` without `manage_apps`.
 - Both are game plane (the app-scoped client), and both answer `INPUT_LOG_UNAVAILABLE` on a
-  deployment without input logging. Inputs are kept for the published retention.
+  deployment without input logging; `messages` also answers it, retryable with the same cursor,
+  when the log cannot be read right now. Inputs are kept for the published retention.
 - Every app read selects `replayLoggingEnabled`. Turning it on with `admin().apps().update` is
   refused with `INPUT_LOG_FUNDS_NEEDED` unless the org's wallet has a spendable balance or the org
   is exempt from billing.

@@ -32,3 +32,16 @@ for (const name of APP_DOCUMENTS) {
     assert.match(generatedDocument(name), /\bwildernessWritesOpen\b/u, `k${name}Document`);
   });
 }
+
+/**
+ * And `replayLoggingEnabled` (CrowdyJS 18.6.0): whether the app's client inputs are being
+ * recorded and billed. Absent, it reads as false, so a tool would show a recorded app as
+ * not recorded.
+ */
+for (const name of APP_DOCUMENTS) {
+  test(`${name} selects replayLoggingEnabled`, () => {
+    const source = readFileSync(join(root, 'operations', 'apps', `${name}.graphql`), 'utf8');
+    assert.match(source, /\breplayLoggingEnabled\b/u, `operations/apps/${name}.graphql`);
+    assert.match(generatedDocument(name), /\breplayLoggingEnabled\b/u, `k${name}Document`);
+  });
+}

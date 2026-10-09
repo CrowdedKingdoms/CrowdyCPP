@@ -510,6 +510,7 @@ const CLASS_MAP = {
   StateAPI: 'StateAPI',
   HostAPI: 'HostAPI',
   TeleportAPI: 'TeleportAPI',
+  InputLogAPI: 'InputLogAPI',
   TeamsAPI: 'TeamsAPI',
   ChannelsAPI: 'ChannelsAPI',
   GameAppsAPI: 'GameAppsAPI',

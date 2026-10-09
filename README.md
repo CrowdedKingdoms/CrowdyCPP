@@ -31,13 +31,12 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.57.0: the terms and age gate.** Since ck-api v2.35.0 a gameplay token (`portal().mintAppToken`,
-the portal code, `portal().refresh`) is refused with `LEGAL_ACCEPTANCE_REQUIRED` until the player has
-agreed to the current required legal documents and attested the age of majority. A native game
-shows its own two checkboxes, then calls `auth().recordPlayerConsents(true, true)` with the
-session token; `auth().playerLegalAcceptance()` says whether that is still needed, and
-`auth().registerUser` has an overload carrying both. Pinned to CrowdyJS 18.4.0. See
-[MIGRATION.md](MIGRATION.md).
+**v0.58.0: channel messages limited by distance.** `Connection::sendRangedChannelMessage(channelId,
+uuid, payload, origin, maxDistance)` publishes to a channel so that only members with a live actor in
+the connection's app within `maxDistance` chunks of `origin` receive it (straight-line distance
+between chunk coordinates, boundary included, 0 to 2147483647; Buddy v0.35.0). Members receive the
+ordinary channel notification through `Handlers::channelMessage`. Pinned to CrowdyJS 18.5.0. 0.57.0's
+terms and age gate is unchanged. See [MIGRATION.md](MIGRATION.md).
 
 **v0.56.0: chunk loads apply recorded voxel edits.** A hub's or mod's `world.set_voxels`,
 `updateVoxel` and realtime voxel updates land in a chunk's edit log, never in its stored

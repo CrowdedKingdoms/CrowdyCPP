@@ -216,6 +216,18 @@ void run() {
     CHECK_EQ(s.messagesSentByType[17], 1u);   // CHANNEL_MESSAGE_REQUEST
   }
 
+  // Ranged channel publish (Buddy v0.35.0): opcode 32, the origin in this connection's app.
+  {
+    CHECK(conn.sendRangedChannelMessage(55, uuid('a'), Bytes(hi, sizeof(hi)), {3, 4, -5}, 12).ok());
+    auto ranged = server.recvOne();
+    CHECK_EQ(ranged[0], 32u);
+    CHECK_EQ(le::readI64(ranged.data() + wire::channel_ranged::kAppIdOffset), 7);
+    CHECK_EQ(le::readI64(ranged.data() + wire::channel_ranged::kChunkZOffset), -5);
+    CHECK_EQ(le::readU32(ranged.data() + wire::channel_ranged::kMaxDistanceOffset), 12u);
+    CHECK_EQ(conn.stats().messagesSentByType[32], 1u);
+    CHECK(!conn.sendRangedChannelMessage(55, uuid('a'), Bytes(), {0, 0, 0}, 0x80000000u).ok());
+  }
+
   // --- Server -> client: single notification.
   auto note = makeNotification(wire::MessageType::ActorUpdateNotification,
                                Bytes(pose, sizeof(pose)), 1700000000000LL, 5);

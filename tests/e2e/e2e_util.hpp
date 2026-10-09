@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "crowdy/crowdy.hpp"
+#include "crowdy/graphql/http.hpp"
 #include "crowdy/session/world_session.hpp"
 
 /// Shared harness for the env-gated e2e suites. Everything is BLACK-BOX:
@@ -236,6 +237,44 @@ struct Player {
   }
 };
 
+/// dev and test are staff-only (ck-api tier access): a NEW account there needs a
+/// provisioning token, sent as X-CK-Provisioning-Token. Only `register` reads it and
+/// other tiers ignore it, so the identity client used to register carries it on every
+/// request rather than teaching the SDK a test-only header.
+class ProvisioningTransport final : public crowdy::graphql::IHttpTransport {
+ public:
+  ProvisioningTransport(std::shared_ptr<crowdy::graphql::IHttpTransport> inner,
+                        std::string token)
+      : inner_(std::move(inner)), token_(std::move(token)) {}
+
+  crowdy::graphql::HttpResponse send(const crowdy::graphql::HttpRequest& request) override {
+    return inner_->send(withToken(request));
+  }
+
+  crowdy::graphql::HttpOutcome sendOutcome(
+      const crowdy::graphql::HttpRequest& request) noexcept override {
+    return inner_->sendOutcome(withToken(request));
+  }
+
+ private:
+  crowdy::graphql::HttpRequest withToken(const crowdy::graphql::HttpRequest& request) const {
+    auto r = request;
+    r.headers.emplace_back("X-CK-Provisioning-Token", token_);
+    return r;
+  }
+
+  std::shared_ptr<crowdy::graphql::IHttpTransport> inner_;
+  std::string token_;
+};
+
+/// CROWDY_E2E_PROVISIONING_TOKEN, when set, rides the client that registers players.
+inline void applyProvisioningToken(crowdy::ClientConfig& c) {
+  const std::string token = envOr("CROWDY_E2E_PROVISIONING_TOKEN");
+  if (token.empty()) return;
+  auto inner = crowdy::graphql::makeCurlTransport();
+  if (inner) c.transport = std::make_shared<ProvisioningTransport>(std::move(inner), token);
+}
+
 /// Sign in an identity client (session token, shared origin).
 // DIRECT SIGN-IN FROM HERE IS ALLOWED, AND WILL STAY ALLOWED (ck-api v1.88.0).
 // The API serves `register` / `login` only to first-party browser origins and to
@@ -249,6 +288,7 @@ inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg
                                                             std::string* userId = nullptr) {
   crowdy::ClientConfig c;
   c.httpUrl = cfg.apiUrl;
+  applyProvisioningToken(c);
   auto client = std::make_unique<crowdy::CrowdyClient>(std::move(c));
   // registerUser, not a bypass. The address carries a per-run suffix, which is
   // what makes this the CREATE case -- `register` returns a session only for an

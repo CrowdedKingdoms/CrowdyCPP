@@ -1,4 +1,4 @@
-// The voice payload convention (CrowdyJS 18.7.0 / CrowdyCPP 0.60.0). The fixture is a copy of
+// The voice payload convention (CrowdyJS 18.8.0 / CrowdyCPP 0.60.0). The fixture is a copy of
 // CrowdyJS's test/unit/fixtures/voice-frames.json (tests/parity/voice-frames-fixture.test.mjs holds
 // the copy to the pinned commit's), replayed here exactly as CrowdyJS's voice-frames.test.mjs
 // replays it: a change to either SDK's behaviour changes the fixture and both replays.

@@ -3,6 +3,14 @@ add_executable(video_frames_test video_frames_test.cpp)
 target_link_libraries(video_frames_test PRIVATE crowdy_core)
 add_test(NAME video_frames_test COMMAND video_frames_test)
 
+# Header-only voice convention, replaying CrowdyJS's case set (the JSON parser is the only
+# library it needs).
+add_executable(voice_frames_test voice_frames_test.cpp)
+target_link_libraries(voice_frames_test PRIVATE crowdy_graphql)
+target_compile_definitions(voice_frames_test PRIVATE
+  CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+add_test(NAME voice_frames_test COMMAND voice_frames_test)
+
 if(CROWDY_WITH_OPENSSL)
   add_executable(wire_test wire_test.cpp)
   target_link_libraries(wire_test PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)

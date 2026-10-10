@@ -11,6 +11,12 @@ target_compile_definitions(voice_frames_test PRIVATE
   CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
 add_test(NAME voice_frames_test COMMAND voice_frames_test)
 
+if(CROWDY_WITH_OPUS)
+  add_executable(opus_test opus_test.cpp)
+  target_link_libraries(opus_test PRIVATE crowdy_opus)
+  add_test(NAME opus_test COMMAND opus_test)
+endif()
+
 if(CROWDY_WITH_OPENSSL)
   add_executable(wire_test wire_test.cpp)
   target_link_libraries(wire_test PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl)

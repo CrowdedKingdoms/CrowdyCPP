@@ -1,5 +1,63 @@
 # CrowdyCPP migration notes
 
+## 0.60.0 Voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels
+
+Mirrors CrowdyJS 18.7.0. No wire change and no newer API needed. Two signatures change
+(`ChunkStore::voxelTypeAt`, `ChunkStore::setVoxel`'s refusal), so rebuild; CrowdyPy re-vendors
+and can bind the new `WorldSessionConfig` callbacks and `ChunkData::overlay`.
+
+- **Voice helpers** (`crowdy/media/voice_frames.hpp`, header-only): an optional convention for
+  what an audio payload carries. A 10-byte header, little-endian, goes in front of each codec
+  frame: version 1, codec (`VoiceCodec`: 0 raw, 1 Opus 48 kHz mono, 2 G.711 µ-law 8 kHz), `u16`
+  seq, `u32` timestamp in codec samples (milliseconds for raw), the frame's duration in ms, and
+  `VoiceFlag::kSpurtStart` / `kSpurtEnd`. `encodeVoiceHeader` / `encodeVoicePacket` write it
+  (an oversized frame gives an empty vector); `decodeVoicePacket` returns nullopt for a packet
+  shorter than 10 bytes or of another version. `VoicePacketizer` numbers one sender's frames
+  across the seq and timestamp wraps and sets the flags (`packetize(frame, last)`, `skip()` for
+  silence). `VoiceJitterBuffer` takes `push(key, packet, nowMs)` per sender key and returns the
+  due `VoicePlayout`s from `pull(key, nowMs)` / `poll(nowMs)`: in seq order, `targetDelayMs` (60)
+  after a talk spurt's first packet, `gap` for each frame that never came, late packets dropped,
+  at most `maxFrames` (64) a sender, starting over on a talk spurt or `resetAfterMs` (200) of
+  silence. Out-of-range options are clamped (CrowdyJS throws `RangeError` for them). Both SDKs
+  replay CrowdyJS's `test/unit/fixtures/voice-frames.json` (copied to
+  `tools/parity/fixtures/voice-frames.json`). Positioning a voice stays the game's.
+- **Opus, optional.** `-DCROWDY_WITH_OPUS=ON` (default OFF) builds `crowdy/media/opus.hpp` as the
+  target `crowdy_opus` (linked by `CrowdyCPP::crowdy` in such a build): `OpusVoiceEncoder`
+  (48 kHz mono 16-bit PCM; 10/20/40/60 ms frames; bitrate; packet loss for in-band FEC) and
+  `OpusVoiceDecoder` (`decode`, `conceal` for a gap). libopus is found through its CMake
+  package, pkg-config or a plain search, at build time and again by the installed config.
+  Without the option nothing changes, and the header declares only `kOpusAvailable = false`.
+- **`WorldSessionConfig::onVoxel`** is called for every inbound voxel update after `chunks()` has
+  merged it, with the notification (sender, chunk) and the `wire::VoxelPayloadView` (position,
+  type, state): the patch the Minecraft mod carried, upstreamed. A wrapper that applied that
+  patch drops it.
+- **`WorldSessionConfig::onGenericSpatial`** forwards GENERIC_SPATIAL_1 (140). `Connection` always
+  had `Handlers::genericSpatial`, but `WorldSession` owns the handlers and never set it, so a
+  session user saw none. CrowdyJS receives 140 on its binary relay only.
+- **`ChunkStore` keeps wide voxel types and other addresses.** Positions and types are the app's
+  signed 16-bit values, which the platform does not check. An edit the one-byte 16³ grid cannot
+  hold (a type outside 0-255, a position outside 0-15) — a realtime update, a hydrated
+  `voxelStates` entry, or a `setVoxel` — is kept whole in `ChunkData::overlay` (`OverlayVoxel`:
+  `x`, `y`, `z` and its `VoxelState`; keyed by `voxelKey(x, y, z)`), and the grid holds 0 under
+  an in-grid one. What changes:
+  - `voxelTypeAt` returns `std::int16_t` (was `std::uint8_t`) and reads the overlay first;
+    `voxelStateAt` returns the overlay's state too.
+  - A realtime update outside 0-15 is no longer written into `ChunkData::voxels` at its aliased
+    index — `(16, 0, 0)` overwrote `(0, 1, 0)`, and one far enough out wrote past the end of the
+    array — and a type outside 0-255 is no longer stored truncated (300 read as 44).
+  - A stored `voxelStates` entry outside 0-15 is kept in the overlay instead of ignored.
+  - `setVoxel` keeps a position outside 0-15 in the overlay and sends it, where it used to return
+    `InvalidArgument`; only a position outside 16 bits is refused now.
+
+  The store is a 16×16×16 helper; a game with other addressing reads `onVoxel` and
+  `StoredChunk::voxelStates`.
+
+Parity: `tools/parity/parity.mjs` classifies CrowdyJS 18.7.0's `media/voice-frames.ts` as a native
+equivalent (every export mapped to `voice_frames.hpp`) and pins the behaviour changes above
+(`chunk-store-voxel-overlay`, `world-session-voxel-hook`, `world-session-generic-spatial`,
+`generic-spatial-relay-only`, `grid-host-call-voxel-bounds`). `parity:repin` copies the voice
+fixture with the exec gateway cases. They need the pin moved to the CrowdyJS 18.7.0 commit.
+
 ## 0.59.0 The input log
 
 Pinned to CrowdyJS 18.6.0 (`ca9fbb5`); needs ck-api with the input log. Additive: nothing existing

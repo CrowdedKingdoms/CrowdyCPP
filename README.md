@@ -31,6 +31,16 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.60.0: voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels.**
+`crowdy/media/voice_frames.hpp` is an optional voice payload convention shared with CrowdyJS 18.7.0
+(a 10-byte header in the audio payload, `VoicePacketizer`, `VoiceJitterBuffer`; both SDKs replay
+one fixture), and `-DCROWDY_WITH_OPUS=ON` (default OFF) adds a libopus wrapper
+(`crowdy/media/opus.hpp`). `WorldSessionConfig::onVoxel` hears every voxel update after
+`chunks()` merged it, and `onGenericSpatial` forwards opcode 140, which the session used to drop.
+`ChunkStore` keeps an edit the one-byte 16³ grid cannot hold (a type outside 0-255, a position
+outside 0-15) in `ChunkData::overlay` instead of truncating it, and `voxelTypeAt` returns
+`std::int16_t`. No wire change. See [MIGRATION.md](MIGRATION.md).
+
 **v0.59.0: the input log.** `client.inputLog().sessions(appId, first, after, filter)` and
 `messages(appId, gameTokenId, first, after, filter)` (each with an `Async` twin) read the client
 inputs recorded for an app with replay logging on (`App.replayLoggingEnabled`, now selected on every
@@ -393,6 +403,7 @@ include/crowdy/          public headers
   replication/           native UDP replication client
   session/               world session layer (actors, chunks, inboxes, host)
   kit/                   Game Kit (social helpers, wire codecs, optimistic actions)
+  media/                 webcam video fragments and voice payloads (header-only), optional Opus
   player_host/           typed player observations and their schemas
 src/                     implementation
 include/crowdy/generated/  committed codegen output (operations + enums)
@@ -424,6 +435,7 @@ Dependencies (all replaceable through interfaces):
 | libcurl 8.13+ WebSocket APIs | optional default GraphQL subscriptions | `crowdy::graphql::IWebSocketTransport` |
 | OpenSSL (libcrypto) | HMAC-SHA256 | `crowdy::core::ICrypto` |
 | yyjson (vendored) | JSON parse/serialize | internal only, not on the UDP path |
+| libopus (optional, `CROWDY_WITH_OPUS=ON`) | `crowdy/media/opus.hpp` | any codec: the voice helpers carry opaque frames |
 
 The wire and replication layers depend only on BSD/Winsock sockets and the
 `ICrypto` interface — no libcurl, no JSON.
@@ -438,6 +450,13 @@ transports continue to work on Linux, macOS, and Windows. The factory also
 checks that the linked libcurl is 8.13+ and actually advertises both `ws` and
 `wss`, since some distributions expose the APIs while compiling those
 protocols out.
+
+`CROWDY_WITH_OPUS=ON` (default OFF) builds `crowdy/media/opus.hpp`'s libopus wrapper as the
+target `crowdy_opus`, which `CrowdyCPP::crowdy` then links and which defines `CROWDY_HAS_OPUS`.
+libopus is found through its CMake package (vcpkg, `-DCMAKE_PREFIX_PATH`), else pkg-config
+(`libopus-dev`, Homebrew), else a plain header and library search; the installed package finds
+it the same way. Configuring it ON without libopus fails. The default build needs neither Opus
+nor network, and without the option the header declares only `kOpusAvailable = false`.
 
 `CROWDY_NO_EXCEPTIONS=ON` creates a reduced strict `-fno-exceptions` package:
 core GraphQL outcomes, auth/portal, replication, non-authoring domains, and
@@ -771,6 +790,58 @@ Under the hood these sit on the same primitives the hot path uses — the
 lock-free SPSC ring between network and game thread, pooled fixed-size
 buffers, and zero-copy parsed views — so the convenience layer does not trade
 away the performance story.
+
+What the session has no store for it forwards through `WorldSessionConfig`: `onAudio`,
+`onVideo`, `onText`, `onGenericSpatial` (opcode 140, an app-defined spatial payload; 0.60.0),
+`onActorLeft`, and `onVoxel`, called for every inbound voxel update after `chunks()` has merged
+it, with its sender and state blob, for a game that keeps its own world (0.60.0). `ChunkStore` is a
+helper for 16×16×16 chunks with one byte per voxel. Voxel positions and types are the app's signed
+16-bit values, which the platform does not check: an edit the grid cannot hold (a type outside
+0-255, a position outside 0-15) is kept whole in `ChunkData::overlay` (keyed by
+`voxelKey(x, y, z)`), and `voxelTypeAt` / `voxelStateAt` return it. A game with other addressing
+reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
+
+## Voice payloads
+
+An audio payload is opaque to the server, and a game with a voice format of its own keeps it.
+`crowdy/media/voice_frames.hpp` is an optional one shared with CrowdyJS 18.7.0 (both SDKs replay
+the same fixture, `tools/parity/fixtures/voice-frames.json`): a 10-byte header in front of each
+codec frame, little-endian — the version (1), the codec (0 raw, 1 Opus 48 kHz mono, 2 G.711 µ-law
+8 kHz), a `u16` seq, a `u32` timestamp in codec samples, the frame's duration in milliseconds and
+two talk-spurt flags. `decodeVoicePacket` refuses a packet shorter than the header or of another
+version. `VoicePacketizer` numbers one sender's frames; `VoiceJitterBuffer` puts each sender's
+packets back in order, plays them 60 ms (`targetDelayMs`) after the first packet of a talk spurt
+arrived, reports a frame that never came as a gap, drops one that arrives after its playout time,
+and holds at most 64 frames a sender. It is single-threaded: push and pull from one thread.
+
+```cpp
+#include <crowdy/media/voice_frames.hpp>
+using namespace crowdy::media;
+
+VoicePacketizer packetizer({static_cast<std::uint8_t>(VoiceCodec::Opus), 20});
+// Every 20 ms while the player talks (opusFrame from your encoder, or OpusVoiceEncoder):
+const auto packet = packetizer.packetize(opusFrame, /*last=*/talkKeyReleased);
+conn.sendAudio({chunk, session.actorUuid(), crowdy::Bytes(packet.data(), packet.size()), 1});
+// ...and packetizer.skip() for every 20 ms of silence that is not sent.
+
+VoiceJitterBuffer voices;
+sessionConfig.onAudio = [&](const crowdy::replication::SpatialNotification& n) {
+  voices.push(std::string(n.uuid, 32), n.payload, nowMs());
+};
+sessionConfig.onActorLeft = [&](const crowdy::core::ActorUuid& u, std::uint8_t) {
+  voices.forget(std::string(u.data(), u.size()));
+};
+// At least once a frame:
+for (const VoicePlayout& slot : voices.poll(nowMs())) {
+  if (slot.gap) conceal(slot.key, slot.frameMs);  // the frame never came
+  else play(slot.key, slot.codec, slot.frame);
+}
+```
+
+No codec is built by default. With `-DCROWDY_WITH_OPUS=ON` (see [Build](#build)),
+`crowdy/media/opus.hpp` adds `OpusVoiceEncoder` (48 kHz mono 16-bit PCM in, one frame of 10, 20,
+40 or 60 ms out) and `OpusVoiceDecoder` (`decode`, and `conceal` for a gap). Where a voice sits in
+the world (panning, distance attenuation) stays the game's.
 
 ## Game Kit: social helpers and wire codecs
 

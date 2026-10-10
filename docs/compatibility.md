@@ -1,6 +1,6 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.59.0 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.60.0 passes the strict portable-parity gate against CrowdyJS
 **18.6.0**. The gate pins CrowdyJS commit
 `ca9fbb549ed5fa614e0084d962020410061b9c8c` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.59.0 | CrowdyJS 18.6.0 | Required public API generation |
+| Surface | CrowdyCPP 0.60.0 | CrowdyJS 18.6.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -46,6 +46,10 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Distance-limited channel messages | `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)`, `wire::encodeRangedChannelMessage` (0.58.0) | `udp.sendRangedChannelMessage`, `serializeRangedChannelMessage` (18.5.0) | Buddy v0.35.0 (opcode 32); ck-api `sendRangedChannelMessage` for the browser proxy; members receive the ordinary channel notification |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
+| Voice payload helpers | `crowdy/media/voice_frames.hpp`: the 10-byte voice header, `VoicePacketizer`, `VoiceJitterBuffer`, replaying `voice-frames.json`; optional libopus wrapper `crowdy/media/opus.hpp` with `CROWDY_WITH_OPUS=ON` (0.60.0) | `media/voice-frames.ts`, the fixture's owner; Opus through the browser's WebCodecs (18.7.0) | None: the payload of opcodes 134/135, which the server never reads |
+| App-defined spatial messages (opcode 140) | `Connection::sendGenericSpatial`, `Handlers::genericSpatial`, `WorldSessionConfig::onGenericSpatial` (0.60.0) | `genericSpatial` handler and World Stores bus key, binary relay only (18.7.0) | Buddy opcode 140; the GraphQL `udpNotifications` union has no member for it |
+| Voxel edits for a game's own world | `WorldSessionConfig::onVoxel`, after `chunks()` merged the edit (0.60.0) | `voxelUpdate` handler and bus key | None |
+| Wide voxel types and other addresses | `ChunkData::overlay` (`OverlayVoxel`, `voxelKey`); `voxelTypeAt` returns `std::int16_t` (0.60.0) | `CachedChunk.overlay` (`ChunkOverlayVoxel`, `voxelKey`); `createGridHostCalls({ voxelBounds })` for a CLIENT half (18.7.0) | Voxel positions and types are the app's signed 16-bit values |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
 | Wrapper seams | `Config::onEventsReady` (wake an event loop when notifications are waiting), `IChunkSource` for `ChunkStore` and `IHostElection` + `WorldSessionServices` for `WorldSession` (durable services without a `CrowdyClient`), `WorldSessionConfig::onText` (0.54.0) | No counterpart: the browser SDK has no native core to wrap | None; native-only API |
 | Recorded voxel edits on chunk loads | `ChunkStore::ensureAround`'s one `getChunksByDistance` selects `voxelStates` and puts each entry over the stored grid (type at its voxel, its state; an entry without one clears the cached state); `IChunkSource` reports them in `StoredChunk::voxelStates` (0.56.0) | `ChunkStore.hydrate` reads `getChunk`'s `voxelStates` per loaded chunk, which `ensureAround` runs only with a `voxelStateCodec` or `hydrateVoxelStates: true` | ck-api `dev/v2.33.0` (cks-game-api #445): both chunk reads return every recorded edit (a hub's or mod's `world.set_voxels`, `updateVoxel`, realtime voxel updates) as an entry, `getChunksByDistance` only when `voxelStates` is selected; a chunk with edits but no stored row is returned by neither |
@@ -86,7 +90,9 @@ the runner and grid host-call answers). CLIENT artifact-byte decoding is
 portable: `exec().modClientArtifactBytes(...)` fetches a mod's CLIENT half and
 checks the bytes against their digest. World Stores behaviour that changes
 without a method (17.14.0's actor resend, autosave retry and bounded chunk
-hydration) is pinned in the matrix's behavior audit.
+hydration; 18.7.0's chunk overlay, voxel hook and opcode 140, and the CLIENT
+half's `voxel_set` bounds) is pinned in the matrix's behavior audit, and the
+voice helpers' every export is mapped to `crowdy/media/voice_frames.hpp`.
 Portable gaps, unclassified differences, and stale classifications are zero.
 
 ## CrowdyCPP 0.x source and ABI policy

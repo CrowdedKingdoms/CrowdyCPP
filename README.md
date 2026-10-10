@@ -31,6 +31,14 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.59.0: the input log.** `client.inputLog().sessions(appId, first, after, filter)` and
+`messages(appId, gameTokenId, first, after, filter)` (each with an `Async` twin) read the client
+inputs recorded for an app with replay logging on (`App.replayLoggingEnabled`, now selected on every
+app read and set with `admin().apps().update`). Game plane: the app-scoped client. A player reads
+their own; `manage_apps` reads every session. A messages page can be short, or empty, while
+`pageInfo.hasNextPage` is true, so keep paging until it is false. Pinned to CrowdyJS 18.6.0. See
+[MIGRATION.md](MIGRATION.md).
+
 **v0.58.0: channel messages limited by distance.** `Connection::sendRangedChannelMessage(channelId,
 uuid, payload, origin, maxDistance)` publishes to a channel so that only members with a live actor in
 the connection's app within `maxDistance` chunks of `origin` receive it (straight-line distance

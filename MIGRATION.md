@@ -1,5 +1,32 @@
 # CrowdyCPP migration notes
 
+## 0.59.0 The input log
+
+Pinned to CrowdyJS 18.6.0 (`ca9fbb5`); needs ck-api with the input log. Additive: nothing existing
+changes shape, and CrowdyPy needs nothing beyond re-vendoring. The schema snapshot also carries
+ck-api's dev/test staff-only gate; as in CrowdyJS, nothing wraps it (its operator fields are
+platform-only).
+
+- `client.inputLog().sessions(appId, first = 50, after = {}, filter = {})` lists an app's recorded
+  sessions, newest first, as an `InputLogSessionConnection` (`edges[].node`, `pageInfo`,
+  `totalCount`). A session is one game token's inputs; `filter` takes `userId`, `from`, `to` and
+  `messageType`. Another user's sessions need `manage_apps` (`FORBIDDEN` otherwise).
+- `client.inputLog().messages(appId, gameTokenId, first = 50, after = {}, filter = {})` reads one
+  session's inputs, oldest first. `body` is the client message in base64, without its
+  authentication tail; `sizeBytes` is what stored input logs are billed on; spatial inputs carry
+  their chunk and actor, channel inputs their channel. **Keep paging while `pageInfo.hasNextPage`
+  is true**: a page can be short, or empty, when it reached the server's time or scan limit.
+  Another user's session answers `NOT_FOUND` without `manage_apps`.
+- Both are game plane (the app-scoped client), and both answer `INPUT_LOG_UNAVAILABLE` on a
+  deployment without input logging; `messages` also answers it, retryable with the same cursor,
+  when the log cannot be read right now. Inputs are kept for the published retention.
+- Every app read selects `replayLoggingEnabled`. Turning it on with `admin().apps().update` is
+  refused with `INPUT_LOG_FUNDS_NEEDED` unless the org's wallet has a spendable balance or the org
+  is exempt from billing.
+
+`schema.gql` is the game API branch's SDL with the input log; resync from docs.dev's SDL once
+cks-docs publishes it.
+
 ## 0.58.0 Channel messages limited by distance
 
 Pinned to CrowdyJS 18.5.0 (`ae249cb`); needs Buddy v0.35.0 on the server side. Additive: nothing

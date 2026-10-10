@@ -31,6 +31,12 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.61.0: builds report their SDK version.** Every build `exec()` returns (`build`,
+`buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus`) carries
+`sdkVersion`: the `ckx-sdk` version the platform compiled it against (`crowdy-client-sdk` for a
+CLIENT half), whatever version the crate names. Parity with CrowdyJS 18.8.0. Needs ck-api
+v2.40.2 or later; an older API refuses the build documents.
+
 **v0.60.0: voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels.**
 `crowdy/media/voice_frames.hpp` is an optional voice payload convention shared with CrowdyJS 18.7.0
 (a 10-byte header in the audio payload, `VoicePacketizer`, `VoiceJitterBuffer`; both SDKs replay

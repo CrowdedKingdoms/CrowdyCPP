@@ -1,5 +1,18 @@
 # CrowdyCPP migration notes
 
+## 0.61.0 Builds report their SDK version
+
+Mirrors CrowdyJS 18.8.0. Additive, with one floor: the build documents select
+`ExecBuild.sdkVersion`, so `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`,
+`modClientBuild` and `modBuildStatus` need ck-api v2.40.2 or later (an older API refuses the
+selection).
+
+- **`sdkVersion`** in every build's JSON: the version of `ckx-sdk` the platform compiled the build
+  against (`crowdy-client-sdk` for a CLIENT half), from the toolchain of the API instance that ran
+  it. The platform points a crate at its own SDK copy whatever version the crate names, so this
+  says what your code was checked against. Null until the build starts. The build log's first
+  line names the same toolchain.
+
 ## 0.60.0 Voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels
 
 Mirrors CrowdyJS 18.7.0. Channel audio and the voxel echo need Buddy v0.37.0, and the token

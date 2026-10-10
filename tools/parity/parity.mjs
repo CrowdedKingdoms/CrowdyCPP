@@ -1121,7 +1121,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     markers: ["'channelAudio',"],
     classification: classification(
       CATEGORY.NATIVE,
-      'Connection parses CHANNEL_AUDIO_NOTIFICATION (36), standalone or bundled, into Handlers::channelAudio, WorldSessionConfig::onChannelAudio forwards it, and Connection::sendChannelAudio sends opcode 35 (0.60.0); CrowdyJS reads 36 on the binary relay only, because the GraphQL udpNotifications union has no member for it yet',
+      'Connection parses CHANNEL_AUDIO_NOTIFICATION (36), standalone or bundled, into Handlers::channelAudio, WorldSessionConfig::onChannelAudio forwards it, and Connection::sendChannelAudio sends opcode 35 (0.60.0); CrowdyJS receives it on its binary relay or as the udpNotifications union\'s ChannelAudioNotification through the browser UDP proxy, which a native client does not open',
     ),
   },
   'chunk-store-self-echo': {

@@ -87,6 +87,11 @@ jobs:
         run: |
           test "$(jq -r '.version' CrowdyJS/package.json)" = "${{ steps.crowdyjs-target.outputs.version }}"
           test "$(git -C CrowdyJS rev-parse HEAD)" = "${{ steps.crowdyjs-target.outputs.commit }}"
+      # The pinned commit carrying the pinned version proves nothing about a release: 0.59.0
+      # pinned CrowdyJS `ca9fbb5` as 18.6.0 while dev/v18.6.0 is `7662d0b0`. It must be the
+      # target of a CrowdyJS `<tier>/v<version>` tag.
+      - name: The CrowdyJS parity pin is a published release
+        run: node tools/parity/pin-tag.mjs
       - uses: actions/setup-node@v7
         with:
           node-version: '20'

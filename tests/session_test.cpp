@@ -130,7 +130,24 @@ void run() {
     ++leftSeen;
     lastLeftReason = reason;
   };
+  // Every voxel edit (after chunks() merged it) and every app-defined spatial message reach the
+  // game too (0.60.0).
+  WorldSession* sessionRef = nullptr;
+  int voxelsSeen = 0, genericSeen = 0;
+  sess.onVoxel = [&](const replication::SpatialNotification& n, const wire::VoxelPayloadView& v) {
+    ++voxelsSeen;
+    CHECK(n.uuidArray() == uuidOf('z'));
+    CHECK_EQ(v.state.size(), std::size_t{2});
+    CHECK_EQ(sessionRef->chunks().voxelTypeAt(n.chunk, v.x, v.y, v.z), v.voxelType);
+  };
+  sess.onGenericSpatial = [&](const replication::SpatialNotification& n) {
+    ++genericSeen;
+    CHECK(n.type == wire::MessageType::GenericSpatial1);
+    CHECK(n.uuidArray() == uuidOf('z'));
+    CHECK_EQ(n.payload.size(), std::size_t{3});
+  };
   WorldSession session(conn, nullptr, sess);
+  sessionRef = &session;
 
   // --- Join sends the first actor update.
   const std::uint8_t pose[] = {9, 9, 9, 9};
@@ -235,6 +252,7 @@ void run() {
 
   const ChunkData* chunk = session.chunks().find({2, 0, 0});
   CHECK(chunk != nullptr);
+  CHECK_EQ(voxelsSeen, 1);
   CHECK_EQ(chunk->voxels[static_cast<std::size_t>(voxelIndex(3, 4, 5))], 7u);
   auto vs = chunk->voxelStates.find(voxelIndex(3, 4, 5));
   CHECK(vs != chunk->voxelStates.end());
@@ -347,6 +365,18 @@ void run() {
   }
   CHECK_EQ(audioSeen, 1);
   CHECK_EQ(videoSeen, 1);
+
+  // --- An app-defined spatial message (opcode 140) reaches onGenericSpatial.
+  const std::uint8_t genericBytes[] = {4, 5, 6};
+  auto genericNote = makeNotification(wire::MessageType::GenericSpatial1, other, {1, 0, 0},
+                                      Bytes(genericBytes, sizeof(genericBytes)), 1700000000815LL, 12);
+  server.reply(genericNote.data(), genericNote.size());
+  for (int i = 0; i < 100 && genericSeen < 1; ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(genericSeen, 1);
+  CHECK_EQ(voxelsSeen, 1);
 
   // --- Server-announced departure (ActorLeftNotification, Buddy v0.25.0): the
   // mob is fresh (well inside staleAfterMs) yet leaves at once, onLeave fires once

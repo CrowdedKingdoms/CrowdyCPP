@@ -76,6 +76,12 @@ struct WorldSessionConfig {
   std::function<void(const replication::SpatialNotification&)> onVideo;
   /// Proximity text, which the session has no store for either (0.54.0).
   std::function<void(const replication::SpatialNotification&)> onText;
+  /// App-defined spatial messages (GENERIC_SPATIAL_1, opcode 140; Connection::sendGenericSpatial
+  /// sends one), which the session has no store for (0.60.0).
+  std::function<void(const replication::SpatialNotification&)> onGenericSpatial;
+  /// Every inbound voxel update, after chunks() has merged it, for games that keep
+  /// their own world and need the sender and the state blob of each edit (0.60.0).
+  std::function<void(const replication::SpatialNotification&, const wire::VoxelPayloadView&)> onVoxel;
   /// The server announced a departure (Buddy v0.25.0). The session already
   /// removed the actor from `actors()` and fired its onLeave; this is for state
   /// the game keeps outside the store (voice/video textures, name tags).

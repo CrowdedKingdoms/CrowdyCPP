@@ -143,6 +143,7 @@ void WorldSession::installHandlers() {
   handlers.voxelUpdate = [this](const replication::SpatialNotification& n,
                                 const wire::VoxelPayloadView& voxel) {
     chunks_->ingest(n, voxel);
+    if (config_.onVoxel) config_.onVoxel(n, voxel);
   };
   handlers.clientEvent = [this](const replication::SpatialNotification& n,
                                 const wire::EventPayloadView& payload) {
@@ -156,6 +157,7 @@ void WorldSession::installHandlers() {
   if (config_.onAudio) handlers.audio = config_.onAudio;
   if (config_.onVideo) handlers.video = config_.onVideo;
   if (config_.onText) handlers.text = config_.onText;
+  if (config_.onGenericSpatial) handlers.genericSpatial = config_.onGenericSpatial;
   // The server's departure notice removes the actor now (onLeave fires from the
   // store) instead of after the staleAfterMs reap, then the game is told too.
   handlers.actorLeft = [this](const replication::SpatialNotification& n, std::uint8_t reason) {

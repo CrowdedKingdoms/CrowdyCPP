@@ -1,14 +1,17 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "crowdy/core/clock.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/replication/connection.hpp"
 #include "crowdy/session/keys.hpp"
@@ -165,7 +168,14 @@ class ChunkStore {
     std::int64_t writeBackBackoffMs = 700;
     /// How flush() waits out a backoff (defaults to sleeping this thread).
     std::function<void(std::int64_t ms)> sleep;
+    /// Monotonic milliseconds, for how long a local edit waits for its echo
+    /// (defaults to core::systemClock()).
+    std::function<std::int64_t()> now;
   };
+
+  /// How long a local edit waits for the server's echo before it is forgotten (a lost or
+  /// refused send); after that a matching echo is merged like any other edit.
+  static constexpr std::int64_t kPendingEditTtlMs = 10000;
 
   /// Hydrate and write back through the Game API. `chunksApi` may be null
   /// (offline / tests): then there is no durable store.
@@ -269,6 +279,7 @@ class ChunkStore {
       }
       if (it->second.dirty) setDirty(it->second, false);
       forgetWriteBack(coord);
+      pending_.erase(coord);
       chunks_.erase(it);
       revision_.fetch_add(1, std::memory_order_relaxed);
       ++pruned;
@@ -311,23 +322,41 @@ class ChunkStore {
   /// write-back. Returns the send's sequence number. A position outside 0-15 or a
   /// type outside 0-255 is kept in the chunk's overlay and sent as it is (0.60.0;
   /// before, a position outside 0-15 was refused); a position that does not fit
-  /// in 16 bits is InvalidArgument.
+  /// in 16 bits, or a state over wire::voxel::kMaxStateSize (1,024 bytes), is
+  /// InvalidArgument and changes nothing.
+  ///
+  /// The server delivers every accepted edit back to its sender (Buddy v0.37.0);
+  /// ingest() matches that echo to this edit (sender uuid + sequence + voxel) and
+  /// does not apply it again, so a local edit fires onChunkChanged once.
   Result<std::uint8_t> setVoxel(const ChunkCoord& coord, int x, int y, int z,
                                 std::int16_t voxelType, Bytes voxelState,
                                 const core::ActorUuid& uuid) {
     if (!fitsInt16(x) || !fitsInt16(y) || !fitsInt16(z)) return Errc::InvalidArgument;
+    if (voxelState.size() > wire::voxel::kMaxStateSize) return Errc::InvalidArgument;
     applyLocal(coord, x, y, z, voxelType, voxelState);
     auto seq = conn_.sendVoxelUpdate(coord, uuid, static_cast<std::int16_t>(x),
                                      static_cast<std::int16_t>(y), static_cast<std::int16_t>(z),
                                      voxelType, voxelState, options_.voxelSendDistance);
+    if (seq.ok()) {
+      rememberEdit(coord, voxelKey(static_cast<std::int16_t>(x), static_cast<std::int16_t>(y),
+                                   static_cast<std::int16_t>(z)),
+                   PendingEdit{uuid, seq.value(), nowMs(), false});
+    }
     return seq;
   }
 
   /// Merge an inbound VOXEL_UPDATE_NOTIFICATION (into the overlay when the grid
-  /// cannot hold it).
-  void ingest(const replication::SpatialNotification& n, const wire::VoxelPayloadView& voxel) {
+  /// cannot hold it). Returns whether it changed the cache.
+  ///
+  /// The echo of this client's own setVoxel is not applied again, and never over a
+  /// newer local edit of the same voxel. Another client's edit is applied and
+  /// marks the pending local edits of that voxel stale: their echoes then restore
+  /// them, because the server ordered them last.
+  bool ingest(const replication::SpatialNotification& n, const wire::VoxelPayloadView& voxel) {
+    if (!takeEcho(n, voxel)) return false;
     applyLocal(n.chunk, voxel.x, voxel.y, voxel.z, voxel.voxelType, voxel.state,
                /*markDirty=*/false);
+    return true;
   }
 
   /// Drive throttled durable write-back. Call from the session tick.
@@ -349,6 +378,64 @@ class ChunkStore {
   /// Whether the dense grid can hold an edit: a position inside it and a type 0-255.
   static constexpr bool fitsDenseGrid(int x, int y, int z, std::int16_t voxelType) {
     return inGrid(x, y, z) && voxelType >= 0 && voxelType <= 255;
+  }
+
+  /// A setVoxel the server has not echoed yet. `stale`: another client's edit of
+  /// the voxel arrived since, so the echo must be applied.
+  struct PendingEdit {
+    core::ActorUuid uuid{};
+    std::uint8_t sequence = 0;
+    std::int64_t sentAtMs = 0;
+    bool stale = false;
+  };
+  using PendingByVoxel = std::unordered_map<std::uint64_t, std::vector<PendingEdit>>;
+
+  std::int64_t nowMs() const {
+    return options_.now ? options_.now() : core::systemClock().monotonicMillis();
+  }
+
+  /// The unexpired pending edits of one voxel (expired ones dropped); null when none.
+  std::vector<PendingEdit>* livePending(const ChunkCoord& coord, std::uint64_t key) {
+    auto chunk = pending_.find(coord);
+    if (chunk == pending_.end()) return nullptr;
+    auto voxel = chunk->second.find(key);
+    if (voxel == chunk->second.end()) return nullptr;
+    const std::int64_t cutoff = nowMs() - kPendingEditTtlMs;
+    auto& edits = voxel->second;
+    edits.erase(std::remove_if(edits.begin(), edits.end(),
+                               [cutoff](const PendingEdit& e) { return e.sentAtMs < cutoff; }),
+                edits.end());
+    if (edits.empty()) {
+      chunk->second.erase(voxel);
+      if (chunk->second.empty()) pending_.erase(chunk);
+      return nullptr;
+    }
+    return &edits;
+  }
+
+  void rememberEdit(const ChunkCoord& coord, std::uint64_t key, PendingEdit edit) {
+    livePending(coord, key);
+    pending_[coord][key].push_back(edit);
+  }
+
+  /// Whether an inbound voxel edit should be applied (see ingest()).
+  bool takeEcho(const replication::SpatialNotification& n, const wire::VoxelPayloadView& voxel) {
+    const std::uint64_t key = voxelKey(voxel.x, voxel.y, voxel.z);
+    std::vector<PendingEdit>* edits = livePending(n.chunk, key);
+    if (!edits) return true;
+    const core::ActorUuid sender = n.uuidArray();
+    auto echoed = std::find_if(edits->begin(), edits->end(), [&](const PendingEdit& e) {
+      return e.sequence == n.sequence && e.uuid == sender;
+    });
+    if (echoed == edits->end()) {
+      for (PendingEdit& e : *edits) e.stale = true;
+      return true;
+    }
+    const bool stale = echoed->stale;
+    const bool newerLocalEdit = std::next(echoed) != edits->end();
+    edits->erase(echoed);
+    livePending(n.chunk, key);
+    return stale && !newerLocalEdit;
   }
 
   static const OverlayVoxel* overlayAt(const ChunkData& c, int x, int y, int z) {
@@ -441,6 +528,8 @@ class ChunkStore {
   std::unordered_map<ChunkCoord, std::int64_t, ChunkCoordHash> writeBackDueAt_;
   std::int64_t lastWriteBackMs_ = 0;
   std::int64_t lastTickMs_ = 0;
+  /// This client's edits not yet echoed back, oldest first, per chunk and voxelKey.
+  std::unordered_map<ChunkCoord, PendingByVoxel, ChunkCoordHash> pending_;
   std::function<void(const ChunkData&)> onChunkChanged_;
   std::function<void(const ChunkWriteBackFailure&)> onWriteBackFailed_;
   std::atomic<std::uint64_t> revision_{0};

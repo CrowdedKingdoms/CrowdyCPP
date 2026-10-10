@@ -1081,7 +1081,9 @@ None of these maintainer gates run during a normal external CMake build.
 
 - `ctest` — offline unit tests (wire codec golden vectors, HMAC vectors,
   GraphQL-WebSocket handshake/reconnect/frame/cancellation behavior, bundle
-  parsing, malformed-input fuzz, codec round-trips).
+  parsing, malformed-input fuzz, codec round-trips, and the CrowdyJS cases the
+  native code replays: the exec gateway and voice payload fixtures). A build
+  configured with `CROWDY_WITH_OPUS=ON` adds `opus_test`.
 - A build configured with `CROWDY_NO_EXCEPTIONS=ON` compiles with
   `-fno-exceptions` and runs the applicable reduced-surface matrix. The
   package omits exception-contract layers listed in [Build](#build), and its

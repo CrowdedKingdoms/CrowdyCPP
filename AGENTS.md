@@ -26,7 +26,9 @@ our own repos as scripts that call GraphQL directly. The per-release default ori
 
 CrowdyCPP is a standalone public C++20 SDK. A normal configure, build, install,
 or unit-test run must not require network access, Node, CrowdyJS, or private
-platform repositories. Schema and generated artifacts are committed.
+platform repositories. Schema and generated artifacts are committed. Optional
+libraries stay behind options that default OFF: `CROWDY_WITH_OPUS` (0.60.0) builds
+the libopus wrapper only when asked, and fails the configure if libopus is missing.
 
 GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS —
 read `crowdyjsParityTarget` in `package.json` (source of truth CI checks out);
@@ -133,9 +135,15 @@ worktree, and opens the PR. It refuses when CrowdyJS at `origin/<to>` is not the
 version this repo's pin names: promote CrowdyJS first.
 
 `parity:repin` rewrites the pin, copies the fixtures CrowdyJS owns (the ck-exec
-gateway cases, `tools/parity/fixtures/exec-gateway-cases.json`, which
-`exec-gateway-fixture.test.mjs` holds to the pinned commit's), and reruns the
-fixture generators plus the matrix; it prints the steps it cannot do for you.
+gateway cases, `tools/parity/fixtures/exec-gateway-cases.json`, and since 0.60.0
+the voice payload cases, `tools/parity/fixtures/voice-frames.json`, which
+`exec-gateway-fixture.test.mjs` and `voice-frames-fixture.test.mjs` hold to the
+pinned commit's), and reruns the fixture generators plus the matrix; it prints
+the steps it cannot do for you. A C++ test replays each copy (`exec_test`,
+`voice_frames_test`), so a behaviour change lands in CrowdyJS's fixture first.
+Some wire vectors are literal in both repos' tests instead of a fixture: the opcode 35
+(channel audio) bytes in `wire_test` are the ones CrowdyJS's
+`test/unit/channel-audio.test.mjs` asserts, so a layout change edits both.
 `docs/compatibility.md` names the pin too and is edited by hand. Four things
 reliably bite when this is done by hand:
 

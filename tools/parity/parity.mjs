@@ -215,6 +215,8 @@ const ROOT_CLASSIFICATIONS = {
       'sendChannelMessage',
       // 18.5.0 / 0.58.0: the distance-limited channel publish (Connection::sendRangedChannelMessage).
       'sendRangedChannelMessage',
+      // 18.7.0 / 0.60.0: channel audio, opcode 35 (Connection::sendChannelAudio).
+      'sendChannelAudio',
     ],
     CATEGORY.NATIVE,
     'browser GraphQL UDP proxy maps to CrowdyCPP native signed UDP',
@@ -927,6 +929,64 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'the browser broker\'s deny-by-default host-call allowlist, from the generated host catalog; a native sandbox lets a CLIENT half call only the consented summary\'s hostFunctions',
   ),
+  // CrowdyJS 18.7.0 / CrowdyCPP 0.60.0: the voice payload convention (a 10-byte header in the
+  // audio payload, a packetizer and a jitter buffer). Both SDKs implement it byte for byte and
+  // replay CrowdyJS's test/unit/fixtures/voice-frames.json (copied to
+  // tools/parity/fixtures/voice-frames.json; tests/parity/voice-frames-fixture.test.mjs holds the
+  // copy to the pin), so every export has its native name in one header.
+  'src/media/voice-frames.ts': exportModule(
+    [
+      'MAX_VOICE_FRAME_BYTES',
+      'VOICE_HEADER_BYTES',
+      'VOICE_HEADER_VERSION',
+      'VOICE_JITTER_MAX_FRAMES',
+      'VOICE_RESET_AFTER_MS',
+      'VOICE_TARGET_DELAY_MS',
+      'VoiceCodec',
+      'VoiceFlag',
+      'VoiceHeader',
+      'VoiceJitterBuffer',
+      'VoiceJitterBufferOptions',
+      'VoicePacket',
+      'VoicePacketizer',
+      'VoicePacketizerOptions',
+      'VoicePlayout',
+      'VoicePushResult',
+      'decodeVoicePacket',
+      'encodeVoiceHeader',
+      'encodeVoicePacket',
+      'voiceClockRate',
+      'voiceSamplesPerFrame',
+      'voiceSeqDiff',
+    ],
+    CATEGORY.NATIVE,
+    'the voice payload convention has an installed crowdy/media/voice_frames.hpp equivalent that replays the same fixture (out-of-range jitter options are clamped where CrowdyJS throws RangeError)',
+    {
+      MAX_VOICE_FRAME_BYTES: 'kMaxVoiceFrameBytes',
+      VOICE_HEADER_BYTES: 'kVoiceHeaderBytes',
+      VOICE_HEADER_VERSION: 'kVoiceHeaderVersion',
+      VOICE_JITTER_MAX_FRAMES: 'kVoiceJitterMaxFrames',
+      VOICE_RESET_AFTER_MS: 'kVoiceResetAfterMs',
+      VOICE_TARGET_DELAY_MS: 'kVoiceTargetDelayMs',
+      VoiceCodec: 'VoiceCodec',
+      VoiceFlag: 'VoiceFlag',
+      VoiceHeader: 'VoiceHeader',
+      VoiceJitterBuffer: 'VoiceJitterBuffer',
+      VoiceJitterBufferOptions: 'VoiceJitterBufferOptions',
+      VoicePacket: 'VoicePacket',
+      VoicePacketizer: 'VoicePacketizer',
+      VoicePacketizerOptions: 'VoicePacketizerOptions',
+      VoicePlayout: 'VoicePlayout',
+      VoicePushResult: 'VoicePushResult',
+      decodeVoicePacket: 'decodeVoicePacket',
+      encodeVoiceHeader: 'encodeVoiceHeader',
+      encodeVoicePacket: 'encodeVoicePacket',
+      voiceClockRate: 'voiceClockRate',
+      voiceSamplesPerFrame: 'voiceSamplesPerFrame',
+      voiceSeqDiff: 'voiceSeqDiff',
+    },
+    'include/crowdy/media/voice_frames.hpp',
+  ),
   // CrowdyJS 18.0.2 bounds what the glue copies out of a module (host-call requests, state
   // blobs, invoke replies); a native sandbox bounds its own copies.
   'src/player-runtime/glue-runtime.ts': exportModule(
@@ -953,6 +1013,7 @@ const CROSS_CUTTING_EXPORT_MODULES = {
 const STRICT_NATIVE_EXPORT_MODULES = new Set([
   'src/crowdy-studio/editor.ts',
   'src/crowdy-studio/layout.ts',
+  'src/media/voice-frames.ts',
 ]);
 
 const CROSS_CUTTING_BEHAVIORS = {
@@ -1019,6 +1080,80 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.NATIVE,
       'ChunkStore::ensureAround is one blocking byDistance request that selects voxelStates, so the states and every recorded voxel edit (ck-api v2.33.0) arrive with the bulk load and there is no per-chunk hydration to bound or keep (0.56.0); a refused load, PLATFORM_BUSY included, throws to the caller, and the next call requests every chunk again',
+    ),
+  },
+  // CrowdyJS 18.7.0 changed World Stores and the realtime layer without adding a method a class
+  // scan sees (the Minecraft mod's platform asks); these pin what each change means here.
+  'chunk-store-voxel-overlay': {
+    path: 'src/stores/chunks.ts',
+    markers: ['overlay: new Map(),', 'function fitsDenseGrid('],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkData::overlay keeps the same edits (OverlayVoxel keyed by voxelKey(x, y, z)): a realtime update, a voxelStates entry or a setVoxel with a type outside 0-255 or a position outside 0-15 is kept whole instead of truncated into the one-byte grid or written at an aliased index, and voxelTypeAt (std::int16_t) / voxelStateAt read it first (0.60.0)',
+    ),
+  },
+  'world-session-voxel-hook': {
+    path: 'src/stores/session.ts',
+    markers: ["'voxelUpdate',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'the CrowdyJS session bus hands every voxel update to any listener; WorldSessionConfig::onVoxel is called for each one after chunks() has merged it, with the notification and the voxel payload (0.60.0)',
+    ),
+  },
+  'world-session-generic-spatial': {
+    path: 'src/stores/session.ts',
+    markers: ["'genericSpatial',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'WorldSessionConfig::onGenericSpatial forwards Handlers::genericSpatial, opcode 140 (0.60.0); the CrowdyJS bus key carries it from the binary relay',
+    ),
+  },
+  'generic-spatial-relay-only': {
+    path: 'src/binary-wire.ts',
+    markers: ['case WireMessageType.GENERIC_SPATIAL_1:'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection parses GENERIC_SPATIAL_1 (140) from the replication server natively and sends it with sendGenericSpatial; CrowdyJS reads it on the binary relay only, because the GraphQL udpNotifications union has no member for it',
+    ),
+  },
+  'world-session-channel-audio': {
+    path: 'src/stores/session.ts',
+    markers: ["'channelAudio',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection parses CHANNEL_AUDIO_NOTIFICATION (36), standalone or bundled, into Handlers::channelAudio, WorldSessionConfig::onChannelAudio forwards it, and Connection::sendChannelAudio sends opcode 35 (0.60.0); CrowdyJS receives it on its binary relay or as the udpNotifications union\'s ChannelAudioNotification through the browser UDP proxy, which a native client does not open',
+    ),
+  },
+  'chunk-store-self-echo': {
+    path: 'src/stores/chunks.ts',
+    markers: ['const PENDING_EDIT_TTL_MS = 10_000;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::setVoxel records each sent edit (uuid, sequence, voxel) for kPendingEditTtlMs and ingest() skips its echo (Buddy v0.37.0 echoes every accepted edit to its sender), applying it only when another client\'s edit of that voxel arrived in between and no newer local edit is pending (0.60.0)',
+    ),
+  },
+  'voxel-edit-limits': {
+    path: 'src/binary-wire.ts',
+    markers: ['export function assertVoxelEdit(input: {'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection::sendVoxelUpdate and ChunkStore::setVoxel take int16 positions and types and refuse a state over wire::voxel::kMaxStateSize (1,024 bytes) with InvalidArgument; the app defines what the values mean (0.60.0)',
+    ),
+  },
+  'udp-error-app-paused': {
+    path: 'src/binary-wire.ts',
+    markers: ["33: 'APP_PAUSED',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'wire::ErrorCode::AppPaused (33) arrives in GenericError like every UDP refusal; pair it with isAppPaused(AppTokenResponse::runtimeGate) (0.60.0)',
+    ),
+  },
+  'grid-host-call-voxel-bounds': {
+    path: 'src/grid-mods/grid-host-calls.ts',
+    markers: ['voxelBounds?: GridVoxelBounds;', 'export const DEFAULT_GRID_VOXEL_BOUNDS'],
+    classification: classification(
+      CATEGORY.BROWSER,
+      'the page bounds a CLIENT half\'s voxel_set to the game\'s voxelBounds (default positions 0-15 and types 0-255, 18.7.0); a native engine bounds the voxel writes of its own sandbox',
     ),
   },
 };

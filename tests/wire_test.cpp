@@ -668,6 +668,71 @@ void testSignedBundle() {
 
 }  // namespace
 
+void testChannelAudio() {
+  CHECK_EQ(static_cast<int>(MessageType::ChannelAudioRequest), 35);
+  CHECK_EQ(static_cast<int>(MessageType::ChannelAudioNotification), 36);
+  CHECK_EQ(static_cast<int>(ErrorCode::AppPaused), 33);
+
+  // The vector CrowdyJS's channel-audio test pins (its serializeChannelAudio, opcode 17's
+  // builder with type byte 35): channel 4242, uuid "v"x32, payload 01..05, token "T"x64,
+  // gameTokenId 777, seq 200.
+  ChannelMessageParams p;
+  p.channelId = 4242;
+  p.uuid = uuidOf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
+  const std::uint8_t payload[] = {1, 2, 3, 4, 5};
+  p.payload = Bytes(payload, sizeof(payload));
+  p.gameTokenId = 777;
+  p.sequence = 200;
+  std::uint8_t audio[256];
+  auto n = encodeChannelAudio(crypto(), p, *Token64::fromString(std::string(64, 'T')),
+                              MutableBytes(audio, sizeof(audio)));
+  CHECK(n.ok());
+  CHECK_EQ(toHex(audio, n.value()),
+           std::string("23921000000000000076767676767676767676767676767676767676767676767676767676767676"
+                       "760500010203040501f7c505bbdfc07169f661cb3e3c8d061bbf0065ef4bdc239df40c77112ff8"
+                       "85150903000000000000c8"));
+
+  // Same layout as 17 apart from the type byte (and the HMAC, which covers it).
+  std::uint8_t message[256];
+  auto m = encodeChannelMessage(crypto(), p, *Token64::fromString(std::string(64, 'T')),
+                                MutableBytes(message, sizeof(message)));
+  CHECK(m.ok());
+  CHECK_EQ(m.value(), n.value());
+  CHECK_EQ(message[0], 17u);
+  CHECK(std::memcmp(audio + 1, message + 1, channel::kPayloadOffset + sizeof(payload)) == 0);
+  CHECK(!encodeChannelRequest(MessageType::ChannelMessageNotification, crypto(), p,
+                              testToken(), MutableBytes(audio, sizeof(audio)))
+             .ok());
+  std::vector<std::uint8_t> big(channel::kMaxPayload + 1, 0);
+  p.payload = Bytes(big.data(), big.size());
+  std::vector<std::uint8_t> bigBuf(4096);
+  CHECK(!encodeChannelAudio(crypto(), p, testToken(), MutableBytes(bigBuf.data(), bigBuf.size()))
+             .ok());
+
+  // A 36 parses like an 18; datagram[0] says which.
+  std::uint8_t note[64];
+  note[0] = 36;
+  le::writeI64(note + channel::kChannelIdOffset, 9);
+  std::memcpy(note + channel::kUuidOffset, "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv", 32);
+  le::writeU16(note + channel::kPayloadLenOffset, 2);
+  note[channel::kPayloadOffset] = 0xaa;
+  note[channel::kPayloadOffset + 1] = 0xbb;
+  le::writeI64(note + channel::kPayloadOffset + 2, 1700000000555LL);
+  note[channel::kPayloadOffset + 10] = 4;
+  auto v = parseChannelNotification(Bytes(note, channel::kPayloadOffset + 11));
+  CHECK(v.ok());
+  CHECK_EQ(v->channelId, 9);
+  CHECK_EQ(v->payload.size(), 2u);
+  CHECK_EQ(v->sequence, 4u);
+  note[0] = 35;
+  CHECK(!parseChannelNotification(Bytes(note, channel::kPayloadOffset + 11)).ok());
+
+  const std::uint8_t paused[] = {3, 9, 33};
+  auto err = parseGenericError(Bytes(paused, sizeof(paused)));
+  CHECK(err.ok());
+  CHECK(err->code == ErrorCode::AppPaused);
+}
+
 int main() {
   testLayoutConstants();
   testGoldenEncode();
@@ -678,6 +743,7 @@ int main() {
   testEventPayloadRoundTrip();
   testChannelRoundTrip();
   testRangedChannelGolden();
+  testChannelAudio();
   testGenericError();
   testBundleIteration();
   testBundleWriter();

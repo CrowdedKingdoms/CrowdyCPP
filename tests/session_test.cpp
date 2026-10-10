@@ -130,7 +130,33 @@ void run() {
     ++leftSeen;
     lastLeftReason = reason;
   };
+  // Every voxel edit (after chunks() merged it) and every app-defined spatial message reach the
+  // game too (0.60.0).
+  WorldSession* sessionRef = nullptr;
+  int voxelsSeen = 0, genericSeen = 0;
+  sess.onVoxel = [&](const replication::SpatialNotification& n, const wire::VoxelPayloadView& v) {
+    ++voxelsSeen;
+    CHECK(n.uuidArray() == uuidOf('z') || n.uuidArray() == sessionRef->actorUuid());
+    if (voxelsSeen == 1) CHECK_EQ(v.state.size(), std::size_t{2});
+    if (n.uuidArray() == uuidOf('z')) {  // an echo of ours may be skipped (see below)
+      CHECK_EQ(sessionRef->chunks().voxelTypeAt(n.chunk, v.x, v.y, v.z), v.voxelType);
+    }
+  };
+  sess.onGenericSpatial = [&](const replication::SpatialNotification& n) {
+    ++genericSeen;
+    CHECK(n.type == wire::MessageType::GenericSpatial1);
+    CHECK(n.uuidArray() == uuidOf('z'));
+    CHECK_EQ(n.payload.size(), std::size_t{3});
+  };
+  int channelAudioSeen = 0;
+  sess.onChannelAudio = [&](const replication::ChannelNotification& n) {
+    ++channelAudioSeen;
+    CHECK_EQ(n.channelId, 99);
+    CHECK_EQ(n.payload.size(), std::size_t{3});
+    CHECK_EQ(n.sequence, 13u);
+  };
   WorldSession session(conn, nullptr, sess);
+  sessionRef = &session;
 
   // --- Join sends the first actor update.
   const std::uint8_t pose[] = {9, 9, 9, 9};
@@ -235,6 +261,7 @@ void run() {
 
   const ChunkData* chunk = session.chunks().find({2, 0, 0});
   CHECK(chunk != nullptr);
+  CHECK_EQ(voxelsSeen, 1);
   CHECK_EQ(chunk->voxels[static_cast<std::size_t>(voxelIndex(3, 4, 5))], 7u);
   auto vs = chunk->voxelStates.find(voxelIndex(3, 4, 5));
   CHECK(vs != chunk->voxelStates.end());
@@ -347,6 +374,92 @@ void run() {
   }
   CHECK_EQ(audioSeen, 1);
   CHECK_EQ(videoSeen, 1);
+
+  // --- An app-defined spatial message (opcode 140) reaches onGenericSpatial.
+  const std::uint8_t genericBytes[] = {4, 5, 6};
+  auto genericNote = makeNotification(wire::MessageType::GenericSpatial1, other, {1, 0, 0},
+                                      Bytes(genericBytes, sizeof(genericBytes)), 1700000000815LL, 12);
+  server.reply(genericNote.data(), genericNote.size());
+  for (int i = 0; i < 100 && genericSeen < 1; ++i) {
+    conn->pump(20);
+    session.tick();
+  }
+  CHECK_EQ(genericSeen, 1);
+  CHECK_EQ(voxelsSeen, 1);
+
+  // --- Self-echo (Buddy v0.37.0 echoes every accepted voxel edit to its sender): the echo of
+  // our own edit is not applied again, a foreign edit in between is overwritten by our echo
+  // (the server ordered ours last), and an echo older than a newer local edit is skipped.
+  {
+    const wire::ChunkCoord at{2, 0, 0};
+    auto echo = [&](const core::ActorUuid& from, std::uint8_t seqNo, std::int16_t type) {
+      std::uint8_t payload[wire::voxel::kFixedSize];
+      wire::encodeVoxelPayload(1, 1, 1, type, Bytes(), MutableBytes(payload, sizeof(payload)));
+      auto frame = makeNotification(wire::MessageType::VoxelUpdateNotification, from, at,
+                                    Bytes(payload, sizeof(payload)), 1700000000816LL, seqNo);
+      const int before = voxelsSeen;
+      server.reply(frame.data(), frame.size());
+      for (int i = 0; i < 100 && voxelsSeen == before; ++i) {
+        conn->pump(20);
+        session.tick();
+      }
+      CHECK_EQ(voxelsSeen, before + 1);
+    };
+    int changes = 0;
+    session.chunks().onChunkChanged([&](const ChunkData&) { ++changes; });
+
+    echo(session.actorUuid(), seq.value(), 3);  // the edit sent above
+    CHECK_EQ(changes, 0);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 3);
+
+    auto s2 = session.chunks().setVoxel(at, 1, 1, 1, 4, Bytes(), session.actorUuid());
+    CHECK(s2.ok());
+    echo(other, 200, 9);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 9);
+    echo(session.actorUuid(), s2.value(), 4);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 4);
+
+    auto s3 = session.chunks().setVoxel(at, 1, 1, 1, 5, Bytes(), session.actorUuid());
+    auto s4 = session.chunks().setVoxel(at, 1, 1, 1, 6, Bytes(), session.actorUuid());
+    CHECK(s3.ok() && s4.ok());
+    echo(other, 201, 9);
+    echo(session.actorUuid(), s3.value(), 5);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 9);
+    echo(session.actorUuid(), s4.value(), 6);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
+    const int afterEchoes = changes;
+    echo(session.actorUuid(), s4.value(), 6);  // a duplicate after the match is a plain edit
+    CHECK_EQ(changes, afterEchoes + 1);
+    session.chunks().onChunkChanged(nullptr);
+
+    // A state over 1,024 bytes is refused before anything changes.
+    std::vector<std::uint8_t> big(wire::voxel::kMaxStateSize + 1, 1);
+    CHECK(session.chunks()
+              .setVoxel(at, 1, 1, 1, 7, Bytes(big.data(), big.size()), session.actorUuid())
+              .error() == Errc::InvalidArgument);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
+  }
+
+  // --- Channel audio (opcode 36) reaches onChannelAudio, not the channel inbox.
+  {
+    std::uint8_t frame[128];
+    frame[0] = 36;
+    le::writeI64(frame + wire::channel::kChannelIdOffset, 99);
+    std::memcpy(frame + wire::channel::kUuidOffset, other.data(), 32);
+    le::writeU16(frame + wire::channel::kPayloadLenOffset, 3);
+    frame[wire::channel::kPayloadOffset] = 1;
+    frame[wire::channel::kPayloadOffset + 1] = 2;
+    frame[wire::channel::kPayloadOffset + 2] = 3;
+    le::writeI64(frame + wire::channel::kPayloadOffset + 3, 1700000000817LL);
+    frame[wire::channel::kPayloadOffset + 11] = 13;
+    server.reply(frame, wire::channel::kPayloadOffset + 12);
+    for (int i = 0; i < 100 && channelAudioSeen < 1; ++i) {
+      conn->pump(20);
+      session.tick();
+    }
+    CHECK_EQ(channelAudioSeen, 1);
+    CHECK_EQ(session.channelInbox().size(), 0u);
+  }
 
   // --- Server-announced departure (ActorLeftNotification, Buddy v0.25.0): the
   // mob is fresh (well inside staleAfterMs) yet leaves at once, onLeave fires once

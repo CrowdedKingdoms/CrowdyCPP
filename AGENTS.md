@@ -141,6 +141,9 @@ the voice payload cases, `tools/parity/fixtures/voice-frames.json`, which
 pinned commit's), and reruns the fixture generators plus the matrix; it prints
 the steps it cannot do for you. A C++ test replays each copy (`exec_test`,
 `voice_frames_test`), so a behaviour change lands in CrowdyJS's fixture first.
+Some wire vectors are literal in both repos' tests instead of a fixture: the opcode 35
+(channel audio) bytes in `wire_test` are the ones CrowdyJS's
+`test/unit/channel-audio.test.mjs` asserts, so a layout change edits both.
 `docs/compatibility.md` names the pin too and is edited by hand. Four things
 reliably bite when this is done by hand:
 

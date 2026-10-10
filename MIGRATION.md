@@ -2,9 +2,11 @@
 
 ## 0.60.0 Voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels
 
-Mirrors CrowdyJS 18.7.0. No wire change and no newer API needed. Two signatures change
-(`ChunkStore::voxelTypeAt`, `ChunkStore::setVoxel`'s refusal), so rebuild; CrowdyPy re-vendors
-and can bind the new `WorldSessionConfig` callbacks and `ChunkData::overlay`.
+Mirrors CrowdyJS 18.7.0. Channel audio and the voxel echo need Buddy v0.37.0, and the token
+mutations select `runtimeGate`, so this needs the ck-api release after v2.39.0 (an older one
+refuses the selection). Signatures change (`ChunkStore::voxelTypeAt`, `ChunkStore::setVoxel`'s
+refusal, `ChunkStore::ingest` returns `bool`), so rebuild; CrowdyPy re-vendors and can bind the new
+`WorldSessionConfig` callbacks and `ChunkData::overlay`.
 
 - **Voice helpers** (`crowdy/media/voice_frames.hpp`, header-only): an optional convention for
   what an audio payload carries. A 10-byte header, little-endian, goes in front of each codec
@@ -51,11 +53,43 @@ and can bind the new `WorldSessionConfig` callbacks and `ChunkData::overlay`.
 
   The store is a 16×16×16 helper; a game with other addressing reads `onVoxel` and
   `StoredChunk::voxelStates`.
+- **Channel audio** (Buddy v0.37.0). `Connection::sendChannelAudio(channelId, uuid, payload)` sends
+  opcode 35 (opcode 17's layout and signing; `wire::encodeChannelAudio`, both through
+  `wire::encodeChannelRequest`), at most 1,024 payload bytes; without the channel's `send_voice`
+  and the app's `use_voice_chat` the server answers `UNAUTHORIZED` (7). No echo to the sender.
+  Opcode 36, standalone or bundled, parses like 18 (`parseChannelNotification` takes either) into
+  `Handlers::channelAudio`, and `WorldSessionConfig::onChannelAudio` forwards it (the channel inbox
+  does not get it). `grids().createChannel` takes `membersCanSpeak`; `channels().create`'s input
+  passes it through. See the README's voice section.
+- **`wire::ErrorCode::AppPaused` (33)**: the replication server refuses a paused app's sends.
+- **Voxel state at most 1,024 bytes** (`wire::voxel::kMaxStateSize`): `Connection::sendVoxelUpdate`
+  and `ChunkStore::setVoxel` return `InvalidArgument` above it (positions and types were already
+  `std::int16_t`); the server answers `INVALID_REQUEST` (15).
+- **The echo of your own voxel edit.** Buddy v0.37.0 delivers every accepted edit back to its
+  sender. `ChunkStore::setVoxel` records each send (uuid, sequence, voxel) for
+  `kPendingEditTtlMs` (10 s, clock in `Options::now`) and `ingest()` skips its echo, so a local
+  edit fires `onChunkChanged` once; the echo is applied only when another client's edit of the
+  voxel arrived in between and no newer local edit is pending. `ingest()` returns whether it
+  changed the cache. `onVoxel` sees the echoes too: compare uuid and sequence with your send's.
+- **Pause and access refusals.** `domains::AppRuntimeGate` / `isAppPaused(gate)` and
+  `AppTokenResponse::runtimeGate` (mint, exchange and refresh select it; a paused app still
+  mints). `GraphQLErrorDetail` reads `ownedByCaller`, `suspendedUntil` and `reason`;
+  `graphql::actorExistsOf`, `accessRefusalOf`, `appPausedOf` and the `k*Code` constants.
+- **New API wraps** (each with its `Async` twin): `users().playerProfile(userId)` and
+  `playerProfiles(userIds)` (at most `kPlayerProfilesMax`, 100; more is `INVALID_ARGUMENT`);
+  `admin().appAccess().suspend(appId, userId, until, idempotencyKey)`, `unsuspend`,
+  `resyncTierGridPermissions` (`manage_access_tiers`), `suspendedUntil` on every access record;
+  `exec().restartType(appId, nodeType)` (`manage_compute`) and the new `status` fields
+  (`budgetPauseReason`, `maxInstances`, `maxReservedMb`, `instanceLimit`, `instances`,
+  `reservedMb`); `claimOwnerKeys` on `apps().get` / `update`; `voxelStatesTruncated` on chunk
+  reads; `runtimeGate` and `wildernessWritesOpen` on `gameClientBootstrap`.
 
 Parity: `tools/parity/parity.mjs` classifies CrowdyJS 18.7.0's `media/voice-frames.ts` as a native
 equivalent (every export mapped to `voice_frames.hpp`) and pins the behaviour changes above
 (`chunk-store-voxel-overlay`, `world-session-voxel-hook`, `world-session-generic-spatial`,
-`generic-spatial-relay-only`, `grid-host-call-voxel-bounds`). `parity:repin` copies the voice
+`generic-spatial-relay-only`, `world-session-channel-audio`, `chunk-store-self-echo`,
+`voxel-edit-limits`, `udp-error-app-paused`, `grid-host-call-voxel-bounds`) and classifies
+`Mutation.sendChannelAudio` as native (`Connection::sendChannelAudio`). `parity:repin` copies the voice
 fixture with the exec gateway cases. They need the pin moved to the CrowdyJS 18.7.0 commit.
 
 ## 0.59.0 The input log

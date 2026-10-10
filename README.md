@@ -801,6 +801,14 @@ helper for 16×16×16 chunks with one byte per voxel. Voxel positions and types 
 `voxelKey(x, y, z)`), and `voxelTypeAt` / `voxelStateAt` return it. A game with other addressing
 reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
 
+Buddy v0.37.0 echoes every accepted voxel edit back to its sender. `ChunkStore::setVoxel` records
+each send (uuid, sequence, voxel) for 10 s and `ingest()` does not apply its echo again, so a local
+edit fires `onChunkChanged` once; the echo is applied only when another client's edit of the voxel
+arrived in between and no newer local edit is pending. `onVoxel` sees the echoes too. A state over
+1,024 bytes (`wire::voxel::kMaxStateSize`) is `InvalidArgument` before anything changes; the server
+answers it with `INVALID_REQUEST` (15). A paused app's sends are refused with
+`wire::ErrorCode::AppPaused` (33).
+
 ## Voice payloads
 
 An audio payload is opaque to the server, and a game with a voice format of its own keeps it.
@@ -836,6 +844,26 @@ for (const VoicePlayout& slot : voices.poll(nowMs())) {
   if (slot.gap) conceal(slot.key, slot.frameMs);  // the frame never came
   else play(slot.key, slot.codec, slot.frame);
 }
+```
+
+### Channel audio (party and guild voice)
+
+`sendAudio` reaches players near a chunk. `Connection::sendChannelAudio(channelId, uuid, payload)`
+(opcode 35, Buddy v0.37.0) reaches every active member of a channel wherever they are, at most
+1,024 payload bytes. The sender needs the channel's `send_voice` (`channels().create` with
+`membersCanSpeak: true`, or `grids().createChannel(appId, gridId, name, true)`, gives it to the
+member role) and the app's `use_voice_chat`; without them the server answers `UNAUTHORIZED` (7).
+There is no echo. Members get opcode 36 through `Handlers::channelAudio` /
+`WorldSessionConfig::onChannelAudio` (a `ChannelNotification`, like a channel message); key the
+jitter buffer by channel and sender.
+
+```cpp
+const auto packet = party.packetize(opusFrame, talkKeyReleased);
+conn.sendChannelAudio(channelId, session.actorUuid(), crowdy::Bytes(packet.data(), packet.size()));
+
+sessionConfig.onChannelAudio = [&](const crowdy::replication::ChannelNotification& n) {
+  partyVoices.push(std::to_string(n.channelId) + ":" + std::string(n.senderUuid, 32), n.payload, nowMs());
+};
 ```
 
 No codec is built by default. With `-DCROWDY_WITH_OPUS=ON` (see [Build](#build)),
@@ -981,6 +1009,11 @@ GraphQL-layer failures throw structured exceptions mirroring CrowdyJS:
 `CrowdyHttpError`, `CrowdyGraphQLError` (preserves `extensions.code`,
 `remediation`), `CrowdyNetworkError`, `CrowdyTimeoutError`,
 `CrowdyProtocolError`. Branch on `error.code()` rather than parsing messages.
+`graphql::accessRefusalOf(errors)` (ACCESS_REVOKED, ACCESS_SUSPENDED with `suspendedUntil`,
+ACCESS_NOT_GRANTED), `appPausedOf` (APP_PAUSED, `reason`) and `actorExistsOf` (ACTOR_EXISTS,
+`ownedByCaller`) read the refusals a player should be told about from `CrowdyGraphQLError::errors()`
+or `GraphQLOutcome::errors`. A paused app still mints: check
+`domains::isAppPaused(token.runtimeGate)` before entering the world.
 Subscriptions are non-throwing: `onNext` receives
 `GraphQLSubscriptionOutcome`, while `onError` receives a typed terminal
 `GraphQLSubscriptionError`. Destroying its move-only handle suppresses queued

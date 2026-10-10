@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "crowdy/graphql/dispatcher.hpp"
+#include "crowdy/domains/types.hpp"
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/graphql/http.hpp"
@@ -200,6 +201,60 @@ void testRetryAfterMsDistinguishesZeroFromAbsent() {
   const GraphQLErrorDetail wrongType = errorFor(
       R"({"errors":[{"message":"?","extensions":{"code":"RATE_LIMITED","retryAfterMs":"soon"}}]})");
   CHECK(!wrongType.retryAfterMs.has_value());
+}
+
+// ck-api's access, actor and pause refusals carry their detail in extensions.
+void testRefusalReaders() {
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  auto async = std::make_shared<FakeAsyncTransport>();
+  client->setAsyncTransport(async);
+  auto errorsFor = [&](const char* body) {
+    async->outcome = httpOk(200, body);
+    GraphQLOutcome got;
+    client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { got = std::move(out); });
+    return got.errors;
+  };
+
+  auto taken = errorsFor(
+      R"({"errors":[{"message":"taken","extensions":{"code":"ACTOR_EXISTS","ownedByCaller":true}}]})");
+  CHECK(actorExistsOf(taken).has_value());
+  CHECK(actorExistsOf(taken)->ownedByCaller == std::optional<bool>(true));
+  CHECK(!accessRefusalOf(taken).has_value());
+  auto unsaid = errorsFor(R"({"errors":[{"message":"taken","extensions":{"code":"ACTOR_EXISTS"}}]})");
+  CHECK(!actorExistsOf(unsaid)->ownedByCaller.has_value());
+
+  auto suspended = errorsFor(
+      R"({"errors":[{"message":"x","extensions":{"code":"FORBIDDEN"}},)"
+      R"({"message":"suspended","extensions":{"code":"ACCESS_SUSPENDED","suspendedUntil":"2026-11-01T00:00:00.000Z"}}]})");
+  auto refusal = accessRefusalOf(suspended);
+  CHECK(refusal.has_value());
+  CHECK(refusal->code == "ACCESS_SUSPENDED");
+  CHECK(refusal->suspendedUntil == "2026-11-01T00:00:00.000Z");
+  for (const char* code : {"ACCESS_REVOKED", "ACCESS_NOT_GRANTED"}) {
+    const std::string body = std::string(R"({"errors":[{"message":"no","extensions":{"code":")") +
+                             code + R"("}}]})";
+    auto r = accessRefusalOf(errorsFor(body.c_str()));
+    CHECK(r.has_value() && r->code == code && r->suspendedUntil.empty());
+  }
+
+  auto paused = errorsFor(
+      R"({"errors":[{"message":"paused","extensions":{"code":"APP_PAUSED","reason":"BUDGET_EXHAUSTED"}}]})");
+  CHECK(appPausedOf(paused).has_value());
+  CHECK(appPausedOf(paused)->reason == "BUDGET_EXHAUSTED");
+  CHECK(!appPausedOf(taken).has_value());
+
+  CHECK(!domains::isAppPaused(std::nullopt));
+  domains::AppRuntimeGate gate;
+  gate.status = "ACTIVE";
+  CHECK(!domains::isAppPaused(gate));
+  gate.status = "GRACE";
+  CHECK(domains::isAppPaused(gate));
+  auto token = domains::AppTokenResponse::fromJson(Json::parse(
+      R"({"token":"t","gameTokenId":"1","appId":"7","runtimeGate":{"status":"SUSPENDED","reason":null}})"));
+  CHECK(token.runtimeGate.has_value() && token.runtimeGate->status == "SUSPENDED");
+  CHECK(token.runtimeGate->reason.isNull());
+  CHECK(domains::isAppPaused(token.runtimeGate));
+  CHECK(!domains::AppTokenResponse::fromJson(Json::parse(R"({"token":"t"})")).runtimeGate);
 }
 
 void testAsyncHttpError() {
@@ -445,6 +500,7 @@ int main() {
   testAsyncGraphqlErrors();
   testRetryAfterMsIsReadFromExtensions();
   testRetryAfterMsDistinguishesZeroFromAbsent();
+  testRefusalReaders();
   testAsyncHttpError();
   testAsyncProtocolError();
   testAsyncTransportFailure();

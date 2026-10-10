@@ -1,5 +1,5 @@
-mutation ClaimFreeAppAccess($appId: BigInt!) {
-  claimFreeAppAccess(appId: $appId) {
+mutation UnsuspendAppAccess($appId: BigInt!, $userId: BigInt!) {
+  unsuspendAppAccess(appId: $appId, userId: $userId) {
     appUserAccessId
     appId
     userId

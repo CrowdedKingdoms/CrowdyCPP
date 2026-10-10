@@ -215,6 +215,8 @@ const ROOT_CLASSIFICATIONS = {
       'sendChannelMessage',
       // 18.5.0 / 0.58.0: the distance-limited channel publish (Connection::sendRangedChannelMessage).
       'sendRangedChannelMessage',
+      // 18.7.0 / 0.60.0: channel audio, opcode 35 (Connection::sendChannelAudio).
+      'sendChannelAudio',
     ],
     CATEGORY.NATIVE,
     'browser GraphQL UDP proxy maps to CrowdyCPP native signed UDP',
@@ -1112,6 +1114,38 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.NATIVE,
       'Connection parses GENERIC_SPATIAL_1 (140) from the replication server natively and sends it with sendGenericSpatial; CrowdyJS reads it on the binary relay only, because the GraphQL udpNotifications union has no member for it',
+    ),
+  },
+  'world-session-channel-audio': {
+    path: 'src/stores/session.ts',
+    markers: ["'channelAudio',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection parses CHANNEL_AUDIO_NOTIFICATION (36), standalone or bundled, into Handlers::channelAudio, WorldSessionConfig::onChannelAudio forwards it, and Connection::sendChannelAudio sends opcode 35 (0.60.0); CrowdyJS reads 36 on the binary relay only, because the GraphQL udpNotifications union has no member for it yet',
+    ),
+  },
+  'chunk-store-self-echo': {
+    path: 'src/stores/chunks.ts',
+    markers: ['const PENDING_EDIT_TTL_MS = 10_000;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::setVoxel records each sent edit (uuid, sequence, voxel) for kPendingEditTtlMs and ingest() skips its echo (Buddy v0.37.0 echoes every accepted edit to its sender), applying it only when another client\'s edit of that voxel arrived in between and no newer local edit is pending (0.60.0)',
+    ),
+  },
+  'voxel-edit-limits': {
+    path: 'src/binary-wire.ts',
+    markers: ['export function assertVoxelEdit(input: {'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection::sendVoxelUpdate and ChunkStore::setVoxel take int16 positions and types and refuse a state over wire::voxel::kMaxStateSize (1,024 bytes) with InvalidArgument; the app defines what the values mean (0.60.0)',
+    ),
+  },
+  'udp-error-app-paused': {
+    path: 'src/binary-wire.ts',
+    markers: ["33: 'APP_PAUSED',"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'wire::ErrorCode::AppPaused (33) arrives in GenericError like every UDP refusal; pair it with isAppPaused(AppTokenResponse::runtimeGate) (0.60.0)',
     ),
   },
   'grid-host-call-voxel-bounds': {

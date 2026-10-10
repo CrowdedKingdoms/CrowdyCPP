@@ -484,8 +484,8 @@ void testABulkLoadAppliesTheRecordedEdits() {
 }
 
 // A load takes the server's states over the cache: an entry's state replaces the cached one, an
-// entry without one clears it, an entry outside the chunk is ignored, and a source that reports no
-// states leaves the cached ones as they were.
+// entry without one clears it, an entry outside the chunk goes to the overlay (never onto the voxel
+// its index would alias), and a source that reports no states leaves the cached ones as they were.
 void testALoadTakesTheServersStates() {
   ScriptedSource source;
   StoredChunk stored;
@@ -520,6 +520,13 @@ void testALoadTakesTheServersStates() {
     if (i == voxelIndex(1, 2, 3) || i == voxelIndex(4, 5, 6)) continue;
     CHECK_EQ(store.find(at)->voxels[static_cast<std::size_t>(i)], 9);
   }
+  // The two entries outside the chunk are kept, with their states, in the overlay (0.60.0).
+  CHECK_EQ(store.find(at)->overlay.size(), 2u);
+  CHECK_EQ(store.voxelTypeAt(at, 16, 0, 0), 5);
+  CHECK_EQ(store.voxelTypeAt(at, 0, -1, 0), 5);
+  const VoxelState* far = store.voxelStateAt(at, 16, 0, 0);
+  CHECK(far != nullptr && far->state == std::vector<std::uint8_t>{0x01});
+  CHECK_EQ(store.voxelTypeAt(at, 17, 0, 0), 0);
 
   // A source that reports no states (any written before 0.56.0) keeps the cached ones.
   source.stored.front().voxelStates.clear();
@@ -529,8 +536,72 @@ void testALoadTakesTheServersStates() {
   CHECK(store.voxelStateAt(at, 1, 2, 3) != nullptr);
 }
 
+replication::SpatialNotification voxelNote(const ChunkCoord& chunk, const char* uuid) {
+  return {wire::MessageType::VoxelUpdateNotification, 42, chunk, uuid, Bytes(), 1, 0};
+}
+
+// 0.60.0: voxel positions and types are the app's signed 16-bit values. An edit the one-byte 16^3
+// grid cannot hold goes to the overlay, whole; reads return it; nothing is written at a position
+// outside the grid (a realtime (16,0,0) used to be written at index 16, which is (0,1,0)).
+void testWideVoxelsGoToTheOverlay() {
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore::Options options;
+  options.writeBackIntervalMs = 0;
+  ChunkStore store(conn, nullptr, "42", options);
+  const ChunkCoord at{0, 0, 0};
+  std::array<std::uint8_t, kChunkVolume> grid{};
+  grid.fill(9);
+  store.insertGenerated(at, grid);
+  const char sender[33] = "0123456789abcdef0123456789abcdef";
+  const std::uint8_t log[] = {'o', 'a', 'k'};
+
+  // A type above 255 inside the grid: kept whole, the grid holds 0 there, no dense state.
+  store.ingest(voxelNote(at, sender), {1, 2, 3, 300, Bytes(log, sizeof(log))});
+  CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 300);
+  const VoxelState* wide = store.voxelStateAt(at, 1, 2, 3);
+  CHECK(wide != nullptr && wide->voxelType == 300 && wide->state.size() == 3u);
+  const ChunkData* c = store.find(at);
+  CHECK_EQ(c->voxels[static_cast<std::size_t>(voxelIndex(1, 2, 3))], 0u);
+  CHECK(c->voxelStates.find(voxelIndex(1, 2, 3)) == c->voxelStates.end());
+  const auto entry = c->overlay.find(voxelKey(1, 2, 3));
+  CHECK(entry != c->overlay.end() && entry->second.x == 1 && entry->second.y == 2 &&
+        entry->second.z == 3);
+
+  // Positions outside 0-15 and a negative type: kept, and the grid is untouched.
+  store.ingest(voxelNote(at, sender), {16, 0, 0, 5, Bytes()});
+  store.ingest(voxelNote(at, sender), {0, -1, 0, 4, Bytes()});
+  store.ingest(voxelNote(at, sender), {2, 2, 2, -1, Bytes()});
+  CHECK_EQ(store.voxelTypeAt(at, 16, 0, 0), 5);
+  CHECK_EQ(store.voxelTypeAt(at, 0, -1, 0), 4);
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), -1);
+  CHECK_EQ(store.voxelTypeAt(at, 0, 1, 0), 9);
+  CHECK(store.voxelStateAt(at, 16, 0, 0) == nullptr);  // no state
+  CHECK_EQ(store.find(at)->overlay.size(), 4u);
+  for (int i = 0; i < kChunkVolume; ++i) {
+    if (i == voxelIndex(1, 2, 3) || i == voxelIndex(2, 2, 2)) continue;
+    CHECK_EQ(store.find(at)->voxels[static_cast<std::size_t>(i)], 9);
+  }
+
+  // An edit the grid can hold takes the voxel back out of the overlay.
+  store.ingest(voxelNote(at, sender), {1, 2, 3, 7, Bytes()});
+  CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 7);
+  CHECK_EQ(store.find(at)->overlay.size(), 3u);
+
+  // A local edit follows the same rule (the send fails here: the connection never opened);
+  // one whose position does not fit in 16 bits is refused before anything changes.
+  (void)store.setVoxel(at, 3, 3, 3, 2000, Bytes(), core::ActorUuid{});
+  (void)store.setVoxel(at, -5, 40, 3, 6, Bytes(), core::ActorUuid{});
+  CHECK_EQ(store.voxelTypeAt(at, 3, 3, 3), 2000);
+  CHECK_EQ(store.voxelTypeAt(at, -5, 40, 3), 6);
+  CHECK(store.setVoxel(at, 40000, 0, 0, 1, Bytes(), core::ActorUuid{}).error() ==
+        Errc::InvalidArgument);
+  CHECK_EQ(store.find(at)->overlay.size(), 5u);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
+  testWideVoxelsGoToTheOverlay();
   testAnInjectedSourceHydratesAndWritesBack();
   testABulkLoadAppliesTheRecordedEdits();
   testALoadTakesTheServersStates();

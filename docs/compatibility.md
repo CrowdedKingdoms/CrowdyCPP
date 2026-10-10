@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
 CrowdyCPP 0.61.0 passes the strict portable-parity gate against CrowdyJS
-**18.7.0**. The gate pins CrowdyJS commit
-`1ff76217bf396325f3c2774ca4d89644ab4ce352` (`crowdyjsParityTarget` in
+**18.8.0**. The gate pins CrowdyJS commit
+`d7b755abe73bd9e157673325cbfcfb3975f71cc3` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -34,7 +34,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.61.0 | CrowdyJS 18.7.0 | Required public API generation |
+| Surface | CrowdyCPP 0.61.0 | CrowdyJS 18.8.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -52,6 +52,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Voxel edits for a game's own world | `WorldSessionConfig::onVoxel`, after `chunks()` merged the edit (0.60.0) | `voxelUpdate` handler and bus key | None |
 | The echo of a client's own voxel edit | `ChunkStore` skips the echo of its own `setVoxel` unless a foreign edit came in between; state over 1,024 bytes is `InvalidArgument` (0.60.0) | `ChunkStore` does the same; `assertVoxelEdit` (18.7.0) | Buddy v0.37.0 echoes every accepted edit to its sender and refuses a state over 1,024 bytes with `INVALID_REQUEST` (15) |
 | Paused apps and access refusals | `AppTokenResponse::runtimeGate`, `domains::isAppPaused`, `wire::ErrorCode::AppPaused`, `graphql::appPausedOf` / `accessRefusalOf` / `actorExistsOf`; `admin().appAccess().suspend` / `unsuspend` / `resyncTierGridPermissions`; `users().playerProfile(s)`; `exec().restartType` (0.60.0) | `runtimeGate`, `isAppPaused`, `UDP_ERROR_NAMES[33]`, the same readers and wraps (18.7.0) | The ck-api release after v2.39.0 (`runtimeGate` is selected on every token mutation, so an older one refuses the mint); Buddy v0.37.0 for error 33 |
+| The SDK a build compiled against | `sdkVersion` in the JSON of `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus` (0.61.0) | `ExecBuild.sdkVersion` through the same calls (18.8.0) | ck-api v2.40.2 (`ExecBuild.sdkVersion`; an older API refuses the build documents) |
 | Wide voxel types and other addresses | `ChunkData::overlay` (`OverlayVoxel`, `voxelKey`); `voxelTypeAt` returns `std::int16_t` (0.60.0) | `CachedChunk.overlay` (`ChunkOverlayVoxel`, `voxelKey`); `createGridHostCalls({ voxelBounds })` for a CLIENT half (18.7.0) | Voxel positions and types are the app's signed 16-bit values |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
 | Wrapper seams | `Config::onEventsReady` (wake an event loop when notifications are waiting), `IChunkSource` for `ChunkStore` and `IHostElection` + `WorldSessionServices` for `WorldSession` (durable services without a `CrowdyClient`), `WorldSessionConfig::onText` (0.54.0) | No counterpart: the browser SDK has no native core to wrap | None; native-only API |

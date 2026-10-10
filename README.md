@@ -44,10 +44,12 @@ outside 0-15) in `ChunkData::overlay` instead of truncating it, and `voxelTypeAt
 **v0.59.0: the input log.** `client.inputLog().sessions(appId, first, after, filter)` and
 `messages(appId, gameTokenId, first, after, filter)` (each with an `Async` twin) read the client
 inputs recorded for an app with replay logging on (`App.replayLoggingEnabled`, now selected on every
-app read and set with `admin().apps().update`). Game plane: the app-scoped client. A player reads
-their own; `manage_apps` reads every session. A messages page can be short, or empty, while
-`pageInfo.hasNextPage` is true, so keep paging until it is false. Pinned to CrowdyJS 18.6.0. See
-[MIGRATION.md](MIGRATION.md).
+app read and set with `admin().apps().update`, so it needs ck-api v2.39.0 or later). Game plane:
+the app-scoped client. A player reads their own; `manage_apps` reads every session. A messages page
+can be short, or empty, while `pageInfo.hasNextPage` is true, so keep paging until it is false. A
+message's `body` is standard base64: `crowdy::core::base64Decode` (`crowdy/core/base64.hpp`) gives
+the bytes, from the type byte up to the authentication tail, which is not recorded. Pinned to
+CrowdyJS 18.6.0. See [MIGRATION.md](MIGRATION.md).
 
 **v0.58.0: channel messages limited by distance.** `Connection::sendRangedChannelMessage(channelId,
 uuid, payload, origin, maxDistance)` publishes to a channel so that only members with a live actor in

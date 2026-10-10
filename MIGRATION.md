@@ -94,7 +94,9 @@ fixture with the exec gateway cases. They need the pin moved to the CrowdyJS 18.
 
 ## 0.59.0 The input log
 
-Pinned to CrowdyJS 18.6.0 (`ca9fbb5`); needs ck-api with the input log. Additive: nothing existing
+Pinned to CrowdyJS 18.6.0 (`ca9fbb5`, which was not the commit 18.6.0 was released from:
+`dev/v18.6.0` is `7662d0b0`, and CI now refuses a pin that is not a tagged release); needs ck-api
+v2.39.0 or later, because every app read selects `replayLoggingEnabled`. Additive: nothing existing
 changes shape, and CrowdyPy needs nothing beyond re-vendoring. The schema snapshot also carries
 ck-api's dev/test staff-only gate; as in CrowdyJS, nothing wraps it (its operator fields are
 platform-only).
@@ -104,8 +106,9 @@ platform-only).
   `totalCount`). A session is one game token's inputs; `filter` takes `userId`, `from`, `to` and
   `messageType`. Another user's sessions need `manage_apps` (`FORBIDDEN` otherwise).
 - `client.inputLog().messages(appId, gameTokenId, first = 50, after = {}, filter = {})` reads one
-  session's inputs, oldest first. `body` is the client message in base64, without its
-  authentication tail; `sizeBytes` is what stored input logs are billed on; spatial inputs carry
+  session's inputs, oldest first. `body` is the client message in standard base64, without its
+  authentication tail (`crowdy::core::base64Decode` gives the bytes); `sizeBytes` is what stored
+  input logs are billed on; spatial inputs carry
   their chunk and actor, channel inputs their channel. **Keep paging while `pageInfo.hasNextPage`
   is true**: a page can be short, or empty, when it reached the server's time or scan limit.
   Another user's session answers `NOT_FOUND` without `manage_apps`.

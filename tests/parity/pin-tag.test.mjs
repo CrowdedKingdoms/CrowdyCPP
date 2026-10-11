@@ -75,6 +75,11 @@ test('a tier branch is judged as its tier, and any other branch as dev', () => {
   assert.equal(tierOfRef('test/hotfix-pin'), 'test');
   assert.equal(tierOfRef('fix/input-log-review'), 'dev');
   assert.equal(tierOfRef('testing-something'), 'dev');
+  // A promotion branch is re-pinned to its destination's tag, so it is judged as that tier.
+  assert.equal(tierOfRef('promote/dev-to-test-20260915'), 'test');
+  assert.equal(tierOfRef('refs/heads/promote/test-to-prod-20261012'), 'prod');
+  assert.equal(tierOfRef('promote/dev-to-test'), 'test');
+  assert.equal(tierOfRef('promote/something-else'), 'dev');
 });
 
 test('the pull request base decides over the pushed branch, and --tier over both', () => {

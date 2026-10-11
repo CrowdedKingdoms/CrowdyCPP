@@ -16,7 +16,9 @@
 // released the version on that tier.
 //
 // The tier is the ref's: the pull request's base, else the pushed branch. `dev`, `test` and
-// `prod` (or `<tier>/…`) name theirs; any other branch is a feature branch and counts as dev.
+// `prod` (or `<tier>/…`) name theirs, a promotion branch (`promote/<from>-to-<to>-…`, which
+// promote.mjs re-pins to the destination's tag) is its destination's, and any other branch is
+// a feature branch and counts as dev.
 //
 //   node tools/parity/pin-tag.mjs --ref "$PIN_REF"   # CI: the base ref, else the branch
 //   node tools/parity/pin-tag.mjs --tier test        # judge as a tier explicitly
@@ -43,9 +45,14 @@ export function parseTagRefs(text) {
   return out;
 }
 
-/** The tier a ref is judged as: `dev`, `test` or `prod` (or `<tier>/…`), else dev. */
+/**
+ * The tier a ref is judged as: `dev`, `test` or `prod` (or `<tier>/…`); a promotion branch's
+ * destination (`promote/dev-to-test-20260915` is test); else dev.
+ */
 export function tierOfRef(ref) {
   const bare = String(ref).replace(/^refs\/(heads|tags)\//, '');
+  const promotion = /^promote\/(dev|test|prod)-to-(dev|test|prod)(?:-|$)/.exec(bare);
+  if (promotion) return promotion[2];
   const head = bare.split('/')[0];
   return TIERS.includes(head) ? head : 'dev';
 }

@@ -25,8 +25,10 @@ promoting this pin there.
 
 **And it must be this tier's published release** (checked since 2026-10-10): the
 commit is the target of CrowdyJS's `<tier>/v<version>` tag for the pinned version,
-where the tier is this branch's (a feature branch counts as `dev`; a pull request
-is judged by its base), checked in CI by `tools/parity/pin-tag.mjs`. Reachability
+where the tier is this branch's (a feature branch counts as `dev`, a
+`promote/<from>-to-<to>-…` branch as `<to>`; a pull request is judged by its base),
+checked in CI by `tools/parity/pin-tag.mjs` on pull requests and on pushes to `dev`,
+`test` and `prod` (a pushed promotion branch used to be judged as `dev` and fail). Reachability
 says the commit was promoted, not that it was released: 0.59.0 pinned `ca9fbb5` as
 18.6.0, reachable from `dev`, while `dev/v18.6.0` is `7662d0b0` (`ca9fbb5` first
 shipped in `dev/v18.7.0`). CrowdyJS tags each tier's release at the commit that

@@ -44,6 +44,10 @@ a commit that exists on the **same** CrowdyJS tier branch (`dev`↔`dev`,
 `test`↔`test`, `prod`↔`prod`). Do not re-pin CrowdyCPP `dev` to a SHA that only
 lives on CrowdyJS `prod`/`latest`, and do not promote this repo’s pin to a
 higher-tier CrowdyJS artifact on a `dev` PR — promote each ladder separately.
+CI holds the pin to the commit of CrowdyJS's tag for **this** tier
+(`tools/parity/pin-tag.mjs`: the pull request's base, a feature branch counting
+as `dev`), so the pin differs per tier and a promotion re-pins to the
+destination's tag.
 
 ## Public-surface maintenance
 

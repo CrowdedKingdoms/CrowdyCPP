@@ -20,23 +20,30 @@ CrowdyJS `prod` and therefore reachable from `prod` and from neither `dev` nor
 tier's commit. `check-parity-target-tier.mjs` refuses that now.
 
 The rule is **reachability from this tier's branch**, which is the same thing as
-"this commit has been promoted to me". Because promotions merge forward, one
-commit satisfies every tier once it has travelled the ladder: `243cfc3…` is
-`dev/v15.5.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
-(promote CrowdyJS to a tier BEFORE promoting this pin there). So this line does
-not need to differ per tier and the value promotes forward like any other.
+"this commit has been promoted to me". Promote CrowdyJS to a tier BEFORE
+promoting this pin there.
 
-**And it must be a published release** (checked since 2026-10-10): the commit is the target of a CrowdyJS
-`<tier>/v<version>` tag for the pinned version, any tier's, checked in CI by
-`tools/parity/pin-tag.mjs`. Reachability says the commit was promoted, not that it was
-released: 0.59.0 pinned `ca9fbb5` as 18.6.0, reachable from `dev`, while `dev/v18.6.0` is
-`7662d0b0` (`ca9fbb5` first shipped in `dev/v18.7.0`). Any tier's tag counts because one commit
-travels the ladder; this tier's own reachability is still the check above.
+**And it must be this tier's published release** (checked since 2026-10-10): the
+commit is the target of CrowdyJS's `<tier>/v<version>` tag for the pinned version,
+where the tier is this branch's (a feature branch counts as `dev`; a pull request
+is judged by its base), checked in CI by `tools/parity/pin-tag.mjs`. Reachability
+says the commit was promoted, not that it was released: 0.59.0 pinned `ca9fbb5` as
+18.6.0, reachable from `dev`, while `dev/v18.6.0` is `7662d0b0` (`ca9fbb5` first
+shipped in `dev/v18.7.0`). CrowdyJS tags each tier's release at the commit that
+tier released, so one version is three commits (`dev/v18.4.0` `4e7e595b`,
+`test/v18.4.0` `2bfbb081`, `prod/v18.4.0` `7f805609`), and **this line differs per
+tier**: each branch pins its own tier's tag. A promotion re-pins to the
+destination's tag once CrowdyJS has released the version there; the check refuses
+a `test` pin of a release CrowdyJS has made only on `dev`, and a `dev` pin of a
+`prod/v…` commit. `promote.mjs` pins CrowdyJS at `origin/<to>`, which is the tag's
+commit when nothing has landed on that branch since CrowdyJS's release; when it is
+not, the check names the commit to pin.
 
-The asymmetry is deliberate and is not a gap. `prod` may pin a commit that also
-lives on `dev`, because reaching `prod` means it was promoted there; `dev` may
-not pin a `prod`-only merge commit, because that commit has never been promoted
-back. Pin a **commit**, never a branch head — an ancestor keeps the generated
+Reachability's asymmetry is deliberate and is not a gap. `prod` may reach a commit
+that also lives on `dev`, because reaching `prod` means it was promoted there;
+`dev` may not pin a `prod`-only merge commit, because that commit has never been
+promoted back. The tag rule then narrows each tier to its own release's commit.
+Pin a **commit**, never a branch head — an ancestor keeps the generated
 fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).

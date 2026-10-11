@@ -9,9 +9,11 @@ If the release moves the pin, do that first with
 [`AGENTS.md`](../AGENTS.md)) — the CrowdyJS commit must already be fetchable
 from the remote (CrowdyJS default branch is `prod`; the SHA must exist on
 GitHub — typically after landing on `dev` and promoting). It must also be the
-commit a CrowdyJS `<tier>/v<version>` tag of that version points at, which CI
-checks (`node tools/parity/pin-tag.mjs`): pin a tagged release, never a later
-commit that merely carries the same version.
+commit this tier's CrowdyJS `<tier>/v<version>` tag of that version points at,
+which CI checks (`node tools/parity/pin-tag.mjs`, the tier from the pull
+request's base, a feature branch counting as `dev`): pin this tier's tagged
+release, never a later commit that merely carries the same version, nor another
+tier's.
 
 Bumping the minor also means updating `project(CrowdyCPP VERSION ...)` in
 `CMakeLists.txt`, the `find_package(CrowdyCPP <minor> ...)` request in

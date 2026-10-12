@@ -20,16 +20,32 @@ CrowdyJS `prod` and therefore reachable from `prod` and from neither `dev` nor
 tier's commit. `check-parity-target-tier.mjs` refuses that now.
 
 The rule is **reachability from this tier's branch**, which is the same thing as
-"this commit has been promoted to me". Because promotions merge forward, one
-commit satisfies every tier once it has travelled the ladder: `243cfc3…` is
-`dev/v15.5.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
-(promote CrowdyJS to a tier BEFORE promoting this pin there). So this line does
-not need to differ per tier and the value promotes forward like any other.
+"this commit has been promoted to me". Promote CrowdyJS to a tier BEFORE
+promoting this pin there.
 
-The asymmetry is deliberate and is not a gap. `prod` may pin a commit that also
-lives on `dev`, because reaching `prod` means it was promoted there; `dev` may
-not pin a `prod`-only merge commit, because that commit has never been promoted
-back. Pin a **commit**, never a branch head — an ancestor keeps the generated
+**And it must be this tier's published release** (checked since 2026-10-10): the
+commit is the target of CrowdyJS's `<tier>/v<version>` tag for the pinned version,
+where the tier is this branch's (a feature branch counts as `dev`, a
+`promote/<from>-to-<to>-…` branch as `<to>`; a pull request is judged by its base),
+checked in CI by `tools/parity/pin-tag.mjs` on pull requests and on pushes to `dev`,
+`test` and `prod` (a pushed promotion branch used to be judged as `dev` and fail). Reachability
+says the commit was promoted, not that it was released: 0.59.0 pinned `ca9fbb5` as
+18.6.0, reachable from `dev`, while `dev/v18.6.0` is `7662d0b0` (`ca9fbb5` first
+shipped in `dev/v18.7.0`). CrowdyJS tags each tier's release at the commit that
+tier released, so one version is three commits (`dev/v18.4.0` `4e7e595b`,
+`test/v18.4.0` `2bfbb081`, `prod/v18.4.0` `7f805609`), and **this line differs per
+tier**: each branch pins its own tier's tag. A promotion re-pins to the
+destination's tag once CrowdyJS has released the version there; the check refuses
+a `test` pin of a release CrowdyJS has made only on `dev`, and a `dev` pin of a
+`prod/v…` commit. `promote.mjs` pins CrowdyJS at `origin/<to>`, which is the tag's
+commit when nothing has landed on that branch since CrowdyJS's release; when it is
+not, the check names the commit to pin.
+
+Reachability's asymmetry is deliberate and is not a gap. `prod` may reach a commit
+that also lives on `dev`, because reaching `prod` means it was promoted there;
+`dev` may not pin a `prod`-only merge commit, because that commit has never been
+promoted back. The tag rule then narrows each tier to its own release's commit.
+Pin a **commit**, never a branch head — an ancestor keeps the generated
 fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
@@ -42,7 +58,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | ck-exec connect token and gateway | `exec().connect` / `connectAsDeveloper` dial only a gateway `execGatewayRefusal` passes (`wss:` under an `https:` Game API, on the Game API's or the default origin's estate, loopback for a loopback Game API); a gateway's `HTTP 401` is `Denied` with its reason (`WebSocketError::httpStatus` / `httpBody`; the curl transport reports the status alone), `429` is `Unavailable`, 4401 stays `Denied`; `ExecConnection::lastFailure()` says why an attempt failed (0.55.0) | The same check (`execGatewayRefusal`, the cases in `exec-gateway-cases.json`); under Node's `ws` a `401` is `Denied` with its body, in a browser `Unavailable` (18.1.0) | ck-exec 0.10.0+ answers a refused upgrade `401` / `429` before any WebSocket |
 | Open grids | `gameApps().openPermissions` / `setOpenPermissions` (also `admin().grids()`, 0.55.0) | `gameApps.openPermissions` / `setOpenPermissions` (18.1.0) | `gridOpenPermissions` / `setGridOpenPermissions` (cks-game-api #436, ck-api `dev/v2.31.0`, `manage_apps`) |
 | Terms and age gate | `auth().recordPlayerConsents` / `recordPlayerConsentsAsync`, `auth().playerLegalAcceptance` / `playerLegalAcceptanceAsync`, the clickwrap overload of `auth().registerUser(email, password, gamertag, acceptLegal, attestAgeOfMajority)` (0.57.0) | `auth.recordPlayerConsents`, `auth.playerLegalAcceptance`, `auth.register`'s two fields, `isLegalAcceptanceRequiredError` (18.4.0) | `recordPlayerConsents` / `playerLegalAcceptance` (ck-api v2.35.0); a gameplay token answers `LEGAL_ACCEPTANCE_REQUIRED` until both are stored |
-| The input log | `inputLog().sessions` / `messages` (with `Async` twins), `App.replayLoggingEnabled` on every app read (0.59.0) | `inputLog.sessions` / `messages`, `App.replayLoggingEnabled` (18.6.0) | ck-api `inputLogSessions` / `inputLogMessages`; turning logging on (`updateApp`) answers `INPUT_LOG_FUNDS_NEEDED` without a spendable wallet or a billing exemption |
+| The input log | `inputLog().sessions` / `messages` (with `Async` twins), `App.replayLoggingEnabled` on every app read (0.59.0); a message's `body` is standard base64, decoded with `crowdy::core::base64Decode` | `inputLog.sessions` / `messages`, `App.replayLoggingEnabled` (18.6.0), `decodeBase64` | **ck-api v2.39.0 or later**: every app read selects `replayLoggingEnabled`, which an older Game API refuses. `inputLogSessions` / `inputLogMessages`; turning logging on (`updateApp`) answers `INPUT_LOG_FUNDS_NEEDED` without a spendable wallet or a billing exemption |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
 | Distance-limited channel messages | `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)`, `wire::encodeRangedChannelMessage` (0.58.0) | `udp.sendRangedChannelMessage`, `serializeRangedChannelMessage` (18.5.0) | Buddy v0.35.0 (opcode 32); ck-api `sendRangedChannelMessage` for the browser proxy; members receive the ordinary channel notification |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |

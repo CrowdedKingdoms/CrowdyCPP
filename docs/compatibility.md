@@ -1,8 +1,8 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.57.0 passes the strict portable-parity gate against CrowdyJS
-**18.4.0**. The gate pins CrowdyJS commit
-`7f8056095da40b59d6fce7beb424603864fe0515` (`crowdyjsParityTarget` in
+CrowdyCPP 0.62.0 passes the strict portable-parity gate against CrowdyJS
+**18.9.0**. The gate pins CrowdyJS commit
+`d3d795a2be29d7f9d6ed6bbdab68297888d6890f` (`crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
@@ -20,21 +20,37 @@ CrowdyJS `prod` and therefore reachable from `prod` and from neither `dev` nor
 tier's commit. `check-parity-target-tier.mjs` refuses that now.
 
 The rule is **reachability from this tier's branch**, which is the same thing as
-"this commit has been promoted to me". Because promotions merge forward, one
-commit satisfies every tier once it has travelled the ladder: `243cfc3…` is
-`dev/v15.5.0` and becomes an ancestor of `test` and `prod` as CrowdyJS promotes
-(promote CrowdyJS to a tier BEFORE promoting this pin there). So this line does
-not need to differ per tier and the value promotes forward like any other.
+"this commit has been promoted to me". Promote CrowdyJS to a tier BEFORE
+promoting this pin there.
 
-The asymmetry is deliberate and is not a gap. `prod` may pin a commit that also
-lives on `dev`, because reaching `prod` means it was promoted there; `dev` may
-not pin a `prod`-only merge commit, because that commit has never been promoted
-back. Pin a **commit**, never a branch head — an ancestor keeps the generated
+**And it must be this tier's published release** (checked since 2026-10-10): the
+commit is the target of CrowdyJS's `<tier>/v<version>` tag for the pinned version,
+where the tier is this branch's (a feature branch counts as `dev`, a
+`promote/<from>-to-<to>-…` branch as `<to>`; a pull request is judged by its base),
+checked in CI by `tools/parity/pin-tag.mjs` on pull requests and on pushes to `dev`,
+`test` and `prod` (a pushed promotion branch used to be judged as `dev` and fail). Reachability
+says the commit was promoted, not that it was released: 0.59.0 pinned `ca9fbb5` as
+18.6.0, reachable from `dev`, while `dev/v18.6.0` is `7662d0b0` (`ca9fbb5` first
+shipped in `dev/v18.7.0`). CrowdyJS tags each tier's release at the commit that
+tier released, so one version is three commits (`dev/v18.4.0` `4e7e595b`,
+`test/v18.4.0` `2bfbb081`, `prod/v18.4.0` `7f805609`), and **this line differs per
+tier**: each branch pins its own tier's tag. A promotion re-pins to the
+destination's tag once CrowdyJS has released the version there; the check refuses
+a `test` pin of a release CrowdyJS has made only on `dev`, and a `dev` pin of a
+`prod/v…` commit. `promote.mjs` pins CrowdyJS at `origin/<to>`, which is the tag's
+commit when nothing has landed on that branch since CrowdyJS's release; when it is
+not, the check names the commit to pin.
+
+Reachability's asymmetry is deliberate and is not a gap. `prod` may reach a commit
+that also lives on `dev`, because reaching `prod` means it was promoted there;
+`dev` may not pin a `prod`-only merge commit, because that commit has never been
+promoted back. The tag rule then narrows each tier to its own release's commit.
+Pin a **commit**, never a branch head — an ancestor keeps the generated
 fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.57.0 | CrowdyJS 18.4.0 | Required public API generation |
+| Surface | CrowdyCPP 0.62.0 | CrowdyJS 18.9.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -42,8 +58,18 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | ck-exec connect token and gateway | `exec().connect` / `connectAsDeveloper` dial only a gateway `execGatewayRefusal` passes (`wss:` under an `https:` Game API, on the Game API's or the default origin's estate, loopback for a loopback Game API); a gateway's `HTTP 401` is `Denied` with its reason (`WebSocketError::httpStatus` / `httpBody`; the curl transport reports the status alone), `429` is `Unavailable`, 4401 stays `Denied`; `ExecConnection::lastFailure()` says why an attempt failed (0.55.0) | The same check (`execGatewayRefusal`, the cases in `exec-gateway-cases.json`); under Node's `ws` a `401` is `Denied` with its body, in a browser `Unavailable` (18.1.0) | ck-exec 0.10.0+ answers a refused upgrade `401` / `429` before any WebSocket |
 | Open grids | `gameApps().openPermissions` / `setOpenPermissions` (also `admin().grids()`, 0.55.0) | `gameApps.openPermissions` / `setOpenPermissions` (18.1.0) | `gridOpenPermissions` / `setGridOpenPermissions` (cks-game-api #436, ck-api `dev/v2.31.0`, `manage_apps`) |
 | Terms and age gate | `auth().recordPlayerConsents` / `recordPlayerConsentsAsync`, `auth().playerLegalAcceptance` / `playerLegalAcceptanceAsync`, the clickwrap overload of `auth().registerUser(email, password, gamertag, acceptLegal, attestAgeOfMajority)` (0.57.0) | `auth.recordPlayerConsents`, `auth.playerLegalAcceptance`, `auth.register`'s two fields, `isLegalAcceptanceRequiredError` (18.4.0) | `recordPlayerConsents` / `playerLegalAcceptance` (ck-api v2.35.0); a gameplay token answers `LEGAL_ACCEPTANCE_REQUIRED` until both are stored |
+| The input log | `inputLog().sessions` / `messages` (with `Async` twins), `App.replayLoggingEnabled` on every app read (0.59.0); a message's `body` is standard base64, decoded with `crowdy::core::base64Decode`. Since 0.62.0: `missingRecords` on every session; `graphql::inputLogReadRetryable` and `inputLogFundsNeededOf` (`requiredMicrousd` / `spendableMicrousd`); a `graphql::CancelToken` overload of each read, beside the timeout | `inputLog.sessions` / `messages`, `App.replayLoggingEnabled` (18.6.0), `decodeBase64`; `missingRecords`, the retryable codes, `signal` on both reads, a request's `signal` kept beside its timeout (18.9.0) | **ck-api v2.39.0 or later**: every app read selects `replayLoggingEnabled`, which an older Game API refuses. Since 0.62.0 the sessions read selects `missingRecords`, so it needs **the ck-api release after v2.40.2**, which also brings `INPUT_LOG_TEMPORARILY_UNAVAILABLE` / `INPUT_LOG_RATE_LIMITED` and the `logging_off`, `shutdown`, `paused` and `unrecorded` end reasons. Turning logging on (`updateApp`) answers `INPUT_LOG_FUNDS_NEEDED` without a spendable wallet or a billing exemption |
 | Native UDP replication | Direct native transport | Browser GraphQL UDP proxy | Current Replication API |
+| Distance-limited channel messages | `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)`, `wire::encodeRangedChannelMessage` (0.58.0) | `udp.sendRangedChannelMessage`, `serializeRangedChannelMessage` (18.5.0) | Buddy v0.35.0 (opcode 32); ck-api `sendRangedChannelMessage` for the browser proxy; members receive the ordinary channel notification |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
+| Voice payload helpers | `crowdy/media/voice_frames.hpp`: the 10-byte voice header, `VoicePacketizer`, `VoiceJitterBuffer`, replaying `voice-frames.json`; optional libopus wrapper `crowdy/media/opus.hpp` with `CROWDY_WITH_OPUS=ON` (0.60.0) | `media/voice-frames.ts`, the fixture's owner; Opus through the browser's WebCodecs (18.7.0) | None: the payload of opcodes 134/135, which the server never reads |
+| App-defined spatial messages (opcode 140) | `Connection::sendGenericSpatial`, `Handlers::genericSpatial`, `WorldSessionConfig::onGenericSpatial` (0.60.0) | `genericSpatial` handler and World Stores bus key, binary relay only (18.7.0) | Buddy opcode 140; the GraphQL `udpNotifications` union has no member for it |
+| Channel audio | `Connection::sendChannelAudio`, `Handlers::channelAudio`, `WorldSessionConfig::onChannelAudio`, `wire::encodeChannelAudio`; `grids().createChannel(..., membersCanSpeak)` (0.60.0) | `udp.sendChannelAudio`, `channelAudio` handler and bus key (on the binary relay and the GraphQL transport), `serializeChannelAudio`, `membersCanSpeak` (18.7.0) | Buddy v0.37.0 (opcodes 35/36); the channel's `send_voice` and the app's `use_voice_chat`; ck-api `sendChannelAudio` and the `udpNotifications` union's `ChannelAudioNotification` for the browser proxy; CrowdyCPP's control-only `udpNotifications` document does not select it, since the native client receives 36 itself |
+| Voxel edits for a game's own world | `WorldSessionConfig::onVoxel`, after `chunks()` merged the edit (0.60.0) | `voxelUpdate` handler and bus key | None |
+| The echo of a client's own voxel edit | `ChunkStore` skips the echo of its own `setVoxel` unless a foreign edit came in between; state over 1,024 bytes is `InvalidArgument` (0.60.0) | `ChunkStore` does the same; `assertVoxelEdit` (18.7.0) | Buddy v0.37.0 echoes every accepted edit to its sender and refuses a state over 1,024 bytes with `INVALID_REQUEST` (15) |
+| Paused apps and access refusals | `AppTokenResponse::runtimeGate`, `domains::isAppPaused`, `wire::ErrorCode::AppPaused`, `graphql::appPausedOf` / `accessRefusalOf` / `actorExistsOf`; `admin().appAccess().suspend` / `unsuspend` / `resyncTierGridPermissions`; `users().playerProfile(s)`; `exec().restartType` (0.60.0) | `runtimeGate`, `isAppPaused`, `UDP_ERROR_NAMES[33]`, the same readers and wraps (18.7.0) | The ck-api release after v2.39.0 (`runtimeGate` is selected on every token mutation, so an older one refuses the mint); Buddy v0.37.0 for error 33 |
+| The SDK a build compiled against | `sdkVersion` in the JSON of `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus` (0.61.0) | `ExecBuild.sdkVersion` through the same calls (18.8.0) | ck-api v2.40.2 (`ExecBuild.sdkVersion`; an older API refuses the build documents) |
+| Wide voxel types and other addresses | `ChunkData::overlay` (`OverlayVoxel`, `voxelKey`); `voxelTypeAt` returns `std::int16_t` (0.60.0) | `CachedChunk.overlay` (`ChunkOverlayVoxel`, `voxelKey`); `createGridHostCalls({ voxelBounds })` for a CLIENT half (18.7.0) | Voxel positions and types are the app's signed 16-bit values |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
 | Wrapper seams | `Config::onEventsReady` (wake an event loop when notifications are waiting), `IChunkSource` for `ChunkStore` and `IHostElection` + `WorldSessionServices` for `WorldSession` (durable services without a `CrowdyClient`), `WorldSessionConfig::onText` (0.54.0) | No counterpart: the browser SDK has no native core to wrap | None; native-only API |
 | Recorded voxel edits on chunk loads | `ChunkStore::ensureAround`'s one `getChunksByDistance` selects `voxelStates` and puts each entry over the stored grid (type at its voxel, its state; an entry without one clears the cached state); `IChunkSource` reports them in `StoredChunk::voxelStates` (0.56.0) | `ChunkStore.hydrate` reads `getChunk`'s `voxelStates` per loaded chunk, which `ensureAround` runs only with a `voxelStateCodec` or `hydrateVoxelStates: true` | ck-api `dev/v2.33.0` (cks-game-api #445): both chunk reads return every recorded edit (a hub's or mod's `world.set_voxels`, `updateVoxel`, realtime voxel updates) as an entry, `getChunksByDistance` only when `voxelStates` is selected; a chunk with edits but no stored row is returned by neither |
@@ -84,7 +110,9 @@ the runner and grid host-call answers). CLIENT artifact-byte decoding is
 portable: `exec().modClientArtifactBytes(...)` fetches a mod's CLIENT half and
 checks the bytes against their digest. World Stores behaviour that changes
 without a method (17.14.0's actor resend, autosave retry and bounded chunk
-hydration) is pinned in the matrix's behavior audit.
+hydration; 18.7.0's chunk overlay, voxel hook and opcode 140, and the CLIENT
+half's `voxel_set` bounds) is pinned in the matrix's behavior audit, and the
+voice helpers' every export is mapped to `crowdy/media/voice_frames.hpp`.
 Portable gaps, unclassified differences, and stale classifications are zero.
 
 ## CrowdyCPP 0.x source and ABI policy

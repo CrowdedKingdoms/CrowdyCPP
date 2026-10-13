@@ -1,5 +1,48 @@
 # CrowdyCPP migration notes
 
+## 0.62.0 The input log says what it lost, and when to retry; requests can be cancelled
+
+Mirrors CrowdyJS 18.9.0. **Needs the ck-api release after v2.40.2**: every sessions read selects
+`InputLogSession.missingRecords`, which an older Game API refuses. One source change: a `switch`
+over `graphql::GraphQLErrorKind` or `crowdy::Errc` needs the new `Cancelled` case.
+
+- **`missingRecords`** on every recorded session: inputs the replication server accepted that
+  never reached the log (an overloaded server or a broker outage). 0 when the recording is
+  complete as far as it is known; null on one recorded before the count existed. A lost end of
+  the recording cannot be counted: that session closes as `unrecorded`. Recording is
+  best-effort, and this is how a gap shows.
+- **End reasons.** `endReason` may also be `logging_off` (replay logging was turned off during the
+  session), `shutdown` (the replication server recording it stopped; the client reconnects to
+  another, where the same session continues and its end is replaced), `paused` (recording paused
+  while the app's logging setting could not be confirmed; a later record reopens the session)
+  and `unrecorded` (no end was recorded; closed an hour after its last input).
+- **Reads say when to retry.** `messages()` answers `INPUT_LOG_TEMPORARILY_UNAVAILABLE` when the
+  log cannot be read right now, and `INPUT_LOG_RATE_LIMITED` when a read waited out its
+  few-second deadline behind earlier ones (one per user, two per app and per org at a time).
+  `graphql::inputLogReadRetryable(errors)` is true for those two unless the server sent
+  `retryable: false`: retry with the same cursor after a short back-off, a bounded number of
+  times (the `InputLogAPI` comment has the loop). A malformed cursor, or one from another
+  session, is `BAD_USER_INPUT`.
+- **Cancelling a request.** `graphql::CancelToken` (`crowdy/graphql/cancel.hpp`) is CrowdyJS's
+  `signal`. `inputLog().sessions` / `messages` and their `Async` twins have overloads taking one;
+  `GraphQLClient::request` / `requestOutcome` / `requestAsync` take it through
+  `graphql::RequestOptions{cancel}`. `cancel()` from any thread: a token cancelled before the call
+  sends nothing, and a request cancelled in flight is reported cancelled even if its response
+  arrived. The blocking calls throw `CrowdyCancelledError` (code `CANCELLED`); the async ones
+  deliver `GraphQLErrorKind::Cancelled` with `Errc::Cancelled`. The token runs beside the
+  client's timeout and never replaces it. The libcurl transport ends the transfer within about a
+  second, which closes the request on the server and frees the read's share; an injected engine
+  transport sees the token on `HttpRequest::cancel` and may honor it the same way, or ignore it
+  and let the request finish or time out.
+- **`INPUT_LOG_FUNDS_NEEDED`.** `admin().apps().update(appId, {replayLoggingEnabled: true})` needs a
+  spendable balance covering the projected cost of keeping one retention period of the app's
+  recent traffic. `graphql::inputLogFundsNeededOf(errors)` returns the refusal's
+  `requiredMicrousd` and `spendableMicrousd` (also on `GraphQLErrorDetail`). Recordings already
+  kept go on billing after logging is turned off, until they age out.
+
+CrowdyPy re-vendors at its next release; its own GraphQL client is Python's, so the cancel token
+is CrowdyPy's task cancellation there.
+
 ## 0.61.0 Builds report their SDK version
 
 Mirrors CrowdyJS 18.8.0. Additive, with one floor: the build documents select

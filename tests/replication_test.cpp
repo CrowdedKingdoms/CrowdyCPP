@@ -216,6 +216,32 @@ void run() {
     CHECK_EQ(s.messagesSentByType[17], 1u);   // CHANNEL_MESSAGE_REQUEST
   }
 
+  // Channel audio (Buddy v0.37.0): opcode 17's layout with type 35.
+  {
+    const std::uint8_t frame[] = {0x10, 1, 2};
+    CHECK(conn.sendChannelAudio(55, uuid('a'), Bytes(frame, sizeof(frame))).ok());
+    auto audio = server.recvOne();
+    CHECK_EQ(audio[0], 35u);
+    CHECK_EQ(le::readI64(audio.data() + wire::channel::kChannelIdOffset), 55);
+    CHECK_EQ(le::readU16(audio.data() + wire::channel::kPayloadLenOffset), 3u);
+    CHECK_EQ(audio.size(), wire::channelRequestSize(3));
+    CHECK_EQ(conn.stats().messagesSentByType[35], 1u);
+    std::vector<std::uint8_t> big(wire::channel::kMaxPayload + 1, 0);
+    CHECK(!conn.sendChannelAudio(55, uuid('a'), Bytes(big.data(), big.size())).ok());
+  }
+
+  // Ranged channel publish (Buddy v0.35.0): opcode 32, the origin in this connection's app.
+  {
+    CHECK(conn.sendRangedChannelMessage(55, uuid('a'), Bytes(hi, sizeof(hi)), {3, 4, -5}, 12).ok());
+    auto ranged = server.recvOne();
+    CHECK_EQ(ranged[0], 32u);
+    CHECK_EQ(le::readI64(ranged.data() + wire::channel_ranged::kAppIdOffset), 7);
+    CHECK_EQ(le::readI64(ranged.data() + wire::channel_ranged::kChunkZOffset), -5);
+    CHECK_EQ(le::readU32(ranged.data() + wire::channel_ranged::kMaxDistanceOffset), 12u);
+    CHECK_EQ(conn.stats().messagesSentByType[32], 1u);
+    CHECK(!conn.sendRangedChannelMessage(55, uuid('a'), Bytes(), {0, 0, 0}, 0x80000000u).ok());
+  }
+
   // --- Server -> client: single notification.
   auto note = makeNotification(wire::MessageType::ActorUpdateNotification,
                                Bytes(pose, sizeof(pose)), 1700000000000LL, 5);

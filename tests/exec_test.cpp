@@ -440,11 +440,12 @@ class RecordingHttp final : public graphql::IHttpTransport {
                        R"(","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
     if (op == "ExecStarters")
       return {200, R"({"data":{"execStarters":{"manifestJson":"{\"root\":\"world\"}","starters":[{"crate":"world-tick","nodeType":"world","description":"d","files":[{"path":"Cargo.toml","content":"c"}]}]}}})"};
-    const std::string build = R"({"buildId":"b1","log":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
+    const std::string build = R"({"buildId":"b1","log":null,"sdkVersion":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
+    const std::string started = R"({"buildId":"b1","log":null,"sdkVersion":"0.9.0","createdAt":"t","startedAt":"t","finishedAt":null,"artifacts":[)";
     if (op == "ExecBuild") return {200, R"({"data":{"execBuild":)" + build + R"(],"status":"queued"}}})"};
     if (op == "ExecBuildStatus") {
       const bool done = ++statusCalls >= 2;
-      return {200, R"({"data":{"execBuildStatus":)" + build +
+      return {200, R"({"data":{"execBuildStatus":)" + started +
                        (done ? R"({"crate":"world-tick","digest":"ab","sizeBytes":9}],"status":"succeeded"}}})"
                              : R"(],"status":"building"}}})")};
     }
@@ -591,6 +592,9 @@ void testBuilds() {
   CHECK_EQ(done["artifacts"].at(0)["crate"].asString(), std::string("world-tick"));
   CHECK_EQ(http->statusCalls, 2);
   CHECK_EQ(http->requests.back()["variables"]["buildId"].asString(), std::string("b1"));
+  // The SDK the platform compiled against, whatever the crate names (ck-api v2.40.2).
+  CHECK_EQ(done["sdkVersion"].asString(), std::string("0.9.0"));
+  CHECK(http->requests.back()["query"].asString().find("sdkVersion") != std::string::npos);
 
   // A deploy of the build: the crate-named type uploads nothing, the one with bytes does.
   ExecNodeType world;

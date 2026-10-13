@@ -254,6 +254,91 @@ void testChannelRoundTrip() {
              .ok());
 }
 
+std::string toHex(const std::uint8_t* data, std::size_t n) {
+  static const char* digits = "0123456789abcdef";
+  std::string out;
+  for (std::size_t i = 0; i < n; ++i) {
+    out.push_back(digits[data[i] >> 4]);
+    out.push_back(digits[data[i] & 0xf]);
+  }
+  return out;
+}
+
+core::ActorUuid uuidOf(const char* s) {
+  core::ActorUuid u;
+  std::memcpy(u.data(), s, 32);
+  return u;
+}
+
+void testRangedChannelGolden() {
+  CHECK_EQ(channel_ranged::kHeaderSize, 79u);
+  CHECK_EQ(channel_ranged::kMinRequestSize, 121u);
+  CHECK_EQ(static_cast<int>(MessageType::ChannelMessageRangedRequest), 32);
+
+  // The cross-implementation vector (Buddy's integration builder, cks-game-api's spec and
+  // CrowdyJS's binary-wire test pin the same bytes).
+  {
+    RangedChannelMessageParams p;
+    p.channelId = 100;
+    p.uuid = uuidOf("uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu");
+    p.appId = 2;
+    p.origin = {-3, 4, 5};
+    p.maxDistance = 12;
+    const std::uint8_t payload[] = {'h', 'i'};
+    p.payload = Bytes(payload, sizeof(payload));
+    p.gameTokenId = 555;
+    p.sequence = 9;
+    std::uint8_t buf[256];
+    auto n = encodeRangedChannelMessage(crypto(), p, *Token64::fromString(std::string(64, 'A')),
+                                        MutableBytes(buf, sizeof(buf)));
+    CHECK(n.ok());
+    CHECK_EQ(n.value(), rangedChannelRequestSize(2));
+    CHECK_EQ(toHex(buf, n.value()),
+             std::string("20640000000000000075757575757575757575757575757575757575757575757575757575757575"
+                         "750200000000000000fdffffffffffffff040000000000000005000000000000000c000000020068"
+                         "69017f1c386fd1ec421f0a72745fae881f8adbcb17bcd8a0bb3e446565651d18533d2b0200000000"
+                         "000009"));
+  }
+
+  // CrowdyJS's binary-wire fixture row, which cks-game-api's generator produced.
+  {
+    RangedChannelMessageParams p;
+    p.channelId = 987654321;
+    p.uuid = uuidOf("actor-0123456789abcdef0123456789");
+    p.appId = 42;
+    p.origin = {3, -2, 7};
+    p.maxDistance = 12;
+    const std::string payload = "ranged-payload";
+    p.payload = Bytes(reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size());
+    p.gameTokenId = 123456789;
+    p.sequence = 34;
+    std::uint8_t buf[256];
+    auto n = encodeRangedChannelMessage(
+        crypto(), p,
+        *Token64::fromString("AbCdEfGhIjKlMnOpQrStUvWxYz012345aBcDeFgHiJkLmNoPqRsTuVwXyZ543210"),
+        MutableBytes(buf, sizeof(buf)));
+    CHECK(n.ok());
+    CHECK_EQ(toHex(buf, n.value()),
+             std::string("20b168de3a000000006163746f722d30313233343536373839616263646566303132333435363738"
+                         "392a000000000000000300000000000000feffffffffffffff07000000000000000c0000000e0072"
+                         "616e6765642d7061796c6f616401d267f8843637856bc224a652a7eab03c8fbf5c9622ce941cc405"
+                         "1493e408623915cd5b070000000022"));
+  }
+
+  // Refused before anything is sent: a distance over the ceiling, a payload over the cap.
+  RangedChannelMessageParams p;
+  p.uuid = testUuid();
+  p.maxDistance = channel_ranged::kMaxDistance;
+  std::uint8_t buf[2048];
+  CHECK(encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+  p.maxDistance = channel_ranged::kMaxDistance + 1u;
+  CHECK(!encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+  p.maxDistance = 5;
+  std::vector<std::uint8_t> big(channel::kMaxPayload + 1, 0);
+  p.payload = Bytes(big.data(), big.size());
+  CHECK(!encodeRangedChannelMessage(crypto(), p, testToken(), MutableBytes(buf, sizeof(buf))).ok());
+}
+
 void testGenericError() {
   const std::uint8_t frame[] = {3, 42, 32};
   auto v = parseGenericError(Bytes(frame, sizeof(frame)));
@@ -583,6 +668,71 @@ void testSignedBundle() {
 
 }  // namespace
 
+void testChannelAudio() {
+  CHECK_EQ(static_cast<int>(MessageType::ChannelAudioRequest), 35);
+  CHECK_EQ(static_cast<int>(MessageType::ChannelAudioNotification), 36);
+  CHECK_EQ(static_cast<int>(ErrorCode::AppPaused), 33);
+
+  // The vector CrowdyJS's channel-audio test pins (its serializeChannelAudio, opcode 17's
+  // builder with type byte 35): channel 4242, uuid "v"x32, payload 01..05, token "T"x64,
+  // gameTokenId 777, seq 200.
+  ChannelMessageParams p;
+  p.channelId = 4242;
+  p.uuid = uuidOf("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
+  const std::uint8_t payload[] = {1, 2, 3, 4, 5};
+  p.payload = Bytes(payload, sizeof(payload));
+  p.gameTokenId = 777;
+  p.sequence = 200;
+  std::uint8_t audio[256];
+  auto n = encodeChannelAudio(crypto(), p, *Token64::fromString(std::string(64, 'T')),
+                              MutableBytes(audio, sizeof(audio)));
+  CHECK(n.ok());
+  CHECK_EQ(toHex(audio, n.value()),
+           std::string("23921000000000000076767676767676767676767676767676767676767676767676767676767676"
+                       "760500010203040501f7c505bbdfc07169f661cb3e3c8d061bbf0065ef4bdc239df40c77112ff8"
+                       "85150903000000000000c8"));
+
+  // Same layout as 17 apart from the type byte (and the HMAC, which covers it).
+  std::uint8_t message[256];
+  auto m = encodeChannelMessage(crypto(), p, *Token64::fromString(std::string(64, 'T')),
+                                MutableBytes(message, sizeof(message)));
+  CHECK(m.ok());
+  CHECK_EQ(m.value(), n.value());
+  CHECK_EQ(message[0], 17u);
+  CHECK(std::memcmp(audio + 1, message + 1, channel::kPayloadOffset + sizeof(payload)) == 0);
+  CHECK(!encodeChannelRequest(MessageType::ChannelMessageNotification, crypto(), p,
+                              testToken(), MutableBytes(audio, sizeof(audio)))
+             .ok());
+  std::vector<std::uint8_t> big(channel::kMaxPayload + 1, 0);
+  p.payload = Bytes(big.data(), big.size());
+  std::vector<std::uint8_t> bigBuf(4096);
+  CHECK(!encodeChannelAudio(crypto(), p, testToken(), MutableBytes(bigBuf.data(), bigBuf.size()))
+             .ok());
+
+  // A 36 parses like an 18; datagram[0] says which.
+  std::uint8_t note[64];
+  note[0] = 36;
+  le::writeI64(note + channel::kChannelIdOffset, 9);
+  std::memcpy(note + channel::kUuidOffset, "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv", 32);
+  le::writeU16(note + channel::kPayloadLenOffset, 2);
+  note[channel::kPayloadOffset] = 0xaa;
+  note[channel::kPayloadOffset + 1] = 0xbb;
+  le::writeI64(note + channel::kPayloadOffset + 2, 1700000000555LL);
+  note[channel::kPayloadOffset + 10] = 4;
+  auto v = parseChannelNotification(Bytes(note, channel::kPayloadOffset + 11));
+  CHECK(v.ok());
+  CHECK_EQ(v->channelId, 9);
+  CHECK_EQ(v->payload.size(), 2u);
+  CHECK_EQ(v->sequence, 4u);
+  note[0] = 35;
+  CHECK(!parseChannelNotification(Bytes(note, channel::kPayloadOffset + 11)).ok());
+
+  const std::uint8_t paused[] = {3, 9, 33};
+  auto err = parseGenericError(Bytes(paused, sizeof(paused)));
+  CHECK(err.ok());
+  CHECK(err->code == ErrorCode::AppPaused);
+}
+
 int main() {
   testLayoutConstants();
   testGoldenEncode();
@@ -592,6 +742,8 @@ int main() {
   testVoxelPayloadRoundTrip();
   testEventPayloadRoundTrip();
   testChannelRoundTrip();
+  testRangedChannelGolden();
+  testChannelAudio();
   testGenericError();
   testBundleIteration();
   testBundleWriter();

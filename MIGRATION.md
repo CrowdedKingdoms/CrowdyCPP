@@ -1,5 +1,204 @@
 # CrowdyCPP migration notes
 
+## 0.62.0 The input log says what it lost, and when to retry; requests can be cancelled
+
+Mirrors CrowdyJS 18.9.0. **Needs the ck-api release after v2.40.2**: every sessions read selects
+`InputLogSession.missingRecords`, which an older Game API refuses. One source change: a `switch`
+over `graphql::GraphQLErrorKind` or `crowdy::Errc` needs the new `Cancelled` case.
+
+- **`missingRecords`** on every recorded session: inputs the replication server accepted that
+  never reached the log (an overloaded server or a broker outage). 0 when the recording is
+  complete as far as it is known; null on one recorded before the count existed. A lost end of
+  the recording cannot be counted: that session closes as `unrecorded`. Recording is
+  best-effort, and this is how a gap shows.
+- **End reasons.** `endReason` may also be `logging_off` (replay logging was turned off during the
+  session), `shutdown` (the replication server recording it stopped; the client reconnects to
+  another, where the same session continues and its end is replaced), `paused` (recording paused
+  while the app's logging setting could not be confirmed; a later record reopens the session)
+  and `unrecorded` (no end was recorded; closed an hour after its last input).
+- **Reads say when to retry.** `messages()` answers `INPUT_LOG_TEMPORARILY_UNAVAILABLE` when the
+  log cannot be read right now, and `INPUT_LOG_RATE_LIMITED` when a read waited out its
+  few-second deadline behind earlier ones (one per user, two per app and per org at a time).
+  `graphql::inputLogReadRetryable(errors)` is true for those two unless the server sent
+  `retryable: false`: retry with the same cursor after a short back-off, a bounded number of
+  times (the `InputLogAPI` comment has the loop). A malformed cursor, or one from another
+  session, is `BAD_USER_INPUT`.
+- **Cancelling a request.** `graphql::CancelToken` (`crowdy/graphql/cancel.hpp`) is CrowdyJS's
+  `signal`. `inputLog().sessions` / `messages` and their `Async` twins have overloads taking one;
+  `GraphQLClient::request` / `requestOutcome` / `requestAsync` take it through
+  `graphql::RequestOptions{cancel}`. `cancel()` from any thread: a token cancelled before the call
+  sends nothing, and a request cancelled in flight is reported cancelled even if its response
+  arrived. The blocking calls throw `CrowdyCancelledError` (code `CANCELLED`); the async ones
+  deliver `GraphQLErrorKind::Cancelled` with `Errc::Cancelled`. The token runs beside the
+  client's timeout and never replaces it. The libcurl transport ends the transfer within about a
+  second, which closes the request on the server and frees the read's share; an injected engine
+  transport sees the token on `HttpRequest::cancel` and may honor it the same way, or ignore it
+  and let the request finish or time out.
+- **`INPUT_LOG_FUNDS_NEEDED`.** `admin().apps().update(appId, {replayLoggingEnabled: true})` needs a
+  spendable balance covering the projected cost of keeping one retention period of the app's
+  recent traffic. `graphql::inputLogFundsNeededOf(errors)` returns the refusal's
+  `requiredMicrousd` and `spendableMicrousd` (also on `GraphQLErrorDetail`). Recordings already
+  kept go on billing after logging is turned off, until they age out.
+
+CrowdyPy re-vendors at its next release; its own GraphQL client is Python's, so the cancel token
+is CrowdyPy's task cancellation there.
+
+## 0.61.0 Builds report their SDK version
+
+Mirrors CrowdyJS 18.8.0. Additive, with one floor: the build documents select
+`ExecBuild.sdkVersion`, so `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`,
+`modClientBuild` and `modBuildStatus` need ck-api v2.40.2 or later (an older API refuses the
+selection).
+
+- **`sdkVersion`** in every build's JSON: the version of `ckx-sdk` the platform compiled the build
+  against (`crowdy-client-sdk` for a CLIENT half), from the toolchain of the API instance that ran
+  it. The platform points a crate at its own SDK copy whatever version the crate names, so this
+  says what your code was checked against. Null until the build starts. The build log's first
+  line names the same toolchain.
+
+## 0.60.0 Voice helpers, opcode 140 and voxel edits in WorldSession, wide voxels
+
+Mirrors CrowdyJS 18.7.0. Channel audio and the voxel echo need Buddy v0.37.0, and the token
+mutations select `runtimeGate`, so this needs the ck-api release after v2.39.0 (an older one
+refuses the selection). Signatures change (`ChunkStore::voxelTypeAt`, `ChunkStore::setVoxel`'s
+refusal, `ChunkStore::ingest` returns `bool`), so rebuild; CrowdyPy re-vendors and can bind the new
+`WorldSessionConfig` callbacks and `ChunkData::overlay`.
+
+- **Voice helpers** (`crowdy/media/voice_frames.hpp`, header-only): an optional convention for
+  what an audio payload carries. A 10-byte header, little-endian, goes in front of each codec
+  frame: version 1, codec (`VoiceCodec`: 0 raw, 1 Opus 48 kHz mono, 2 G.711 µ-law 8 kHz), `u16`
+  seq, `u32` timestamp in codec samples (milliseconds for raw), the frame's duration in ms, and
+  `VoiceFlag::kSpurtStart` / `kSpurtEnd`. `encodeVoiceHeader` / `encodeVoicePacket` write it
+  (an oversized frame gives an empty vector); `decodeVoicePacket` returns nullopt for a packet
+  shorter than 10 bytes or of another version. `VoicePacketizer` numbers one sender's frames
+  across the seq and timestamp wraps and sets the flags (`packetize(frame, last)`, `skip()` for
+  silence). `VoiceJitterBuffer` takes `push(key, packet, nowMs)` per sender key and returns the
+  due `VoicePlayout`s from `pull(key, nowMs)` / `poll(nowMs)`: in seq order, `targetDelayMs` (60)
+  after a talk spurt's first packet, `gap` for each frame that never came, late packets dropped,
+  at most `maxFrames` (64) a sender, starting over on a talk spurt or `resetAfterMs` (200) of
+  silence. Out-of-range options are clamped (CrowdyJS throws `RangeError` for them). Both SDKs
+  replay CrowdyJS's `test/unit/fixtures/voice-frames.json` (copied to
+  `tools/parity/fixtures/voice-frames.json`). Positioning a voice stays the game's.
+- **Opus, optional.** `-DCROWDY_WITH_OPUS=ON` (default OFF) builds `crowdy/media/opus.hpp` as the
+  target `crowdy_opus` (linked by `CrowdyCPP::crowdy` in such a build): `OpusVoiceEncoder`
+  (48 kHz mono 16-bit PCM; 10/20/40/60 ms frames; bitrate; packet loss for in-band FEC) and
+  `OpusVoiceDecoder` (`decode`, `conceal` for a gap). libopus is found through its CMake
+  package, pkg-config or a plain search, at build time and again by the installed config.
+  Without the option nothing changes, and the header declares only `kOpusAvailable = false`.
+- **`WorldSessionConfig::onVoxel`** is called for every inbound voxel update after `chunks()` has
+  merged it, with the notification (sender, chunk) and the `wire::VoxelPayloadView` (position,
+  type, state): the patch the Minecraft mod carried, upstreamed. A wrapper that applied that
+  patch drops it.
+- **`WorldSessionConfig::onGenericSpatial`** forwards GENERIC_SPATIAL_1 (140). `Connection` always
+  had `Handlers::genericSpatial`, but `WorldSession` owns the handlers and never set it, so a
+  session user saw none. CrowdyJS receives 140 on its binary relay only.
+- **`ChunkStore` keeps wide voxel types and other addresses.** Positions and types are the app's
+  signed 16-bit values, which the platform does not check. An edit the one-byte 16³ grid cannot
+  hold (a type outside 0-255, a position outside 0-15) — a realtime update, a hydrated
+  `voxelStates` entry, or a `setVoxel` — is kept whole in `ChunkData::overlay` (`OverlayVoxel`:
+  `x`, `y`, `z` and its `VoxelState`; keyed by `voxelKey(x, y, z)`), and the grid holds 0 under
+  an in-grid one. What changes:
+  - `voxelTypeAt` returns `std::int16_t` (was `std::uint8_t`) and reads the overlay first;
+    `voxelStateAt` returns the overlay's state too.
+  - A realtime update outside 0-15 is no longer written into `ChunkData::voxels` at its aliased
+    index — `(16, 0, 0)` overwrote `(0, 1, 0)`, and one far enough out wrote past the end of the
+    array — and a type outside 0-255 is no longer stored truncated (300 read as 44).
+  - A stored `voxelStates` entry outside 0-15 is kept in the overlay instead of ignored.
+  - `setVoxel` keeps a position outside 0-15 in the overlay and sends it, where it used to return
+    `InvalidArgument`; only a position outside 16 bits is refused now.
+
+  The store is a 16×16×16 helper; a game with other addressing reads `onVoxel` and
+  `StoredChunk::voxelStates`.
+- **Channel audio** (Buddy v0.37.0). `Connection::sendChannelAudio(channelId, uuid, payload)` sends
+  opcode 35 (opcode 17's layout and signing; `wire::encodeChannelAudio`, both through
+  `wire::encodeChannelRequest`), at most 1,024 payload bytes; without the channel's `send_voice`
+  and the app's `use_voice_chat` the server answers `UNAUTHORIZED` (7). No echo to the sender.
+  Opcode 36, standalone or bundled, parses like 18 (`parseChannelNotification` takes either) into
+  `Handlers::channelAudio`, and `WorldSessionConfig::onChannelAudio` forwards it (the channel inbox
+  does not get it). `grids().createChannel` takes `membersCanSpeak`; `channels().create`'s input
+  passes it through. See the README's voice section.
+- **`wire::ErrorCode::AppPaused` (33)**: the replication server refuses a paused app's sends.
+- **Voxel state at most 1,024 bytes** (`wire::voxel::kMaxStateSize`): `Connection::sendVoxelUpdate`
+  and `ChunkStore::setVoxel` return `InvalidArgument` above it (positions and types were already
+  `std::int16_t`); the server answers `INVALID_REQUEST` (15).
+- **The echo of your own voxel edit.** Buddy v0.37.0 delivers every accepted edit back to its
+  sender. `ChunkStore::setVoxel` records each send (uuid, sequence, voxel) for
+  `kPendingEditTtlMs` (10 s, clock in `Options::now`) and `ingest()` skips its echo, so a local
+  edit fires `onChunkChanged` once; the echo is applied only when another client's edit of the
+  voxel arrived in between and no newer local edit is pending. `ingest()` returns whether it
+  changed the cache. `onVoxel` sees the echoes too: compare uuid and sequence with your send's.
+- **Pause and access refusals.** `domains::AppRuntimeGate` / `isAppPaused(gate)` and
+  `AppTokenResponse::runtimeGate` (mint, exchange and refresh select it; a paused app still
+  mints). `GraphQLErrorDetail` reads `ownedByCaller`, `suspendedUntil` and `reason`;
+  `graphql::actorExistsOf`, `accessRefusalOf`, `appPausedOf` and the `k*Code` constants.
+- **New API wraps** (each with its `Async` twin): `users().playerProfile(userId)` and
+  `playerProfiles(userIds)` (at most `kPlayerProfilesMax`, 100; more is `INVALID_ARGUMENT`);
+  `admin().appAccess().suspend(appId, userId, until, idempotencyKey)`, `unsuspend`,
+  `resyncTierGridPermissions` (`manage_access_tiers`), `suspendedUntil` on every access record;
+  `exec().restartType(appId, nodeType)` (`manage_compute`) and the new `status` fields
+  (`budgetPauseReason`, `maxInstances`, `maxReservedMb`, `instanceLimit`, `instances`,
+  `reservedMb`); `claimOwnerKeys` on `apps().get` / `update`; `voxelStatesTruncated` on chunk
+  reads; `runtimeGate` and `wildernessWritesOpen` on `gameClientBootstrap`.
+
+Parity: `tools/parity/parity.mjs` classifies CrowdyJS 18.7.0's `media/voice-frames.ts` as a native
+equivalent (every export mapped to `voice_frames.hpp`) and pins the behaviour changes above
+(`chunk-store-voxel-overlay`, `world-session-voxel-hook`, `world-session-generic-spatial`,
+`generic-spatial-relay-only`, `world-session-channel-audio`, `chunk-store-self-echo`,
+`voxel-edit-limits`, `udp-error-app-paused`, `grid-host-call-voxel-bounds`) and classifies
+`Mutation.sendChannelAudio` as native (`Connection::sendChannelAudio`). `parity:repin` copies the voice
+fixture with the exec gateway cases. They need the pin moved to the CrowdyJS 18.7.0 commit.
+
+## 0.59.0 The input log
+
+Pinned to CrowdyJS 18.6.0 (`ca9fbb5`, which was not the commit 18.6.0 was released from:
+`dev/v18.6.0` is `7662d0b0`, and CI now refuses a pin that is not a tagged release); needs ck-api
+v2.39.0 or later, because every app read selects `replayLoggingEnabled`. Additive: nothing existing
+changes shape, and CrowdyPy needs nothing beyond re-vendoring. The schema snapshot also carries
+ck-api's dev/test staff-only gate; as in CrowdyJS, nothing wraps it (its operator fields are
+platform-only).
+
+- `client.inputLog().sessions(appId, first = 50, after = {}, filter = {})` lists an app's recorded
+  sessions, newest first, as an `InputLogSessionConnection` (`edges[].node`, `pageInfo`,
+  `totalCount`). A session is one game token's inputs; `filter` takes `userId`, `from`, `to` and
+  `messageType`. Another user's sessions need `manage_apps` (`FORBIDDEN` otherwise).
+- `client.inputLog().messages(appId, gameTokenId, first = 50, after = {}, filter = {})` reads one
+  session's inputs, oldest first. `body` is the client message in standard base64, without its
+  authentication tail (`crowdy::core::base64Decode` gives the bytes); `sizeBytes` is what stored
+  input logs are billed on; spatial inputs carry
+  their chunk and actor, channel inputs their channel. **Keep paging while `pageInfo.hasNextPage`
+  is true**: a page can be short, or empty, when it reached the server's time or scan limit.
+  Another user's session answers `NOT_FOUND` without `manage_apps`.
+- Both are game plane (the app-scoped client), and both answer `INPUT_LOG_UNAVAILABLE` on a
+  deployment without input logging; `messages` also answers it, retryable with the same cursor,
+  when the log cannot be read right now. Inputs are kept for the published retention.
+- Every app read selects `replayLoggingEnabled`. Turning it on with `admin().apps().update` is
+  refused with `INPUT_LOG_FUNDS_NEEDED` unless the org's wallet has a spendable balance or the org
+  is exempt from billing.
+
+`schema.gql` is the game API branch's SDL with the input log; resync from docs.dev's SDL once
+cks-docs publishes it.
+
+## 0.58.0 Channel messages limited by distance
+
+Pinned to CrowdyJS 18.5.0 (`ae249cb`); needs Buddy v0.35.0 on the server side. Additive: nothing
+existing changes shape, and CrowdyPy needs nothing beyond re-vendoring.
+
+- `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)` publishes to
+  a channel like `sendChannelMessage`, but only members near `origin` receive it: a member gets it
+  when one of its live actors is in this connection's app within `maxDistance` chunks of `origin`,
+  measured as the straight-line distance between chunk coordinates, boundary included. A member
+  with no live actor does not receive it. `maxDistance` runs from 0 (the origin chunk only) to
+  `wire::channel_ranged::kMaxDistance` (2147483647); above it the call returns `InvalidArgument`
+  before anything is sent. It is not the 0-8 Chebyshev ring count spatial sends take.
+- Members receive the ordinary `ChannelNotification` through `Handlers::channelMessage`, so a
+  receiver needs no change. A refusal (no send right: `UNAUTHORIZED`) arrives as a `GenericError`
+  for the returned sequence; an older Buddy drops opcode 32 silently.
+- `wire::encodeRangedChannelMessage` / `RangedChannelMessageParams` / `wire::channel_ranged` are the
+  codec (`MessageType::ChannelMessageRangedRequest = 32`).
+
+`schema.gql` is the game API branch's SDL with `sendRangedChannelMessage` (it also carries `dev`'s
+rate-card bands); resync from docs.dev's SDL once cks-docs publishes it.
+
 ## 0.57.0 The terms and age gate
 
 Pinned to CrowdyJS 18.4.0 (`4e7e595`); needs ck-api `v2.35.0` (cks-game-api #437) for the two new

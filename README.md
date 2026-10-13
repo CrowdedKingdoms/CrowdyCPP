@@ -31,6 +31,18 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.63.0: bans, the access-ended close, and the block and ban refusals.** Suspending or
+blocking a player cuts every access path in scope. `channels().ban(groupId, userId, reason)` /
+`unban` and `teams().ban` / `unban` (each with an `Async` twin; the group's `manage_members`
+permission) ban a user: joining, requesting to join and being added are refused with
+`GROUP_MEMBER_BANNED` until unbanned. `ExecConnection` treats a host's close with
+`kExecCloseAccessEnded` (4403, ck-exec 0.16) as final: no reconnect, calls in flight fail `Denied`,
+and `onAccessEnded(listener)` hears the host's reason once. `graphql::accountBlockedOf(errors)` reads
+`ACCOUNT_BLOCKED` (`blockedUntil` for a timed block) and `groupMemberBannedOf` reads
+`GROUP_MEMBER_BANNED`. Mirrors CrowdyJS 18.10.0; the parity gate still pins 18.9.0 (see
+[docs/compatibility.md](docs/compatibility.md)). The bans need the ck-api release after v2.43.1;
+against an older ck-exec the 4403 handling never fires. See [MIGRATION.md](MIGRATION.md).
+
 **v0.62.0: the input log says what it lost, when to retry, and stops when you cancel.**
 Every session from `inputLog().sessions` carries `missingRecords`, the inputs the replication
 server accepted that never reached the log. `graphql::inputLogReadRetryable(errors)` names the
@@ -606,8 +618,8 @@ app-scoped token):
 | `client.chunks()`, `client.voxels()`, `client.actors()`, `client.avatars()`, `client.state()` | World data reads + writes. |
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
-| `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams. |
-| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
+| `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams: membership, roles, join policies and bans. |
+| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
@@ -1019,7 +1031,12 @@ deployments:
   base64(base64(bytes))); newer builds round-trip symmetrically. Decode
   defensively if you must read rows written through an old server.
 - **ck-exec (`client.exec()`):** a Game API that does not serve the `exec*`
-  roots rejects the call with a GraphQL validation error.
+  roots rejects the call with a GraphQL validation error. A ck-exec 0.16 host
+  closes a session with 4403 when the player's access ends; an older host never
+  does, and every other close reconnects as before.
+- **Channel and team bans (`ban` / `unban`):** need the ck-api release after
+  v2.43.1; an older Game API rejects the four mutations with a GraphQL
+  validation error.
 
 ## Errors
 
@@ -1028,9 +1045,10 @@ GraphQL-layer failures throw structured exceptions mirroring CrowdyJS:
 `remediation`), `CrowdyNetworkError`, `CrowdyTimeoutError`,
 `CrowdyProtocolError`. Branch on `error.code()` rather than parsing messages.
 `graphql::accessRefusalOf(errors)` (ACCESS_REVOKED, ACCESS_SUSPENDED with `suspendedUntil`,
-ACCESS_NOT_GRANTED), `appPausedOf` (APP_PAUSED, `reason`) and `actorExistsOf` (ACTOR_EXISTS,
-`ownedByCaller`) read the refusals a player should be told about from `CrowdyGraphQLError::errors()`
-or `GraphQLOutcome::errors`. A paused app still mints: check
+ACCESS_NOT_GRANTED), `appPausedOf` (APP_PAUSED, `reason`), `actorExistsOf` (ACTOR_EXISTS,
+`ownedByCaller`), `accountBlockedOf` (ACCOUNT_BLOCKED, with `blockedUntil` for a timed block) and
+`groupMemberBannedOf` (GROUP_MEMBER_BANNED) read the refusals a player should be told about from
+`CrowdyGraphQLError::errors()` or `GraphQLOutcome::errors`. A paused app still mints: check
 `domains::isAppPaused(token.runtimeGate)` before entering the world.
 Subscriptions are non-throwing: `onNext` receives
 `GraphQLSubscriptionOutcome`, while `onError` receives a typed terminal

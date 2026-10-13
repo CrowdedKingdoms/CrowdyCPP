@@ -96,7 +96,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | `operator-control-plane` | — | excluded: the SDK wraps nothing only an operator or a super-admin can call (0.51.0 removed `client.operator_()`); `e2e_operator` went with the compute ceilings in 0.50.0 |
 | `malicious-input` | `e2e_malicious_input` | implemented; optional live |
 | `exec-client-halves` | `exec_test` + `e2e_exec_client_halves` | documents, variables, async twins and every `modClientArtifactBytes` refusal in default CI; build → attach → list → consent → trust → fetch → detach optional live with a ck-exec app and a grid its owner owns (fetch and trust accept `NOT_FOUND`: no actor in the grid) |
-| ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames and reconnect in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
+| ck-exec gateway calls/subscriptions | `exec_test` (fake WebSocket) + `e2e_exec_gateway` | golden frames, reconnect and the final access-ended close (4403) in default CI; calls, pushes and a refusal optional live against a gateway and connect token |
 | `open-grid-and-exec-gateway` | `exec_test` (the shared gateway cases, a refused upgrade, 4401) + `e2e_open_grid_exec_gateway` | default CI offline; optional live as a throwaway org admin (`CROWDY_E2E_THROWAWAY_OWNER=1`): open, read, a player's keys, a refused code key, close; the tier's gateway passes the pin, pings, and refuses a tampered token as `Denied` (needs a WebSocket transport) |
 
 ## Game API SDK e2e (public `test/sdk` surface)
@@ -110,7 +110,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | state | `e2e_state_avatars` | implemented; optional live strict base64 round trip |
 | teleport | `e2e_teleport` | implemented; optional live |
 | host discovery | `e2e_host_election` | implemented; optional live |
-| teams / channels | `e2e_teams_channels` | implemented; optional live |
+| teams / channels | `e2e_teams_channels` + `client_portable_test` (the ban and unban documents and variables) + `graphql_client_test` (`accountBlockedOf`, `groupMemberBannedOf`) | implemented; optional live. Bans offline only (0.63.0): no live suite until the Game API release after v2.43.1 is on a tier |
 | input log | `input_log_test` (paging, `missingRecords`, the retryable and funds refusals, cancellation before and during a read) + `e2e_input_log` (the owner lists sessions with `missingRecords`, pages one session, a cancelled token sends nothing) | offline in default CI; optional live, read-only (0.62.0) |
 | generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds; the published schema's only subscription root now is `udpNotifications`, which CrowdyCPP replaces natively |
 | ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |

@@ -1,0 +1,15 @@
+mutation UnsuspendAppAccess($appId: BigInt!, $userId: BigInt!) {
+  unsuspendAppAccess(appId: $appId, userId: $userId) {
+    appUserAccessId
+    appId
+    userId
+    tierId
+    status
+    grantedBy
+    subscriptionId
+    expiresAt
+    suspendedUntil
+    createdAt
+    updatedAt
+  }
+}

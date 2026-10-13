@@ -1,0 +1,3 @@
+mutation ResyncTierGridPermissions($appId: BigInt!) {
+  resyncTierGridPermissions(appId: $appId)
+}

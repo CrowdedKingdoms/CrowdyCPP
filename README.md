@@ -31,6 +31,16 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.62.0: the input log says what it lost, when to retry, and stops when you cancel.**
+Every session from `inputLog().sessions` carries `missingRecords`, the inputs the replication
+server accepted that never reached the log. `graphql::inputLogReadRetryable(errors)` names the
+two read refusals worth repeating with the same cursor (`INPUT_LOG_TEMPORARILY_UNAVAILABLE`,
+`INPUT_LOG_RATE_LIMITED`), and `graphql::inputLogFundsNeededOf` reads what turning replay logging
+on needs. Each read has an overload taking a `graphql::CancelToken`, CrowdyJS's `signal`: cancel
+a read nobody will see and it ends (`CrowdyCancelledError`, or `GraphQLErrorKind::Cancelled`
+asynchronously), freeing its server read share, while the client's timeout still applies. Parity
+with CrowdyJS 18.9.0. Needs the ck-api release after v2.40.2. See [MIGRATION.md](MIGRATION.md).
+
 **v0.61.0: builds report their SDK version.** Every build `exec()` returns (`build`,
 `buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus`) carries
 `sdkVersion`: the `ckx-sdk` version the platform compiled it against (`crowdy-client-sdk` for a

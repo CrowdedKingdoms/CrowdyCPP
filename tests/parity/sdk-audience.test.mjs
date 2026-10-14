@@ -35,6 +35,10 @@ const PLATFORM_ONLY = [
   'paymentEventsConnection',
   'setOrgStatus',
   'setAppVisibility',
+  // super-admin: platform-wide account blocks (cks-game-api #514)
+  'blockAccount',
+  'unblockAccount',
+  'accountBlock',
   // operator
   'cpBillingCreditOverbill',
   'cpSetCrowdyStudioAgentAppKill',

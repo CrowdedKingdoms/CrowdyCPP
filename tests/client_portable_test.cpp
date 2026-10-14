@@ -80,6 +80,11 @@ class PortableTransport final : public graphql::IHttpTransport {
     if (request.body.find("SetQuota") != std::string::npos) {
       return {200, R"({"data":{"setQuota":{"id":"7"}}})"};
     }
+    if (request.body.find("mutation BanChannelMember(") != std::string::npos ||
+        request.body.find("mutation BanTeamMember(") != std::string::npos) {
+      return {200,
+              R"({"data":{"ban":{"groupMemberId":"9","groupId":"11","userId":"42","status":"banned","createdAt":"t","roles":[]}}})"};
+    }
     return {200, R"({"data":{"ok":true}})"};
   }
 };
@@ -628,9 +633,52 @@ void testQuotasSetRefusesAPlatformGlobalRule() {
   CHECK_EQ(setQuotaRequests(*transport), std::size_t{2});
 }
 
+// Channel and team bans: each wrapper sends its own mutation, with `reason` only when given.
+void testGroupBansSendTheirMutations() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient client(portableConfig(transport));
+  auto lastBody = [&] { return graphql::Json::parse(transport->requests.back().body); };
+  auto sent = [&](std::string_view operation) {
+    return lastBody()["query"].asString().rfind(std::string("mutation ") + std::string(operation) + "(", 0) == 0;
+  };
+
+  CHECK_EQ(client.channels().ban("11", "42", "spamming the lobby")["status"].asString(), "banned");
+  CHECK(sent("BanChannelMember"));
+  CHECK_EQ(lastBody()["variables"]["groupId"].asString(), "11");
+  CHECK_EQ(lastBody()["variables"]["userId"].asString(), "42");
+  CHECK_EQ(lastBody()["variables"]["reason"].asString(), "spamming the lobby");
+
+  CHECK_EQ(client.teams().ban("12", "42")["status"].asString(), "banned");
+  CHECK(sent("BanTeamMember"));
+  CHECK(!lastBody()["variables"]["reason"].ok());
+
+  CHECK(client.channels().unban("11", "42").asBool());
+  CHECK(sent("UnbanChannelMember"));
+  CHECK_EQ(lastBody()["variables"]["userId"].asString(), "42");
+
+  bool banned = false;
+  client.teams().banAsync("12", "43", "griefing", [&](graphql::GraphQLOutcome out) {
+    banned = out.ok() && out.data["status"].asString() == "banned";
+  });
+  client.poll();
+  CHECK(banned);
+  CHECK(sent("BanTeamMember"));
+  CHECK_EQ(lastBody()["variables"]["reason"].asString(), "griefing");
+
+  bool unbanned = false;
+  client.channels().unbanAsync("11", "43", [&](graphql::GraphQLOutcome out) {
+    unbanned = out.ok() && out.data.asBool();
+  });
+  client.poll();
+  CHECK(unbanned);
+  CHECK(sent("UnbanChannelMember"));
+  CHECK_EQ(lastBody()["variables"]["groupId"].asString(), "11");
+}
+
 int main() {
   testAMovedClientIsFullyUsable();
   testQuotasSetRefusesAPlatformGlobalRule();
+  testGroupBansSendTheirMutations();
   testEndpointNormalization();
   testSynchronousGameplayRefresh();
 #ifndef CROWDY_NO_EXCEPTIONS

@@ -1,5 +1,41 @@
 # CrowdyCPP migration notes
 
+## 0.63.0 Bans, the access-ended close, and the block and ban refusals
+
+Mirrors CrowdyJS 18.10.0: suspending or blocking a player cuts every access path in scope.
+Additive. **The bans need the ck-api release after v2.43.1** (cks-game-api #514): an older Game
+API refuses the four mutations. Nothing else selects a new field.
+
+- **Channel and team bans.** `channels().ban(groupId, userId, reason)` / `unban(groupId, userId)`
+  and `teams().ban` / `unban`, each with an `Async` twin (`banAsync(groupId, userId, reason, cb)`;
+  an empty `reason` sends none). A ban turns the user's membership (or a new one, for someone not
+  yet in it) into `banned` and drops its roles, and for a channel the replication server stops
+  routing it to and from them. Joining, requesting to join and being added are then refused with
+  `GROUP_MEMBER_BANNED` until `unban`; leaving or being removed does not lift it. `ban` returns
+  the banned membership, `unban` `true` when there was a ban. Requires the group's
+  `manage_members` permission (app admins bypass); never the owner, never yourself. `reason` is
+  at most 500 characters, for the group's managers, and is not shown to the banned user.
+- **The access-ended close.** A ck-exec 0.16 host closes a session with `kExecCloseAccessEnded`
+  (4403, reason `access ended: <why>`) when the player's access ends: a suspension, a revoke, an
+  expired grant, a sign-out or an account block. `ExecConnection` treats it as final: it neither
+  asks the Game API for another host nor reconnects, calls in flight fail `Denied` with the
+  reason (and `lastFailure()` says the same), later calls fail `Unavailable`, `connect` answers
+  `Errc::Closed`, and each `onAccessEnded(listener)` hears the reason once, through the
+  dispatcher. Tell the player, and call `exec().connect` again only once they hold access again:
+  it mints a fresh connect token, while one minted before the cut is refused (HTTP 401, `Denied`)
+  for 90 seconds, so do not reuse a saved token with `ExecConnection::open`. Against an older
+  host nothing changes.
+- **`ACCOUNT_BLOCKED` and `GROUP_MEMBER_BANNED`.** A platform operator's block refuses every
+  sign-in and request of the account: `graphql::accountBlockedOf(errors)` returns it, with
+  `blockedUntil` (ISO-8601, also on `GraphQLErrorDetail`) for a timed block and empty while it
+  lasts until lifted. Retrying does not help; sign out and tell the player.
+  `graphql::groupMemberBannedOf(errors)` is true for a channel's or team's ban. The codes are
+  `kAccountBlockedCode` and `kGroupMemberBannedCode`.
+- The account-block fields (`blockAccount`, `unblockAccount`, `accountBlock`) are super-admin
+  only and not wrapped.
+
+Nothing CrowdyPy binds changed.
+
 ## 0.62.0 The input log says what it lost, and when to retry; requests can be cancelled
 
 Mirrors CrowdyJS 18.9.0. **Needs the ck-api release after v2.40.2**: every sessions read selects

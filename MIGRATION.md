@@ -16,13 +16,15 @@ API refuses the four mutations. Nothing else selects a new field.
   `manage_members` permission (app admins bypass); never the owner, never yourself. `reason` is
   at most 500 characters, for the group's managers, and is not shown to the banned user.
 - **The access-ended close.** A ck-exec 0.16 host closes a session with `kExecCloseAccessEnded`
-  (4403, reason `access ended: <why>`) when the player's access ends: a suspension, a revoke, a
-  sign-out or an account block. `ExecConnection` treats it as final: it neither asks the Game API
-  for another host nor reconnects, calls in flight fail `Denied` with the reason (and
-  `lastFailure()` says the same), later calls fail `Unavailable`, `connect` answers
+  (4403, reason `access ended: <why>`) when the player's access ends: a suspension, a revoke, an
+  expired grant, a sign-out or an account block. `ExecConnection` treats it as final: it neither
+  asks the Game API for another host nor reconnects, calls in flight fail `Denied` with the
+  reason (and `lastFailure()` says the same), later calls fail `Unavailable`, `connect` answers
   `Errc::Closed`, and each `onAccessEnded(listener)` hears the reason once, through the
-  dispatcher. Tell the player, and call `exec().connect` again only once they hold access again.
-  Against an older host nothing changes.
+  dispatcher. Tell the player, and call `exec().connect` again only once they hold access again:
+  it mints a fresh connect token, while one minted before the cut is refused (HTTP 401, `Denied`)
+  for 90 seconds, so do not reuse a saved token with `ExecConnection::open`. Against an older
+  host nothing changes.
 - **`ACCOUNT_BLOCKED` and `GROUP_MEMBER_BANNED`.** A platform operator's block refuses every
   sign-in and request of the account: `graphql::accountBlockedOf(errors)` returns it, with
   `blockedUntil` (ISO-8601, also on `GraphQLErrorDetail`) for a timed block and empty while it

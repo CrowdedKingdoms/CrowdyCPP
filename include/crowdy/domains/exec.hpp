@@ -211,7 +211,8 @@ class ExecConnection {
   /// player's access ended (close code kExecCloseAccessEnded: suspended, revoked, signed out
   /// or blocked). The connection is closed for good then and does not reconnect: calls in
   /// flight fail `Denied` with the reason, later ones `Unavailable`. Tell the player, and
-  /// connect again only once they hold access again.
+  /// connect again only once they hold access again, with a fresh connect token
+  /// (`ExecAPI::connect` mints one; the host refuses one minted before the cut for 90 s).
   void onAccessEnded(std::function<void(std::string reason)> listener);
 
   std::string host() const;

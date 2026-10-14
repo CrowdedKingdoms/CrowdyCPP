@@ -39,7 +39,7 @@ permission) ban a user: joining, requesting to join and being added are refused 
 `kExecCloseAccessEnded` (4403, ck-exec 0.16) as final: no reconnect, calls in flight fail `Denied`,
 and `onAccessEnded(listener)` hears the host's reason once. `graphql::accountBlockedOf(errors)` reads
 `ACCOUNT_BLOCKED` (`blockedUntil` for a timed block) and `groupMemberBannedOf` reads
-`GROUP_MEMBER_BANNED`. Mirrors CrowdyJS 18.10.0; the parity gate still pins 18.9.0 (see
+`GROUP_MEMBER_BANNED`. Mirrors CrowdyJS 18.10.0, which the parity gate pins (see
 [docs/compatibility.md](docs/compatibility.md)). The bans need the ck-api release after v2.43.1;
 against an older ck-exec the 4403 handling never fires. See [MIGRATION.md](MIGRATION.md).
 

@@ -76,40 +76,6 @@ const SCHEMA_BASELINE = {
   // carries the same operations, so every one of them went stale, exactly as
   // the block said it would. A future server release that lands here before it
   // lands in the pinned CrowdyJS gets a new, dated group in their place.
-
-  // THE ACCESS CUT (CrowdyCPP 0.63.0, cks-game-api PR #514, 2026-10-13). This snapshot
-  // was synced from that API branch; the pinned CrowdyJS 18.9.0 predates it, and
-  // CrowdyJS 18.10.0 (PR #229), which carries the same schema, is not released on dev
-  // yet. The ban roots are surface CrowdyCPP implements (ChannelsAPI / TeamsAPI ban and
-  // unban), so they are covered; the account-block roots and AccountBlock are super-admin
-  // only and wrapped by neither SDK (see ROOT_CLASSIFICATIONS). The moment the pin moves
-  // to 18.10.0 every entry here goes stale and the gate says so: delete the group then.
-  ...classifySchema(
-    [
-      'type:Mutation.banChannelMember',
-      'type:Mutation.banTeamMember',
-      'type:Mutation.unbanChannelMember',
-      'type:Mutation.unbanTeamMember',
-    ],
-    CATEGORY.COVERED,
-    "channel and team bans (cks-game-api PR #514), implemented in ChannelsAPI / TeamsAPI; CrowdyJS 18.9.0's snapshot predates them",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    ['type:Mutation.blockAccount', 'type:Mutation.unblockAccount', 'type:Query.accountBlock'],
-    CATEGORY.BROWSER,
-    "super-admin account blocks (cks-game-api PR #514), which neither SDK wraps; CrowdyJS 18.9.0's snapshot predates them",
-    'member-only',
-    'CrowdyCPP',
-  ),
-  ...classifySchema(
-    ['type:AccountBlock'],
-    CATEGORY.BROWSER,
-    "super-admin account blocks (cks-game-api PR #514), which neither SDK wraps; CrowdyJS 18.9.0's snapshot predates them",
-    'definition-only',
-    'CrowdyCPP',
-  ),
 };
 
 const ROOT_CLASSIFICATIONS = {

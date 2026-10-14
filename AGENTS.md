@@ -148,7 +148,7 @@ the steps it cannot do for you. A C++ test replays each copy (`exec_test`,
 Some wire vectors are literal in both repos' tests instead of a fixture: the opcode 35
 (channel audio) bytes in `wire_test` are the ones CrowdyJS's
 `test/unit/channel-audio.test.mjs` asserts, so a layout change edits both.
-`docs/compatibility.md` names the pin too and is edited by hand. Four things
+`docs/compatibility.md` names the pin too and is edited by hand. Five things
 reliably bite when this is done by hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
@@ -166,6 +166,12 @@ reliably bite when this is done by hand:
   stale header and fail the replay tests against a file you just fixed.
 - **Some fixtures assert the pin literally** in C++ tests and
   `docs/parity-matrix.md`. The `rg` above is how you find them.
+- **A schema synced ahead of the pin is a dated group.** When `schema.gql` comes
+  from a Game API branch before the CrowdyJS that mirrors it is released on the
+  tier, the differences go in a dated `SCHEMA_BASELINE` group in
+  `tools/parity/parity.mjs` (0.40.0 and 0.63.0 did this). The re-pin turns every
+  entry stale and the gate refuses until you delete the group; update the pin
+  paragraph in `docs/compatibility.md` and the README target line with it.
 
 Parity classifications are strict:
 

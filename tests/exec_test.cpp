@@ -1295,6 +1295,71 @@ void testRefusedUpgrade() {
   conn->close();
 }
 
+// ck-exec 0.16 closes a session with 4403 when the player's access ends: final, unlike any other close.
+void testAccessEnded() {
+  CHECK_EQ(kExecCloseAccessEnded, 4403);
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  std::atomic<int> dials{0};
+  ExecDial dial = [&dials](std::function<void(Result<ExecEndpoint>)> found) {
+    ++dials;
+    found(ExecEndpoint{"wss://gw.example", "tok", "host-1"});
+  };
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+  auto conn = std::make_shared<ExecConnection>(transport, dispatcher, dial, opts);
+  std::vector<std::string> reasons;
+  conn->onAccessEnded([&](std::string why) { reasons.push_back(std::move(why)); });
+  std::vector<std::string> reconnected;
+  conn->onReconnect([&](std::string h) { reconnected.push_back(std::move(h)); });
+  std::optional<Status> opened;
+  conn->connect([&](Status s) { opened = s; });
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  auto c1 = transport->at(0);
+  c1->open();
+  CHECK(until(*dispatcher, [&] { return opened.has_value(); }));
+  CHECK(opened->ok());
+
+  // A call in flight fails Denied with the host's reason and is not tried again elsewhere.
+  std::optional<ExecReply> inFlight;
+  conn->call("arena", "m1", "state", graphql::JVal(), [&](ExecReply r) { inFlight = r; });
+  CHECK(until(*dispatcher, [&] { return last(c1, 0x01).has_value(); }));
+  const std::string reason = "access ended: app access suspended for user 42";
+  WebSocketEvent ended;
+  ended.kind = WebSocketEventKind::Close;
+  ended.close.code = kExecCloseAccessEnded;
+  ended.close.reason = reason;
+  c1->emit(ended);
+  CHECK(until(*dispatcher, [&] { return reasons.size() == 1 && inFlight.has_value(); }));
+  CHECK_EQ(reasons[0], reason);
+  CHECK(inFlight->status == ExecStatus::Denied);
+  CHECK_EQ(inFlight->message(), reason);
+  CHECK(!conn->connected());
+  CHECK(conn->lastFailure().has_value() && conn->lastFailure()->status == ExecStatus::Denied);
+
+  // It neither asks the Game API for a host again nor reconnects, and later calls fail at once.
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  dispatcher->drain();
+  CHECK_EQ(dials.load(), 1);
+  CHECK_EQ(transport->count(), 1u);
+  CHECK(reconnected.empty());
+  std::optional<ExecReply> later;
+  conn->call("arena", "m1", "state", graphql::JVal(), [&](ExecReply r) { later = r; });
+  CHECK(until(*dispatcher, [&] { return later.has_value(); }));
+  CHECK(later->status == ExecStatus::Unavailable);
+  std::optional<Status> again;
+  conn->connect([&](Status s) { again = s; });
+  CHECK(until(*dispatcher, [&] { return again.has_value(); }));
+  CHECK(again->code == Errc::Closed);
+
+  // The listener hears it once.
+  c1->emit(ended);
+  dispatcher->drain();
+  CHECK_EQ(reasons.size(), 1u);
+  conn->close();
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
@@ -1302,6 +1367,7 @@ int main() {
   testCallTimesOut();
   testGatewayRefusal();
   testRefusedUpgrade();
+  testAccessEnded();
   testOperations();
   testBuilds();
   testMods();

@@ -307,6 +307,21 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'the dev/test staff-only gate as sign-in pages show it; CrowdyJS wraps neither',
   ),
+  // cks-game-api #514: a platform-wide account block is @RequiresSuperAdmin, so neither SDK
+  // wraps it (CrowdyJS 18.10.0, CrowdyCPP 0.63.0); both read the ACCOUNT_BLOCKED refusal it
+  // causes. On tests/parity/sdk-audience.test.mjs's platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Mutation',
+    ['blockAccount', 'unblockAccount'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    ['accountBlock'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting

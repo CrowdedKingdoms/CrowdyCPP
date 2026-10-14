@@ -257,6 +257,52 @@ void testRefusalReaders() {
   CHECK(!domains::AppTokenResponse::fromJson(Json::parse(R"({"token":"t"})")).runtimeGate);
 }
 
+// The account block and the channel / team ban refusals (HTTP 403).
+void testBlockAndBanReaders() {
+  CHECK(kAccountBlockedCode == "ACCOUNT_BLOCKED");
+  CHECK(kGroupMemberBannedCode == "GROUP_MEMBER_BANNED");
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  auto async = std::make_shared<FakeAsyncTransport>();
+  client->setAsyncTransport(async);
+  auto errorsFor = [&](const char* body) {
+    async->outcome = httpOk(403, body);
+    GraphQLOutcome got;
+    client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { got = std::move(out); });
+    return got.errors;
+  };
+
+  const char* timedBlock =
+      R"({"errors":[{"message":"blocked","extensions":{"code":"ACCOUNT_BLOCKED","blockedUntil":"2026-10-20T00:00:00.000Z"}}]})";
+  auto timed = errorsFor(timedBlock);
+  CHECK(accountBlockedOf(timed).has_value());
+  CHECK(accountBlockedOf(timed)->blockedUntil == "2026-10-20T00:00:00.000Z");
+  CHECK(!accessRefusalOf(timed).has_value());
+  auto lasting = errorsFor(R"({"errors":[{"message":"blocked","extensions":{"code":"ACCOUNT_BLOCKED"}}]})");
+  CHECK(accountBlockedOf(lasting).has_value() && accountBlockedOf(lasting)->blockedUntil.empty());
+  CHECK(!accountBlockedOf(errorsFor(R"({"errors":[{"message":"no","extensions":{"code":"FORBIDDEN"}}]})")));
+
+  auto banned = errorsFor(R"({"errors":[{"message":"banned","extensions":{"code":"GROUP_MEMBER_BANNED"}}]})");
+  CHECK(groupMemberBannedOf(banned));
+  CHECK(!accountBlockedOf(banned).has_value());
+  CHECK(!groupMemberBannedOf(errorsFor(R"({"errors":[{"message":"s","extensions":{"code":"ACCESS_SUSPENDED"}}]})")));
+
+#ifndef CROWDY_NO_EXCEPTIONS
+  // A blocking call's error carries the same errors.
+  auto sync = std::make_shared<FakeSyncTransport>();
+  sync->response = HttpResponse{403, timedBlock};
+  bool threw = false;
+  try {
+    makeClient(sync)->request("query");
+  } catch (const CrowdyGraphQLError& e) {
+    threw = true;
+    CHECK(e.code() == "ACCOUNT_BLOCKED");
+    auto blocked = accountBlockedOf(e.errors());
+    CHECK(blocked.has_value() && blocked->blockedUntil == "2026-10-20T00:00:00.000Z");
+  }
+  CHECK(threw);
+#endif
+}
+
 void testAsyncHttpError() {
   auto async = std::make_shared<FakeAsyncTransport>();
   async->outcome = httpOk(500, "internal error, not json");
@@ -501,6 +547,7 @@ int main() {
   testRetryAfterMsIsReadFromExtensions();
   testRetryAfterMsDistinguishesZeroFromAbsent();
   testRefusalReaders();
+  testBlockAndBanReaders();
   testAsyncHttpError();
   testAsyncProtocolError();
   testAsyncTransportFailure();

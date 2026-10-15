@@ -1,13 +1,14 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.65.0 passes the strict portable-parity gate against CrowdyJS
-**18.12.0**. The gate pins CrowdyJS commit
+CrowdyCPP 0.66.0 passes the strict portable-parity gate against CrowdyJS
+**18.13.0**. The gate pins CrowdyJS commit
 `43faedd482469ba520b17097b3a67509d029a59d` (`dev/v18.12.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
 
-0.65.0 mirrors CrowdyJS 18.12.0, the genre starters' kit modules. 0.64.0 mirrored 18.11.0,
+0.66.0 mirrors CrowdyJS 18.13.0, the economy's kit modules. 0.65.0 mirrored 18.12.0, the
+genre starters' kit modules. 0.64.0 mirrored 18.11.0,
 the Game Kit on ck-exec. The gate reads CrowdyJS's
 `src/kit/modules/` as well since then, so the typed clients for the starter hubs are
 held method by method like every other class.
@@ -55,7 +56,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.65.0 | CrowdyJS 18.12.0 | Required public API generation |
+| Surface | CrowdyCPP 0.66.0 | CrowdyJS 18.13.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -76,6 +77,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Bans, account blocks and the access-ended close | `channels().ban` / `unban` and `teams().ban` / `unban` (with `Async` twins); `graphql::accountBlockedOf` (`blockedUntil`) and `groupMemberBannedOf`; `ExecConnection` ends for good on `kExecCloseAccessEnded` (4403): no reconnect, calls in flight `Denied`, `onAccessEnded` hears the reason (0.63.0) | `channels.ban` / `unban`, `teams.ban` / `unban`, `accountBlockedOf` / `groupMemberBannedOf`, `EXEC_CLOSE_ACCESS_ENDED` and `ExecConnection.onAccessEnded` (18.10.0) | **The ck-api release after v2.43.1** (cks-game-api #514) for the four ban mutations; nothing else selects a new field. ck-exec 0.16 for the 4403 close, which an older host never sends. `blockAccount` / `unblockAccount` / `accountBlock` are super-admin and wrapped by neither SDK |
 | The Game Kit on ck-exec | `makeKit(client, appId, &connection)`: `world()`, `matchmaking().queue(name)`, `sessions().open(key)`, `npcs().area(key)` / `areaAt`, `topology()` (blocking), `spectate()`, `emotes()`, `shards()`, `runtime()` (`KitRuntime`: the call budget, safe resends, the 256-subscription cap, `KitReply::code()`), `HubState` / `CollectionMirror` / `PrivateState`, `decodeKitActorState`, events 99-101; `ExecConnection::call(..., timeoutMs)`, jittered reconnects, public `pinGateway` (0.64.0) | `client.kit(appId)`: the same modules, `KitRuntime`, `KitError`, the mirrors, `kitActorCodec`, `execWireIntegers` (18.11.0) | A compute toolchain with ckx-sdk 0.10.0 and the starters that speak the kit protocol (dev v1.12.0, 2026-10-15) and the starters deployed in the app (`topology().deploy`); nothing new in the Game API |
 | The genre starters | `leaderboards()`, `tables()`, `tactics()`, `encounters()`, `minigames()` (`throwHand`), `instances()`, `arenas()`, `racing()` (`race`, `ball`), `territory()` (`map`, `zone`) in `crowdy/kit/genres.hpp`; `GameKitNodeTypes` names their types (0.65.0) | `kit.leaderboards`, `tables`, `tactics`, `encounters`, `minigames`, `instances`, `arenas`, `racing`, `territory` (18.12.0) | A compute toolchain with ckx-sdk 0.11.0 and the genre starters, deployed in the app; nothing new in the Game API |
+| The economy | `player()` and `inventory()`, `wallet()`, `progression()`, `achievements()`, `quests()`, `crafting()`, `loot()`, `production()`; `shops()`, `market()`, `trades()` `.at(key)` in `crowdy/kit/economy.hpp`; `codes::kUnavailable` resent (0.66.0) | `kit.player` and the same views, `kit.shops` / `market` / `trades` `.at(key)`, `KIT_CODES.UNAVAILABLE` (18.13.0) | A compute toolchain with ckx-sdk 0.12.0 and the `player` and `market` starters, deployed in the app; nothing new in the Game API |
 | The SDK a build compiled against | `sdkVersion` in the JSON of `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus` (0.61.0) | `ExecBuild.sdkVersion` through the same calls (18.8.0) | ck-api v2.40.2 (`ExecBuild.sdkVersion`; an older API refuses the build documents) |
 | Wide voxel types and other addresses | `ChunkData::overlay` (`OverlayVoxel`, `voxelKey`); `voxelTypeAt` returns `std::int16_t` (0.60.0) | `CachedChunk.overlay` (`ChunkOverlayVoxel`, `voxelKey`); `createGridHostCalls({ voxelBounds })` for a CLIENT half (18.7.0) | Voxel positions and types are the app's signed 16-bit values |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |

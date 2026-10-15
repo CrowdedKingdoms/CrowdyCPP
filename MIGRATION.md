@@ -1,5 +1,31 @@
 # CrowdyCPP migration notes
 
+## 0.65.0 The genre starters
+
+Mirrors CrowdyJS 18.12.0. Additive: the kit gains a module per ck-exec genre starter
+(ckx-sdk 0.11.0, which the tier's compute toolchain must carry; `topology()` lists, builds and
+deploys them like the others). Against an app that does not run one, its calls answer
+`NotFound` (the app has no such node type).
+
+- **The modules** (`crowdy/kit/genres.hpp`, included by `kit.hpp`): `leaderboards().board(name)`
+  (`view()`, `top(cb, LeaderboardPage)`, `around(cb, LeaderboardAround)`, `me`, `season`;
+  `submit`, `configure` and `roll` for developers), `tables().table(key)` (`table()` mirrored,
+  `hand()` private, `join`, `start`, `play(card, suit)`, `draw`, `pass`), `tactics().battle(key)`
+  (`move(x, z)`, `attack`, `endTurn`, `myUnits()`), `encounters().encounter(key)` (`build(x, z)`,
+  `hit`), `minigames().duel(key)` (`throwHand(hand)`: `throw` is a C++ keyword; `rematch`),
+  `instances().run(key)` (`open(InstanceOpen)`, `invite`, `join`, `enter`, `descend`,
+  `abandon`), `arenas().arena(key)` (`join(heroClass)`, `start`, `move(x, z)`,
+  `cast(ability, x, z)`), `racing().race(key)` (`pos`, `ghost`) and `racing().ball(key)`
+  (`claim`, `pass`, `shoot`), `territory().map(key)` (`join(faction)`, `reset`) and
+  `territory().zone(key)`.
+- **Node types** for an app that deploys a starter under another name: `GameKitNodeTypes`'
+  `leaderboard`, `deck`, `tactics`, `director`, `minigame`, `instance`, `arena`, `race`, `ball`,
+  `territory`, `zone`.
+- **Positions the hub keeps.** `arena.move`, `race.pos` and `ball.pos` answer `[x, z]`, the
+  position the hub's movement warden kept, and go without an action id (the next report replaces
+  a lost one). Grid coordinates (`tactics`, `director`) are integers; arena and racing ones
+  doubles.
+
 ## 0.64.0 The Game Kit on ck-exec
 
 Mirrors CrowdyJS 18.11.0. The kit's typed clients drive the ck-exec starter hubs, whose server

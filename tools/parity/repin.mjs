@@ -141,12 +141,13 @@ function discoverCppSuites() {
     .map((entry) => join(root, 'tests', entry));
 }
 
-// Copied fixtures: CrowdyJS owns the cases, a C++ test runs the copy (exec_test,
-// voice_frames_test), and tests/parity/exec-gateway-fixture.test.mjs and
-// voice-frames-fixture.test.mjs refuse a copy that is not the pin's.
+// Copied fixtures: CrowdyJS owns the cases (the kit protocol's is ck-exec's golden record, which
+// CrowdyJS copies first), a C++ test runs the copy (exec_test, voice_frames_test,
+// kit_runtime_test), and tests/parity/*-fixture.test.mjs refuse a copy that is not the pin's.
 const copiedFixtures = [
   ['test/unit/fixtures/exec-gateway-cases.json', 'tools/parity/fixtures/exec-gateway-cases.json'],
   ['test/unit/fixtures/voice-frames.json', 'tools/parity/fixtures/voice-frames.json'],
+  ['test/unit/fixtures/kit-protocol.json', 'tools/parity/fixtures/kit-protocol.json'],
 ];
 for (const [from, to] of copiedFixtures) {
   copyFileSync(join(crowdyjs, ...from.split('/')), join(root, ...to.split('/')));

@@ -41,6 +41,12 @@ target_compile_definitions(exec_test PRIVATE
   CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
 add_test(NAME exec_test COMMAND exec_test)
 
+add_executable(kit_runtime_test kit_runtime_test.cpp)
+target_link_libraries(kit_runtime_test PRIVATE crowdy Threads::Threads)
+target_compile_definitions(kit_runtime_test PRIVATE
+  CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+add_test(NAME kit_runtime_test COMMAND kit_runtime_test)
+
 add_executable(datacenter_redirect_test datacenter_redirect_test.cpp)
 target_link_libraries(datacenter_redirect_test PRIVATE crowdy_graphql)
 add_test(NAME datacenter_redirect_test COMMAND datacenter_redirect_test)

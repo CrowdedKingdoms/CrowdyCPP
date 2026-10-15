@@ -186,8 +186,8 @@ player-host work as browser-only. New differences and stale classifications
 must fail the baseline gate. `parity.mjs --strict` must pass before declaring
 strict portable parity complete.
 
-The class scan reads only `src/domains`, `src/kit`, `src/stores`, `world.ts`
-and the Studio modules. A CrowdyJS module outside it enters the matrix through
+The class scan reads only `src/domains`, `src/kit`, `src/kit/modules` (since 0.64.0),
+`src/stores`, `world.ts` and the Studio modules. A CrowdyJS module outside it enters the matrix through
 `CROSS_CUTTING_EXPORT_MODULES`, where every export is classified and a new one
 fails: the CLIENT-half runner, broker and glue (`src/grid-mods/exec-client-halves.ts`,
 `src/player-runtime/player-code-broker.ts`, `glue-runtime.ts`,
@@ -202,8 +202,17 @@ source changes.
 
 The game model and its automations, Studio compute, player compute (both
 targets) and the player model are gone, from the Game API too (ck-api
-v2.27.0): ck-exec (`client.exec()`) replaced them. The Game Kit keeps
-`social()`, `kit/wire.hpp` and `kit/actions.hpp`; Crowdy Studio's SERVER target
+v2.27.0): ck-exec (`client.exec()`) replaced them. Since 0.64.0 the Game Kit is the client
+half of `ckx_sdk::kit`: typed modules for ck-exec's starter hubs over one `KitRuntime`
+(`crowdy/kit/runtime.hpp`, `mirror.hpp`, `modules.hpp`, `topology.hpp`, `realtime.hpp`),
+beside `social()`, `kit/wire.hpp` and `kit/actions.hpp`. Its protocol is held to ck-exec's
+golden record (`tools/parity/fixtures/kit-protocol.json`, copied by `parity:repin` from the
+pinned CrowdyJS): `kit_runtime_test` replays each starter's script through a gateway that answers
+only the next recorded step. A starter change rewrites the record in ck-exec, CrowdyJS copies it,
+then this repo and CrowdyPy do, on the same tier. The runtime's waits run on one timer thread
+(like `ExecConnection`'s deadlines) and post to the dispatcher; module state lives in a
+`shared_ptr` core that callbacks hold weakly, so a module destroyed with a reply in flight is
+never touched. Crowdy Studio's SERVER target
 is a mod and its CLIENT target that mod's CLIENT half (`CrowdyStudioModRuntime`).
 Do not re-add a wrapper for a `gameModel*`, `compute*`, `playerModel*`,
 `playerCompute*`, player-code marketplace or WASM-policy field: the schema no

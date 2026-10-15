@@ -1,5 +1,56 @@
 # CrowdyCPP migration notes
 
+## 0.64.0 The Game Kit on ck-exec
+
+Mirrors CrowdyJS 18.11.0. The kit's typed clients drive the ck-exec starter hubs, whose server
+half is `ckx_sdk::kit` (ckx-sdk 0.10.0): the tier's compute toolchain must carry it (dev's
+v1.12.0 does) and the app must run the starters (`kit->topology().deploy(plan)`, or the game's
+own build of them). Nothing new in the Game API.
+
+- **`makeKit` returns a `std::unique_ptr<GameKitClient>`.** The kit owns its connection and a
+  timer, so it is neither copied nor moved: `auto kit = makeKit(game, appId, &connection);
+  kit->social().partyCreate("raid");` (was `kit.social()`). `GameKitClient`'s constructor takes
+  `exec` and `dispatcher` after its options; `makeKit` passes the client's.
+- **The modules.** `world()` (`conditions()` and `nodes()` mirrored; `state`, `harvest`,
+  `schedule` and `cancel` for developers), `matchmaking().queue(name)` (`join(MatchJoin)`, `leave`,
+  `accept`, `decline`, `status`, `configure`, `place()` / `onPlace`, `watch` / `unwatch`,
+  `onMatched`), `sessions().open(key)` (`watch`, `join`, `ready`, `startGame`, `act`, `configure`,
+  `currentTurn`, `isMyTurn`, `state()` mirrored), `npcs().area(key)` / `areaAt(x, z)` (`mobs`,
+  `npcs`, `pets`, `attack`, `talk`, `adopt`, `rename`, `summon`, `dismiss`, `release`, `myPets`),
+  `topology()` (`pack`, `types`, `plan(select, overrides)` with its `problems`, `deploy`, all
+  blocking; `kitManifestProblems`), `spectate().observe(SpectateOptions)` (a heartbeat of actor
+  updates over the replication connection), `emotes()` (`send`, `parse`: client event 101 with
+  `{ emote, targetUuid }`) and `shards()`. Every call answers a `KitReply` through `poll()`:
+  `ok()` and `value()` (the hub's reply, its fields snake_case as the hub sends them), or
+  `code()` for a hub's `kit:<code>:` refusal (`cooldown`, `not_your_turn`, ...), or the
+  platform's `status`.
+- **The runtime.** `kit->runtime()` (`KitRuntime`) is one `ExecConnection` for every module,
+  opened on first use (as the player with an app token; `options.runtime.developer` connects as
+  a developer). It paces what it sends to `callBudget` (100) a `budgetWindowMs` (10 s), holds as
+  long as a `Busy` "rate limited" reply says, sends a call again when it did not run (`Busy`,
+  `RateLimited`) or when it carries an action id and its outcome is unknown (`DeadlineExceeded`,
+  `Unavailable`, `Moved`), at most `retries` (2) times, and refuses a 257th subscription with code
+  `limit`. `KitCallOptions{.action = true}` sends a fresh `action_id`. Its waits run on one timer
+  thread, posted to the dispatcher.
+- **Mirrors.** `HubState` (a topic of snapshots), `CollectionMirror` (a topic of deltas, `list` /
+  `member`), `PrivateState` (read with a caller-scoped call, again on a `changed` naming the
+  player) and `WritableKitStore<T>`. A mirror takes a new snapshot on another epoch, a gap in a
+  collection's `seq`, and a reconnect.
+- **Realtime.** `crowdy/kit/realtime.hpp`: `decodeKitActorState` for the actors hubs show,
+  `kKitEventTypes`, `parseKitServerEvent`. `crowdy/kit/wire.hpp` adds events 99 (encounter), 100
+  (possession) and 101 (emote) with their parsers, `encodeEmoteBody` and `kEventAppFirst` (1000);
+  its comments name `ckx_sdk::kit::wire` as the registry's source. Event 98's `kind` is `hold`,
+  `shrink` or `closed`, as ck-exec sends it.
+- **`ExecConnection`.** `call` and `callRaw` take a per-call `timeoutMs` (0 keeps
+  `callTimeoutMs`); each reconnect wait is half its backoff plus up to as much again at random, so
+  the players of a host that went away do not all dial at once; `pinGateway` is public, for a
+  connection you build over your own `ExecDial`.
+- **Parity.** The gate scans CrowdyJS's `src/kit/modules/` too. `tools/parity/fixtures/kit-protocol.json`
+  is ck-exec's golden record of the starters (copied by `parity:repin` from CrowdyJS, which copies
+  it from ck-exec); `kit_runtime_test` replays it through a gateway that answers only the next
+  recorded step, and `tests/parity/kit-protocol-fixture.test.mjs` refuses a copy that is not the
+  pin's.
+
 ## 0.63.0 Bans, the access-ended close, and the block and ban refusals
 
 Mirrors CrowdyJS 18.10.0: suspending or blocking a player cuts every access path in scope.

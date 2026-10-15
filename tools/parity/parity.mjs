@@ -454,6 +454,10 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
   ),
+  'KitError.from': classification(
+    CATEGORY.NATIVE,
+    'the SDK reports failures as replies, not exceptions: KitReply::from reads a hub\'s kit:<code>: refusal out of an ExecReply',
+  ),
   'CrowdyStudioController.reloadProject': classification(
     CATEGORY.BROWSER,
     'the in-browser DSH agent edits project files out of band and the page reloads them into Monaco; a native editor owns its buffers',
@@ -2133,9 +2137,12 @@ function collectTsClasses(crowdyjs) {
   const directories = [
     join(crowdyjs, 'src', 'domains'),
     join(crowdyjs, 'src', 'kit'),
+    // The kit's typed clients for the starter hubs (CrowdyJS 18.11.0).
+    join(crowdyjs, 'src', 'kit', 'modules'),
     join(crowdyjs, 'src', 'stores'),
   ];
   for (const directory of directories) {
+    if (!existsSync(directory)) continue;
     mergeClasses(
       all,
       tsClassMethods(

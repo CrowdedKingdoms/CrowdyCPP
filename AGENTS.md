@@ -204,7 +204,9 @@ The game model and its automations, Studio compute, player compute (both
 targets) and the player model are gone, from the Game API too (ck-api
 v2.27.0): ck-exec (`client.exec()`) replaced them. Since 0.64.0 the Game Kit is the client
 half of `ckx_sdk::kit`: typed modules for ck-exec's starter hubs over one `KitRuntime`
-(`crowdy/kit/runtime.hpp`, `mirror.hpp`, `modules.hpp`, `topology.hpp`, `realtime.hpp`),
+(`crowdy/kit/runtime.hpp`, `mirror.hpp`, `modules.hpp`, `topology.hpp`, `realtime.hpp`, and
+since 0.65.0 `genres.hpp` for the genre starters; `Duel.throw` is `throwHand`, aliased in
+`METHOD_ALIASES`),
 beside `social()`, `kit/wire.hpp` and `kit/actions.hpp`. Its protocol is held to ck-exec's
 golden record (`tools/parity/fixtures/kit-protocol.json`, copied by `parity:repin` from the
 pinned CrowdyJS): `kit_runtime_test` replays each starter's script through a gateway that answers

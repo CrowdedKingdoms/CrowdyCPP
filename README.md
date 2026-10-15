@@ -31,6 +31,15 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.65.0: the genre starters.** Nine more kit modules, one per ck-exec genre starter
+(`crowdy/kit/genres.hpp`): `leaderboards().board(name)`, `tables().table(key)` (the caller's hand
+as `PrivateState`), `tactics().battle(key)`, `encounters().encounter(key)`,
+`minigames().duel(key)` (`throwHand`, CrowdyJS `throw`), `instances().run(key)`,
+`arenas().arena(key)`, `racing().race(key)` / `ball(key)` and `territory().map(key)` /
+`zone(key)`, each mirroring its hub's topic (`view()`) and sending changes with an action id.
+Mirrors CrowdyJS 18.12.0; the starters need a compute toolchain with ckx-sdk 0.11.0 on the
+tier.
+
 **v0.64.0: the Game Kit on ck-exec.** `makeKit(client, appId, &connection)` gains typed clients
 for the ck-exec starter hubs, the client half of the game kit whose server half is
 `ckx_sdk::kit`: `world()` (conditions and resource nodes mirrored, harvests, liveops for

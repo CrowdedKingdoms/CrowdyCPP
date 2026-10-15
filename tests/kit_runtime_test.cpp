@@ -10,6 +10,7 @@
 //   subscribes. CrowdyJS's game-kit.test.mjs plays the same scripts;
 // - the runtime's pacing and resends, private state, the topology's checks and emotes.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -23,6 +24,7 @@
 
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/json.hpp"
+#include "crowdy/kit/genres.hpp"
 #include "crowdy/kit/mirror.hpp"
 #include "crowdy/kit/modules.hpp"
 #include "crowdy/kit/protocol.hpp"
@@ -56,10 +58,11 @@ const Json& record() {
   return r;
 }
 
-Json starter(std::string_view crate) {
+/// `crate`'s script; `nodeType` picks one when the crate serves two types.
+Json starter(std::string_view crate, std::string_view nodeType = {}) {
   Json found;
   record()["starters"].forEach([&](const Json& s) {
-    if (s["crate"].asStringView() == crate) found = s;
+    if (s["crate"].asStringView() == crate && (nodeType.empty() || s["node_type"].asStringView() == nodeType)) found = s;
   });
   CHECK(found.ok());
   return found;
@@ -633,6 +636,377 @@ void testNpcs() {
   gw.done();
 }
 
+// ---- the genre starters ----
+
+/// The first step of `script` that calls `method`.
+Json stepCalling(const Json& script, std::string_view method) {
+  Json found;
+  script["steps"].forEach([&](const Json& s) {
+    if (!found.ok() && s["call"].asStringView() == method) found = s;
+  });
+  CHECK(found.ok());
+  return found;
+}
+
+bool has(const std::vector<std::string>& seen, std::string_view what) { return std::find(seen.begin(), seen.end(), what) != seen.end(); }
+
+KitCallOptions resentAs(std::string id) {
+  KitCallOptions o;
+  o.actionId = std::move(id);
+  return o;
+}
+
+void testLeaderboards() {
+  Replay gw(starter("leaderboard"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto d9 = gw.runtime("developer", 9);
+  LeaderboardsKit k1(r1), k2(r2), kd(d9);
+  LeaderboardHandle& board = k1.board("weekly");
+  CHECK(gw.wait([&](KitCallback cb) { board.watch(cb); }).ok());
+  CHECK_EQ(board.view().get()["season"].asInt64(), 1);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { board.submit(1, 9, cb); }).code(), "forbidden");
+  for (int i = 0; i < 4; ++i) gw.serverStep();  // the hubs that decided the scores submit them; the board publishes
+  CHECK(gw.until([&] { return board.view().get()["top"].size() == 2; }));
+  const Json top = gw.wait([&](KitCallback cb) { board.top(cb, {10, std::nullopt}); }).value();
+  CHECK_EQ(top.at(0)["player"].asInt64(), 2);
+  CHECK_EQ(top.at(1)["player"].asInt64(), 1);
+  const Json me = gw.wait([&](KitCallback cb) { board.me(cb); }).value();
+  CHECK_EQ(me["rank"].asInt64(), 2);
+  CHECK_EQ(me["score"].asInt64(), 9);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k2.board("weekly").around(cb, {std::nullopt, 1}); }).value().size(), 2u);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { board.season(cb); }).value()["entries"].asInt64(), 2);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { board.roll(cb); }).code(), "forbidden");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { kd.board("weekly").roll(cb); }).value().asInt64(), 2);
+  CHECK(gw.wait([&](KitCallback cb) { board.view().resync(cb); }).ok());
+  CHECK_EQ(board.view().get()["season"].asInt64(), 2);
+  gw.done();
+}
+
+void testTables() {
+  const Json script = starter("deck");
+  Replay gw(script);
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  TablesKit k1(r1), k2(r2);
+  CardTable& t1 = k1.table("t1");
+  CardTable& t2 = k2.table("t1");
+  CHECK(gw.wait([&](KitCallback cb) { t1.table().start(cb); }).ok());
+  CHECK_EQ(t1.table().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { t1.join(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { t2.join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { t2.start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { t1.start(cb); }).value().asBool());
+  const Json view = gw.wait([&](KitCallback cb) { r1->call("deck", "t1", "state", JVal(), cb); }).value();
+  CHECK_EQ(view["phase"].asString(), "playing");
+  const std::int64_t turn = view["turn"].asInt64();
+  auto& mover = turn == 1 ? r1 : r2;
+  auto& waiter = turn == 1 ? r2 : r1;
+  CHECK_EQ(gw.wait([&](KitCallback cb) { mover->call("deck", "t1", "hand", JVal(), cb); }).value()["cards"].size(), 5u);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { waiter->call("deck", "t1", "hand", JVal(), cb); }).value()["cards"].size(), 5u);
+  CardTable& moving = turn == 1 ? t1 : t2;
+  CardTable& waiting = turn == 1 ? t2 : t1;
+  CHECK_EQ(gw.wait([&](KitCallback cb) { waiting.draw(cb); }).code(), "not_your_turn");
+  Json play;
+  script["steps"].forEach([&](const Json& s) {
+    if (!play.ok() && (s["call"].asStringView() == "play" || (s["call"].asStringView() == "draw" && s["ok"].asBool()))) play = s;
+  });
+  CHECK(play.ok());
+  if (play["call"].asStringView() == "play") {
+    const std::string card = play["args"]["card"].asString();
+    const std::optional<std::string> suit = play["args"]["suit"].isString() ? std::optional(play["args"]["suit"].asString()) : std::nullopt;
+    CHECK(gw.wait([&](KitCallback cb) { moving.play(card, suit, cb); }).value().asBool());
+    JVal again = JVal::object({{"card", JVal(card)}});
+    if (suit) again["suit"] = JVal(*suit);
+    CHECK(gw.wait([&](KitCallback cb) { mover->call("deck", "t1", "play", again, cb, resentAs("resent")); }).value().asBool());
+  } else {
+    CHECK(gw.wait([&](KitCallback cb) { moving.draw(cb); }).value().asBool());
+    CHECK(gw.wait([&](KitCallback cb) { moving.pass(cb); }).value().asBool());
+  }
+  CHECK(gw.wait([&](KitCallback cb) { t1.table().resync(cb); }).ok());
+  CHECK(t1.table().get()["hand_counts"].ok());
+  gw.done();
+}
+
+void testTactics() {
+  const Json script = starter("tactics");
+  Replay gw(script);
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  TacticsKit k1(r1), k2(r2);
+  TacticsBattle& b1 = k1.battle("b1");
+  TacticsBattle& b2 = k2.battle("b1");
+  CHECK(gw.wait([&](KitCallback cb) { b1.watch(cb); }).ok());
+  CHECK_EQ(b1.battle().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { b1.join(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { b2.join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { b2.start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { b1.start(cb); }).value().asBool());
+  CHECK(gw.until([&] { return b1.battle().get()["phase"].asStringView() == "players"; }));
+  CHECK(gw.wait([&](KitCallback cb) { r1->call("tactics", "b1", "state", JVal(), cb); }).value()["units"].size() > 0);
+  const auto mine = b1.myUnits();
+  CHECK(!mine.empty());
+  const Json move = stepCalling(script, "move")["args"];
+  CHECK_EQ(move["x"].asInt64(), mine.at(0)["x"].asInt64() + 1);
+  CHECK_EQ(move["z"].asInt64(), mine.at(0)["z"].asInt64());
+  CHECK(gw.wait([&](KitCallback cb) { b1.move(move["x"].asInt64(), move["z"].asInt64(), cb); }).value().asBool());
+  const JVal again = JVal::object({{"x", JVal(move["x"].asInt64())}, {"z", JVal(move["z"].asInt64())}});
+  CHECK(gw.wait([&](KitCallback cb) { r1->call("tactics", "b1", "move", again, cb, resentAs("resent")); }).value().asBool());
+  const std::int64_t target = stepCalling(script, "attack")["args"]["target"].asInt64();
+  CHECK_EQ(gw.wait([&](KitCallback cb) { b1.attack(target, cb); }).code(), "out_of_reach");
+  CHECK(gw.wait([&](KitCallback cb) { b1.endTurn(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { b2.endTurn(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { b1.battle().resync(cb); }).ok());
+  CHECK(b1.battle().get()["log"].size() > 0);
+  gw.done();
+}
+
+void testEncounters() {
+  Replay gw(starter("director"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  EncountersKit k1(r1), k2(r2);
+  Encounter& e = k1.encounter("gate");
+  std::vector<std::string> events;
+  e.view().onEvent([&](const Json& body, const KitHeader&) { events.push_back(body["type"].asString()); });
+  CHECK(gw.wait([&](KitCallback cb) { e.watch(cb); }).ok());
+  CHECK_EQ(e.view().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { e.join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k2.encounter("gate").start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { e.start(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { e.build(5, 3, cb); }).value().asInt64(), 20);
+  const JVal again = JVal::object({{"x", JVal(5)}, {"z", JVal(3)}});
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r1->call("director", "gate", "build", again, cb, resentAs("resent")); }).value().asInt64(), 20);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { e.build(99, 0, cb); }).code(), "bad_request");
+  gw.serverStep();  // the first wave
+  CHECK(gw.until([&] { return has(events, "wave_started"); }));
+  const Json state = gw.wait([&](KitCallback cb) { r1->call("director", "gate", "state", JVal(), cb); }).value();
+  const std::int64_t enemy = state["enemies"].at(0)["id"].asInt64();
+  CHECK_EQ(gw.wait([&](KitCallback cb) { e.hit(enemy, cb); }).value().asInt64(), 15);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { e.hit(enemy, cb); }).code(), "cooldown");
+  CHECK(gw.wait([&](KitCallback cb) { e.view().resync(cb); }).ok());
+  CHECK_EQ(e.view().get()["enemies"].at(0)["hp"].asInt64(), 15);
+  gw.done();
+}
+
+void testMinigames() {
+  Replay gw(starter("minigame"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto r3 = gw.runtime("player", 3);
+  MinigamesKit k1(r1), k2(r2), k3(r3);
+  Duel& d1 = k1.duel("t1");
+  Duel& d2 = k2.duel("t1");
+  CHECK(gw.wait([&](KitCallback cb) { d1.watch(cb); }).ok());
+  CHECK_EQ(d1.view().get()["phase"].asString(), "waiting");
+  CHECK(!gw.wait([&](KitCallback cb) { d1.join(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { d2.join(cb); }).value().asBool());  // the second seat starts the first round
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k3.duel("t1").join(cb); }).code(), "full");
+  CHECK(!gw.wait([&](KitCallback cb) { d1.throwHand("rock", cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { d1.throwHand("paper", cb); }).code(), "conflict");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { d2.throwHand("lizard", cb); }).code(), "bad_request");
+  CHECK(gw.wait([&](KitCallback cb) { d2.throwHand("scissors", cb); }).value().asBool());
+  CHECK(gw.until([&] { return d1.view().get()["last"]["round"].asInt64() == 1; }));
+  CHECK_EQ(d1.view().get()["last"]["hands"].at(0).asString(), "rock");
+  CHECK_EQ(d1.view().get()["last"]["hands"].at(1).asString(), "scissors");
+  CHECK(!gw.wait([&](KitCallback cb) { d1.throwHand("paper", cb); }).value().asBool());
+  const JVal again = JVal::object({{"hand", JVal("paper")}});
+  CHECK(!gw.wait([&](KitCallback cb) { r1->call("minigame", "t1", "throw", again, cb, resentAs("resent")); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { d2.throwHand("rock", cb); }).value().asBool());
+  CHECK(gw.until([&] { return d1.view().get()["winner"].isNumber() && d1.view().get()["winner"].asInt64() == 1; }));
+  CHECK(gw.wait([&](KitCallback cb) { d2.rematch(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { d1.view().resync(cb); }).ok());
+  CHECK_EQ(d1.view().get()["phase"].asString(), "playing");
+  gw.done();
+}
+
+void testInstances() {
+  Replay gw(starter("instance"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto r3 = gw.runtime("player", 3);
+  InstancesKit k1(r1), k2(r2), k3(r3);
+  InstanceRun& run1 = k1.run("run-a");
+  InstanceRun& run2 = k2.run("run-a");
+  CHECK(gw.wait([&](KitCallback cb) { run1.watch(cb); }).ok());
+  CHECK_EQ(run1.view().get()["phase"].asString(), "unopened");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { run1.open({7, {}}, cb); }).value().asInt64(), 7);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { run2.join(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { run1.invite(2, cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { run2.join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k3.run("run-a").enter(cb); }).code(), "not_member");
+  const std::string first = gw.wait([&](KitCallback cb) { run2.enter(cb); }).value().asString();
+  CHECK(first.find("won") != std::string::npos);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r2->call("instance", "run-a", "enter", JVal(), cb, resentAs("resent")); }).value().asString(), first);
+  CHECK(gw.wait([&](KitCallback cb) { run1.enter(cb); }).value().asString().find("the boss: won") != std::string::npos);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { run1.enter(cb); }).code(), "finished");
+  CHECK(gw.wait([&](KitCallback cb) { run1.view().resync(cb); }).ok());
+  CHECK_EQ(run1.view().get()["phase"].asString(), "cleared");
+  gw.done();
+}
+
+void testArenas() {
+  Replay gw(starter("arena"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto r3 = gw.runtime("player", 3);
+  ArenasKit k1(r1), k2(r2), k3(r3);
+  ArenaMatch& a1 = k1.arena("pit");
+  ArenaMatch& a2 = k2.arena("pit");
+  std::vector<std::string> events;
+  a1.view().onEvent([&](const Json& body, const KitHeader&) { events.push_back(body["type"].asString()); });
+  CHECK(gw.wait([&](KitCallback cb) { a1.watch(cb); }).ok());
+  CHECK_EQ(a1.view().get()["phase"].asString(), "waiting");
+  CHECK(gw.wait([&](KitCallback cb) { a1.join("warrior", cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { a2.join("mage", cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k3.arena("pit").join("bard", cb); }).code(), "bad_request");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { a2.start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { a1.start(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { a1.cast("strike", 11, 10, cb); }).value().asBool());
+  const JVal again = JVal::object({{"ability", JVal("strike")}, {"x", JVal(11)}, {"z", JVal(10)}});
+  CHECK(gw.wait([&](KitCallback cb) { r1->call("arena", "pit", "cast", again, cb, resentAs("resent")); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { a1.cast("strike", 11, 10, cb); }).code(), "cooldown");
+  CHECK(!gw.wait([&](KitCallback cb) { a2.cast("bolt", 10, 10, cb); }).value().asBool());  // a projectile lands later
+  gw.serverStep();
+  CHECK(gw.until([&] { return has(events, "impact"); }));
+  const Json kept = gw.wait([&](KitCallback cb) { a2.move(30, 10, cb); }).value();  // a jump is refused
+  CHECK_EQ(kept.at(0).asDouble(), 11.0);
+  CHECK_EQ(kept.at(1).asDouble(), 10.0);
+  CHECK(gw.wait([&](KitCallback cb) { a1.view().resync(cb); }).ok());
+  CHECK_EQ(a1.view().get()["fighters"].size(), 2u);
+  gw.done();
+}
+
+void testRace() {
+  Replay gw(starter("racing", "race"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  RacingKit k1(r1), k2(r2);
+  Race& race = k1.race("r1");
+  std::vector<std::string> events;
+  race.view().onEvent([&](const Json& body, const KitHeader&) {
+    events.push_back(body["type"].asStringView() == "timing" ? body["stage"].asString() : body["type"].asString());
+  });
+  CHECK(gw.wait([&](KitCallback cb) { race.watch(cb); }).ok());
+  CHECK_EQ(race.view().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { race.join(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { k2.race("r1").join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k2.race("r1").start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { race.start(cb); }).value().asBool());
+  gw.serverStep();  // the countdown ends
+  CHECK(gw.until([&] { return has(events, "started"); }));
+  for (const double x : {5.0, 10.0, 5.0, 0.0}) {
+    gw.serverStep();
+    const Json kept = gw.wait([&](KitCallback cb) { race.pos(x, 0, cb); }).value();
+    CHECK_EQ(kept.at(0).asDouble(), x);
+  }
+  CHECK(gw.until([&] { return has(events, "finished"); }));
+  const Json ghost = gw.wait([&](KitCallback cb) { k2.race("r1").ghost(cb); }).value();
+  CHECK_EQ(ghost["player"].asInt64(), 1);
+  CHECK(ghost["frames"].size() >= 4);
+  gw.serverStep();  // the rest's time runs out
+  CHECK(gw.wait([&](KitCallback cb) { race.view().resync(cb); }).ok());
+  const Json done = race.view().get();
+  CHECK_EQ(done["phase"].asString(), "finished");
+  bool secondOut = false;
+  done["racers"].forEach([&](const Json& r) {
+    if (r["player"].asInt64() == 2) secondOut = r["did_not_finish"].asBool();
+  });
+  CHECK(secondOut);
+  gw.done();
+}
+
+void testBall() {
+  Replay gw(starter("racing", "ball"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  RacingKit k1(r1), k2(r2);
+  BallMatch& m1 = k1.ball("m1");
+  BallMatch& m2 = k2.ball("m1");
+  std::vector<std::string> events;
+  m1.view().onEvent([&](const Json& body, const KitHeader&) { events.push_back(body["type"].asString()); });
+  CHECK(gw.wait([&](KitCallback cb) { m1.watch(cb); }).ok());
+  CHECK_EQ(m1.view().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { m1.join("red", cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { m2.join("blue", cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { m1.start(cb); }).value().asBool());
+  for (const double x : {22.0, 29.5}) {
+    gw.serverStep();
+    CHECK_EQ(gw.wait([&](KitCallback cb) { m1.pos(x, 20, cb); }).value().at(0).asDouble(), x);
+  }
+  CHECK_EQ(gw.wait([&](KitCallback cb) { m2.claim(cb); }).code(), "out_of_reach");
+  CHECK(gw.wait([&](KitCallback cb) { m1.claim(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { m1.shoot(60, 20, cb); }).value().asBool());
+  gw.serverStep();
+  CHECK(gw.until([&] { return has(events, "goal"); }));
+  CHECK(gw.wait([&](KitCallback cb) { m1.view().resync(cb); }).ok());
+  CHECK_EQ(m1.view().get()["score"].at(0).asInt64(), 1);
+  CHECK_EQ(m1.view().get()["score"].at(1).asInt64(), 0);
+  gw.done();
+}
+
+/// The point `id` of a territory view.
+Json pointOf(const Json& view, std::string_view id) {
+  Json found;
+  view["points"].forEach([&](const Json& p) {
+    if (p["id"].asStringView() == id) found = p;
+  });
+  return found;
+}
+
+void testTerritory() {
+  Replay gw(starter("territory", "territory"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto d9 = gw.runtime("developer", 9);
+  TerritoryKit k1(r1), k2(r2), kd(d9);
+  TerritoryMap& m = k1.map("valley");
+  std::vector<std::string> events;
+  m.view().onEvent([&](const Json& body, const KitHeader&) { events.push_back(body["type"].asString()); });
+  CHECK(gw.wait([&](KitCallback cb) { m.watch(cb); }).ok());
+  CHECK_EQ(m.view().get()["phase"].asString(), "open");
+  CHECK(gw.wait([&](KitCallback cb) { m.join("blue", cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { m.join("red", cb); }).code(), "conflict");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k2.map("valley").join("green", cb); }).code(), "bad_request");
+  gw.serverStep();  // two scans
+  CHECK(gw.until([&] { return has(events, "captured"); }));
+  const Json state = gw.wait([&](KitCallback cb) { r1->call("territory", "valley", "state", JVal(), cb); }).value();
+  CHECK_EQ(pointOf(state, "tower")["owner"].asString(), "blue");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { m.reset(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { kd.map("valley").reset(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { m.view().resync(cb); }).ok());
+  CHECK(pointOf(m.view().get(), "tower")["owner"].isNull());
+  gw.done();
+}
+
+void testZone() {
+  Replay gw(starter("territory", "zone"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto r3 = gw.runtime("player", 3);
+  TerritoryKit k1(r1), k2(r2), k3(r3);
+  ZoneMatch& z1 = k1.zone("match-1");
+  CHECK(gw.wait([&](KitCallback cb) { z1.watch(cb); }).ok());
+  CHECK_EQ(z1.view().get()["phase"].asString(), "lobby");
+  CHECK(gw.wait([&](KitCallback cb) { z1.join(cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { k2.zone("match-1").join(cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k2.zone("match-1").start(cb); }).code(), "forbidden");
+  CHECK(gw.wait([&](KitCallback cb) { z1.start(cb); }).value().asBool());
+  gw.serverStep();  // a scan
+  CHECK(gw.until([&] {
+    bool outside = false;
+    z1.view().get()["players"].forEach([&](const Json& c) { outside = outside || c["outside"].asBool(); });
+    return outside;
+  }));
+  const Json state = gw.wait([&](KitCallback cb) { r1->call("zone", "match-1", "state", JVal(), cb); }).value();
+  CHECK(!state["players"].at(0)["outside"].asBool());
+  CHECK(state["players"].at(1)["outside"].asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { k3.zone("match-1").join(cb); }).code(), "started");
+  CHECK(gw.wait([&](KitCallback cb) { z1.view().resync(cb); }).ok());
+  CHECK_EQ(z1.view().get()["alive"].asInt64(), 2);
+  gw.done();
+}
+
 // ---- the runtime ----
 
 /// A gateway a test scripts call by call: `answer` gives each call's (status, payload).
@@ -861,6 +1235,17 @@ int main() {
   testMatchmaking();
   testSessions();
   testNpcs();
+  testLeaderboards();
+  testTables();
+  testTactics();
+  testEncounters();
+  testMinigames();
+  testInstances();
+  testArenas();
+  testRace();
+  testBall();
+  testTerritory();
+  testZone();
   testResends();
   testPacing();
   testSubscriptionCap();

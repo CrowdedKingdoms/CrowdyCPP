@@ -517,6 +517,8 @@ const METHOD_ALIASES = {
   // twin. The pair became load-bearing when the dev-auth bypass was deleted and
   // password sign-in became the path an automated client uses.
   'AuthAPI.register': 'registerUser',
+  // `throw` is a C++ keyword.
+  'Duel.throw': 'throwHand',
   'ActorsAPI.delete': 'remove',
   'AvatarsAPI.delete': 'remove',
   'TeamsAPI.remove': 'remove',

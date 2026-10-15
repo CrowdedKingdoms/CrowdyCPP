@@ -96,6 +96,18 @@ int run() {
 
   // ----- Channels ------------------------------------------------------------
 
+  // A player creates the channel below, which the app's channel policy decides on its own:
+  // an app that lets only admins create channels refuses it.
+  E2E_SUBTEST("owner sets a permissive channel policy");
+  {
+    graphql::JVal policy;
+    policy["appId"] = cfg.appId;
+    policy["creationPolicy"] = "member";
+    policy["defaultMembershipPolicy"] = "open";
+    graphql::Json set = e2e::ownerGame(cfg).channels().setPolicy(policy);
+    E2E_CHECK(set["creationPolicy"].asString() == "member");
+  }
+
   E2E_SUBTEST("channel create + member join");
   graphql::JVal channelInput;
   channelInput["appId"] = cfg.appId;

@@ -196,7 +196,13 @@ void run() {
                                    Bytes(pose, sizeof(pose)), 1700000000200LL, 3);
   server.reply(selfNote.data(), selfNote.size());
 
-  for (int i = 0; i < 100 && session.actors().size() < 1; ++i) {
+  // Both notifications, not just the first: the actor exists after one, and the second can
+  // still be in flight (macOS CI, 2026-10-15).
+  const auto sampledTwice = [&] {
+    const RemoteActor* r = session.actors().find(other);
+    return r != nullptr && r->samples.size() >= 2;
+  };
+  for (int i = 0; i < 100 && !sampledTwice(); ++i) {
     conn->pump(20);
     session.tick();
   }

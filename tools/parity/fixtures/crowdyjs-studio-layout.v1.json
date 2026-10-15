@@ -2,7 +2,7 @@
   "fixtureVersion": 1,
   "crowdyJs": {
     "version": "18.10.0",
-    "commit": "02921c258254ed938f8ced588c033ab13c1c6d3d"
+    "commit": "2cd0fe047ab20321284984f70b5c2a9b29c79a4f"
   },
   "storageKey": "ck:crowdy-studio:layout:v1",
   "paneIds": [

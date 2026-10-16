@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.67.1: the exec socket names a paused app and a switched-off app or type.** `AppPaused`, `AppDisabled`, and `TypeDisabled` replace a bare denial for those three. Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
+**v0.67.1: the exec socket names a paused app and a switched-off app or type.** `AppPaused`, `AppDisabled`, and `TypeDisabled` replace a bare denial for those three. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
 
 **v0.67.0: `updateGamertag` sends the disambiguation.** `users().updateGamertag(gamertag, disambiguation)` and `updateGamertagAsync` take both halves of the handle. A rename that sent only the gamertag was refused on every tier (`disambiguation` is required). Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
 

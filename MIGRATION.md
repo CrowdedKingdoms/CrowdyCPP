@@ -1,5 +1,25 @@
 # CrowdyCPP migration notes
 
+## 0.66.0 The economy
+
+Mirrors CrowdyJS 18.13.0. Additive; the `player` and `market` starters need ckx-sdk 0.12.0 in
+the tier's compute toolchain. The economy lives in hub state and is not a ledger (HS-52).
+
+- **`player()`** (`PlayerKit`): the caller's own hub, keyed by `options.runtime.playerId` (set
+  it; without one its calls answer `bad_request`). `watch(done, which)`, `me`, `rules`,
+  `profileOf`, `onEvent`, and the stores `profile()`, `inventory()`, `wallet()`, `progress()`
+  (`WritableKitStore<Json>`), filled as their mirrors read. The views over it:
+  `inventory()` (`count`, `discard`, `takeMail`), `wallet()` (`balance`), `progression()`
+  (`onLevel`, `profileOf`), `achievements()` (`list`, `onUnlock`), `quests()` (`list`,
+  `accept`, `claim`, `step`), `crafting()` (`recipes`, `craft(recipe, times)`), `loot()`
+  (`tables`, `open`), `production()` (`view`, `collect`).
+- **Markets**: `shops().at(key)` (`vendors`, `buy(vendor, item, count)`, `sell`),
+  `market().at(key)` (`book`, `order(MarketOrderRequest)`, `cancel`, `orders()` mirrored) and
+  `trades().at(key)` (`open`, `offer(trade, bundle)`, `accept`, `decline`, `mine()` mirrored),
+  one `MarketCore` per key behind them.
+- **`codes::kUnavailable`**: a hub refuses a change it could not finish because another hub did
+  not answer, and keeps no receipt; `KitRuntime` sends a call with an action id again.
+
 ## 0.65.0 The genre starters
 
 Mirrors CrowdyJS 18.12.0. Additive: the kit gains a module per ck-exec genre starter

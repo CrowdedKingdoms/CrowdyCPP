@@ -24,6 +24,7 @@
 
 #include "crowdy/graphql/dispatcher.hpp"
 #include "crowdy/graphql/json.hpp"
+#include "crowdy/kit/economy.hpp"
 #include "crowdy/kit/genres.hpp"
 #include "crowdy/kit/mirror.hpp"
 #include "crowdy/kit/modules.hpp"
@@ -1007,6 +1008,116 @@ void testZone() {
   gw.done();
 }
 
+// ---- the economy ----
+
+JVal items(const char* item, std::int64_t n) { return JVal::object({{"items", JVal::object({{item, JVal(n)}})}}); }
+JVal coins(const char* currency, std::int64_t n) { return JVal::object({{"currency", JVal::object({{currency, JVal(n)}})}}); }
+
+void testPlayer() {
+  Replay gw(starter("player"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto d9 = gw.runtime("developer", 9);
+  PlayerKit p1(r1), p2(r2);
+  InventoryKit inventory(p1);
+  WalletKit wallet(p1);
+  ProgressionKit progression(p1), progression2(p2);
+  AchievementsKit achievements(p1);
+  QuestsKit quests(p1);
+  CraftingKit crafting(p1);
+  LootKit loot(p1);
+  ProductionKit production(p1);
+  std::vector<std::string> events;
+  p1.onEvent([&](const Json& e) { events.push_back(e["type"].asString()); });
+  CHECK(gw.wait([&](KitCallback cb) { p1.watch(cb, {"profile"}); }).ok());
+  CHECK_EQ(progression.profile().get()["level"].asInt64(), 1);
+  const Json me = gw.wait([&](KitCallback cb) { p1.me(cb); }).value();
+  CHECK_EQ(me["wallet"]["balances"]["gold"].asInt64(), 100);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r2->call("player", "1", "me", JVal(), cb); }).code(), "forbidden");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { progression2.profileOf(1, cb); }).value()["player"].asInt64(), 1);
+  CHECK(gw.wait([&](KitCallback cb) { crafting.recipes(cb); }).value().size() >= 1);
+  const JVal deposit = JVal::object({{"ref", JVal("seed-wood")}, {"bundle", items("wood", 4)}});
+  CHECK(gw.wait([&](KitCallback cb) { d9->call("player", "1", "deposit", deposit, cb); }).value().asBool());
+  const Json crafted = gw.wait([&](KitCallback cb) { crafting.craft("plank", 2, cb); }).value();
+  CHECK_EQ(crafted["made"]["items"]["plank"].asInt64(), 2);
+  CHECK_EQ(crafted["earned"]["achievements"].at(0).asString(), "first_craft");
+  const JVal again = JVal::object({{"recipe", JVal("plank")}, {"times", JVal(2)}});
+  CHECK(same(gw.wait([&](KitCallback cb) { r1->call("player", "1", "craft", again, cb, resentAs("resent")); }).value(), crafted));
+  CHECK_EQ(gw.wait([&](KitCallback cb) { crafting.craft("plank", std::nullopt, cb); }).code(), "insufficient");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { quests.step("crafted", cb); }).code(), "forbidden");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { quests.step("tutorial:inventory", cb); }).value()["quests"].at(0).asString(), "welcome");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { quests.claim("welcome", cb); }).value()["currency"]["gold"].asInt64(), 25);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { quests.claim("welcome", cb); }).code(), "not_ready");
+  CHECK(gw.wait([&](KitCallback cb) { loot.open("chest", cb); }).value()["roll"]["count"].asInt64() > 0);
+  gw.serverStep();  // half an hour away
+  const Json collected = gw.wait([&](KitCallback cb) { production.collect(cb); }).value();
+  CHECK_EQ(collected["items"]["wood"].asInt64(), 60);
+  CHECK_EQ(collected["items"]["ore"].asInt64(), 30);
+  for (int i = 0; i < 4; ++i) gw.serverStep();  // a market holds, settles, releases and sells
+  const JVal grant = JVal::object({{"ref", JVal("nope")}, {"bundle", coins("gold", 1)}});
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r1->call("player", "1", "grant", grant, cb); }).code(), "forbidden");
+  gw.serverStep();  // a run's reward
+  CHECK(gw.until([&] { return has(events, "level"); }));
+  CHECK(gw.wait([&](KitCallback cb) { inventory.takeMail(cb); }).ok());
+  CHECK(gw.wait([&](KitCallback cb) { wallet.watch(cb); }).ok());
+  CHECK_EQ(wallet.balance("gold"), 80);
+  CHECK(gw.wait([&](KitCallback cb) { inventory.watch(cb); }).ok());
+  CHECK_EQ(inventory.count("plank"), 2);
+  CHECK(gw.wait([&](KitCallback cb) { progression.watch(cb); }).ok());
+  CHECK_EQ(progression.progress().get()["level"].asInt64(), 4);
+  bool unlocked = false;
+  for (const auto& a : achievements.list()) unlocked = unlocked || (a["id"].asStringView() == "first_craft" && a["unlocked_at"].isNumber());
+  CHECK(unlocked);
+  bool welcomeDone = false;
+  for (const auto& q : quests.list()) welcomeDone = welcomeDone || (q["id"].asStringView() == "welcome" && q["state"].asStringView() == "done");
+  CHECK(welcomeDone);
+  gw.serverStep();
+  CHECK(gw.until([&] { return progression.profile().get()["level"].asInt64() == 4; }));
+  const JVal topic = JVal::object({{"topic", JVal("player")}});
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r1->call("player", "1", "snapshot", topic, cb); }).value()["level"].asInt64(), 4);
+  gw.done();
+}
+
+void testMarket() {
+  Replay gw(starter("market"));
+  auto r1 = gw.runtime("player", 1);
+  auto r2 = gw.runtime("player", 2);
+  auto r3 = gw.runtime("player", 3);
+  MarketCores c1(r1, "market"), c2(r2, "market"), c3(r3, "market");
+  ShopsKit s1(c1), s3(c3);
+  MarketsKit m1(c1), m2(c2);
+  TradesKit t1(c1), t2(c2), t3(c3);
+  ShopHandle shop = s1.at("town");
+  CHECK(gw.wait([&](KitCallback cb) { shop.watch(cb); }).ok());
+  CHECK_EQ(shop.view().get()["currency"].asString(), "gold");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { shop.vendors(cb); }).value().at(0)["id"].asString(), "smith");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { shop.buy("smith", "sword", std::nullopt, cb); }).value()["items"]["sword"].asInt64(), 1);
+  const JVal sword = JVal::object({{"vendor", JVal("smith")}, {"item", JVal("sword")}});
+  CHECK(gw.wait([&](KitCallback cb) { r1->call("market", "town", "buy", sword, cb, resentAs("resent")); }).ok());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { shop.buy("smith", "sword", std::nullopt, cb); }).code(), "limit");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { s3.at("town").buy("smith", "potion", 2, cb); }).code(), "insufficient");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { shop.sell("smith", "sword", std::nullopt, cb); }).value()["currency"]["gold"].asInt64(), 20);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { m2.at("town").order({"ore", "sell", 4, 10}, cb); }).value()["open"].asInt64(), 10);
+  const Json bought = gw.wait([&](KitCallback cb) { m1.at("town").order({"ore", "buy", 5, 6}, cb); }).value();
+  CHECK_EQ(bought["open"].asInt64(), 0);
+  CHECK_EQ(bought["fills"].at(0).at(0).asInt64(), 4);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { m1.at("town").book("ore", cb); }).value()["asks"].at(0).at(1).asInt64(), 4);
+  const Json mine = gw.wait([&](KitCallback cb) { r2->call("market", "town", "orders", JVal(), cb); }).value();
+  CHECK(gw.wait([&](KitCallback cb) { m2.at("town").cancel(mine.at(0)["id"].asInt64(), cb); }).value().asBool());
+  TradeDesk desk = t1.at("town");
+  const std::int64_t trade = gw.wait([&](KitCallback cb) { desk.open(2, cb); }).value().asInt64();
+  CHECK(gw.wait([&](KitCallback cb) { desk.offer(trade, coins("gold", 30), cb); }).value().asBool());
+  CHECK(gw.wait([&](KitCallback cb) { t2.at("town").offer(trade, items("ore", 2), cb); }).value().asBool());
+  CHECK_EQ(gw.wait([&](KitCallback cb) { desk.accept(trade, cb); }).value().asString(), "open");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { t2.at("town").accept(trade, cb); }).value().asString(), "settling");
+  CHECK_EQ(gw.wait([&](KitCallback cb) { r1->call("market", "town", "trades", JVal(), cb); }).value().size(), 0u);
+  CHECK_EQ(gw.wait([&](KitCallback cb) { t3.at("town").decline(trade, cb); }).code(), "forbidden");
+  gw.serverStep();
+  CHECK(gw.wait([&](KitCallback cb) { shop.view().resync(cb); }).ok());
+  CHECK_EQ(shop.view().get()["open_trades"].asInt64(), 0);
+  gw.done();
+}
+
 // ---- the runtime ----
 
 /// A gateway a test scripts call by call: `answer` gives each call's (status, payload).
@@ -1063,6 +1174,8 @@ void testResends() {
     if (f.name == "busy" && n == 1) return {2, "rate limited: a player may make 120 calls per 10000 ms; retry in 30 ms"};
     if (f.name == "lost" && n <= 2) return {8, "host went away"};
     if (f.name == "plain") return {8, "host went away"};
+    if (f.name == "buy" && n == 1) return {1, "kit:unavailable: the player's hub did not answer; send it again"};
+    if (f.name == "buy-plain") return {1, "kit:unavailable: no answer"};
     return {0, Json::parse("7").toMsgpack()};
   };
   KitRuntimeOptions options;
@@ -1097,6 +1210,24 @@ void testResends() {
   rt->call("arena", "m1", "plain", JVal(), [&](KitReply r) { plain = r; });
   CHECK(gw.until([&] { return plain.has_value(); }));
   CHECK(plain->status == ExecStatus::Unavailable);
+  CHECK_EQ(gw.calls.size(), 1u);
+
+  // A hub that could not hear from another refuses `unavailable` and keeps no receipt: a call
+  // with an action id is sent again with it, one without is the caller's to resend.
+  n = 0;
+  gw.calls.clear();
+  std::optional<KitReply> buy;
+  rt->call("market", "town", "buy", JVal::object({{"item", JVal("potion")}}), [&](KitReply r) { buy = r; }, action);
+  CHECK(gw.until([&] { return buy.has_value(); }));
+  CHECK(buy->ok());
+  CHECK_EQ(gw.calls.size(), 2u);
+  CHECK_EQ(Json::fromMsgpack(gw.calls[0].payload)["action_id"].asString(), Json::fromMsgpack(gw.calls[1].payload)["action_id"].asString());
+  n = 0;
+  gw.calls.clear();
+  std::optional<KitReply> once;
+  rt->call("market", "town", "buy-plain", JVal(), [&](KitReply r) { once = r; });
+  CHECK(gw.until([&] { return once.has_value(); }));
+  CHECK_EQ(once->code(), "unavailable");
   CHECK_EQ(gw.calls.size(), 1u);
 }
 
@@ -1246,6 +1377,8 @@ int main() {
   testBall();
   testTerritory();
   testZone();
+  testPlayer();
+  testMarket();
   testResends();
   testPacing();
   testSubscriptionCap();

@@ -31,6 +31,14 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.66.0: the economy.** `crowdy/kit/economy.hpp`: `player()`, the caller's own `player`
+hub (its key is the runtime's `playerId`), and its views `inventory()`, `wallet()`,
+`progression()`, `achievements()`, `quests()`, `crafting()`, `loot()` and `production()`; and
+markets by name, `shops().at(key)` (vendors), `market().at(key)` (order books) and
+`trades().at(key)` (trades between two players). It lives in hub state and is not a ledger. A
+call with an action id refused `unavailable` is sent again. Mirrors CrowdyJS 18.13.0; the
+starters need a compute toolchain with ckx-sdk 0.12.1 on the tier (dev: v1.15.0).
+
 **v0.65.0: the genre starters.** Nine more kit modules, one per ck-exec genre starter
 (`crowdy/kit/genres.hpp`): `leaderboards().board(name)`, `tables().table(key)` (the caller's hand
 as `PrivateState`), `tactics().battle(key)`, `encounters().encounter(key)`,

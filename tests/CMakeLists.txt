@@ -122,6 +122,10 @@ add_executable(input_log_test input_log_test.cpp)
 target_link_libraries(input_log_test PRIVATE crowdy)
 add_test(NAME input_log_test COMMAND input_log_test)
 
+add_executable(users_test users_test.cpp)
+target_link_libraries(users_test PRIVATE crowdy)
+add_test(NAME users_test COMMAND users_test)
+
 add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
 target_compile_definitions(chunk_store_test PRIVATE

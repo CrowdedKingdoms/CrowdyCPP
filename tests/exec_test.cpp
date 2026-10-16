@@ -105,6 +105,10 @@ void testGoldenFrames() {
 
 void testStatusesAndDigests() {
   CHECK_EQ(execStatusName(execStatusFromWire(3)), "Moved");
+  CHECK_EQ(execStatusName(execStatusFromWire(12)), "AppPaused");
+  CHECK_EQ(execStatusName(execStatusFromWire(13)), "AppDisabled");
+  CHECK_EQ(execStatusName(execStatusFromWire(14)), "TypeDisabled");
+  CHECK(!execStatusRetryable(ExecStatus::AppPaused));
   CHECK(execStatusFromWire(200) == ExecStatus::Unknown);
   CHECK(execStatusRetryable(ExecStatus::Busy));
   CHECK(!execStatusRetryable(ExecStatus::AppError));

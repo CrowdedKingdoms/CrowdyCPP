@@ -1,5 +1,12 @@
 # CrowdyCPP migration notes
 
+## 0.67.2 Closing the kit drops what it held
+
+Still mirrors CrowdyJS 18.13.0. Additive.
+
+- **`KitRuntime::close()`** unsubscribes every topic the kit still holds, including one whose last unsubscribe was waiting on the call budget, and removes the reconnect and access-ended listeners it added to the connection. A connection the caller handed in stays open; one the kit opened is closed, as before. Every callback that was still waiting to be sent runs once, `Unavailable`, "the kit is closed". A call already on the wire still completes with the connection's reply. A later call or subscribe fails the same way.
+- **`ExecConnection::onReconnect` and `onAccessEnded`** return an id. **`removeListener(id)`** stops that one listener.
+
 ## 0.67.1 The exec socket names pause and switch-off
 
 Still mirrors CrowdyJS 18.13.2. Additive. A paused app, an app switched off, and a type switched off used to arrive as a bare denial. They are now `AppPaused`, `AppDisabled`, and `TypeDisabled`.

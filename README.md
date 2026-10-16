@@ -31,6 +31,36 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.66.0: the economy.** `crowdy/kit/economy.hpp`: `player()`, the caller's own `player`
+hub (its key is the runtime's `playerId`), and its views `inventory()`, `wallet()`,
+`progression()`, `achievements()`, `quests()`, `crafting()`, `loot()` and `production()`; and
+markets by name, `shops().at(key)` (vendors), `market().at(key)` (order books) and
+`trades().at(key)` (trades between two players). It lives in hub state and is not a ledger. A
+call with an action id refused `unavailable` is sent again. Mirrors CrowdyJS 18.13.0; the
+starters need a compute toolchain with ckx-sdk 0.12.1 on the tier (dev: v1.15.0).
+
+**v0.65.0: the genre starters.** Nine more kit modules, one per ck-exec genre starter
+(`crowdy/kit/genres.hpp`): `leaderboards().board(name)`, `tables().table(key)` (the caller's hand
+as `PrivateState`), `tactics().battle(key)`, `encounters().encounter(key)`,
+`minigames().duel(key)` (`throwHand`, CrowdyJS `throw`), `instances().run(key)`,
+`arenas().arena(key)`, `racing().race(key)` / `ball(key)` and `territory().map(key)` /
+`zone(key)`, each mirroring its hub's topic (`view()`) and sending changes with an action id.
+Mirrors CrowdyJS 18.12.0; the starters need a compute toolchain with ckx-sdk 0.11.0 on the
+tier.
+
+**v0.64.0: the Game Kit on ck-exec.** `makeKit(client, appId, &connection)` gains typed clients
+for the ck-exec starter hubs, the client half of the game kit whose server half is
+`ckx_sdk::kit`: `world()` (conditions and resource nodes mirrored, harvests, liveops for
+developers), `matchmaking().queue(name)` (parties matched whole), `sessions().open(key)` (lobby
+to result), `npcs().area(key)` (mobs, NPCs, players' pets), `topology()` (compose, check, build
+and deploy the starters), and `spectate()`, `emotes()` and `shards()`. They share one
+`ExecConnection` that paces calls under the gateway's limit, resends only what is safe, and
+mirrors topics with resync on gaps, epochs and reconnects; refusals carry the hub's code
+(`KitReply::code()`). `ExecConnection::call` takes a per-call timeout, reconnect waits carry
+jitter, and `pinGateway` is public. `makeKit` returns a `std::unique_ptr` now. Mirrors CrowdyJS
+18.11.0 (see [docs/compatibility.md](docs/compatibility.md)); the starters need a compute
+toolchain with ckx-sdk 0.10.0 on the tier. See [MIGRATION.md](MIGRATION.md).
+
 **v0.63.0: bans, the access-ended close, and the block and ban refusals.** Suspending or
 blocking a player cuts every access path in scope. `channels().ban(groupId, userId, reason)` /
 `unban` and `teams().ban` / `unban` (each with an `Async` twin; the group's `manage_members`
@@ -39,7 +69,7 @@ permission) ban a user: joining, requesting to join and being added are refused 
 `kExecCloseAccessEnded` (4403, ck-exec 0.16) as final: no reconnect, calls in flight fail `Denied`,
 and `onAccessEnded(listener)` hears the host's reason once. `graphql::accountBlockedOf(errors)` reads
 `ACCOUNT_BLOCKED` (`blockedUntil` for a timed block) and `groupMemberBannedOf` reads
-`GROUP_MEMBER_BANNED`. Mirrors CrowdyJS 18.10.0, which the parity gate pins (see
+`GROUP_MEMBER_BANNED`. Mirrors CrowdyJS 18.10.0 (see
 [docs/compatibility.md](docs/compatibility.md)). The bans need the ck-api release after v2.43.1;
 against an older ck-exec the 4403 handling never fires. See [MIGRATION.md](MIGRATION.md).
 
@@ -629,7 +659,7 @@ app-scoped token):
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent and metered model usage. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
-| `crowdy::kit::makeKit(client, appId)` | Game Kit: parties, guilds and chat over teams and channels (`social()`); `crowdy/kit/wire.hpp` (engine pose codec, event parsers) and `crowdy/kit/actions.hpp` stand alone — see [Game Kit](#game-kit-social-helpers-and-wire-codecs). |
+| `crowdy::kit::makeKit(client, appId)` | Game Kit: typed clients for the ck-exec starter hubs (`world()`, `matchmaking()`, `sessions()`, `npcs()`, `topology()`), the client conventions (`spectate()`, `emotes()`, `shards()`) and `social()` (parties, guilds and chat over teams and channels); `crowdy/kit/wire.hpp`, `realtime.hpp` and `actions.hpp` stand alone — see [Game Kit](#game-kit-the-starter-hubs-social-helpers-and-wire-codecs). |
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps()` (including player-code
@@ -902,25 +932,50 @@ No codec is built by default. With `-DCROWDY_WITH_OPUS=ON` (see [Build](#build))
 40 or 60 ms out) and `OpusVoiceDecoder` (`decode`, and `conceal` for a gap). Where a voice sits in
 the world (panning, distance attenuation) stays the game's.
 
-## Game Kit: social helpers and wire codecs
+## Game Kit: the starter hubs, social helpers and wire codecs
 
-`makeKit(client, appId).social()` gives parties, guilds and chat rooms over the
-platform's teams (membership and roles) and channels (messaging), with chat
-sent over the native replication connection:
+`makeKit(client, appId, &connection)` returns the app's Game Kit (a `std::unique_ptr`): typed
+clients for the ck-exec starter hubs whose server half is `ckx_sdk::kit`, the client
+conventions, and the social helpers. Mirrors CrowdyJS's `client.kit(appId)`:
+
+| | What it drives |
+|---|---|
+| `world()` | The root hub: `conditions()` and `nodes()` mirrored, `harvest`, liveops `schedule` / `cancel` (developers) |
+| `matchmaking().queue(name)` | Queues with parties matched whole: `join`, `accept`, `place()`, `watch`, `onMatched` |
+| `sessions().open(key)` | A session from lobby to result: `join`, `ready`, `startGame`, `act`, `state()` mirrored |
+| `npcs().area(key)` / `areaAt(x, z)` | An area's mobs, NPCs and players' pets: `attack`, `talk`, `adopt`, `summon`, `myPets` |
+| `topology()` | Composing a manifest from `exec().starters`, checking it as the manager would, building and deploying it (developers, blocking) |
+| `spectate()`, `emotes()`, `shards()` | A viewer's heartbeat, emotes (client event 101), shard keys as the hubs compute them |
+| `social()` | Parties, guilds and chat over teams and channels |
 
 ```cpp
 auto kit = crowdy::kit::makeKit(game, appId, &connection);
-auto party = kit.social().partyCreate("raid");
-auto guild = kit.social().guildCreate("builders");
-kit.social().chatSend(std::strtoll(guild.channelId.c_str(), nullptr, 10), "hello");
+kit->world().conditions().start();
+auto& queue = kit->matchmaking().queue("ranked");
+queue.onMatched([&](const std::string& session) { kit->sessions().open(session).watch(); });
+queue.join({.rating = 1200}, [](crowdy::kit::KitReply r) {
+  if (r.code() == "conflict") { /* a match to accept */ }
+});
+queue.watch();
+game.poll();  // replies, topic messages and mirror changes are delivered here
 ```
 
-Game rules and state are ck-exec hubs (`client.exec()`). Two kit headers stand
-alone: `crowdy/kit/wire.hpp` (the 48-byte engine pose codec, lanes, and the
-parsers for server events 77 and 90-98) for games whose hubs keep that wire, and
-`crowdy/kit/actions.hpp` (`runOptimisticAction`: apply locally, ask a referee
-such as a hub endpoint, roll back on a denial). The blueprints, `deploy()`, the
-engines and the model-backed kits went with the game model in 0.48.0.
+The hub modules share one `ExecConnection` (`runtime()`), opened on first use: it paces what
+it sends under the gateway's 120 calls per 10 s, sends a call again only when that is safe (it
+did not run, or it carries an `action_id` the hub answers once), holds at most 256
+subscriptions, and reads a hub's `kit:<code>:` refusal into `KitReply::code()`. Mirrors
+(`HubState`, `CollectionMirror`, `PrivateState`) subscribe, take a snapshot, apply what comes
+after it in `seq` order, and take a new one on another epoch, a gap or a reconnect. Every
+callback runs from `poll()`; the kit's own waits (pacing, resends, a queue's `watch`, a
+spectator's heartbeat) run on one timer thread of its own, as `ExecConnection`'s deadlines do.
+`kit_runtime_test` replays ck-exec's golden record of the starters
+(`tools/parity/fixtures/kit-protocol.json`) through a gateway that answers only the next
+recorded step.
+
+Three kit headers stand alone: `crowdy/kit/wire.hpp` (the 48-byte engine pose codec and the
+parsers for server events 77 and 90-101), `crowdy/kit/realtime.hpp` (`decodeKitActorState`
+for the mobs, NPCs, pets and balls hubs show), and `crowdy/kit/actions.hpp`
+(`runOptimisticAction`: apply locally, ask a hub endpoint, roll back on a refusal).
 
 ## Wrapping CrowdyCPP in engines
 

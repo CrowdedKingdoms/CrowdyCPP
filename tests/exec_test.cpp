@@ -1364,6 +1364,49 @@ void testAccessEnded() {
   conn->close();
 }
 
+void testRemoveListener() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  std::atomic<int> dials{0};
+  ExecDial dial = [&](std::function<void(Result<ExecEndpoint>)> found) {
+    const int n = ++dials;
+    found(ExecEndpoint{"wss://gw.example", "tok" + std::to_string(n), "host-" + std::to_string(n)});
+  };
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+  auto conn = std::make_shared<ExecConnection>(transport, dispatcher, dial, opts);
+  int keptRe = 0, droppedRe = 0, keptEnd = 0, droppedEnd = 0;
+  const auto keepRe = conn->onReconnect([&](std::string) { ++keptRe; });
+  const auto dropRe = conn->onReconnect([&](std::string) { ++droppedRe; });
+  const auto keepEnd = conn->onAccessEnded([&](std::string) { ++keptEnd; });
+  const auto dropEnd = conn->onAccessEnded([&](std::string) { ++droppedEnd; });
+  CHECK(keepRe != 0);
+  CHECK(dropRe != keepRe);
+  CHECK(keepEnd != dropEnd);
+  conn->removeListener(dropRe);
+  conn->removeListener(dropEnd);
+  conn->removeListener(0);
+  std::optional<Status> opened;
+  conn->connect([&](Status s) { opened = s; });
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  transport->at(0)->open();
+  CHECK(until(*dispatcher, [&] { return opened.has_value() && opened->ok(); }));
+  transport->at(0)->drop();
+  CHECK(until(*dispatcher, [&] { return transport->count() == 2; }));
+  transport->at(1)->open();
+  CHECK(until(*dispatcher, [&] { return keptRe == 1; }));
+  CHECK_EQ(droppedRe, 0);
+  WebSocketEvent ended;
+  ended.kind = WebSocketEventKind::Close;
+  ended.close.code = kExecCloseAccessEnded;
+  ended.close.reason = "revoked";
+  transport->at(1)->emit(ended);
+  CHECK(until(*dispatcher, [&] { return keptEnd == 1; }));
+  CHECK_EQ(droppedEnd, 0);
+  conn->close();
+}
+
 int main() {
   testGoldenFrames();
   testStatusesAndDigests();
@@ -1372,6 +1415,7 @@ int main() {
   testGatewayRefusal();
   testRefusedUpgrade();
   testAccessEnded();
+  testRemoveListener();
   testOperations();
   testBuilds();
   testMods();

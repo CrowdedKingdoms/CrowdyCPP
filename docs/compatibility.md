@@ -1,13 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.67.1 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.67.2 passes the strict portable-parity gate against CrowdyJS
 **18.13.0**. The gate pins CrowdyJS commit
 `7aeee709ad661c836a045f2d396c9a867f1d278a` (`dev/v18.13.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
 
-0.67.0 sends both fields of `updateGamertag` (the gamertag and its disambiguation); the parity pin is unchanged. 0.66.0 mirrors CrowdyJS 18.13.0, the economy's kit modules. 0.65.0 mirrored 18.12.0, the
+0.67.2 drops a kit's subscriptions and connection listeners on `close`, and runs each queued callback once; the parity pin is unchanged. 0.67.0 sends both fields of `updateGamertag` (the gamertag and its disambiguation). 0.66.0 mirrors CrowdyJS 18.13.0, the economy's kit modules. 0.65.0 mirrored 18.12.0, the
 genre starters' kit modules. 0.64.0 mirrored 18.11.0,
 the Game Kit on ck-exec. The gate reads CrowdyJS's
 `src/kit/modules/` as well since then, so the typed clients for the starter hubs are
@@ -56,7 +56,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.67.1 | CrowdyJS 18.13.0 | Required public API generation |
+| Surface | CrowdyCPP 0.67.2 | CrowdyJS 18.13.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |

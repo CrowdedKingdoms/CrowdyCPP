@@ -1,5 +1,9 @@
 # CrowdyCPP migration notes
 
+## 0.67.1 The exec socket names pause and switch-off
+
+Still mirrors CrowdyJS 18.13.0. Additive. A paused app, an app switched off, and a type switched off used to arrive as a bare denial. They are now `AppPaused`, `AppDisabled`, and `TypeDisabled`.
+
 ## 0.67.0 `updateGamertag` takes the disambiguation
 
 Still mirrors CrowdyJS 18.13.0. Breaking: the rename methods take both halves of the handle.

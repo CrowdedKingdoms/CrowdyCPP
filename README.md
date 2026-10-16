@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.67.0: `updateGamertag` sends the disambiguation.** `users().updateGamertag(gamertag, disambiguation)` and `updateGamertagAsync` take both halves of the handle. A rename that sent only the gamertag was refused on every tier (`disambiguation` is required). Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.66.0: the economy.** `crowdy/kit/economy.hpp`: `player()`, the caller's own `player`
 hub (its key is the runtime's `playerId`), and its views `inventory()`, `wallet()`,
 `progression()`, `achievements()`, `quests()`, `crafting()`, `loot()` and `production()`; and
@@ -642,7 +644,7 @@ app-scoped token):
 | Sub-client | What it does |
 |---|---|
 | `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
-| `client.users()` | `me`, `updateGamertag`, profile reads. |
+| `client.users()` | `me`, `updateGamertag(gamertag, disambiguation)`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
 | `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs. |
 | `client.serverStatus()` | `gameClientBootstrap(appId)` — version info, spatial limits. |

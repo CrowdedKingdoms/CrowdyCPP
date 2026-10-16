@@ -430,14 +430,24 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
 
   void unsubscribe(std::uint64_t handle) { dropHandler(handle, true); }
 
-  void onReconnect(std::function<void(std::string)> listener) {
+  std::uint64_t onReconnect(std::function<void(std::string)> listener) {
     std::lock_guard lock(mu_);
-    reconnectListeners_.push_back(std::move(listener));
+    const std::uint64_t id = ++nextListener_;
+    reconnectListeners_.emplace(id, std::move(listener));
+    return id;
   }
 
-  void onAccessEnded(std::function<void(std::string)> listener) {
+  std::uint64_t onAccessEnded(std::function<void(std::string)> listener) {
     std::lock_guard lock(mu_);
-    accessEndedListeners_.push_back(std::move(listener));
+    const std::uint64_t id = ++nextListener_;
+    accessEndedListeners_.emplace(id, std::move(listener));
+    return id;
+  }
+
+  void removeListener(std::uint64_t id) {
+    std::lock_guard lock(mu_);
+    reconnectListeners_.erase(id);
+    accessEndedListeners_.erase(id);
   }
 
   std::string host() const {
@@ -674,7 +684,10 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
           pending_.emplace(rid, std::move(p));
         }
         const std::string host = endpoint_.host;
-        for (auto& l : reconnectListeners_) run.push_back([l, host] { l(host); });
+        for (const auto& entry : reconnectListeners_) {
+          const auto& l = entry.second;
+          run.push_back([l, host] { l(host); });
+        }
       }
       std::vector<std::uint32_t> waiting;
       for (auto& [rid, p] : pending_) {
@@ -761,7 +774,10 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
       failAllLocked(run, why, ExecStatus::Denied);
       for (auto& w : waiters_) run.push_back([w] { w(Errc::Rejected); });
       waiters_.clear();
-      for (auto& l : accessEndedListeners_) run.push_back([l, reason] { l(reason); });
+      for (const auto& entry : accessEndedListeners_) {
+        const auto& l = entry.second;
+        run.push_back([l, reason] { l(reason); });
+      }
     }
     cv_.notify_all();
     deliver(std::move(run));
@@ -958,8 +974,9 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
   std::map<std::string, Sub> subs_;
   std::map<std::uint64_t, std::string> handles_;
   std::uint64_t nextHandle_ = 0;
-  std::vector<std::function<void(std::string)>> reconnectListeners_;
-  std::vector<std::function<void(std::string)>> accessEndedListeners_;
+  std::map<std::uint64_t, std::function<void(std::string)>> reconnectListeners_;
+  std::map<std::uint64_t, std::function<void(std::string)>> accessEndedListeners_;
+  std::uint64_t nextListener_ = 0;
 };
 
 ExecConnection::ExecConnection(std::shared_ptr<graphql::IWebSocketTransport> transport,
@@ -1005,13 +1022,15 @@ void ExecConnection::unsubscribe(std::uint64_t handle) { impl_->unsubscribe(hand
 
 void ExecConnection::ping(ExecReplyCallback done) { impl_->request({Kind::Ping, 0, {}, {}, {}, {}}, std::move(done)); }
 
-void ExecConnection::onReconnect(std::function<void(std::string)> listener) {
-  impl_->onReconnect(std::move(listener));
+std::uint64_t ExecConnection::onReconnect(std::function<void(std::string)> listener) {
+  return impl_->onReconnect(std::move(listener));
 }
 
-void ExecConnection::onAccessEnded(std::function<void(std::string)> listener) {
-  impl_->onAccessEnded(std::move(listener));
+std::uint64_t ExecConnection::onAccessEnded(std::function<void(std::string)> listener) {
+  return impl_->onAccessEnded(std::move(listener));
 }
+
+void ExecConnection::removeListener(std::uint64_t id) { impl_->removeListener(id); }
 
 std::string ExecConnection::host() const { return impl_->host(); }
 

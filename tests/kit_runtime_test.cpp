@@ -150,6 +150,12 @@ struct FakeConn : graphql::IWebSocketConnection {
     ev.frame = {graphql::WebSocketFrameKind::Binary, std::move(bytes)};
     emit(ev);
   }
+  void drop() {
+    WebSocketEvent ev;
+    ev.kind = WebSocketEventKind::Close;
+    ev.close.code = 1006;
+    emit(ev);
+  }
   std::vector<std::string> frames() {
     std::lock_guard lock(mu);
     return sent;
@@ -1246,6 +1252,213 @@ void testPacing() {
   CHECK(std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(150));
 }
 
+int countTag(const std::shared_ptr<FakeConn>& c, std::uint8_t tag) {
+  int n = 0;
+  for (const auto& b : c->frames()) {
+    if (!b.empty() && static_cast<std::uint8_t>(b[0]) == tag) ++n;
+  }
+  return n;
+}
+
+/// A runtime on a connection the test keeps, so close() must not close the socket.
+struct Held {
+  Scripted gw;
+  std::shared_ptr<domains::ExecConnection> conn;
+  std::shared_ptr<KitRuntime> rt;
+};
+
+Held hold(KitRuntimeOptions options) {
+  Held h;
+  h.gw.answer = [](const Frame&) -> std::pair<std::uint8_t, std::string> { return {0, Json::parse("true").toMsgpack()}; };
+  domains::ExecConnectOptions o;
+  o.callTimeoutMs = 3000;
+  h.conn = domains::ExecConnection::open(h.gw.transport, h.gw.dispatcher, domains::ExecEndpoint{"ws://gw.example", "player-1", "h1"}, o);
+  options.connection = h.conn;
+  options.playerId = "1";
+  h.rt = std::make_shared<KitRuntime>("77", nullptr, h.gw.dispatcher, options);
+  return h;
+}
+
+void testCloseSettlesQueuedWork() {
+  KitRuntimeOptions options;
+  options.callBudget = 2;
+  options.budgetWindowMs = 60000;
+  Held h = hold(options);
+  int pushes = 0;
+  std::optional<KitReply> subbed;
+  const auto handle = h.rt->subscribe("world", "", "conditions", [&](const domains::ExecPush&) { ++pushes; }, [&](KitReply r) { subbed = std::move(r); });
+  CHECK(handle != 0);
+  CHECK(h.gw.until([&] { return subbed.has_value(); }));
+  CHECK(subbed->ok());
+
+  int secondN = 0;
+  std::optional<KitReply> first, second;
+  h.rt->call("world", "", "harvest", JVal(), [&](KitReply r) { first = std::move(r); });
+  h.rt->call("world", "", "harvest", JVal(), [&](KitReply r) {
+    ++secondN;
+    second = std::move(r);
+  });
+  CHECK(h.gw.until([&] { return first.has_value(); }));
+  CHECK(!second.has_value());
+  auto wire = h.gw.transport->all()[0];
+  CHECK_EQ(countTag(wire, 0x01), 1);
+  CHECK_EQ(countTag(wire, 0x03), 0);
+
+  h.rt->unsubscribe(handle);
+  CHECK_EQ(countTag(wire, 0x03), 0);
+
+  h.rt->close();
+  h.rt->close();
+  CHECK(h.gw.until([&] { return second.has_value(); }));
+  CHECK_EQ(secondN, 1);
+  CHECK(second->status == ExecStatus::Unavailable);
+  CHECK_EQ(second->message(), "the kit is closed");
+  CHECK_EQ(countTag(wire, 0x03), 1);
+  CHECK(!h.rt->connection());
+
+  wire->deliver(push("world", "", "conditions", Json::parse("1").toMsgpack()));
+  h.gw.dispatcher->drain();
+  CHECK_EQ(pushes, 0);
+
+  std::optional<KitReply> later;
+  int laterN = 0;
+  h.rt->call("world", "", "harvest", JVal(), [&](KitReply r) {
+    ++laterN;
+    later = std::move(r);
+  });
+  CHECK(h.gw.until([&] { return later.has_value(); }));
+  CHECK_EQ(laterN, 1);
+  CHECK_EQ(later->message(), "the kit is closed");
+  CHECK_EQ(countTag(wire, 0x01), 1);
+
+  h.rt.reset();
+  wire->deliver(push("world", "", "conditions", Json::parse("2").toMsgpack()));
+  h.gw.dispatcher->drain();
+  CHECK_EQ(pushes, 0);
+}
+
+void testCloseFlushesPacedUnsubscribe() {
+  KitRuntimeOptions options;
+  options.callBudget = 1;
+  options.budgetWindowMs = 60000;
+  Held h = hold(options);
+  std::optional<KitReply> subbed;
+  const auto handle = h.rt->subscribe("world", "", "conditions", [](const domains::ExecPush&) {}, [&](KitReply r) { subbed = std::move(r); });
+  CHECK(h.gw.until([&] { return subbed.has_value(); }));
+  auto wire = h.gw.transport->all()[0];
+  h.rt->unsubscribe(handle);
+  CHECK_EQ(countTag(wire, 0x03), 0);
+  h.rt->close();
+  h.gw.dispatcher->drain();
+  CHECK_EQ(countTag(wire, 0x03), 1);
+}
+
+void testCloseFailsQueuedSubscribe() {
+  KitRuntimeOptions options;
+  options.callBudget = 1;
+  options.budgetWindowMs = 60000;
+  Held h = hold(options);
+  std::optional<KitReply> called;
+  h.rt->call("world", "", "harvest", JVal(), [&](KitReply r) { called = std::move(r); });
+  CHECK(h.gw.until([&] { return called.has_value(); }));
+  auto wire = h.gw.transport->all()[0];
+  CHECK_EQ(countTag(wire, 0x02), 0);
+  std::optional<KitReply> subbed;
+  const auto handle = h.rt->subscribe("world", "", "conditions", [](const domains::ExecPush&) {}, [&](KitReply r) { subbed = std::move(r); });
+  CHECK(handle != 0);
+  CHECK_EQ(countTag(wire, 0x02), 0);
+  h.rt->close();
+  CHECK(h.gw.until([&] { return subbed.has_value(); }));
+  CHECK(subbed->status == ExecStatus::Unavailable);
+  CHECK_EQ(subbed->message(), "the kit is closed");
+  CHECK_EQ(countTag(wire, 0x02), 0);
+}
+
+void testInFlightCallSurvivesRuntime() {
+  KitRuntimeOptions options;
+  options.callBudget = 2;
+  options.budgetWindowMs = 60000;
+  Held h = hold(options);
+  // The dial is posted, so the socket exists only after a drain, and it is not open yet.
+  // Open it by hand: until()'s pump would also answer the call.
+  CHECK(h.gw.until([&] { return !h.gw.transport->all().empty(); }));
+  auto wire = h.gw.transport->all()[0];
+  wire->open();
+  h.gw.dispatcher->drain();
+  std::optional<KitReply> inflight;
+  h.rt->call("world", "", "harvest", JVal(), [&](KitReply r) { inflight = std::move(r); });
+  h.gw.dispatcher->drain();
+  CHECK_EQ(countTag(wire, 0x01), 1);
+  Frame sent{};
+  for (const auto& b : wire->frames()) {
+    if (!b.empty() && static_cast<std::uint8_t>(b[0]) == 0x01) sent = parse(b);
+  }
+  h.rt.reset();
+  CHECK(!inflight.has_value());
+  wire->deliver(reply(sent.rid, 0, Json::parse("true").toMsgpack()));
+  h.gw.dispatcher->drain();
+  CHECK(inflight.has_value());
+  CHECK(inflight->ok());
+}
+
+void testCloseRemovesConnectionListeners() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  std::atomic<int> dials{0};
+  domains::ExecDial dial = [&](std::function<void(Result<domains::ExecEndpoint>)> found) {
+    const int n = ++dials;
+    found(domains::ExecEndpoint{"wss://gw.example", "tok" + std::to_string(n), "host-" + std::to_string(n)});
+  };
+  domains::ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+  auto conn = std::make_shared<domains::ExecConnection>(transport, dispatcher, dial, opts);
+  std::optional<Status> opened;
+  conn->connect([&](Status s) { opened = s; });
+  const auto wait = [&](auto&& done, int ms = 3000) {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    while (std::chrono::steady_clock::now() < end) {
+      dispatcher->drain();
+      if (done()) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    dispatcher->drain();
+    return done();
+  };
+  CHECK(wait([&] { return transport->all().size() == 1; }));
+  transport->all()[0]->open();
+  CHECK(wait([&] { return opened.has_value() && opened->ok(); }));
+
+  KitRuntimeOptions options;
+  options.connection = conn;
+  auto live = std::make_shared<KitRuntime>("77", nullptr, dispatcher, options);
+  auto gone = std::make_shared<KitRuntime>("77", nullptr, dispatcher, options);
+  int liveRe = 0, goneRe = 0, liveEnd = 0, goneEnd = 0;
+  live->onReconnect([&](std::string) { ++liveRe; });
+  gone->onReconnect([&](std::string) { ++goneRe; });
+  live->onAccessEnded([&](std::string) { ++liveEnd; });
+  gone->onAccessEnded([&](std::string) { ++goneEnd; });
+  CHECK(live->connection());
+  CHECK(gone->connection());
+  gone->close();
+  gone.reset();
+
+  transport->all()[0]->drop();
+  CHECK(wait([&] { return transport->all().size() == 2; }));
+  transport->all()[1]->open();
+  CHECK(wait([&] { return liveRe == 1; }));
+  CHECK_EQ(goneRe, 0);
+
+  WebSocketEvent ended;
+  ended.kind = WebSocketEventKind::Close;
+  ended.close.code = domains::kExecCloseAccessEnded;
+  ended.close.reason = "signed out";
+  transport->all()[1]->emit(ended);
+  CHECK(wait([&] { return liveEnd == 1; }));
+  CHECK_EQ(goneEnd, 0);
+  CHECK_EQ(liveRe, 1);
+}
+
 void testSubscriptionCap() {
   Scripted gw;
   gw.answer = [](const Frame&) -> std::pair<std::uint8_t, std::string> { return {0, ""}; };
@@ -1381,6 +1594,11 @@ int main() {
   testMarket();
   testResends();
   testPacing();
+  testCloseSettlesQueuedWork();
+  testCloseFlushesPacedUnsubscribe();
+  testCloseFailsQueuedSubscribe();
+  testInFlightCallSurvivesRuntime();
+  testCloseRemovesConnectionListeners();
   testSubscriptionCap();
   testMirrorResyncs();
   testPrivateState();

@@ -1,5 +1,11 @@
 # CrowdyCPP migration notes
 
+## 0.67.0 `updateGamertag` takes the disambiguation
+
+Still mirrors CrowdyJS 18.13.0. Breaking: the rename methods take both halves of the handle.
+
+- **`users().updateGamertag(gamertag, disambiguation)`** and **`updateGamertagAsync(gamertag, disambiguation, cb)`**. `gamertag` is at most 64 characters and `disambiguation` at most 128. The pair is the unique handle. An empty disambiguation is a handle with no discriminator, and it is still sent: `UpdateGamertagInput.disambiguation` is `String!`. Through 0.66.0 the methods took only the gamertag, so every rename was refused before it ran.
+
 ## 0.66.0 The economy
 
 Mirrors CrowdyJS 18.13.0. Additive; the `player` and `market` starters need ckx-sdk 0.12.0 in

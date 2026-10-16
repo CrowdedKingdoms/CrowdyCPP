@@ -37,13 +37,16 @@ std::string_view execStatusName(ExecStatus status) noexcept {
     case ExecStatus::Internal: return "Internal";
     case ExecStatus::Trapped: return "Trapped";
     case ExecStatus::BadRequest: return "BadRequest";
+    case ExecStatus::AppPaused: return "AppPaused";
+    case ExecStatus::AppDisabled: return "AppDisabled";
+    case ExecStatus::TypeDisabled: return "TypeDisabled";
     case ExecStatus::Unknown: break;
   }
   return "Unknown";
 }
 
 ExecStatus execStatusFromWire(std::uint8_t value) noexcept {
-  return value <= 11 ? static_cast<ExecStatus>(value) : ExecStatus::Unknown;
+  return value <= 14 ? static_cast<ExecStatus>(value) : ExecStatus::Unknown;
 }
 
 bool execStatusRetryable(ExecStatus status) noexcept {

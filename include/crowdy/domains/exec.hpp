@@ -49,6 +49,12 @@ enum class ExecStatus : std::uint8_t {
   Internal = 9,
   Trapped = 10,
   BadRequest = 11,
+  /// The app is paused by billing. Not retryable.
+  AppPaused = 12,
+  /// The whole app is switched off.
+  AppDisabled = 13,
+  /// This node type is switched off.
+  TypeDisabled = 14,
   Unknown = 255,
 };
 

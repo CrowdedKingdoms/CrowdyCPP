@@ -31,7 +31,7 @@ int main() {
     const std::string guildName = "cs-" + e2e::runSuffix();
     KitGuildCreateOptions guildOptions;
     guildOptions.membershipPolicy = "open";  // so B can join directly
-    KitGroupWithChannel guild = kitA.social().guildCreate(guildName, guildOptions);
+    KitGroupWithChannel guild = kitA->social().guildCreate(guildName, guildOptions);
     E2E_CHECK(!guild.teamId.empty());
     E2E_CHECK(!guild.channelId.empty());
 
@@ -39,7 +39,7 @@ int main() {
     b.game->teams().join(guild.teamId);
     b.game->channels().join(guild.channelId);
     bool bOnRoster = false;
-    kitA.social().guildRoster(guild).forEach([&](graphql::Json m) {
+    kitA->social().guildRoster(guild).forEach([&](graphql::Json m) {
       if (m["userId"].asString() == b.userId ||
           std::to_string(m["userId"].asBigInt()) == b.userId)
         bOnRoster = true;
@@ -70,7 +70,7 @@ int main() {
     bool chatSeen = e2e::retryUntil(
         [&] {
           keepAlive();
-          E2E_CHECK(kitA.social().chatSend(guildChannelId, chatText));
+          E2E_CHECK(kitA->social().chatSend(guildChannelId, chatText));
         },
         [&] {
           b.conn->poll();
@@ -81,17 +81,17 @@ int main() {
 
     E2E_SUBTEST("party helpers: create + invite roster");
     const std::string partyName = "cs-party-" + e2e::runSuffix();
-    KitGroupWithChannel party = kitA.social().partyCreate(partyName);
+    KitGroupWithChannel party = kitA->social().partyCreate(partyName);
     E2E_CHECK(!party.teamId.empty());
-    kitA.social().partyInvite(party, b.userId);
+    kitA->social().partyInvite(party, b.userId);
     bool bInParty = false;
-    kitA.social().partyMembers(party).forEach([&](graphql::Json m) {
+    kitA->social().partyMembers(party).forEach([&](graphql::Json m) {
       if (m["userId"].asString() == b.userId ||
           std::to_string(m["userId"].asBigInt()) == b.userId)
         bInParty = true;
     });
     E2E_CHECK(bInParty);
-    auto found = kitB.social().partyFind(partyName);
+    auto found = kitB->social().partyFind(partyName);
     E2E_CHECK(found.has_value());
     E2E_CHECK(found->teamId == party.teamId);
 

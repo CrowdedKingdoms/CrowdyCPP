@@ -1,4 +1,5 @@
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -24,9 +25,12 @@ namespace {
 class FakeConnection final : public IWebSocketConnection {
  public:
   void start(WebSocketEventCallback callback) override {
-    std::lock_guard lock(mutex_);
-    callback_ = std::move(callback);
-    started_ = true;
+    {
+      std::lock_guard lock(mutex_);
+      callback_ = std::move(callback);
+      started_ = true;
+    }
+    startedCv_.notify_all();
   }
 
   Status send(WebSocketFrame frame) override {
@@ -98,9 +102,13 @@ class FakeConnection final : public IWebSocketConnection {
 
  private:
   void emit(WebSocketEvent event) {
+    // The client starts a connection on its own thread after creating it, so a
+    // test that emits as soon as it sees the connection can be ahead of start().
     WebSocketEventCallback callback;
     {
-      std::lock_guard lock(mutex_);
+      std::unique_lock lock(mutex_);
+      startedCv_.wait_for(lock, std::chrono::seconds(2),
+                          [&] { return static_cast<bool>(callback_); });
       callback = callback_;
     }
     CHECK(static_cast<bool>(callback));
@@ -108,6 +116,7 @@ class FakeConnection final : public IWebSocketConnection {
   }
 
   mutable std::mutex mutex_;
+  std::condition_variable startedCv_;
   WebSocketEventCallback callback_;
   std::vector<WebSocketFrame> sent_;
   std::vector<WebSocketCloseInfo> closes_;
@@ -168,6 +177,19 @@ void waitFor(Predicate predicate, long timeoutMs = 1000) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
+}
+
+// A terminal failure marks the handle inactive before its onError is posted, so
+// an inactive handle is not yet a delivered error: drain until it has run.
+template <typename Predicate>
+void drainUntil(Dispatcher& dispatcher, Predicate delivered,
+                long timeoutMs = 1000) {
+  waitFor(
+      [&] {
+        dispatcher.drain();
+        return delivered();
+      },
+      timeoutMs);
 }
 
 std::unique_ptr<GraphQLSubscriptionClient> makeClient(
@@ -715,15 +737,18 @@ void testAcknowledgementTimeoutAndReconnectCap() {
     auto client = makeClient(transport, std::make_shared<AuthState>(),
                              dispatcher, options);
     GraphQLSubscriptionError got;
+    bool errored = false;
     GraphQLSubscriptionCallbacks callbacks;
-    callbacks.onError =
-        [&](GraphQLSubscriptionError error) { got = std::move(error); };
+    callbacks.onError = [&](GraphQLSubscriptionError error) {
+      got = std::move(error);
+      errored = true;
+    };
     auto handle = client->subscribe(
         "subscription { watch { value } }", JVal(), {},
         std::move(callbacks));
     transport->connection(0)->emitOpen();
-    waitFor([&] { return !handle.active(); });
-    dispatcher->drain();
+    drainUntil(*dispatcher, [&] { return errored; });
+    CHECK(!handle.active());
     CHECK(got.kind == GraphQLSubscriptionErrorKind::Timeout);
     CHECK(got.status.code == Errc::Timeout);
   }
@@ -739,17 +764,20 @@ void testAcknowledgementTimeoutAndReconnectCap() {
     auto client = makeClient(transport, std::make_shared<AuthState>(),
                              dispatcher, options);
     GraphQLSubscriptionError got;
+    bool errored = false;
     GraphQLSubscriptionCallbacks callbacks;
-    callbacks.onError =
-        [&](GraphQLSubscriptionError error) { got = std::move(error); };
+    callbacks.onError = [&](GraphQLSubscriptionError error) {
+      got = std::move(error);
+      errored = true;
+    };
     auto handle = client->subscribe(
         "subscription { watch { value } }", JVal(), {},
         std::move(callbacks));
     transport->connection(0)->emitError(WebSocketErrorKind::Connection, true);
     waitFor([&] { return transport->connectionCount() == 2; });
     transport->connection(1)->emitError(WebSocketErrorKind::Connection, true);
-    waitFor([&] { return !handle.active(); });
-    dispatcher->drain();
+    drainUntil(*dispatcher, [&] { return errored; });
+    CHECK(!handle.active());
     CHECK(got.kind == GraphQLSubscriptionErrorKind::ReconnectExhausted);
     CHECK(got.code == "RECONNECT_EXHAUSTED");
     std::this_thread::sleep_for(std::chrono::milliseconds(3));

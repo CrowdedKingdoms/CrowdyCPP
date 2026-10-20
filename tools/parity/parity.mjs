@@ -454,6 +454,11 @@ const METHOD_CLASSIFICATIONS = {
     CATEGORY.NATIVE,
     'native actor stores retain bytes and leave typed decoding to the caller',
   ),
+  // CrowdyJS 18.15.0: opcode 140 goes out too, on the binary relay only (no GraphQL mutation).
+  'UdpAPI.sendGenericSpatial': classification(
+    CATEGORY.NATIVE,
+    'Connection::sendGenericSpatial sends GENERIC_SPATIAL_1 (140) natively (0.60.0); CrowdyJS sends it on the binary relay only, because the GraphQL API has no mutation for it',
+  ),
   'KitError.from': classification(
     CATEGORY.NATIVE,
     'the SDK reports failures as replies, not exceptions: KitReply::from reads a hub\'s kit:<code>: refusal out of an ExecReply',
@@ -1134,7 +1139,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     markers: ['case WireMessageType.GENERIC_SPATIAL_1:'],
     classification: classification(
       CATEGORY.NATIVE,
-      'Connection parses GENERIC_SPATIAL_1 (140) from the replication server natively and sends it with sendGenericSpatial; CrowdyJS reads it on the binary relay only, because the GraphQL udpNotifications union has no member for it',
+      'Connection parses GENERIC_SPATIAL_1 (140) from the replication server natively and sends it with sendGenericSpatial; CrowdyJS reads it, and since 18.15.0 sends it, on the binary relay only, because the GraphQL API has no union member and no mutation for it',
     ),
   },
   'world-session-channel-audio': {

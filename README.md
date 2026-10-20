@@ -31,9 +31,11 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.67.3: CrowdyJS 18.14.0's schema.** The billing descriptions describe the lossless ledger, and `playerWallet().charges()` is deprecated with the field it wraps: read `transactions()`. **v0.67.2: closing a kit drops what it held.** `KitRuntime::close()` unsubscribes, removes its connection listeners, and runs queued callbacks once. `ExecConnection::onReconnect` and `onAccessEnded` return an id for `removeListener`. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
+**v0.67.4: a voxel edit that waits for the server, and CrowdyJS 18.15.0.** `ChunkStore::setVoxel(..., optimistic = false)` changes nothing locally until the server's echo of the edit arrives (CrowdyJS's `optimistic: false`). CrowdyJS 18.15.0's `udp.sendGenericSpatial` is the browser counterpart of `Connection::sendGenericSpatial`, so a CrowdyCPP client and a browser client exchange app-defined spatial messages both ways (the browser on the binary relay). CI now builds and tests the optional Opus wrapper (`-DCROWDY_WITH_OPUS=ON`). See [MIGRATION.md](MIGRATION.md).
 
-**v0.67.1: the exec socket names a paused app and a switched-off app or type.** `AppPaused`, `AppDisabled`, and `TypeDisabled` replace a bare denial for those three. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
+**v0.67.3: CrowdyJS 18.14.0's schema.** The billing descriptions describe the lossless ledger, and `playerWallet().charges()` is deprecated with the field it wraps: read `transactions()`. **v0.67.2: closing a kit drops what it held.** `KitRuntime::close()` unsubscribes, removes its connection listeners, and runs queued callbacks once. `ExecConnection::onReconnect` and `onAccessEnded` return an id for `removeListener`. Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
+
+**v0.67.1: the exec socket names a paused app and a switched-off app or type.** `AppPaused`, `AppDisabled`, and `TypeDisabled` replace a bare denial for those three. Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
 
 **v0.67.0: `updateGamertag` sends the disambiguation.** `users().updateGamertag(gamertag, disambiguation)` and `updateGamertagAsync` take both halves of the handle. A rename that sent only the gamertag was refused on every tier (`disambiguation` is required). Still mirrors CrowdyJS 18.13.0. See [MIGRATION.md](MIGRATION.md).
 
@@ -268,9 +270,8 @@ incarnation the join returned, and presence is the player's Buddy actor — a
 session created with `presence = "none"` opts out, which is what
 `kit::MatchesKit` does — see `MIGRATION.md`. Schema synced to cks-game-api PR
 #319 on top of v2.3.0; parity
-pinned to CrowdyJS 17.4.0 on `test` and `prod` (the tier's own CrowdyJS merge
-commit); `dev` was cut pinned to 17.3.0 with the session surface classified as
-covered until the pin moved.
+pinned to CrowdyJS 17.3.0 with the session surface classified as covered until
+the pin moves to 17.4.0.
 
 **v0.39.0: schema synced to ck-api v2.3 (Studio GitHub `repositorySelection`; Crowdy
 Games hosting roots), parity CrowdyJS 17.3.0.** The Crowdy Games hosting surface
@@ -871,7 +872,9 @@ reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
 Buddy v0.37.0 echoes every accepted voxel edit back to its sender. `ChunkStore::setVoxel` records
 each send (uuid, sequence, voxel) for 10 s and `ingest()` does not apply its echo again, so a local
 edit fires `onChunkChanged` once; the echo is applied only when another client's edit of the voxel
-arrived in between and no newer local edit is pending. `onVoxel` sees the echoes too. A state over
+arrived in between and no newer local edit is pending. `setVoxel(..., optimistic = false)` (0.67.4)
+changes nothing locally and applies the edit when its echo arrives instead, so the cache holds only
+what the server accepted. `onVoxel` sees the echoes too. A state over
 1,024 bytes (`wire::voxel::kMaxStateSize`) is `InvalidArgument` before anything changes; the server
 answers it with `INVALID_REQUEST` (15). A paused app's sends are refused with
 `wire::ErrorCode::AppPaused` (33).

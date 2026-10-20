@@ -438,12 +438,28 @@ void run() {
     CHECK_EQ(changes, afterEchoes + 1);
     session.chunks().onChunkChanged(nullptr);
 
+    // Not optimistic: nothing changes until the echo, which is applied once.
+    changes = 0;
+    session.chunks().onChunkChanged([&](const ChunkData&) { ++changes; });
+    const std::size_t dirtyBefore = session.chunks().pendingWriteBacks();
+    auto s5 = session.chunks().setVoxel(at, 1, 1, 1, 8, Bytes(), session.actorUuid(),
+                                        /*optimistic=*/false);
+    CHECK(s5.ok());
+    CHECK_EQ(changes, 0);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
+    CHECK_EQ(session.chunks().pendingWriteBacks(), dirtyBefore);
+    echo(session.actorUuid(), s5.value(), 8);
+    CHECK_EQ(changes, 1);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 8);
+    CHECK_EQ(session.chunks().pendingWriteBacks(), dirtyBefore);
+    session.chunks().onChunkChanged(nullptr);
+
     // A state over 1,024 bytes is refused before anything changes.
     std::vector<std::uint8_t> big(wire::voxel::kMaxStateSize + 1, 1);
     CHECK(session.chunks()
               .setVoxel(at, 1, 1, 1, 7, Bytes(big.data(), big.size()), session.actorUuid())
               .error() == Errc::InvalidArgument);
-    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
+    CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 8);
   }
 
   // --- Channel audio (opcode 36) reaches onChannelAudio, not the channel inbox.

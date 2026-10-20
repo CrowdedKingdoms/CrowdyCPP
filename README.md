@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.67.2: closing a kit drops what it held.** `KitRuntime::close()` unsubscribes, removes its connection listeners, and runs queued callbacks once. `ExecConnection::onReconnect` and `onAccessEnded` return an id for `removeListener`. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
+**v0.67.3: CrowdyJS 18.14.0's schema.** The billing descriptions describe the lossless ledger, and `playerWallet().charges()` is deprecated with the field it wraps: read `transactions()`. **v0.67.2: closing a kit drops what it held.** `KitRuntime::close()` unsubscribes, removes its connection listeners, and runs queued callbacks once. `ExecConnection::onReconnect` and `onAccessEnded` return an id for `removeListener`. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
 
 **v0.67.1: the exec socket names a paused app and a switched-off app or type.** `AppPaused`, `AppDisabled`, and `TypeDisabled` replace a bare denial for those three. Still mirrors CrowdyJS 18.13.2. See [MIGRATION.md](MIGRATION.md).
 

@@ -1,8 +1,14 @@
 # CrowdyCPP migration notes
 
-## 0.67.4 Re-pinned to CrowdyJS 18.15.0; CI builds the Opus wrapper
+## 0.67.4 `setVoxel(..., optimistic)`; re-pinned to CrowdyJS 18.15.0; CI builds the Opus wrapper
 
-No change to the library. The parity pin is CrowdyJS 18.15.0 (`dev/v18.15.0`), which added
+Additive. **`ChunkStore::setVoxel` takes `bool optimistic = true`** as its last argument,
+CrowdyJS's `setVoxel({ optimistic: false })`: with `false` nothing changes locally and nothing is
+marked for write-back, and the edit is applied when the server's echo of it arrives (once, as
+one `onChunkChanged`), so the cache shows only what the server accepted. Existing calls are
+unchanged. CrowdyPy 0.15.0 binds it as `set_voxel(..., optimistic=False)`.
+
+The parity pin is CrowdyJS 18.15.0 (`dev/v18.15.0`), which added
 `udp.sendGenericSpatial`: CrowdyJS now sends opcode 140 on the binary relay as
 `Connection::sendGenericSpatial` has since 0.60.0, and the parity matrix maps the one to the
 other. CI gained an `opus-build-test` job: it configures with `-DCROWDY_WITH_OPUS=ON` against the

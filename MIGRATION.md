@@ -1,5 +1,14 @@
 # CrowdyCPP migration notes
 
+## 0.67.3 CrowdyJS 18.14.0's schema; `charges()` deprecated
+
+No breaking change. The schema snapshot and generated headers are CrowdyJS 18.14.0's
+(cks-game-api `dev` after #550): the billing descriptions describe the lossless ledger.
+`playerWallet().charges()` and `chargesAsync()` are deprecated, as the `playerUsageCharges`
+field they wrap is: it reads the cents-era hourly rows, which the ledger does not write. Read
+`transactions()`: each `usage_debit` entry is one usage charge, per app, markup included. The
+deprecation is in the documentation only, so a `-Werror` build is unaffected.
+
 ## 0.67.2 Closing the kit drops what it held
 
 Still mirrors CrowdyJS 18.13.0. Additive.

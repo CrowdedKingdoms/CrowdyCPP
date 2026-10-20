@@ -1,13 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.67.3 passes the strict portable-parity gate against CrowdyJS
-**18.14.0**. The gate pins CrowdyJS commit
-`9abcdf86c2b0440f113c8b7f15bd38fb23f51117` (`dev/v18.14.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.67.4 passes the strict portable-parity gate against CrowdyJS
+**18.15.0**. The gate pins CrowdyJS commit
+`e21b61e79a1a509b81826fc8db2282c107b2e0ea` (`dev/v18.15.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
 
-0.67.3 re-pins to CrowdyJS 18.14.0: the schema's billing descriptions describe the lossless ledger, and `playerWallet().charges()` is deprecated with the `playerUsageCharges` field it wraps (read `transactions()`). 0.67.2 drops a kit's subscriptions and connection listeners on `close`, and runs each queued callback once; the parity pin is unchanged. 0.67.0 sends both fields of `updateGamertag` (the gamertag and its disambiguation). 0.66.0 mirrors CrowdyJS 18.13.0, the economy's kit modules. 0.65.0 mirrored 18.12.0, the
+0.67.4 re-pins to CrowdyJS 18.15.0, whose `udp.sendGenericSpatial` sends opcode 140 on the binary relay as `Connection::sendGenericSpatial` does; CI builds the Opus wrapper. 0.67.3 re-pins to CrowdyJS 18.14.0: the schema's billing descriptions describe the lossless ledger, and `playerWallet().charges()` is deprecated with the `playerUsageCharges` field it wraps (read `transactions()`). 0.67.2 drops a kit's subscriptions and connection listeners on `close`, and runs each queued callback once; the parity pin is unchanged. 0.67.0 sends both fields of `updateGamertag` (the gamertag and its disambiguation). 0.66.0 mirrors CrowdyJS 18.13.0, the economy's kit modules. 0.65.0 mirrored 18.12.0, the
 genre starters' kit modules. 0.64.0 mirrored 18.11.0,
 the Game Kit on ck-exec. The gate reads CrowdyJS's
 `src/kit/modules/` as well since then, so the typed clients for the starter hubs are
@@ -56,7 +56,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.67.3 | CrowdyJS 18.14.0 | Required public API generation |
+| Surface | CrowdyCPP 0.67.4 | CrowdyJS 18.15.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | ck-exec | `exec().connect` / `connectAsDeveloper` / `ExecConnection` over an injected or curl WebSocket, MessagePack via `graphql::Json::toMsgpack` / `fromMsgpack`; `logs` (with the `flow` filter), `instances`, `versions` (with `manifestJson`), `endpointStats`, `status`, `activateVersion`, `setEnabled`; `ExecReply::rateLimited` / `retryAfterMs`; `starters`, `build`, `buildStatus`, `waitForBuild`, `deploy` with a build id; mods (`modStarter`, `modBuild`, `waitForModBuild`, `modDeploy`, `modSetEnabled`, `modDelete`, `mods`, `myMods`, `modLogs`, the marketplace, `appMods`, `modSwitches`, `modSetSwitch`) and `execModType` | `exec.connect` / `connectAsDeveloper` / `ExecConnection`, `@msgpack/msgpack`; the same operations (`versions` also parses `manifest`), builds and mods; `CrowdyExecError.rateLimited` / `retryAfterMs` | Game API dev `execConnect` / `execConnectAsDeveloper` / `execDeploy`, the operations, `execBuild` / `execBuildStatus` / `execStarters` and `execMod*` (ck-api `v2.20.0`), `execEndpointStats`, `execLogs(flow)` and `ExecVersion.manifestJson` (ck-api `v2.22.0`); ck-exec v0.2 client protocol. Builds and listings select `ExecBuild.kind` and the CLIENT fields, so they need ck-api `v2.24.0` |
@@ -69,7 +69,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | Distance-limited channel messages | `Connection::sendRangedChannelMessage(channelId, uuid, payload, origin, maxDistance)`, `wire::encodeRangedChannelMessage` (0.58.0) | `udp.sendRangedChannelMessage`, `serializeRangedChannelMessage` (18.5.0) | Buddy v0.35.0 (opcode 32); ck-api `sendRangedChannelMessage` for the browser proxy; members receive the ordinary channel notification |
 | Webcam video + actor-left | `Connection::sendVideo` / `sendVideoFrame`, `Handlers::video` / `actorLeft`, `media::VideoFrameAssembler`, `RemoteActorStore::remove` | `udp.sendVideoPacket` / `sendVideoFrame`, `video` / `actorLeft` handlers, `VideoFrameAssembler`, store remove-on-leave | Buddy v0.25.0 (opcodes 143/144/145), Game API v1.87.1 (`use_video_chat`) |
 | Voice payload helpers | `crowdy/media/voice_frames.hpp`: the 10-byte voice header, `VoicePacketizer`, `VoiceJitterBuffer`, replaying `voice-frames.json`; optional libopus wrapper `crowdy/media/opus.hpp` with `CROWDY_WITH_OPUS=ON` (0.60.0) | `media/voice-frames.ts`, the fixture's owner; Opus through the browser's WebCodecs (18.7.0) | None: the payload of opcodes 134/135, which the server never reads |
-| App-defined spatial messages (opcode 140) | `Connection::sendGenericSpatial`, `Handlers::genericSpatial`, `WorldSessionConfig::onGenericSpatial` (0.60.0) | `genericSpatial` handler and World Stores bus key, binary relay only (18.7.0) | Buddy opcode 140; the GraphQL `udpNotifications` union has no member for it |
+| App-defined spatial messages (opcode 140) | `Connection::sendGenericSpatial`, `Handlers::genericSpatial`, `WorldSessionConfig::onGenericSpatial` (0.60.0) | `genericSpatial` handler and World Stores bus key (18.7.0) and `udp.sendGenericSpatial` (18.15.0), binary relay only | Buddy opcode 140; the GraphQL `udpNotifications` union has no member for it |
 | Channel audio | `Connection::sendChannelAudio`, `Handlers::channelAudio`, `WorldSessionConfig::onChannelAudio`, `wire::encodeChannelAudio`; `grids().createChannel(..., membersCanSpeak)` (0.60.0) | `udp.sendChannelAudio`, `channelAudio` handler and bus key (on the binary relay and the GraphQL transport), `serializeChannelAudio`, `membersCanSpeak` (18.7.0) | Buddy v0.37.0 (opcodes 35/36); the channel's `send_voice` and the app's `use_voice_chat`; ck-api `sendChannelAudio` and the `udpNotifications` union's `ChannelAudioNotification` for the browser proxy; CrowdyCPP's control-only `udpNotifications` document does not select it, since the native client receives 36 itself |
 | Voxel edits for a game's own world | `WorldSessionConfig::onVoxel`, after `chunks()` merged the edit (0.60.0) | `voxelUpdate` handler and bus key | None |
 | The echo of a client's own voxel edit | `ChunkStore` skips the echo of its own `setVoxel` unless a foreign edit came in between; state over 1,024 bytes is `InvalidArgument` (0.60.0) | `ChunkStore` does the same; `assertVoxelEdit` (18.7.0) | Buddy v0.37.0 echoes every accepted edit to its sender and refuses a state over 1,024 bytes with `INVALID_REQUEST` (15) |

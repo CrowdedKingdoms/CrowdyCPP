@@ -268,6 +268,59 @@ jobs:
           cmake --build build-crypto-off-consumer -j 4
           ./build-crypto-off-consumer/crowdycpp_consumer
 
+  opus-build-test:
+    # Bounded because an unbounded job runs to the six-hour default, and on the day
+    # release.yml shipped four jobs in one run sat over an hour inside `apt-get
+    # install` on hosted Ubuntu runners while the Windows and macOS legs passed. A
+    # hung job is worse than a failed one: nothing to read, and the run never ends.
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native dependencies and libopus
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev libopus-dev
+      # CROWDY_WITH_OPUS is OFF in every other job, so this is the only build of crowdy_opus and
+      # the only run of opus_test. The installed package finds libopus again on its own
+      # (CrowdyCPPConfig re-runs crowdy_find_opus), which only an installed consumer proves.
+      - name: Configure with the libopus wrapper
+        run: >
+          cmake -S . -B build-opus -DCMAKE_BUILD_TYPE=Release
+          -DCROWDY_WITH_OPUS=ON
+          -DCROWDY_BUILD_E2E=OFF
+          -DCROWDY_BUILD_BENCHMARKS=OFF
+          -DCROWDY_BUILD_EXAMPLES=OFF
+      - name: Build and test, opus_test included
+        run: |
+          cmake --build build-opus -j 4
+          ctest --test-dir build-opus -N | grep -q 'opus_test'
+          ctest --test-dir build-opus --output-on-failure --timeout 120
+      - name: Install and link consumers against the Opus build
+        run: |
+          cmake --install build-opus --prefix "$RUNNER_TEMP/crowdy-opus"
+          test -e "$RUNNER_TEMP/crowdy-opus/include/crowdy/media/opus.hpp"
+          cmake -S tests/consumer -B build-opus-consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-opus"
+          cmake --build build-opus-consumer -j 4
+          ./build-opus-consumer/crowdycpp_consumer
+          mkdir -p "$RUNNER_TEMP/opus-consumer"
+          cat > "$RUNNER_TEMP/opus-consumer/CMakeLists.txt" <<'CMAKE'
+          cmake_minimum_required(VERSION 3.22)
+          project(CrowdyOpusConsumer LANGUAGES CXX)
+          find_package(CrowdyCPP 0.67 CONFIG REQUIRED)
+          add_executable(opus_consumer main.cpp)
+          target_link_libraries(opus_consumer PRIVATE CrowdyCPP::crowdy)
+          target_compile_features(opus_consumer PRIVATE cxx_std_20)
+          CMAKE
+          cat > "$RUNNER_TEMP/opus-consumer/main.cpp" <<'CPP'
+          #include <crowdy/media/opus.hpp>
+          static_assert(crowdy::media::kOpusAvailable, "the installed package lost the Opus wrapper");
+          int main() { return 0; }
+          CPP
+          cmake -S "$RUNNER_TEMP/opus-consumer" -B build-opus-consumer-2 \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/crowdy-opus"
+          cmake --build build-opus-consumer-2 -j 4
+          ./build-opus-consumer-2/opus_consumer
+
   asan-build-test:
     # Bounded because an unbounded job runs to the six-hour default, and on the day
     # release.yml shipped four jobs in one run sat over an hour inside `apt-get

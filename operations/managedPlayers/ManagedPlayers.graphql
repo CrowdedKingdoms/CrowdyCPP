@@ -70,6 +70,13 @@ query OrgManagedPlayerSettings($orgId: BigInt!) {
     mintsPerMinute
     defaultSessionTtlSeconds
     maxSessionTtlSeconds
+    termsVersion
+    termsUrl
+    termsAccepted
+    termsAcceptedVersion
+    termsAcceptedAt
+    termsAcceptedByUserId
+    viewerMayAcceptTerms
   }
 }
 

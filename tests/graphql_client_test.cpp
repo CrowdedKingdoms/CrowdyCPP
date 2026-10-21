@@ -322,6 +322,14 @@ void testManagedPlayerReaders() {
       R"({"errors":[{"message":"no wallet","extensions":{"code":"MANAGED_PLAYER_NOT_ALLOWED"}}]})");
   CHECK(managedPlayerNotAllowedOf(noWallet));
   CHECK(!assertionRejectedOf(noWallet).has_value());
+  CHECK(!orgLegalAcceptanceRequiredOf(noWallet));
+  auto notAccepted = errorsFor(
+      R"({"errors":[{"message":"Organization 7 has not accepted the current Org-Managed Players Addendum","extensions":{"code":"ORG_LEGAL_ACCEPTANCE_REQUIRED"}}]})");
+  CHECK(orgLegalAcceptanceRequiredOf(notAccepted));
+  CHECK(!managedPlayerNotAllowedOf(notAccepted));
+  auto playerTerms = errorsFor(
+      R"({"errors":[{"message":"accept the terms","extensions":{"code":"LEGAL_ACCEPTANCE_REQUIRED"}}]})");
+  CHECK(!orgLegalAcceptanceRequiredOf(playerTerms));
 }
 
 void testAsyncHttpError() {

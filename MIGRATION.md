@@ -1,10 +1,29 @@
 # CrowdyCPP migration notes
 
-## 0.68.0 Org-managed players (dev only); re-pinned to CrowdyJS 18.16.0
+## 0.69.0 The Org-Managed Players Addendum; re-pinned to CrowdyJS 18.17.0
 
-Additive, and served by ck-api `v2.52.0` on the dev tier only (every other tier answers
-`FEATURE_DISABLED`). An organization that runs its own accounts signs its players in itself,
-and the player's device ends up with the player's own app token:
+Additive. ck-api `v2.53.0` serves org-managed players on dev, test and prod, and refuses an
+organization's managed sign-ins (both ways), refreshes and provisioning with
+`ORG_LEGAL_ACCEPTANCE_REQUIRED` until an admin of the organization accepts the Org-Managed
+Players Addendum in Studio:
+
+- **`graphql::orgLegalAcceptanceRequiredOf(errors)`** reads that refusal
+  (`kOrgLegalAcceptanceRequiredCode`). Neither the player nor the organization's server can fix
+  it, so do not retry; tell the player sign-in is unavailable.
+- **`admin().managedPlayers().settings(orgId)`** also returns `termsVersion`, `termsUrl`,
+  `termsAccepted`, `termsAcceptedVersion`, `termsAcceptedAt`, `termsAcceptedByUserId` and
+  `viewerMayAcceptTerms`.
+- No wrapper for `acceptManagedPlayerTerms`, as in CrowdyJS: it binds the organization, so a
+  person accepts it in Studio. The parity tool classifies it as a browser exclusion.
+
+The parity pin is CrowdyJS 18.17.0 (`dev/v18.17.0`), and `schema.gql` is cks-game-api `dev`'s
+after #560.
+
+## 0.68.0 Org-managed players; re-pinned to CrowdyJS 18.16.0
+
+Additive, and served by ck-api `v2.52.0` on the dev tier only at the time (every other tier
+answered `FEATURE_DISABLED` until `v2.53.0`). An organization that runs its own accounts signs
+its players in itself, and the player's device ends up with the player's own app token:
 
 - **`portal().adoptAppToken(response)`** stores the `AppTokenResponse` the organization's
   server minted with its org token (`mintManagedPlayerToken`), so `refresh()` rotates it. It

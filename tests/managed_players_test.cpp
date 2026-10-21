@@ -12,9 +12,10 @@
 
 using namespace crowdy;
 
-// Org-managed players (CrowdyJS 18.16.0, ck-api v2.52.0, dev only). The device holds the
-// player's app token and never the organization's org token; the admin domain wraps the
-// organization's administration and no org-token mint.
+// Org-managed players (CrowdyJS 18.16.0 / ck-api v2.52.0; the addendum, CrowdyJS 18.17.0 /
+// ck-api v2.53.0). The device holds the player's app token and never the organization's org
+// token; the admin domain wraps the organization's administration, and neither the org-token
+// mint nor the addendum's acceptance.
 
 namespace {
 
@@ -127,6 +128,15 @@ void testAdminFieldsAndArguments() {
     const graphql::Json body = bodyOf(rig.http->requests[i]);
     CHECK(body["query"].asString().find(expected[i].first) != std::string::npos);
     CHECK_EQ(body["variables"].dump(), expected[i].second);
+  }
+  // settings() reads where the organization stands on the Org-Managed Players Addendum.
+  const std::string settingsQuery = bodyOf(rig.http->requests[4])["query"].asString();
+  for (const char* field : {"termsVersion", "termsUrl", "termsAccepted", "viewerMayAcceptTerms"}) {
+    CHECK(settingsQuery.find(field) != std::string::npos);
+  }
+  // Nothing in the SDK accepts the addendum: a person does, in Studio.
+  for (const auto& request : rig.http->requests) {
+    CHECK(bodyOf(request)["query"].asString().find("acceptManagedPlayerTerms") == std::string::npos);
   }
 }
 

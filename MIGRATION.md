@@ -1,5 +1,31 @@
 # CrowdyCPP migration notes
 
+## 0.68.0 Org-managed players (dev only); re-pinned to CrowdyJS 18.16.0
+
+Additive, and served by ck-api `v2.52.0` on the dev tier only (every other tier answers
+`FEATURE_DISABLED`). An organization that runs its own accounts signs its players in itself,
+and the player's device ends up with the player's own app token:
+
+- **`portal().adoptAppToken(response)`** stores the `AppTokenResponse` the organization's
+  server minted with its org token (`mintManagedPlayerToken`), so `refresh()` rotates it. It
+  returns `Errc::InvalidArgument` and stores nothing for an empty token or an org token
+  (`cko_...`): an org token signs in any of the organization's players, so a device must never
+  hold one. This SDK has no wrapper for the org-token mint, on purpose.
+- **`portal().exchangeManagedPlayerAssertion(appId, assertion)`** (and `...Async`) trades an
+  assertion the organization's sign-in service signed; public, and each assertion works once.
+  `graphql::assertionRejectedOf(errors)` reads the refusal's `reason`.
+- **`admin().managedPlayers()`**: `list`, `get`, `provision` (up to 500 a call), `update`,
+  `endSessions`, `remove` (CrowdyJS `delete`), `settings`, `signingKeys`, `registerSigningKey`
+  (a JWK with private members is refused before any request; `publicJwk` may be an object),
+  `revokeSigningKey`, `appModsEnabled` and `setAppMods`, each with its `Async` twin.
+- `admin().organizations().revokeToken(id, endSessions)` and a `revokeTokenAsync(id,
+  endSessions, cb)` overload also end the sessions a token signed in; existing calls are
+  unchanged. `graphql::managedPlayerNotAllowedOf(errors)` reads `MANAGED_PLAYER_NOT_ALLOWED`.
+
+The parity pin is CrowdyJS 18.16.0 (`dev/v18.16.0`), and `schema.gql` is cks-game-api `dev`'s
+after #557. The operator's `setOrgManagedPlayerSettings` is on the platform-only list, and
+`mintManagedPlayerToken` is classified as the organization's server call.
+
 ## 0.67.4 `setVoxel(..., optimistic)`; re-pinned to CrowdyJS 18.15.0; CI builds the Opus wrapper
 
 Additive. **`ChunkStore::setVoxel` takes `bool optimistic = true`** as its last argument,

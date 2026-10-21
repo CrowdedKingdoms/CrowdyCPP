@@ -303,6 +303,27 @@ void testBlockAndBanReaders() {
 #endif
 }
 
+void testManagedPlayerReaders() {
+  auto client = makeClient(std::make_shared<FakeSyncTransport>());
+  auto async = std::make_shared<FakeAsyncTransport>();
+  client->setAsyncTransport(async);
+  auto errorsFor = [&](const char* body) {
+    async->outcome = httpOk(200, body);
+    GraphQLOutcome got;
+    client->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { got = std::move(out); });
+    return got.errors;
+  };
+  auto replayed = errorsFor(
+      R"({"errors":[{"message":"rejected","extensions":{"code":"ASSERTION_REJECTED","reason":"replayed"}}]})");
+  CHECK(assertionRejectedOf(replayed).has_value());
+  CHECK(assertionRejectedOf(replayed)->reason == "replayed");
+  CHECK(!managedPlayerNotAllowedOf(replayed));
+  auto noWallet = errorsFor(
+      R"({"errors":[{"message":"no wallet","extensions":{"code":"MANAGED_PLAYER_NOT_ALLOWED"}}]})");
+  CHECK(managedPlayerNotAllowedOf(noWallet));
+  CHECK(!assertionRejectedOf(noWallet).has_value());
+}
+
 void testAsyncHttpError() {
   auto async = std::make_shared<FakeAsyncTransport>();
   async->outcome = httpOk(500, "internal error, not json");
@@ -548,6 +569,7 @@ int main() {
   testRetryAfterMsDistinguishesZeroFromAbsent();
   testRefusalReaders();
   testBlockAndBanReaders();
+  testManagedPlayerReaders();
   testAsyncHttpError();
   testAsyncProtocolError();
   testAsyncTransportFailure();

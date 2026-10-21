@@ -126,6 +126,10 @@ add_executable(users_test users_test.cpp)
 target_link_libraries(users_test PRIVATE crowdy)
 add_test(NAME users_test COMMAND users_test)
 
+add_executable(managed_players_test managed_players_test.cpp)
+target_link_libraries(managed_players_test PRIVATE crowdy)
+add_test(NAME managed_players_test COMMAND managed_players_test)
+
 add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
 target_compile_definitions(chunk_store_test PRIVATE

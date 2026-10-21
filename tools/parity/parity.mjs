@@ -322,6 +322,24 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
+  // cks-game-api #557 (org-managed players, dev only; CrowdyJS 18.16.0, CrowdyCPP 0.68.0).
+  // An operator turns the feature on for an org: on tests/parity/sdk-audience.test.mjs's
+  // platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Mutation',
+    ['setOrgManagedPlayerSettings'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // The org-token mint is the organization's SERVER call: an org token signs in any of its
+  // players and the API refuses one sent with an Origin header. Neither SDK wraps it; a device
+  // stores the result with portal().adoptAppToken().
+  ...classifyNames(
+    'Mutation',
+    ['mintManagedPlayerToken'],
+    CATEGORY.BROWSER,
+    "an organization's server call with its org token; neither SDK wraps it, and a device adopts the token it returns",
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -535,6 +553,8 @@ const METHOD_ALIASES = {
   'AppAccessAPI.usersByApp': 'userAccessByApp',
   'AppAccessAPI.usersByAppConnection': 'userAccessConnection',
   'OrganizationsAPI.bySlug': 'getBySlug',
+  // `delete` is a C++ keyword.
+  'ManagedPlayersAPI.delete': 'remove',
   'OrganizationsAPI.setMemberRoles': 'updateMemberRoles',
   'PaymentsAPI.capturePaypal': 'capturePaypalCheckout',
   'PaymentsAPI.create': 'createCheckout',
@@ -556,6 +576,8 @@ const ASYNC_TWIN_WAIVERS = {
   'AuthAPI.getToken':
     'local AuthState read completes synchronously without transport work',
   'AuthAPI.setToken':
+    'local AuthState write completes synchronously without transport work',
+  'PortalAPI.adoptAppToken':
     'local AuthState write completes synchronously without transport work',
   'PortalAPI.beginEntry':
     'native PKCE generation and URL construction are synchronous local work',
@@ -586,6 +608,7 @@ const CLASS_MAP = {
   PlayerWalletAPI: 'PlayerWalletAPI',
   PlatformAPI: 'PlatformAPI',
   OrganizationsAPI: 'OrganizationsAPI',
+  ManagedPlayersAPI: 'ManagedPlayersAPI',
   AppsAPI: 'AppsAPI',
   AppAccessAPI: 'AppAccessAPI',
   BillingAPI: 'BillingAPI',

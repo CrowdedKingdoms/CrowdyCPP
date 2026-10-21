@@ -137,7 +137,7 @@ void testMessagesAsyncAnswersThroughTheCallback() {
   CHECK(called);
 }
 
-// CrowdyJS 18.15.0: every sessions read selects missingRecords (an older Game API refuses
+// CrowdyJS 18.17.0: every sessions read selects missingRecords (an older Game API refuses
 // the selection, so this needs the release after v2.40.2).
 void testSessionsSelectMissingRecords() {
   auto transport = transportWith(

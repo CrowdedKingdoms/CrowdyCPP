@@ -2,7 +2,7 @@
 
 CrowdyCPP 0.69.0 passes the strict portable-parity gate against CrowdyJS
 **18.17.0**. The gate pins CrowdyJS commit
-`05c2f28b72ebde4c487c7bb52e07d11466bc64cc` (`dev/v18.17.0`; `crowdyjsParityTarget` in
+`98508efe3abe7dfa573ddd160f9da9053a4f78ad` (`test/v18.17.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.

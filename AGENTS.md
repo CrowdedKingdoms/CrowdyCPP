@@ -29,6 +29,8 @@ or unit-test run must not require network access, Node, CrowdyJS, or private
 platform repositories. Schema and generated artifacts are committed. Optional
 libraries stay behind options that default OFF: `CROWDY_WITH_OPUS` (0.60.0) builds
 the libopus wrapper only when asked, and fails the configure if libopus is missing.
+CI's `opus-build-test` job (0.67.4) is the only one that turns it on: a change to
+`crowdy/media/opus.hpp`, `src/media/opus.cpp` or `cmake/CrowdyFindOpus.cmake` is judged there.
 
 GitHub default is **`prod`**. Work lands on `dev`. Parity pin is CrowdyJS —
 read `crowdyjsParityTarget` in `package.json` (source of truth CI checks out);

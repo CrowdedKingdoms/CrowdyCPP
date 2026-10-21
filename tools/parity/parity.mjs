@@ -322,7 +322,7 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
-  // cks-game-api #557 (org-managed players, dev only; CrowdyJS 18.16.0, CrowdyCPP 0.68.0).
+  // cks-game-api #557 (org-managed players; CrowdyJS 18.16.0, CrowdyCPP 0.68.0).
   // An operator turns the feature on for an org: on tests/parity/sdk-audience.test.mjs's
   // platform-only list, as on CrowdyJS's.
   ...classifyNames(
@@ -339,6 +339,14 @@ const ROOT_CLASSIFICATIONS = {
     ['mintManagedPlayerToken'],
     CATEGORY.BROWSER,
     "an organization's server call with its org token; neither SDK wraps it, and a device adopts the token it returns",
+  ),
+  // cks-game-api #560 (CrowdyJS 18.17.0, CrowdyCPP 0.69.0): the Org-Managed Players Addendum
+  // binds the organization, so an admin of it accepts in Studio. Neither SDK wraps it.
+  ...classifyNames(
+    'Mutation',
+    ['acceptManagedPlayerTerms'],
+    CATEGORY.BROWSER,
+    "an organization admin's acceptance of the Org-Managed Players Addendum, a clickwrap made in Studio; neither SDK wraps it",
   ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications

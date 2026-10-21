@@ -1,0 +1,108 @@
+fragment ManagedPlayerFields on ManagedPlayer {
+  userId
+  orgId
+  externalId
+  gamertag
+  disambiguation
+  disabled
+  createdAt
+}
+
+fragment OrgSigningKeyFields on OrgSigningKey {
+  keyId
+  orgId
+  kid
+  algorithm
+  publicJwk
+  issuer
+  audience
+  appIds
+  label
+  createdAt
+  revokedAt
+}
+
+query ManagedPlayers($orgId: BigInt!, $search: String, $first: Int, $after: String) {
+  managedPlayers(orgId: $orgId, search: $search, first: $first, after: $after) {
+    players {
+      ...ManagedPlayerFields
+    }
+    nextCursor
+  }
+}
+
+query ManagedPlayer($orgId: BigInt!, $externalId: String!) {
+  managedPlayer(orgId: $orgId, externalId: $externalId) {
+    ...ManagedPlayerFields
+  }
+}
+
+mutation ProvisionManagedPlayers($input: ProvisionManagedPlayersInput!) {
+  provisionManagedPlayers(input: $input) {
+    created
+    existing
+    players {
+      ...ManagedPlayerFields
+    }
+  }
+}
+
+mutation UpdateManagedPlayer($input: UpdateManagedPlayerInput!) {
+  updateManagedPlayer(input: $input) {
+    ...ManagedPlayerFields
+  }
+}
+
+mutation EndManagedPlayerSessions($orgId: BigInt!, $externalId: String!) {
+  endManagedPlayerSessions(orgId: $orgId, externalId: $externalId)
+}
+
+mutation DeleteManagedPlayer($orgId: BigInt!, $externalId: String!) {
+  deleteManagedPlayer(orgId: $orgId, externalId: $externalId)
+}
+
+query OrgManagedPlayerSettings($orgId: BigInt!) {
+  orgManagedPlayerSettings(orgId: $orgId) {
+    orgId
+    enabled
+    maxPlayers
+    playerCount
+    mintsPerMinute
+    defaultSessionTtlSeconds
+    maxSessionTtlSeconds
+    termsVersion
+    termsUrl
+    termsAccepted
+    termsAcceptedVersion
+    termsAcceptedAt
+    termsAcceptedByUserId
+    viewerMayAcceptTerms
+  }
+}
+
+query OrgSigningKeys($orgId: BigInt!) {
+  orgSigningKeys(orgId: $orgId) {
+    ...OrgSigningKeyFields
+  }
+}
+
+mutation RegisterOrgSigningKey($input: RegisterOrgSigningKeyInput!) {
+  registerOrgSigningKey(input: $input) {
+    ...OrgSigningKeyFields
+  }
+}
+
+mutation RevokeOrgSigningKey($orgId: BigInt!, $keyId: BigInt!) {
+  revokeOrgSigningKey(orgId: $orgId, keyId: $keyId)
+}
+
+query AppManagedPlayerMods($appId: BigInt!) {
+  app(appId: $appId) {
+    appId
+    managedPlayerModsEnabled
+  }
+}
+
+mutation SetAppManagedPlayerMods($appId: BigInt!, $enabled: Boolean!) {
+  setAppManagedPlayerMods(appId: $appId, enabled: $enabled)
+}

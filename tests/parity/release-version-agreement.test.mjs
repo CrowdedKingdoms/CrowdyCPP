@@ -70,6 +70,26 @@ test('the consumer fixture requests the current minor line', () => {
   );
 });
 
+test('every consumer a workflow writes inline requests the current minor line', () => {
+  // ci.yml's opus job writes its own consumer CMakeLists; 0.68.0's bump missed it.
+  const [major, minor] = projectVersion().split('.');
+  for (const workflow of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    let source;
+    try {
+      source = read(workflow);
+    } catch {
+      continue;
+    }
+    for (const match of source.matchAll(/find_package\(CrowdyCPP (\d+\.\d+)(?:\.\d+)? CONFIG/gu)) {
+      assert.equal(
+        match[1],
+        `${major}.${minor}`,
+        `${workflow} writes a consumer that requests CrowdyCPP ${match[1]}, not ${major}.${minor}`,
+      );
+    }
+  }
+});
+
 /**
  * The sixth place. `docs/compatibility.md` opens by naming the version its
  * parity claim is about, and repeats it as a table column header. A stale

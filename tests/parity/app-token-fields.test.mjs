@@ -12,13 +12,13 @@ const portalHpp = readFileSync(
 );
 
 /**
- * The app-token selection is written out SEVEN times in portal.hpp: once as
- * kAppTokenFields and once inline in each of the six mint/refresh/exchange
- * operations, because the exec helpers take a string_view and the codebase does
+ * The app-token selection is written out EIGHT times in portal.hpp: once as
+ * kAppTokenFields and once inline in each of the seven mint/refresh/exchange
+ * operations (the seventh, 0.68.0, exchanges an org-signed player assertion), because the exec helpers take a string_view and the codebase does
  * not use macros in public headers.
  *
  * That duplication is exactly how `discoveryUrl` came to be missing from all
- * seven. Omitting a field there is not a compile error and not a server error:
+ * of them (seven at the time). Omitting a field there is not a compile error and not a server error:
  * the response simply arrives without it, and every read of it yields an empty
  * string. A client that cannot see discoveryUrl cannot re-discover, and the only
  * symptom is that it fails to recover from something it should have survived.
@@ -34,13 +34,13 @@ function selections(source) {
 
 test('every app-token selection in portal.hpp names the same fields', () => {
   const found = selections(portalHpp);
-  // Seven: the constant plus the six inline copies. A drop below that means a
+  // Eight: the constant plus the seven inline copies. A drop below that means a
   // selection was reworded into a shape this gate can no longer see, which is
   // worse than a mismatch because it would silently stop being checked.
   assert.equal(
     found.length,
-    7,
-    `expected 7 app-token selections in portal.hpp, found ${found.length}`,
+    8,
+    `expected 8 app-token selections in portal.hpp, found ${found.length}`,
   );
   for (const fields of found) {
     assert.deepEqual(fields, found[0]);

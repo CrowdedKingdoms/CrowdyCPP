@@ -196,13 +196,14 @@ void run() {
                                    Bytes(pose, sizeof(pose)), 1700000000200LL, 3);
   server.reply(selfNote.data(), selfNote.size());
 
-  // Both notifications, not just the first: the actor exists after one, and the second can
-  // still be in flight (macOS CI, 2026-10-15).
-  const auto sampledTwice = [&] {
+  // Both notifications and the self-echo, not just the first: the actor exists after one, and
+  // the others can still be in flight (macOS CI).
+  const auto settled = [&] {
     const RemoteActor* r = session.actors().find(other);
-    return r != nullptr && r->samples.size() >= 2;
+    return r != nullptr && r->samples.size() >= 2 &&
+           session.self().status() == LocalActorStatus::Acked;
   };
-  for (int i = 0; i < 100 && !sampledTwice(); ++i) {
+  for (int i = 0; i < 100 && !settled(); ++i) {
     conn->pump(20);
     session.tick();
   }

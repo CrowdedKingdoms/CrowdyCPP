@@ -1,5 +1,33 @@
 # CrowdyCPP migration notes
 
+## 0.70.0 Communication permissions; re-pinned to CrowdyJS 18.18.0
+
+No API change. ck-api `v2.55.0` adds two app-level permission keys, and the realtime servers
+enforce them:
+
+- **`use_text_chat`** for proximity text (`Connection::sendText`, `WorldSession::sendText`)
+  and for text on a channel (`sendChannelMessage`, `sendRangedChannelMessage`).
+- **`use_direct_messages`** for `Connection::sendSingleActorMessage` and
+  `WorldSession::sendToActor`.
+
+Without the key the server answers `ErrorCode::Unauthorized`. Every access tier that grants
+`access` has both keys: ck-api adds them when a tier is created or updated, unless
+`applyCommunicationDefaults: false` is sent, and an operator backfilled the existing tiers. An
+app that wants to turn chat off for some players removes a key from their tier.
+
+Also from ck-api `v2.54.0` and `v2.55.0`:
+
+- `admin().managedPlayers().remove()` now erases the player's player-side content within
+  minutes. A legal hold on the player or its organization refuses the delete with `LEGAL_HOLD`.
+- An app's `replayLoggingRecordsMedia` (default true) chooses whether input logging keeps
+  voice and video. `apps().update(appId, input)` sends it in `UpdateAppInput`, as CrowdyJS's
+  `apps.update` does; the app selections do not read it back.
+- The operator fields for account erasure and legal holds are not wrapped: the SDK is for
+  players, developers and org-admins.
+
+The parity pin is CrowdyJS 18.18.0 (`dev/v18.18.0`), and `schema.gql` is that pin's (cks-game-api
+`dev` at v2.55.0).
+
 ## 0.69.0 The Org-Managed Players Addendum; re-pinned to CrowdyJS 18.17.0
 
 Additive. ck-api `v2.53.0` serves org-managed players on dev, test and prod, and refuses an

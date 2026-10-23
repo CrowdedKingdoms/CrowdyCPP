@@ -348,6 +348,21 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     "an organization admin's acceptance of the Org-Managed Players Addendum, a clickwrap made in Studio; neither SDK wraps it",
   ),
+  // ck-api v2.54.0 (CrowdyJS 18.18.0, CrowdyCPP 0.70.0): account erasure status and retry,
+  // and legal holds, are operator controls. On tests/parity/sdk-audience.test.mjs's
+  // platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Mutation',
+    ['releaseLegalHold', 'requestAccountErasure', 'setLegalHold'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    ['accountErasure', 'legalHolds'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.70.0: communication permissions, and CrowdyJS 18.18.0.** Game API v2.55.0 adds the app-level `use_text_chat` and `use_direct_messages` keys: without them the realtime servers refuse `sendText`, channel messages and direct messages with `ErrorCode::Unauthorized`. Every tier that grants `access` has both unless the app took them away. A managed player's delete now erases its player-side content, and a legal hold refuses it with `LEGAL_HOLD`. See [MIGRATION.md](MIGRATION.md).
+
 **v0.69.0: the Org-Managed Players Addendum, and CrowdyJS 18.17.0.** ck-api v2.53.0 serves org-managed players on every tier, once an admin of the organization has accepted the addendum in Studio; until then its sign-ins and refreshes answer `ORG_LEGAL_ACCEPTANCE_REQUIRED`, which `graphql::orgLegalAcceptanceRequiredOf(errors)` reads, and `admin().managedPlayers().settings()` says where the organization stands. See [MIGRATION.md](MIGRATION.md).
 
 **v0.68.0: org-managed players, and CrowdyJS 18.16.0.** An organization that runs its own accounts signs its players in itself: its server mints a player's app token with an org token, or its sign-in service signs an assertion. A device stores the first with `portal().adoptAppToken(response)` (which refuses an org token: that stays on the organization's server, and this SDK wraps no org-token mint) or trades the second with `portal().exchangeManagedPlayerAssertion(appId, assertion)`. `admin().managedPlayers()` is the organization's administration (players, provisioning, signing keys, the per-app mods switch). See [MIGRATION.md](MIGRATION.md).

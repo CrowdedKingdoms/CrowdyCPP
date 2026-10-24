@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.71.0: the draining move, and CrowdyJS 18.19.0.** Game API v2.56.0 tells every client of a draining instance where to go and expires the balancer's affinity cookie, so the next request lands on a live instance. CrowdyCPP moves its HTTP origin and its subscription together on `SERVER_DRAINING`, as before, and its cookie jar honours the expiry. No API change. See [MIGRATION.md](MIGRATION.md).
+
 **v0.70.0: communication permissions, and CrowdyJS 18.18.0.** Game API v2.55.0 adds the app-level `use_text_chat` and `use_direct_messages` keys: without them the realtime servers refuse `sendText`, channel messages and direct messages with `ErrorCode::Unauthorized`. Every tier that grants `access` has both unless the app took them away. A managed player's delete now erases its player-side content, and a legal hold refuses it with `LEGAL_HOLD`. See [MIGRATION.md](MIGRATION.md).
 
 **v0.69.0: the Org-Managed Players Addendum, and CrowdyJS 18.17.0.** ck-api v2.53.0 serves org-managed players on every tier, once an admin of the organization has accepted the addendum in Studio; until then its sign-ins and refreshes answer `ORG_LEGAL_ACCEPTANCE_REQUIRED`, which `graphql::orgLegalAcceptanceRequiredOf(errors)` reads, and `admin().managedPlayers().settings()` says where the organization stands. See [MIGRATION.md](MIGRATION.md).

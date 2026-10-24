@@ -1,5 +1,18 @@
 # CrowdyCPP migration notes
 
+## 0.71.0 The draining move; re-pinned to CrowdyJS 18.19.0
+
+No API change. ck-api `v2.56.0` notices a drain within a second, tells every relay client
+to reconnect to a named peer, never names itself in `gameClientBootstrap` while draining,
+and answers with the balancer's affinity cookie (`cks_ga`) expired, so the client's next
+request is placed on a live instance.
+
+CrowdyCPP's part was already in place: `watchRealtimeControl` re-discovers on
+`SERVER_DRAINING` and `moveToDatacenter` moves the HTTP origin and the subscription endpoint
+at once. The affinity cookie lives in libcurl's shared jar, which drops an expired cookie
+and never sends it; `lb_affinity_cookie_test` holds that. A game that keeps its own cookie
+store for the Game API should honour `Max-Age=0` the same way.
+
 ## 0.70.0 Communication permissions; re-pinned to CrowdyJS 18.18.0
 
 No API change. ck-api `v2.55.0` adds two app-level permission keys, and the realtime servers

@@ -1105,6 +1105,28 @@ const CROSS_CUTTING_BEHAVIORS = {
       'published subpath is the browser Web Worker entry; native CLIENT runtimes use injected engine sandboxes',
     ),
   },
+  // CrowdyJS 18.19.0: a draining instance's move. CrowdyJS clears its own affinity
+  // store and moves HTTP and the GraphQL socket together; it also honours an expired
+  // cks_ga. Its store is the browser's stand-in for a cookie jar.
+  'drain-move-clears-affinity': {
+    path: 'src/realtime.ts',
+    markers: [
+      'this.lbCookieStore?.clear();',
+      "void this.rediscoverEndpoint('server draining', { moveNow: true });",
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'SERVER_DRAINING re-discovers and moveToDatacenter() moves the HTTP origin and the subscription endpoint at once; the affinity cookie lives in libcurl\'s shared jar, which drops the expired cks_ga a draining ck-api answers with (lb_affinity_cookie_test, 0.71.0)',
+    ),
+  },
+  'lb-cookie-expiry': {
+    path: 'src/lb-cookie-store.ts',
+    markers: ['clear(): void {', 'function isExpired(setCookie: string'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'libcurl\'s cookie engine applies Max-Age and Expires itself and never sends an expired cookie (lb_affinity_cookie_test, 0.71.0)',
+    ),
+  },
   // CrowdyJS 17.14.0 changed three World Stores without adding a method, so no
   // method row moves; these pin what each change means here, and go stale when
   // the CrowdyJS source they describe changes.

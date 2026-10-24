@@ -72,6 +72,14 @@ if(CROWDY_WITH_CURL)
 endif()
 add_test(NAME graphql_client_test COMMAND graphql_client_test)
 
+# The balancer's affinity cookie in libcurl's jar: an expired cks_ga (a draining ck-api)
+# must leave it. Only where the curl transport is built.
+if(CROWDY_WITH_CURL)
+  add_executable(lb_affinity_cookie_test lb_affinity_cookie_test.cpp)
+  target_link_libraries(lb_affinity_cookie_test PRIVATE CURL::libcurl)
+  add_test(NAME lb_affinity_cookie_test COMMAND lb_affinity_cookie_test)
+endif()
+
 add_executable(async_lifetime_test async_lifetime_test.cpp)
 target_link_libraries(async_lifetime_test PRIVATE crowdy)
 add_test(NAME async_lifetime_test COMMAND async_lifetime_test)

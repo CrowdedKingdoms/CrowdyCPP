@@ -1,5 +1,23 @@
 # CrowdyCPP migration notes
 
+## 0.72.0 A session's first awaited send; re-pinned to CrowdyJS 18.20.0
+
+No breaking change. A realtime server older than v0.42.0 drops or refuses a session's first
+message while the session's permissions load, so the first awaited send after a connect or a
+reassignment (`COMMAND_RECONNECT`, a drain move, the watchdog) used to fail or time out.
+
+- **`sendActorUpdateAndWait`, `sendVoxelUpdateAndWait` and `sendTextAndWait`** retry the
+  first awaited send of a session once, with a fresh sequence, when it is refused
+  `ErrorCode::Unauthorized` or, for the actor and voxel updates the server echoes, when the
+  echo times out. Text has no echo and succeeds by timing out, so its timeout is never
+  retried. A later failure in the same session is returned as before.
+- **`Connection::sessionEpoch()`** counts the sessions the connection has started: the first
+  connect and each reassignment.
+- The wait was already timed from when the send left (CrowdyJS 18.20.0 now does the same).
+
+A realtime server from v0.42.0 holds a session's first messages, and the first message into a
+newly entered region, until their permissions load, so with it the retry does not fire.
+
 ## 0.71.0 The draining move; re-pinned to CrowdyJS 18.19.0
 
 No API change. ck-api `v2.56.0` notices a drain within a second, tells every relay client

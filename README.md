@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.72.0: a session's first awaited send, and CrowdyJS 18.20.0.** Every `*AndWait` retries the first awaited send of a session (the first connect and each reassignment) once, with a fresh sequence, when it is refused `ErrorCode::Unauthorized` or, for the actor and voxel updates the server echoes, when its echo times out: how a realtime server older than v0.42.0 answers a session's first message. v0.42.0 holds that message until the session's permissions load instead. Text's clean timeout is its success and is never retried. `Connection::sessionEpoch()` is new. See [MIGRATION.md](MIGRATION.md).
+
 **v0.71.0: the draining move, and CrowdyJS 18.19.0.** Game API v2.56.0 tells every client of a draining instance where to go and expires the balancer's affinity cookie, so the next request lands on a live instance. CrowdyCPP moves its HTTP origin and its subscription together on `SERVER_DRAINING`, as before, and its cookie jar honours the expiry. No API change. See [MIGRATION.md](MIGRATION.md).
 
 **v0.70.0: communication permissions, and CrowdyJS 18.18.0.** Game API v2.55.0 adds the app-level `use_text_chat` and `use_direct_messages` keys: without them the realtime servers refuse `sendText`, channel messages and direct messages with `ErrorCode::Unauthorized`. Every tier that grants `access` has both unless the app took them away. A managed player's delete now erases its player-side content, and a legal hold refuses it with `LEGAL_HOLD`. See [MIGRATION.md](MIGRATION.md).

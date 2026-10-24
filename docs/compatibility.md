@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.70.0 passes the strict portable-parity gate against CrowdyJS
-**18.18.0**. The gate pins CrowdyJS commit
-`814668f7ebedb01fb52bc7ed8b89ef626c827f08` (`test/v18.18.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.71.0 passes the strict portable-parity gate against CrowdyJS
+**18.19.0**. The gate pins CrowdyJS commit
+`9625069ca42206ed1a009d007ad4f83fc6bf0aaf` (`test/v18.19.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.71.0 mirrors CrowdyJS 18.19.0 (ck-api v2.56.0), the draining move: a draining instance expires the balancer's affinity cookie (`cks_ga`) and names a peer, and the client moves its HTTP origin and its subscription together. CrowdyCPP already did both on `SERVER_DRAINING` (`moveToDatacenter`), and libcurl's shared cookie jar drops the expired cookie; `lb_affinity_cookie_test` pins that. No method changed.
 
 0.70.0 mirrors CrowdyJS 18.18.0 (ck-api v2.55.0): the schema's `replayLoggingRecordsMedia` and `applyCommunicationDefaults`, and the send comments that name `use_text_chat` / `use_direct_messages`. No method changed. The operator's account-erasure and legal-hold fields (`accountErasure`, `requestAccountErasure`, `legalHolds`, `setLegalHold`, `releaseLegalHold`) are browser exclusions in both SDKs, like every operator-only root.
 
@@ -60,7 +62,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.70.0 | CrowdyJS 18.18.0 | Required public API generation |
+| Surface | CrowdyCPP 0.71.0 | CrowdyJS 18.19.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

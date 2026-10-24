@@ -7,7 +7,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1042,6 +1044,163 @@ void runEventsReadyHook() {
   conn.disconnect();
 }
 
+// A session's first awaited send is retried once when a realtime server older than
+// v0.42.0 refuses it (Unauthorized) or drops it (no echo). A text send's clean timeout
+// is its success and is never retried; later sends in the session are not retried; a
+// reassignment starts a new session. The fake server answers each request from a script
+// as it arrives, because a retry's sequence is only known once the first attempt failed.
+enum class Reply { Refuse, Echo, Silent };
+
+std::vector<std::uint8_t> echoFor(std::uint8_t seq, char uuidFill) {
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  wire::LongSpatialParams p;
+  p.type = wire::MessageType::ActorUpdateNotification;
+  p.appId = 7;
+  p.chunk = {1, 2, 3};
+  p.distance = 8;
+  p.uuid = uuid(uuidFill);
+  p.payload = Bytes(pose, sizeof(pose));
+  p.gameTokenId = 1700000002000LL;
+  p.sequence = seq;
+  std::vector<std::uint8_t> buf(wire::longSpatialSize(sizeof(pose)));
+  auto n = wire::encodeLongSpatial(core::opensslCrypto(), p, token64(),
+                                   MutableBytes(buf.data(), buf.size()));
+  CHECK(n.ok());
+  buf.resize(n.value());
+  return buf;
+}
+
+void runFirstSendRetry() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  const std::uint64_t firstEpoch = conn.sessionEpoch();
+  CHECK(firstEpoch >= 1u);
+
+  std::mutex scriptMutex;
+  std::vector<Reply> script;
+  std::vector<std::uint8_t> requests;  // the opcode of every request answered
+  std::atomic<bool> stop{false};
+  std::thread responder([&] {
+    timeval tv{0, 50 * 1000};
+    ::setsockopt(server.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    while (!stop.load()) {
+      std::uint8_t buf[2048];
+      server.lastClientLen = sizeof(server.lastClient);
+      const ssize_t n = ::recvfrom(server.fd, buf, sizeof(buf), 0,
+                                   reinterpret_cast<sockaddr*>(&server.lastClient),
+                                   &server.lastClientLen);
+      if (n <= 0) continue;
+      auto parsed = wire::parseLongSpatial(Bytes(buf, static_cast<std::size_t>(n)));
+      if (!parsed.ok()) continue;
+      const auto type = static_cast<std::uint8_t>(parsed->type);
+      if (type != 128 && type != 136) continue;  // actor update, text
+      Reply reply = Reply::Silent;
+      {
+        std::lock_guard lock(scriptMutex);
+        requests.push_back(type);
+        if (!script.empty()) {
+          reply = script.front();
+          script.erase(script.begin());
+        }
+      }
+      if (reply == Reply::Refuse) {
+        const std::uint8_t err[] = {3, parsed->sequence, 7};
+        ::sendto(server.fd, err, sizeof(err), 0, reinterpret_cast<sockaddr*>(&server.lastClient),
+                 server.lastClientLen);
+      } else if (reply == Reply::Echo) {
+        auto echo = echoFor(parsed->sequence, 'a');
+        ::sendto(server.fd, echo.data(), echo.size(), 0,
+                 reinterpret_cast<sockaddr*>(&server.lastClient), server.lastClientLen);
+      }
+    }
+  });
+  auto expect = [&](std::vector<Reply> replies) {
+    std::lock_guard lock(scriptMutex);
+    script = std::move(replies);
+    requests.clear();
+  };
+  auto answered = [&] {
+    std::lock_guard lock(scriptMutex);
+    return requests.size();
+  };
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('a');
+  send.payload = Bytes(pose, sizeof(pose));
+
+  // Refused, then echoed: the retry answers.
+  expect({Reply::Refuse, Reply::Echo});
+  auto outcome = conn.sendActorUpdateAndWait(send, 1000);
+  CHECK(outcome.acknowledged);
+  CHECK(!outcome.error.has_value());
+  CHECK_EQ(answered(), 2u);
+
+  // Answered once in this session: a later refusal is the caller's.
+  expect({Reply::Refuse, Reply::Echo});
+  outcome = conn.sendActorUpdateAndWait(send, 1000);
+  CHECK(!outcome.acknowledged);
+  CHECK(outcome.error.has_value());
+  CHECK_EQ(static_cast<int>(*outcome.error), 7);
+  CHECK_EQ(answered(), 1u);
+
+  // A reassignment starts a new session: dropped, then echoed.
+  auto reassign = [&] {
+    const int before = provider->assignCalls;
+    std::uint8_t rc[wire::kCommandReconnectSize];
+    std::uint8_t msg[1 + wire::kTokenOctets];
+    rc[0] = 22;
+    msg[0] = 22;
+    std::memcpy(msg + 1, kToken.data(), 64);
+    CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(msg, sizeof(msg)), rc + 1));
+    ::sendto(server.fd, rc, sizeof(rc), 0, reinterpret_cast<sockaddr*>(&server.lastClient),
+             server.lastClientLen);
+    for (int i = 0; i < 100 && provider->assignCalls == before; ++i) {
+      conn.pump(20);
+      conn.poll();
+    }
+    CHECK_EQ(provider->assignCalls, before + 1);
+    conn.pump(0);
+  };
+  reassign();
+  CHECK(conn.sessionEpoch() > firstEpoch);
+  expect({Reply::Silent, Reply::Echo});
+  outcome = conn.sendActorUpdateAndWait(send, 200);
+  CHECK(outcome.acknowledged);
+  CHECK_EQ(answered(), 2u);
+
+  // Text has no echo: its first send in a new session times out cleanly, which is
+  // success, so it is sent once and it answers for the session.
+  reassign();
+  expect({Reply::Silent});
+  outcome = conn.sendTextAndWait(send, 100);
+  CHECK(!outcome.acknowledged);
+  CHECK(!outcome.error.has_value());
+  CHECK_EQ(answered(), 1u);
+  expect({Reply::Refuse, Reply::Echo});
+  outcome = conn.sendActorUpdateAndWait(send, 1000);
+  CHECK(outcome.error.has_value());
+  CHECK_EQ(answered(), 1u);
+
+  stop.store(true);
+  responder.join();
+  conn.disconnect();
+}
+
 int main() {
   run();
   runEventsReadyHook();
@@ -1050,6 +1209,7 @@ int main() {
   runSendPath();
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
+  runFirstSendRetry();
   std::puts("replication_test OK");
   return 0;
 }

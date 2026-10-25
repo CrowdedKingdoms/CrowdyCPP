@@ -3,7 +3,7 @@
 // A game balancer pins a client to one ck-api with cks_ga. When that instance drains,
 // it answers with the cookie EXPIRED (Max-Age=0), so the client's next request carries
 // none and the balancer places it on a live instance. CrowdyJS clears its store on
-// SERVER_DRAINING as well (18.20.0); here the move rides libcurl's cookie engine, which
+// SERVER_DRAINING as well (18.21.0); here the move rides libcurl's cookie engine, which
 // the transport enables on a cookie-sharing handle -- so what must hold is that the
 // engine drops an expired cookie instead of sending it on. This pins that, on the same
 // kind of handle, without a network.

@@ -1,5 +1,17 @@
 # CrowdyCPP migration notes
 
+## 0.73.0 A send waiting across a reassignment; re-pinned to CrowdyJS 18.21.0
+
+No breaking change. An actor or voxel update still waiting for its echo when the connection
+was reassigned (`COMMAND_RECONNECT`, a drain move, the watchdog) had its echo sent to the
+session it left, and waited out its whole timeout before anything happened.
+
+- **`sendActorUpdateAndWait` and `sendVoxelUpdateAndWait`** now end that wait as soon as the
+  new session is connected and resend once, with a fresh sequence. That is the send's one
+  retry, as the first-send retry is. Text has no echo and is never resent.
+- **`WaitOutcome::sessionChanged`** is new: set when the wait ended that way and the resend
+  could not be sent. `waitForSequence` never sets it and still waits out its timeout.
+
 ## 0.72.0 A session's first awaited send; re-pinned to CrowdyJS 18.20.0
 
 No breaking change. A realtime server older than v0.42.0 drops or refuses a session's first

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.73.0: a send waiting across a reassignment, and CrowdyJS 18.21.0.** An actor or voxel update still waiting for its echo when the connection is reassigned is resent as soon as the new session is connected, rather than at its timeout, since its echo went to the session it left. That is the send's one retry; text is never resent. `WaitOutcome::sessionChanged` is new. See [MIGRATION.md](MIGRATION.md).
+
 **v0.72.0: a session's first awaited send, and CrowdyJS 18.20.0.** Every `*AndWait` retries the first awaited send of a session (the first connect and each reassignment) once, with a fresh sequence, when it is refused `ErrorCode::Unauthorized` or, for the actor and voxel updates the server echoes, when its echo times out: how a realtime server older than v0.42.0 answers a session's first message. v0.42.0 holds that message until the session's permissions load instead. Text's clean timeout is its success and is never retried. `Connection::sessionEpoch()` is new. See [MIGRATION.md](MIGRATION.md).
 
 **v0.71.0: the draining move, and CrowdyJS 18.19.0.** Game API v2.56.0 tells every client of a draining instance where to go and expires the balancer's affinity cookie, so the next request lands on a live instance. CrowdyCPP moves its HTTP origin and its subscription together on `SERVER_DRAINING`, as before, and its cookie jar honours the expiry. No API change. See [MIGRATION.md](MIGRATION.md).

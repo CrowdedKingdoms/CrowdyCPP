@@ -1049,7 +1049,9 @@ void runEventsReadyHook() {
 // is its success and is never retried; later sends in the session are not retried; a
 // reassignment starts a new session. The fake server answers each request from a script
 // as it arrives, because a retry's sequence is only known once the first attempt failed.
-enum class Reply { Refuse, Echo, Silent };
+// Reassign: no echo; the server sends COMMAND_RECONNECT instead, so the send waits
+// across a reassignment.
+enum class Reply { Refuse, Echo, Silent, Reassign };
 
 std::vector<std::uint8_t> echoFor(std::uint8_t seq, char uuidFill) {
   const std::uint8_t pose[] = {1, 2, 3, 4};
@@ -1093,6 +1095,15 @@ void runFirstSendRetry() {
   std::vector<Reply> script;
   std::vector<std::uint8_t> requests;  // the opcode of every request answered
   std::atomic<bool> stop{false};
+  std::uint8_t reconnectCommand[wire::kCommandReconnectSize];
+  {
+    std::uint8_t msg[1 + wire::kTokenOctets];
+    reconnectCommand[0] = 22;
+    msg[0] = 22;
+    std::memcpy(msg + 1, kToken.data(), 64);
+    CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(msg, sizeof(msg)),
+                                           reconnectCommand + 1));
+  }
   std::thread responder([&] {
     timeval tv{0, 50 * 1000};
     ::setsockopt(server.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -1123,6 +1134,9 @@ void runFirstSendRetry() {
       } else if (reply == Reply::Echo) {
         auto echo = echoFor(parsed->sequence, 'a');
         ::sendto(server.fd, echo.data(), echo.size(), 0,
+                 reinterpret_cast<sockaddr*>(&server.lastClient), server.lastClientLen);
+      } else if (reply == Reply::Reassign) {
+        ::sendto(server.fd, reconnectCommand, sizeof(reconnectCommand), 0,
                  reinterpret_cast<sockaddr*>(&server.lastClient), server.lastClientLen);
       }
     }
@@ -1194,6 +1208,43 @@ void runFirstSendRetry() {
   expect({Reply::Refuse, Reply::Echo});
   outcome = conn.sendActorUpdateAndWait(send, 1000);
   CHECK(outcome.error.has_value());
+  CHECK_EQ(answered(), 1u);
+
+  // A send in flight when the connection is reassigned: its echo went to the session
+  // it left, so it is resent as soon as the new session is connected, not at its
+  // 5 s timeout (OI-2026-10-25-002). The session is confirmed, so the first-send rule
+  // is not what retries.
+  expect({Reply::Echo});
+  CHECK(conn.sendActorUpdateAndWait(send, 1000).acknowledged);
+  const std::uint64_t beforeMove = conn.sessionEpoch();
+  expect({Reply::Reassign, Reply::Echo});
+  const auto started = std::chrono::steady_clock::now();
+  outcome = conn.sendActorUpdateAndWait(send, 5000);
+  const auto tookMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - started)
+                          .count();
+  CHECK(outcome.acknowledged);
+  CHECK(!outcome.sessionChanged);
+  CHECK(conn.sessionEpoch() > beforeMove);
+  CHECK(tookMs < 2000);
+  CHECK_EQ(answered(), 2u);
+
+  // That resend is the one retry.
+  expect({Reply::Echo});
+  CHECK(conn.sendActorUpdateAndWait(send, 1000).acknowledged);
+  expect({Reply::Reassign, Reply::Silent});
+  outcome = conn.sendActorUpdateAndWait(send, 300);
+  CHECK(!outcome.acknowledged);
+  CHECK_EQ(answered(), 2u);
+
+  // Text is never resent: its wait does not end on a new session.
+  expect({Reply::Echo});
+  CHECK(conn.sendActorUpdateAndWait(send, 1000).acknowledged);
+  expect({Reply::Reassign});
+  outcome = conn.sendTextAndWait(send, 300);
+  CHECK(!outcome.acknowledged);
+  CHECK(!outcome.error.has_value());
+  CHECK(!outcome.sessionChanged);
   CHECK_EQ(answered(), 1u);
 
   stop.store(true);

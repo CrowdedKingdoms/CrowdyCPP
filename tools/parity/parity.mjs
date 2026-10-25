@@ -1119,6 +1119,19 @@ const CROSS_CUTTING_BEHAVIORS = {
       'Connection::sendAndWait behind every *AndWait retries the first awaited send of a session (sessionEpoch(), one per assignment) once on Unauthorized or, for echoed actor and voxel updates, a timeout; text never on a timeout (replication_test runFirstSendRetry, 0.72.0)',
     ),
   },
+  // CrowdyJS 18.21.0: an echoed send still waiting when a new session connects is resent
+  // then, not at its timeout.
+  'awaited-send-retry-on-new-session': {
+    path: 'src/domains/udp.ts',
+    markers: [
+      'class SessionChanged extends Error {}',
+      'if (error instanceof SessionChanged) return again();',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "Connection::sendAndWait waits through awaitSequence(..., endOnNewSession): an actor or voxel update still waiting when a reassignment's session is Connected (sessionEpoch() moved) ends with WaitOutcome::sessionChanged and is resent once with a fresh sequence; text is never resent (replication_test runFirstSendRetry, 0.73.0)",
+    ),
+  },
   'awaited-send-window-from-acceptance': {
     path: 'src/realtime.ts',
     markers: ['expectSequence(', 'sessionEpoch(): number {'],

@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.72.0 passes the strict portable-parity gate against CrowdyJS
-**18.20.0**. The gate pins CrowdyJS commit
-`f2f38209c7a6889372e9a0f1d73b66092298f6c7` (`dev/v18.20.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.73.0 passes the strict portable-parity gate against CrowdyJS
+**18.21.0**. The gate pins CrowdyJS commit
+`fa42eddab7780c019b1e265c25be9420315f4edd` (`dev/v18.21.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.73.0 mirrors CrowdyJS 18.21.0, a send waiting across a new session: an actor or voxel update still waiting when a reassignment's session is connected (`sessionEpoch()` moved) is resent once then, with a fresh sequence, instead of at its timeout (`Connection::awaitSequence`, `WaitOutcome::sessionChanged`); text is never resent. CrowdyJS ends the wait on the realtime status turning `connected` with a new epoch.
 
 0.72.0 mirrors CrowdyJS 18.20.0 (realtime server v0.42.0), a session's first awaited send: every `*AndWait` retries the first awaited send of a session once, with a fresh sequence, when it is refused `Unauthorized` or, for the echoed actor and voxel updates, when the echo times out; text's clean timeout is its success and is never retried. `Connection::sessionEpoch()` counts the sessions (each assignment). CrowdyJS also moved its echo window to start at acceptance (`RealtimeClient.expectSequence`); CrowdyCPP's wait already did, its deadline set after the send has left.
 
@@ -64,7 +66,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.72.0 | CrowdyJS 18.20.0 | Required public API generation |
+| Surface | CrowdyCPP 0.73.0 | CrowdyJS 18.21.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

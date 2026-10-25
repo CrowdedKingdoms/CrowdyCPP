@@ -1105,6 +1105,28 @@ const CROSS_CUTTING_BEHAVIORS = {
       'published subpath is the browser Web Worker entry; native CLIENT runtimes use injected engine sandboxes',
     ),
   },
+  // CrowdyJS 18.20.0: a session's first awaited send. CrowdyJS times the echo from the
+  // send's acceptance and retries the first awaited send of a session once; the
+  // markers go stale when that source changes.
+  'awaited-send-first-of-session-retry': {
+    path: 'src/domains/udp.ts',
+    markers: [
+      'private async sendAndWait<T extends { sequenceNumber?: number | null }>(',
+      'function isFirstSendFailure(error: unknown, echoed: boolean): boolean {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'Connection::sendAndWait behind every *AndWait retries the first awaited send of a session (sessionEpoch(), one per assignment) once on Unauthorized or, for echoed actor and voxel updates, a timeout; text never on a timeout (replication_test runFirstSendRetry, 0.72.0)',
+    ),
+  },
+  'awaited-send-window-from-acceptance': {
+    path: 'src/realtime.ts',
+    markers: ['expectSequence(', 'sessionEpoch(): number {'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'waitForSequence sets its deadline after the send returned and flushed, and an echo that arrives earlier waits in the event ring for the polling thread, so the window already counts from acceptance; Connection::sessionEpoch() is the epoch (0.72.0)',
+    ),
+  },
   // CrowdyJS 18.19.0: a draining instance's move. CrowdyJS clears its own affinity
   // store and moves HTTP and the GraphQL socket together; it also honours an expired
   // cks_ga. Its store is the browser's stand-in for a cookie jar.

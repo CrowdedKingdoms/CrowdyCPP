@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.74.0: a deploy's dropped node types, and CrowdyJS 18.22.0.** `exec().instances` returns `orphaned`, true for an instance whose node type the app's active version no longer deploys: ck-exec 0.19 stops such an instance at once when a deploy or a rollback drops its type, and keeps its saved state. It needs ck-api v2.58.0 on the tier. See [MIGRATION.md](MIGRATION.md).
+
 **v0.73.0: a send waiting across a reassignment, and CrowdyJS 18.21.0.** An actor or voxel update still waiting for its echo when the connection is reassigned is resent as soon as the new session is connected, rather than at its timeout, since its echo went to the session it left. That is the send's one retry; text is never resent. `WaitOutcome::sessionChanged` is new. See [MIGRATION.md](MIGRATION.md).
 
 **v0.72.0: a session's first awaited send, and CrowdyJS 18.20.0.** Every `*AndWait` retries the first awaited send of a session (the first connect and each reassignment) once, with a fresh sequence, when it is refused `ErrorCode::Unauthorized` or, for the actor and voxel updates the server echoes, when its echo times out: how a realtime server older than v0.42.0 answers a session's first message. v0.42.0 holds that message until the session's permissions load instead. Text's clean timeout is its success and is never retried. `Connection::sessionEpoch()` is new. See [MIGRATION.md](MIGRATION.md).

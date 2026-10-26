@@ -1,5 +1,18 @@
 # CrowdyCPP migration notes
 
+## 0.74.0 A deploy's dropped node types; re-pinned to CrowdyJS 18.22.0
+
+No breaking change, but **it needs ck-api v2.58.0 on the tier**: `exec().instances` now selects
+`orphaned`, which an older API refuses.
+
+- **`exec().instances`** returns `orphaned` on each instance: true when its node type is not in
+  the app's active version. ck-exec 0.19 stops, at once, the running instances of a type a
+  deploy or a rollback drops (a hub with a pending timer used to run on while players were in
+  the app), keeps their saved state for a version that deploys the type again, and drops the
+  type from `disabledTypes`. It is null from a manager older than 0.19.
+- The schema's descriptions of `execDeploy`, `execActivateVersion`, `execSetEnabled`,
+  `execRestartType` and `ExecAppStatus.disabledTypes` say so; `exec.hpp`'s comments follow.
+
 ## 0.73.0 A send waiting across a reassignment; re-pinned to CrowdyJS 18.21.0
 
 No breaking change. An actor or voxel update still waiting for its echo when the connection

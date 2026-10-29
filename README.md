@@ -293,6 +293,8 @@ Games hosting roots), parity CrowdyJS 17.3.0.** The Crowdy Games hosting surface
 `*GamePublish*` roots) and the Studio card's "Create repository on GitHub"
 (17.3.0) are browser exclusions — a native client has no browser bundle to
 publish and no tab to open. Schema sync and codegen only; no native API change.
+Crowdy Games was retired on 2026-10-29. Its hosting surface was browser-only, no
+C++ wrapper is planned, and developers now host their games on their own origins.
 
 **v0.38.0: bound GitHub projects save as commits, parity CrowdyJS 17.1.0.**
 `CrowdyStudioAPI::saveProject` commits each changed file on a `GITHUB`

@@ -79,14 +79,16 @@ const SCHEMA_BASELINE = {
 };
 
 const ROOT_CLASSIFICATIONS = {
-  // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games.
-  // A publish uploads a BROWSER game bundle (a Vite build served under the
-  // crowdy.games web host) with an identity session holding manage_apps; the
-  // catalog reads describe those hosted web games. A native client has no
-  // bundle to publish and nothing to browse for itself, so the surface is a
-  // browser exclusion here rather than a portable gap. Classified during the
-  // 17.3.0 re-pin (2026-09-14) because the hosting train left CrowdyCPP at
-  // 17.1.0; the hosting owner may overrule.
+  // CrowdyJS 17.2.0 / ck-api v2.1.0: third-party game hosting on Crowdy Games,
+  // retired on 2026-10-29. A publish uploaded a BROWSER game bundle (a Vite
+  // build served under the Crowdy Games web host) with an identity session
+  // holding manage_apps; the catalog reads described those hosted web games.
+  // Every tier now answers a claim or a publish with CONTENT_HOSTING_DISABLED
+  // and the catalog reads come back empty; developers host their games on
+  // their own origins. The surface was browser-only, so it stays a browser
+  // exclusion rather than a portable gap, and no C++ wrapper is planned.
+  // Classified during the 17.3.0 re-pin (2026-09-14); these entries go stale,
+  // and the gate says so, once the schema and the pinned CrowdyJS drop them.
   ...classifyNames(
     'Mutation',
     [
@@ -99,13 +101,13 @@ const ROOT_CLASSIFICATIONS = {
       'takeDownHostedGame',
     ],
     CATEGORY.BROWSER,
-    'publishes and administers browser game bundles on the Crowdy Games web host; a native client has no bundle to publish',
+    'Crowdy Games hosting, retired 2026-10-29; it published browser game bundles only, no C++ wrapper is planned, and developers host their own games',
   ),
   ...classifyNames(
     'Query',
     ['allHostedGames', 'hostedGame', 'hostedGamePublishes', 'hostedGames', 'myHostedGames'],
     CATEGORY.BROWSER,
-    'catalog of browser games hosted on Crowdy Games; a native client is not one of them',
+    'Crowdy Games catalog, retired 2026-10-29; it listed browser games only, no C++ wrapper is planned, and developers host their own games',
   ),
   // The operator-only billing surface, added to the API across cycles eighteen
   // to twenty and picked up here when the pin moved to CrowdyJS 15.0.0.
@@ -373,7 +375,8 @@ const ROOT_CLASSIFICATIONS = {
 
 
 const METHOD_CLASSIFICATIONS = {
-  // CrowdyJS 17.2.0 hosting + shell bridge (see the root classifications).
+  // CrowdyJS 17.2.0 hosting + shell bridge, retired with Crowdy Games on
+  // 2026-10-29 (see the root classifications).
   ...classifyNames(
     'HostingAPI',
     [
@@ -388,17 +391,17 @@ const METHOD_CLASSIFICATIONS = {
       'setEnabled',
     ],
     CATEGORY.BROWSER,
-    'wrapper over the Crowdy Games hosting roots (browser bundles); no native client publishes one',
+    'wrapper over the Crowdy Games hosting roots, retired 2026-10-29; browser bundles only, no C++ wrapper is planned, and developers host their own games',
   ),
   ...classifyNames(
     'EmbeddedHost',
     ['close', 'current', 'hello', 'isFramed', 'navigate'],
     CATEGORY.BROWSER,
-    'iframe/postMessage bridge to the first-party shell page; there is no frame around a native client',
+    'iframe/postMessage bridge to the Crowdy Games shell page, retired 2026-10-29; there was never a frame around a native client, and no C++ wrapper is planned',
   ),
   'PortalAPI.embeddedHostInfo': classification(
     CATEGORY.BROWSER,
-    'answers whether the page runs inside the Crowdy Games shell iframe; a native client never does',
+    'answers whether the page runs inside the Crowdy Games shell iframe, retired 2026-10-29; a native client never did',
   ),
   // CrowdyJS 17.3.0: the GitHub card's "Create repository on GitHub" opens a
   // browser tab on github.com/new prefilled; same card, same exclusion.

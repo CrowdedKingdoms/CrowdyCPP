@@ -65,9 +65,34 @@ struct GameSessionOptions {
 
 /// A started game session: the per-game client holding the app token, and the replication
 /// connection signed with it. The connection uses the client to refresh its token and to move,
-/// so keep the client alive as long as anything uses the connection; destroying the session
-/// disconnects the connection first.
+/// so keep the client alive as long as anything uses the connection. Destroying or reassigning
+/// a session releases its connection before its client.
 struct GameSession {
+  GameSession() = default;
+  GameSession(const GameSession&) = default;
+  GameSession(GameSession&&) noexcept = default;
+  GameSession& operator=(const GameSession& other) {
+    if (this != &other) {
+      connection.reset();
+      client = other.client;
+      connection = other.connection;
+      token = other.token;
+      status = other.status;
+    }
+    return *this;
+  }
+  GameSession& operator=(GameSession&& other) noexcept {
+    if (this != &other) {
+      connection.reset();
+      client = std::move(other.client);
+      connection = std::move(other.connection);
+      token = std::move(other.token);
+      status = other.status;
+    }
+    return *this;
+  }
+  ~GameSession() { connection.reset(); }
+
   std::shared_ptr<CrowdyClient> client;
   std::shared_ptr<replication::Connection> connection;
   /// The token the session started with. Its own refreshes rotate the client's (getToken()).

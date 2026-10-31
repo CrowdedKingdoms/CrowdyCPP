@@ -308,6 +308,7 @@ else()
 endif()
 add_library(crowdy STATIC
   src/client.cpp
+  src/game_session.cpp
   ${CROWDY_DOMAIN_SOURCES}
   ${CROWDY_SESSION_SOURCES}
   ${CROWDY_KIT_SOURCES}

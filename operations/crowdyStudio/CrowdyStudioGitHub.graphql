@@ -57,6 +57,7 @@ query CrowdyStudioGitHubLayout($input: CrowdyStudioGitHubAtCommitInput!) {
     client
     assets
     fromFile
+    kind
   }
 }
 
@@ -93,5 +94,28 @@ mutation CrowdyStudioGitHubPutFile($input: CrowdyStudioGitHubPutFileInput!) {
 mutation CrowdyStudioGitHubDeleteFile($input: CrowdyStudioGitHubDeleteFileInput!) {
   crowdyStudioGitHubDeleteFile(input: $input) {
     ...CrowdyStudioGitHubStatusFields
+  }
+}
+
+query CrowdyStudioGitHubFiles($input: CrowdyStudioGitHubFilesInput!) {
+  crowdyStudioGitHubFiles(input: $input) {
+    commitSha
+    missing
+    files {
+      path
+      sha
+      size
+      binary
+      content
+    }
+  }
+}
+
+mutation CrowdyStudioGitHubCommitFiles($input: CrowdyStudioGitHubCommitFilesInput!) {
+  crowdyStudioGitHubCommitFiles(input: $input) {
+    commitSha
+    parentSha
+    written
+    deleted
   }
 }

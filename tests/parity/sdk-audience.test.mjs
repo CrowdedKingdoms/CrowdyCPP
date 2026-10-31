@@ -91,6 +91,11 @@ const PLATFORM_ONLY = [
   'legalHolds',
   'setLegalHold',
   'releaseLegalHold',
+  // teen safety (ck-api v2.60.0): an operator sets a country's policy and exports a player's
+  // data. territoryPolicies is public and wrapped; safetyReports and its two decisions take
+  // moderate_safety, an org role, and are wrapped (client.moderation()).
+  'setTerritoryPolicy',
+  'exportPlayerData',
 ];
 
 const PLATFORM_DESCRIPTION =

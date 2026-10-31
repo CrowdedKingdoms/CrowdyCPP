@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.75.0: teen safety, a session from any app token, and CrowdyJS 18.24.0.** `crowdy::startGameSession(token)` starts the realtime session from an app token the game already holds (a mint, a portal exchange, an organization's sign-in, `signInWithMinecraft`). The player's age and country (`auth().registerUser(RegisterUserInput)`, `recordPlayerAge`, `platform().territoryPolicies()`), documents per app, `client.safety()` (voice and video scopes, contacts, blocks, a parent's consent, reports), `client.moderation()`, the app's recording state (`admin().apps().recording`), the Minecraft sign-in and the gate's refusals (`graphql::territoryNotSupportedOf` and the rest). It needs ck-api v2.60.0 on the tier. See [MIGRATION.md](MIGRATION.md).
+
 **v0.74.0: a deploy's dropped node types, and CrowdyJS 18.22.0.** `exec().instances` returns `orphaned`, true for an instance whose node type the app's active version no longer deploys: ck-exec 0.19 stops such an instance at once when a deploy or a rollback drops its type, and keeps its saved state. It needs ck-api v2.58.0 on the tier. See [MIGRATION.md](MIGRATION.md).
 
 **v0.73.0: a send waiting across a reassignment, and CrowdyJS 18.21.0.** An actor or voxel update still waiting for its echo when the connection is reassigned is resent as soon as the new session is connected, rather than at its timeout, since its echo went to the session it left. That is the send's one retry; text is never resent. `WaitOutcome::sessionChanged` is new. See [MIGRATION.md](MIGRATION.md).
@@ -567,35 +569,25 @@ int main() {
   // registerUser is `register` renamed, because C++ cannot name a method after a keyword.
   auto login = identity.auth().login("player@example.com", "correct-horse-battery");
 
-  // 2) Mint an app-scoped token and build the per-game client.
+  // 2) Mint an app-scoped token. Any app token works from here on: a portal
+  //    exchange, an organization's sign-in, portal().signInWithMinecraft(...).
   auto minted = identity.portal().mintAppToken(appId);
-  // httpUrl is the app's OWN datacenter (that is where its shards are);
-  // discoveryUrl is the shared origin to fall back to if it stops answering.
-  crowdy::CrowdyClient game(crowdy::ClientConfig{
-      .httpUrl = minted.gameApiUrl,
-      .discoveryUrl = minted.discoveryUrl,
-  });
-  game.setToken(minted.token);
 
-  // 3) Connect the native replication client (assigns a server, installs the
-  //    UDP session, waits for session-ready).
-  const auto appIdInt = crowdy::graphql::parseBigInt(minted.appId);
-  const auto tokenIdInt = minted.gameTokenIdInt64();
-  if (!appIdInt || !tokenIdInt || !minted.gameApiUrl.has_value()) return 2;
-  crowdy::replication::Config repl{
-      .appId = *appIdInt,
-      .token = {.token = minted.token,
-                .gameTokenId = *tokenIdInt,
-                .expiresAtEpochMs = 0},  // Parse minted.expiresAt in production.
-  };
-  // 4) Install receive handlers and join the world.
-  crowdy::replication::Handlers handlers;
-  handlers.actorUpdate = [](const crowdy::replication::SpatialNotification& u) {
+  // 3) Start the game session from it: the per-game client on the app's OWN
+  //    datacenter (the token's gameApiUrl, where its shards are, with the shared
+  //    discoveryUrl to fall back to), holding the token, and the native
+  //    replication connection signed with it (assigns a server, installs the UDP
+  //    session, waits for session-ready). Handlers fire from your poll().
+  crowdy::GameSessionOptions options;
+  options.handlers.actorUpdate = [](const crowdy::replication::SpatialNotification& u) {
     // u.uuid, u.chunk, u.payload (span over the datagram — copy if you keep it)
   };
-  auto connected = game.replication().connectWithStatus(repl, handlers);
-  if (!connected.ok()) return 3;
-  auto conn = connected.connection;
+  crowdy::GameSession session = crowdy::startGameSession(minted, std::move(options));
+  if (!session.ok()) return 3;  // session.status says why
+  crowdy::CrowdyClient& game = *session.client;  // the app token's calls: game.safety(), game.chunks()
+  auto conn = session.connection;
+
+  // 4) Join the world.
   conn->sendActorUpdate({.chunk = {0, 0, 0},
                          .uuid = myActorUuid,
                          .payload = poseBytes,
@@ -664,10 +656,13 @@ app-scoped token):
 
 | Sub-client | What it does |
 |---|---|
-| `client.auth()` | Sign-in: `login` / `registerUser` (email + password), magic link, social/OIDC. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
-| `client.users()` | `me`, `updateGamertag(gamertag, disambiguation)`, profile reads. |
+| `client.auth()` | Sign-in: `login` / `registerUser` (email + password; `registerUser(RegisterUserInput)` with the birth date, country and parental confirmation), magic link, social/OIDC. The player's age (`recordPlayerAge`) and documents (`playerLegalDocuments`, `appRequiredDocuments`, `recordPlayerConsents` with an app and a method, `playerLegalAcceptance`), and the developer documents. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
+| `client.users()` | `me` (with `ageBracket` and `country`), `updateGamertag(gamertag, disambiguation)`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
-| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs. |
+| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs, org-managed players (`adoptAppToken`, `exchangeManagedPlayerAssertion`), and the Minecraft sign-in for Crowded Kingdoms' own apps (`minecraftChallenge`, `signInWithMinecraft`). |
+| `crowdy::startGameSession(token)` | A game session from any app token: the per-game client on the app's datacenter and the native replication connection signed with the token (`crowdy/game_session.hpp`). |
+| `client.safety()` | The player's own controls in an app (app token): who hears and sees them (`commSettings` / `setCommSettings`), a parent's consent (`requestParentalConsent`), contacts, blocks and reports (`fileReport`). The realtime servers enforce them. |
+| `client.platform()` | `config`, and the public `territoryPolicies` (the countries Crowded Kingdoms does not serve, and higher minimum ages). |
 | `client.serverStatus()` | `gameClientBootstrap(appId)` — version info, spatial limits. |
 | `client.chunks()`, `client.voxels()`, `client.actors()`, `client.avatars()`, `client.state()` | World data reads + writes. |
 | `client.host()` | Host election reads + actor liveness heartbeat. |
@@ -676,7 +671,7 @@ app-scoped token):
 | `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
-| `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `putFile` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
+| `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `getFiles` / `putFile` / `commitFiles` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent and metered model usage. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
@@ -686,8 +681,9 @@ app-scoped token):
 
 Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps()` (including player-code
-admission policy) `/ appAccess() / billing() /
-payments() / quotas() / usage() / sharedEnvironment()`. The SDK carries
+admission policy, an app's required documents and its recording state) `/ appAccess() / billing() /
+payments() / quotas() / usage() / sharedEnvironment() / moderation()` (an app's safety reports
+for its `moderate_safety` holders, also `client.moderation()`). The SDK carries
 org-admin features but nothing only a super-admin or a platform operator can
 call; platform tooling calls those fields directly. The SDK never relaxes
 server-side authorization — these are typed wrappers; the caller still needs
@@ -1071,6 +1067,8 @@ platform's
    on the game client. The identity client points at the shared entry origin;
    the game client points at the app's own datacenter (`gameApiUrl`) with
    `discoveryUrl` set so it can recover if that instance stops answering.
+   `crowdy::startGameSession(token)` builds that client and its replication
+   connection from any app token.
 
 Persisting them keeps the same split. `FileTokenStore::sessionPath(dir, origin)`
 names the session file, `FileTokenStore::appPath(dir, appId)` the gameplay one:

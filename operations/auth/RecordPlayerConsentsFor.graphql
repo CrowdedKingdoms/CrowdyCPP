@@ -1,0 +1,13 @@
+mutation RecordPlayerConsentsFor(
+  $acceptLegal: Boolean!
+  $attestAgeOfMajority: Boolean
+  $appId: BigInt
+  $method: LegalAcceptanceMethod
+) {
+  recordPlayerConsents(
+    acceptLegal: $acceptLegal
+    attestAgeOfMajority: $attestAgeOfMajority
+    appId: $appId
+    method: $method
+  )
+}

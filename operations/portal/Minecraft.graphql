@@ -1,0 +1,23 @@
+mutation MinecraftChallenge($appId: BigInt!) {
+  minecraftChallenge(appId: $appId) {
+    serverId
+    expiresAt
+  }
+}
+
+mutation SignInWithMinecraft($input: SignInWithMinecraftInput!) {
+  signInWithMinecraft(input: $input) {
+    token
+    gameTokenId
+    appId
+    expiresAt
+    gameApiUrl
+    gameApiWsUrl
+    discoveryUrl
+    launchUrl
+    runtimeGate {
+      status
+      reason
+    }
+  }
+}

@@ -1,0 +1,105 @@
+fragment CommSettingsFields on CommSettings {
+  appId
+  isMinor
+  voiceSend
+  voiceReceive
+  videoSend
+  videoReceive
+  choices {
+    voiceSend
+    voiceReceive
+    videoSend
+    videoReceive
+  }
+  voiceAllowed
+  videoAllowed
+  voiceConsent
+  videoConsent
+  updatedAt
+}
+
+fragment PlayerContactFields on PlayerContact {
+  userId
+  state
+  createdAt
+  acceptedAt
+}
+
+query MyCommSettings($appId: BigInt!) {
+  myCommSettings(appId: $appId) {
+    ...CommSettingsFields
+  }
+}
+
+mutation SetMyCommSettings($appId: BigInt!, $input: SetCommSettingsInput!) {
+  setMyCommSettings(appId: $appId, input: $input) {
+    ...CommSettingsFields
+  }
+}
+
+mutation RequestParentalConsent(
+  $appId: BigInt!
+  $feature: ParentalConsentFeature!
+  $parentEmail: String!
+) {
+  requestParentalConsent(appId: $appId, feature: $feature, parentEmail: $parentEmail) {
+    appId
+    feature
+    status
+  }
+}
+
+query MyContacts($appId: BigInt!) {
+  myContacts(appId: $appId) {
+    ...PlayerContactFields
+  }
+}
+
+query ContactRequests($appId: BigInt!) {
+  contactRequests(appId: $appId) {
+    userId
+    direction
+    createdAt
+  }
+}
+
+mutation RequestContact($appId: BigInt!, $userId: BigInt!) {
+  requestContact(appId: $appId, userId: $userId) {
+    ...PlayerContactFields
+  }
+}
+
+mutation AcceptContact($appId: BigInt!, $userId: BigInt!) {
+  acceptContact(appId: $appId, userId: $userId) {
+    ...PlayerContactFields
+  }
+}
+
+mutation RemoveContact($appId: BigInt!, $userId: BigInt!) {
+  removeContact(appId: $appId, userId: $userId)
+}
+
+query MyBlocks($appId: BigInt!) {
+  myBlocks(appId: $appId) {
+    userId
+    createdAt
+  }
+}
+
+mutation BlockPlayer($appId: BigInt!, $userId: BigInt!) {
+  blockPlayer(appId: $appId, userId: $userId) {
+    userId
+    createdAt
+  }
+}
+
+mutation UnblockPlayer($appId: BigInt!, $userId: BigInt!) {
+  unblockPlayer(appId: $appId, userId: $userId)
+}
+
+mutation FileSafetyReport($input: FileSafetyReportInput!) {
+  fileSafetyReport(input: $input) {
+    reportId
+    filedAt
+  }
+}

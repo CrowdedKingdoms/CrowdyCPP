@@ -365,6 +365,28 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
+  // ck-api v2.60.0, the teen safety program (CrowdyJS 18.24.0, CrowdyCPP 0.75.0): an operator
+  // sets a country's policy and exports a player's data. On tests/parity/sdk-audience.test.mjs's
+  // platform-only list, as on CrowdyJS's. territoryPolicies, the safety reports (moderate_safety,
+  // an org role) and the player calls are wrapped.
+  ...classifyNames(
+    'Mutation',
+    ['setTerritoryPolicy'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Query',
+    ['exportPlayerData'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // ck-api v2.59.x (CrowdyJS 18.23.0): the in-browser Studio dock asks it before the agent's
+  // draft_test or deploy_live, and CrowdyJS sends it nowhere; the agent runs in the browser.
+  'Query.crowdyStudioLiveModding': classification(
+    CATEGORY.BROWSER,
+    "the in-browser Studio dock's check before the browser agent's draft_test or deploy_live; CrowdyJS sends it nowhere and this SDK does not drive the agent",
+  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -510,6 +532,27 @@ const METHOD_CLASSIFICATIONS = {
   'CrowdyStudioController.reloadProject': classification(
     CATEGORY.BROWSER,
     'the in-browser DSH agent edits project files out of band and the page reloads them into Monaco; a native editor owns its buffers',
+  ),
+  // CrowdyJS 18.23.0: the game editor for a Construct game's repository (CrowdyCPP 0.75.0
+  // re-pin). Its draft lives in the page (IndexedDB overlay) and previews through the page's
+  // content layer, and the agent harness that edits it runs in a browser worker. The batch read
+  // and the atomic commit under it are portable and wrapped (CrowdyStudioGitHubAPI::getFiles and
+  // commitFiles, and the layout's kind).
+  ...classifyNames(
+    'CrowdyStudioController',
+    [
+      'commitRepository',
+      'discardRepositoryFiles',
+      'draftStore',
+      'openRepositoryFile',
+      'refreshRepositoryMode',
+      'reloadRepository',
+      'resolveRepositoryConflict',
+      'updateRepositoryFile',
+      'whenEditorKnown',
+    ],
+    CATEGORY.BROWSER,
+    "the game editor's browser draft (an IndexedDB overlay previewed through the page's content layer, edited by the in-browser agent); the native host has no such editor",
   ),
 };
 
@@ -920,6 +963,17 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'DshBridgeSide',
       'DshBuildResult',
       'DshDiagnostic',
+      // 18.23.0: the game editor's draft over bridge protocol v5.
+      'DSH_DRAFT_ERROR_CODES',
+      'DshDraftCommitResult',
+      'DshDraftEntry',
+      'DshDraftFileText',
+      'DshDraftPrecondition',
+      'DshDraftTree',
+      'DshDraftWriteResult',
+      'DshPreviewStatus',
+      'DshSkillSummary',
+      'DshStudioMode',
       'DshFrameMessage',
       'DshGridContext',
       'DshGridProgramStatus',

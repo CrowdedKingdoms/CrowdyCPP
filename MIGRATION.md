@@ -1,5 +1,48 @@
 # CrowdyCPP migration notes
 
+## 0.76.0 Appointed moderators, regions, and the consent refusal's reason; re-pinned to CrowdyJS 18.25.0
+
+**It needs ck-api v2.61.0 on the tier**: `admin().apps().get()` and `update()` select
+`hasSafetyModerator`, and `platform().territoryPolicies()` selects `regionCode`, which an older
+API refuses. Mirrors CrowdyJS 18.25.0. Dev runs v2.61.0 with players from 13 admitted.
+
+- **One change of type:** `graphql::parentalConsentUnavailableOf(errors)` returns
+  `std::optional<graphql::ParentalConsentUnavailable>` instead of a `bool`. Its `reason` is
+  `extensions.reason`: `not_configured` (the deployment has no consent service; retrying soon
+  does not help), `provider_refused` or `provider_unavailable` (the service refused or did not
+  answer), named by `graphql::kParentalConsentNotConfigured`, `kParentalConsentProviderRefused`
+  and `kParentalConsentProviderUnavailable`; empty from an API that does not say, which is
+  v2.61.0 and older (the Game API release after it sends it). `if
+  (graphql::parentalConsentUnavailableOf(errors))` works as before; replace a comparison with
+  `true` or an assignment to a `bool`.
+- **Appointed moderators.** A player under 18 is refused `SAFETY_MODERATOR_REQUIRED`
+  (`graphql::safetyModeratorRequiredOf`, `graphql::kSafetyModeratorRequiredCode`) in an app that
+  admits players under 18 while its organization has appointed no safety moderator: a member
+  whose own role grants `moderate_safety` (an admin alone does not count). The player cannot
+  fix it; tell them the app cannot admit them yet. `hasSafetyModerator` on
+  `admin().apps().get()` / `update()` says whether the organization has one, for its members
+  (null for anyone else).
+- **Regions.** A country Crowded Kingdoms checks by region (Ukraine today) needs the player's
+  ISO 3166-2 region: an organization sends `region` with its server's `mintManagedPlayerToken`
+  or as its assertion's claim; without it, or in a blocked region, the sign-in is refused
+  `TERRITORY_NOT_SUPPORTED`. `TerritoryPolicy::regionCode` names a region's row (null on a
+  country's own).
+- **No refusal names an age** (`AGE_REQUIREMENT_NOT_MET` carries no `minimumAge` or
+  `ageBracket`; `ageRequirementNotMetOf` never read them). After one, the
+  same client (address and user agent) is refused at sign-up and `auth().recordPlayerAge()` for
+  24 hours whatever it sends, as are the same Minecraft account and the same managed player; an
+  account that answers `recordPlayerAge` under 13 is deleted, and so is an org-managed player
+  said to be under 13.
+- **A player's own records.** On an app with the safety log a player reads its own sessions
+  with `inputLog().sessions(appId)` (no filter) and `messages()`. On an app that admits players
+  under 18, `manage_apps` reads nothing more and moderators read the sessions a report covers.
+- `childSafetyReports`, `eraseAccount` and `recordParentalConsentWithdrawal` are an operator's
+  and are not wrapped (`tests/parity/sdk-audience.test.mjs`). The schema is ck-api's at
+  `dev/v2.61.0`.
+- `e2e_teen_safety` reads `CROWDY_E2E_PLAYER_EMAIL` / `_PASSWORD` (an existing player outside
+  the app's organization), and registers its one CK account only with
+  `CROWDY_E2E_TEEN_SIGNUPS=1`: a tier's sign-ups are limited and shared.
+
 ## 0.75.0 Teen safety, and a session from any app token; re-pinned to CrowdyJS 18.24.0
 
 No breaking change, but **it needs ck-api v2.60.0 on the tier**: `users().me()` now selects

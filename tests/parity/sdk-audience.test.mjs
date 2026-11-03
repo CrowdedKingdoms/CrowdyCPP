@@ -96,6 +96,11 @@ const PLATFORM_ONLY = [
   // moderate_safety, an org role, and are wrapped (client.moderation()).
   'setTerritoryPolicy',
   'exportPlayerData',
+  // ck-api v2.61.0: CK's child-safety queue across apps, an operator's account erasure (a
+  // parent's request), and a parent's emailed withdrawal of consent.
+  'childSafetyReports',
+  'eraseAccount',
+  'recordParentalConsentWithdrawal',
 ];
 
 const PLATFORM_DESCRIPTION =
@@ -193,7 +198,15 @@ test('the platform-only list names real root fields', () => {
 
 test('the description net recognises platform-only fields and leaves org-admin ones alone', () => {
   const roots = rootFieldDescriptions();
-  for (const name of ['setOrgStatus', 'retireOrganization', 'emailDeliverability', 'allHostedGames', 'checkouts']) {
+  for (const name of [
+    'setOrgStatus',
+    'retireOrganization',
+    'emailDeliverability',
+    'allHostedGames',
+    'checkouts',
+    'childSafetyReports',
+    'recordParentalConsentWithdrawal',
+  ]) {
     assert.match(roots.get(name) ?? '', PLATFORM_DESCRIPTION, `${name} should read as platform-only`);
   }
   for (const name of ['orgMembers', 'inviteOrgMember', 'createApp', 'myCheckouts']) {

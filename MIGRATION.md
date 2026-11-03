@@ -1,5 +1,115 @@
 # CrowdyCPP migration notes
 
+## 0.76.0 Appointed moderators, regions, and the consent refusal's reason; re-pinned to CrowdyJS 18.25.0
+
+**It needs ck-api v2.61.0 on the tier**: `admin().apps().get()` and `update()` select
+`hasSafetyModerator`, and `platform().territoryPolicies()` selects `regionCode`, which an older
+API refuses. Mirrors CrowdyJS 18.25.0. Dev runs v2.61.0 with players from 13 admitted.
+
+- **One change of type:** `graphql::parentalConsentUnavailableOf(errors)` returns
+  `std::optional<graphql::ParentalConsentUnavailable>` instead of a `bool`. Its `reason` is
+  `extensions.reason`: `not_configured` (the deployment has no consent service; retrying soon
+  does not help), `provider_refused` or `provider_unavailable` (the service refused or did not
+  answer), named by `graphql::kParentalConsentNotConfigured`, `kParentalConsentProviderRefused`
+  and `kParentalConsentProviderUnavailable`; empty from an API that does not say, which is
+  v2.61.0 and older (the Game API release after it sends it). `if
+  (graphql::parentalConsentUnavailableOf(errors))` works as before; replace a comparison with
+  `true` or an assignment to a `bool`.
+- **Appointed moderators.** A player under 18 is refused `SAFETY_MODERATOR_REQUIRED`
+  (`graphql::safetyModeratorRequiredOf`, `graphql::kSafetyModeratorRequiredCode`) in an app that
+  admits players under 18 while its organization has appointed no safety moderator: a member
+  whose own role grants `moderate_safety` (an admin alone does not count). The player cannot
+  fix it; tell them the app cannot admit them yet. `hasSafetyModerator` on
+  `admin().apps().get()` / `update()` says whether the organization has one, for its members
+  (null for anyone else).
+- **Regions.** A country Crowded Kingdoms checks by region (Ukraine today) needs the player's
+  ISO 3166-2 region: an organization sends `region` with its server's `mintManagedPlayerToken`
+  or as its assertion's claim; without it, or in a blocked region, the sign-in is refused
+  `TERRITORY_NOT_SUPPORTED`. `TerritoryPolicy::regionCode` names a region's row (null on a
+  country's own).
+- **No refusal names an age** (`AGE_REQUIREMENT_NOT_MET` carries no `minimumAge` or
+  `ageBracket`; `ageRequirementNotMetOf` never read them). After one, the
+  same client (address and user agent) is refused at sign-up and `auth().recordPlayerAge()` for
+  24 hours whatever it sends, as are the same Minecraft account and the same managed player; an
+  account that answers `recordPlayerAge` under 13 is deleted, and so is an org-managed player
+  said to be under 13.
+- **A player's own records.** On an app with the safety log a player reads its own sessions
+  with `inputLog().sessions(appId)` (no filter) and `messages()`. On an app that admits players
+  under 18, `manage_apps` reads nothing more and moderators read the sessions a report covers.
+- `childSafetyReports`, `eraseAccount` and `recordParentalConsentWithdrawal` are an operator's
+  and are not wrapped (`tests/parity/sdk-audience.test.mjs`). The schema is ck-api's at
+  `dev/v2.61.0`.
+- `e2e_teen_safety` reads `CROWDY_E2E_PLAYER_EMAIL` / `_PASSWORD` (an existing player outside
+  the app's organization), and registers its one CK account only with
+  `CROWDY_E2E_TEEN_SIGNUPS=1`: a tier's sign-ups are limited and shared.
+
+## 0.75.0 Teen safety, and a session from any app token; re-pinned to CrowdyJS 18.24.0
+
+No breaking change, but **it needs ck-api v2.60.0 on the tier**: `users().me()` now selects
+`ageBracket` and `country`, and `admin().apps().get()` / `update()` the app's safety-log and
+age fields, which an older API refuses. Mirrors CrowdyJS 18.24.0 (the teen safety program);
+the re-pin also brings CrowdyJS 18.23.0's Studio GitHub batch read and commit.
+
+- **`crowdy::startGameSession(token, options)`** (`crowdy/game_session.hpp`) starts a game
+  session from an app token the game already holds, whichever way it got one: `mintAppToken`,
+  the portal's `exchangeCode`, an organization's `mintManagedPlayerToken` handed to the device,
+  `exchangeManagedPlayerAssertion` or `signInWithMinecraft`. It builds the per-game client on
+  the token's `gameApiUrl` / `gameApiWsUrl` / `discoveryUrl`, stores the token there, and opens
+  the replication connection signed with it, waiting (by default up to 5 s) until it is
+  connected. It returns `GameSession { client, connection, token, status }`; build a
+  `WorldSession` over `session.connection` and `session.client.get()` as before. It refuses an
+  org token, an empty or short token and ids that are not 64-bit integers with
+  `Errc::InvalidArgument` before building anything, and it never calls `poll()`.
+  `replicationTokenOf()` and `gameClientConfig()` are its two steps, for a caller that builds
+  the session itself. Keep the client as long as anything uses the connection: the connection
+  refreshes its token and moves through it.
+- **Age and country.** `auth().registerUser(RegisterUserInput)` sends `birthDate`, `country`
+  and `parentalConfirmation` with the documents' flags; `auth().recordPlayerAge(PlayerAgeInput)`
+  records them for an account whose age is not known yet and returns `PlayerAge` (its
+  `ageBracket` and `country`); `users().me()` selects both. `platform().territoryPolicies()` is
+  the public list of the countries Crowded Kingdoms does not serve and those with a higher
+  minimum age. An organization sends `ageYears` and `country` with its server's
+  `mintManagedPlayerToken` or as its assertion's claims; neither SDK wraps the mint.
+- **Documents per app.** `auth().recordPlayerConsents(PlayerConsents)` takes the app whose own
+  documents the player also accepted and how (`LegalAcceptanceMethod::IN_GAME` on the game's
+  own screen), and the attestation only while the platform still asks for it; the two-flag
+  overload keeps the document every older API accepts. `auth().playerLegalAcceptance(appId)`,
+  `playerLegalDocuments()` and `appRequiredDocuments(appId)` list what to show, and
+  `admin().apps().setRequiredDocuments(appId, documents)` sets an app's own (`manage_apps`).
+  The developer documents are `developerLegalDocuments()`, `developerLegalAcceptance()` and
+  `recordDeveloperConsents()` (adults only).
+- **`client.safety()`**, the player's own controls in an app, with its app token:
+  `commSettings` / `setCommSettings` (who hears and sees the player, per medium and direction;
+  a player can only lower them below what policy allows), `requestParentalConsent`,
+  `contacts`, `contactRequests`, `requestContact`, `acceptContact`, `removeContact`, `blocks`,
+  `block`, `unblock`, and `fileReport`. Every method has an `Async` twin. The realtime servers
+  enforce the scopes, the minor cap and blocks.
+- **`client.moderation()`** (also `admin().moderation()`): `reports`, `resolveReport` and
+  `escalateReport`, for members of the app's organization holding `moderate_safety`.
+- **The safety log.** `admin().apps().recording(appId)` is what the app records now
+  (`AppRecording { enabled, voice, video }`), readable with the app token, for the notice and
+  the indicator a game shows. App reads select `replayLoggingRecordsVoice`,
+  `replayLoggingRecordsVideo`, `recording`, `minPlayerAge` and `effectiveMinPlayerAge`, and
+  `update` passes them through. Turning the log off in an app that admits players under 18 is
+  refused `SAFETY_LOG_REQUIRED`.
+- **Minecraft sign-in**, for Crowded Kingdoms' own apps: `portal().minecraftChallenge(appId)`,
+  then, after the game joins the challenge's server id through Mojang's session service,
+  `portal().signInWithMinecraft(MinecraftSignInParams)`, which stores the app token like
+  `exchangeManagedPlayerAssertion`. Start the session with `startGameSession`.
+- **Refusals**, read with the `graphql::*Of` helpers (the same names as CrowdyJS's):
+  `legalAcceptanceRequiredOf` (with `missingDocuments`), `ageRequiredOf`,
+  `ageRequirementNotMetOf`, `territoryNotSupportedOf` (with `country`), `safetyLogRequiredOf`,
+  `parentalConsentUnavailableOf`, `socialLimitReachedOf`, `minecraftVerificationFailedOf`
+  (with `reason`) and `minecraftVerificationUnavailableOf`. `GraphQLErrorDetail` gains
+  `country` and `missingDocuments`.
+- **Crowdy Studio GitHub (CrowdyJS 18.23.0):** `crowdyStudioGitHub().getFiles()` reads up to
+  100 files at one commit and `commitFiles()` writes up to 100 changes as one commit;
+  `layout()` reads `kind` (`STUDIO_CRATES` or `CONSTRUCT_GAME`). The game editor itself stays
+  browser-only.
+- `setTerritoryPolicy` and `exportPlayerData` are an operator's and are not wrapped
+  (`tests/parity/sdk-audience.test.mjs`). The schema's hosting fields read RETIRED
+  (2026-10-29).
+
 ## 0.74.0 A deploy's dropped node types; re-pinned to CrowdyJS 18.22.0
 
 No breaking change, but **it needs ck-api v2.58.0 on the tier**: `exec().instances` now selects

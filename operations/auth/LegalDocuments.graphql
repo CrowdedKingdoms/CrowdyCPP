@@ -1,0 +1,33 @@
+fragment LegalDocumentFields on LegalDocument {
+  documentId
+  version
+  title
+  url
+  appId
+}
+
+query PlayerLegalDocuments {
+  playerLegalDocuments {
+    ...LegalDocumentFields
+  }
+}
+
+query AppRequiredDocuments($appId: BigInt!) {
+  appRequiredDocuments(appId: $appId) {
+    ...LegalDocumentFields
+  }
+}
+
+query DeveloperLegalDocuments {
+  developerLegalDocuments {
+    ...LegalDocumentFields
+  }
+}
+
+query DeveloperLegalAcceptance {
+  developerLegalAcceptance
+}
+
+mutation RecordDeveloperConsents($acceptDeveloperTerms: Boolean!) {
+  recordDeveloperConsents(acceptDeveloperTerms: $acceptDeveloperTerms)
+}

@@ -1,0 +1,44 @@
+fragment SafetyReportFields on SafetyReport {
+  appId
+  reportId
+  reporterUserId
+  reportedUserId
+  reportedActorUuid
+  reason
+  details
+  occurredAt
+  filedAt
+  status
+  outcome
+  resolvedBy
+  resolvedAt
+  ncmecReportId
+  ncmecSubmittedAt
+  holdId
+  sessions
+  capture {
+    status
+    objects
+    expected
+    bytes
+    retainUntil
+  }
+}
+
+query SafetyReports($appId: BigInt!, $status: SafetyReportStatus, $first: Int) {
+  safetyReports(appId: $appId, status: $status, first: $first) {
+    ...SafetyReportFields
+  }
+}
+
+mutation ResolveSafetyReport($appId: BigInt!, $reportId: BigInt!, $outcome: String!) {
+  resolveSafetyReport(appId: $appId, reportId: $reportId, outcome: $outcome) {
+    ...SafetyReportFields
+  }
+}
+
+mutation EscalateSafetyReport($appId: BigInt!, $reportId: BigInt!, $ncmecReportId: String!) {
+  escalateSafetyReport(appId: $appId, reportId: $reportId, ncmecReportId: $ncmecReportId) {
+    ...SafetyReportFields
+  }
+}

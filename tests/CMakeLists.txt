@@ -138,6 +138,10 @@ add_executable(managed_players_test managed_players_test.cpp)
 target_link_libraries(managed_players_test PRIVATE crowdy)
 add_test(NAME managed_players_test COMMAND managed_players_test)
 
+add_executable(teen_safety_test teen_safety_test.cpp)
+target_link_libraries(teen_safety_test PRIVATE crowdy)
+add_test(NAME teen_safety_test COMMAND teen_safety_test)
+
 add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
 target_compile_definitions(chunk_store_test PRIVATE
@@ -202,6 +206,11 @@ if(NOT WIN32 AND CROWDY_WITH_OPENSSL)
   add_executable(replication_test replication_test.cpp)
   target_link_libraries(replication_test PRIVATE crowdy_replication crowdy_crypto_openssl)
   add_test(NAME replication_test COMMAND replication_test)
+
+  # Opens a UDP socket to a loopback assignment, as session_test does.
+  add_executable(game_session_test game_session_test.cpp)
+  target_link_libraries(game_session_test PRIVATE crowdy)
+  add_test(NAME game_session_test COMMAND game_session_test)
 
   add_executable(session_test session_test.cpp)
   target_link_libraries(session_test PRIVATE crowdy)

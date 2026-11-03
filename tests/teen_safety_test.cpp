@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -16,9 +17,9 @@
 
 using namespace crowdy;
 
-// The 13+ teen-safety surface (ck-api v2.60.0, CrowdyJS's client.safety, client.moderation and
-// the identity additions): each wrapper's root field, variables and parsed result, against a
-// transport that answers by operation name.
+// The 13+ teen-safety surface (ck-api v2.60.0 and v2.61.0, CrowdyJS's client.safety,
+// client.moderation and the identity additions): each wrapper's root field, variables and
+// parsed result, against a transport that answers by operation name.
 
 namespace {
 
@@ -303,7 +304,7 @@ void testIdentity() {
   rig.http->replies["DeveloperLegalAcceptance"] = R"({"data":{"developerLegalAcceptance":true}})";
   rig.http->replies["RecordDeveloperConsents"] = R"({"data":{"recordDeveloperConsents":true}})";
   rig.http->replies["TerritoryPolicies"] =
-      R"({"data":{"territoryPolicies":[{"countryCode":"DE","status":"blocked","minAge":13},{"countryCode":"KR","status":"open","minAge":14}]}})";
+      R"({"data":{"territoryPolicies":[{"countryCode":"DE","regionCode":null,"status":"blocked","minAge":13},{"countryCode":"KR","regionCode":null,"status":"open","minAge":14},{"countryCode":"UA","regionCode":"UA-43","status":"blocked","minAge":13}]}})";
   auto& auth = rig.client->auth();
 
   domains::RegisterUserInput input;
@@ -365,10 +366,17 @@ void testIdentity() {
   CHECK(rig.http->last()["variables"]["acceptDeveloperTerms"].asBool());
 
   const auto policies = rig.client->platform().territoryPolicies();
-  CHECK_EQ(policies.size(), std::size_t{2});
+  CHECK(sent(rig.http->last(), "territoryPolicies"));
+  CHECK(rig.http->last()["query"].asString().find("regionCode") != std::string::npos);
+  CHECK_EQ(policies.size(), std::size_t{3});
   CHECK(policies.at(0).blocked());
+  CHECK(policies.at(0).regionCode.isNull());
   CHECK(!policies.at(1).blocked());
   CHECK_EQ(policies.at(1).minAge, 14);
+  // A region's own row (ck-api v2.61.0): its country is checked by region.
+  CHECK_EQ(policies.at(2).countryCode, std::string("UA"));
+  CHECK_EQ(policies.at(2).regionCode.valueOrEmpty(), std::string("UA-43"));
+  CHECK(policies.at(2).blocked());
 
   int calls = 0;
   auth.recordPlayerAgeAsync({"2010-04", "US", true},
@@ -387,7 +395,8 @@ void testIdentity() {
       [&](graphql::GraphQLOutcome out, std::vector<domains::TerritoryPolicy> got) {
         ++calls;
         CHECK(out.ok());
-        CHECK_EQ(got.size(), std::size_t{2});
+        CHECK_EQ(got.size(), std::size_t{3});
+        CHECK_EQ(got.at(2).regionCode.valueOrEmpty(), std::string("UA-43"));
       });
   drain(*rig.client, [&] { return calls == 3; });
 }
@@ -477,6 +486,52 @@ void testAppsRecordingAndDocuments() {
   CHECK_EQ(rig.http->last()["variables"]["documents"].size(), std::size_t{0});
 }
 
+// ck-api v2.61.0: app reads and updates say whether the organization appointed a safety
+// moderator (null for a non-member), and a player's own records are the input log's
+// unfiltered listing.
+void testSafetyModeratorAndOwnRecords() {
+  for (const std::string_view document : {gen::apps::kAppDocument, gen::apps::kUpdateAppDocument}) {
+    for (const char* field : {"replayLoggingRecordsVoice", "replayLoggingRecordsVideo",
+                              "minPlayerAge", "effectiveMinPlayerAge", "hasSafetyModerator"}) {
+      CHECK(document.find(field) != std::string_view::npos);
+    }
+  }
+
+  Rig rig;
+  auto& apps = rig.client->admin().apps();
+  rig.http->replies["App"] =
+      R"({"data":{"app":{"appId":"7","effectiveMinPlayerAge":13,"hasSafetyModerator":true}}})";
+  const graphql::Json member = apps.get("7");
+  CHECK(sent(rig.http->last(), "app"));
+  CHECK(member["hasSafetyModerator"].isBool());
+  CHECK(member["hasSafetyModerator"].asBool());
+
+  rig.http->replies["App"] =
+      R"({"data":{"app":{"appId":"7","effectiveMinPlayerAge":13,"hasSafetyModerator":null}}})";
+  CHECK(apps.get("7")["hasSafetyModerator"].isNull());
+
+  rig.http->replies["UpdateApp"] =
+      R"({"data":{"updateApp":{"appId":"7","minPlayerAge":16,"hasSafetyModerator":false}}})";
+  graphql::JVal input;
+  input["minPlayerAge"] = 16;
+  const graphql::Json updated = apps.update("7", input);
+  CHECK(sent(rig.http->last(), "updateApp"));
+  CHECK(updated["hasSafetyModerator"].isBool());
+  CHECK(!updated["hasSafetyModerator"].asBool());
+
+  // The server lists the caller's own sessions (a moderator's: the reported ones); the SDK must
+  // not add a user of its own.
+  rig.http->replies["InputLogSessions"] =
+      R"({"data":{"inputLogSessions":{"edges":[],"pageInfo":{"hasNextPage":false,"endCursor":null},"totalCount":0}}})";
+  const graphql::Json own = rig.client->inputLog().sessions("42");
+  const graphql::Json body = rig.http->last();
+  CHECK(sent(body, "inputLogSessions"));
+  CHECK_EQ(body["variables"]["appId"].asString(), std::string("42"));
+  CHECK(!body["variables"]["filter"].ok());
+  CHECK(!body["variables"]["after"].ok());
+  CHECK(own["edges"].isArray());
+}
+
 graphql::GraphQLOutcome refusal(const std::string& extensions) {
   RoutingHttp http;
   http.replies["Probe"] = R"({"errors":[{"message":"refused","extensions":)" + extensions + "}]}";
@@ -510,8 +565,37 @@ void testRefusals() {
   CHECK(graphql::ageRequiredOf(refusal(R"({"code":"AGE_REQUIRED"})").errors));
   CHECK(graphql::ageRequirementNotMetOf(refusal(R"({"code":"AGE_REQUIREMENT_NOT_MET"})").errors));
   CHECK(graphql::safetyLogRequiredOf(refusal(R"({"code":"SAFETY_LOG_REQUIRED"})").errors));
-  CHECK(graphql::parentalConsentUnavailableOf(
-      refusal(R"({"code":"PARENTAL_CONSENT_UNAVAILABLE"})").errors));
+
+  // ck-api v2.61.0: a minor in an app whose organization appointed no safety moderator.
+  const auto moderator = refusal(R"({"code":"SAFETY_MODERATOR_REQUIRED"})");
+  CHECK(graphql::safetyModeratorRequiredOf(moderator.errors));
+  CHECK(!graphql::safetyLogRequiredOf(moderator.errors));
+  CHECK(!graphql::safetyModeratorRequiredOf(
+      refusal(R"({"code":"SAFETY_LOG_REQUIRED"})").errors));
+  CHECK_EQ(graphql::kSafetyModeratorRequiredCode, std::string_view("SAFETY_MODERATOR_REQUIRED"));
+
+  // The consent refusal says why (extensions.reason, the Game API release after v2.61.0); an
+  // older API says nothing.
+  const auto unsaid = graphql::parentalConsentUnavailableOf(
+      refusal(R"({"code":"PARENTAL_CONSENT_UNAVAILABLE"})").errors);
+  CHECK(unsaid.has_value());
+  CHECK(unsaid->reason.empty());
+  for (const std::string_view reason :
+       {graphql::kParentalConsentNotConfigured, graphql::kParentalConsentProviderRefused,
+        graphql::kParentalConsentProviderUnavailable}) {
+    const auto said = graphql::parentalConsentUnavailableOf(
+        refusal(R"({"code":"PARENTAL_CONSENT_UNAVAILABLE","reason":")" + std::string(reason) +
+                R"("})")
+            .errors);
+    CHECK(said.has_value());
+    CHECK_EQ(said->reason, std::string(reason));
+  }
+  CHECK_EQ(graphql::kParentalConsentNotConfigured, std::string_view("not_configured"));
+  CHECK_EQ(graphql::kParentalConsentProviderRefused, std::string_view("provider_refused"));
+  CHECK_EQ(graphql::kParentalConsentProviderUnavailable, std::string_view("provider_unavailable"));
+  CHECK(!graphql::parentalConsentUnavailableOf(refusal(R"({"code":"RATE_LIMITED"})").errors)
+             .has_value());
+
   CHECK(graphql::socialLimitReachedOf(refusal(R"({"code":"SOCIAL_LIMIT_REACHED"})").errors));
   CHECK(graphql::minecraftVerificationUnavailableOf(
       refusal(R"({"code":"MINECRAFT_VERIFICATION_UNAVAILABLE"})").errors));
@@ -589,6 +673,7 @@ int main() {
   testIdentity();
   testMinecraftSignIn();
   testAppsRecordingAndDocuments();
+  testSafetyModeratorAndOwnRecords();
   testRefusals();
   testStudioGitHubBatch();
   std::puts("teen_safety_test: ok");

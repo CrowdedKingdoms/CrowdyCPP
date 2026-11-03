@@ -381,6 +381,21 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
+  // ck-api v2.61.0 (CrowdyJS 18.25.0, CrowdyCPP 0.76.0): CK's child-safety queue across apps, an
+  // operator's account erasure (a parent's request) and a parent's emailed withdrawal of consent.
+  // On tests/parity/sdk-audience.test.mjs's platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Query',
+    ['childSafetyReports'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  ...classifyNames(
+    'Mutation',
+    ['eraseAccount', 'recordParentalConsentWithdrawal'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
   // ck-api v2.59.x (CrowdyJS 18.23.0): the in-browser Studio dock asks it before the agent's
   // draft_test or deploy_live, and CrowdyJS sends it nowhere; the agent runs in the browser.
   'Query.crowdyStudioLiveModding': classification(

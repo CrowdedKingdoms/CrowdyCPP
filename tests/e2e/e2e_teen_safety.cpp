@@ -1,8 +1,10 @@
-// The 13+ teen-safety surface against a live tier (ck-api v2.60.0): org-managed players signed in
-// with their age and country (and the refusals a blocked country and a too-young player get),
-// crowdy::startGameSession from those app tokens and from a Crowded Kingdoms account's own mint,
-// the player's voice and video settings, contacts, blocks, a report and its resolution by the
-// app's moderator, the app's recording state, the documents, the territory list, a CK account's
+// The 13+ teen-safety surface against a live tier (ck-api v2.60.0 and v2.61.0): org-managed
+// players signed in with their age, country and, in a country checked by region, region (and the
+// refusals a blocked country or region and a too-young player get), crowdy::startGameSession from
+// those app tokens and from a Crowded Kingdoms account's own mint, the player's voice and video
+// settings, contacts, blocks, a report and its resolution by the app's moderator, the app's
+// recording state and whether its organization appointed a safety moderator, a player's own
+// records in the input log, the documents, the territory list and its regions, a CK account's
 // age, and the Minecraft sign-in's refusal outside Crowded Kingdoms' own apps.
 //
 // Needs, beside CROWDY_E2E_API_URL, CROWDY_E2E_EMAIL and CROWDY_E2E_APP_ID:
@@ -11,9 +13,18 @@
 //                             Read by the suite, never printed.
 //   CROWDY_E2E_OWNER_EMAIL / CROWDY_E2E_OWNER_PASSWORD
 //                             an admin of that organization (moderate_safety): resolves the
-//                             report the suite files, and entitles the CK account if needed.
-//   CROWDY_E2E_PROVISIONING_TOKEN on dev and test, for the CK accounts it registers.
-// The managed players it signs in are deleted at the end; reports use reason OTHER.
+//                             report the suite files, reads hasSafetyModerator, and entitles the
+//                             CK account if needed.
+//   CROWDY_E2E_PLAYER_EMAIL / CROWDY_E2E_PLAYER_PASSWORD
+//                             optional: an existing player outside that organization, which
+//                             reads hasSafetyModerator as null and lists its own sessions.
+//   CROWDY_E2E_TEEN_SIGNUPS=1 optional: also register one CK account (its age, its own mint,
+//                             then deleted) and try a sign-up from a blocked country. A tier's
+//                             sign-ups are limited and shared, so this is opt-in; on dev and test
+//                             it needs CROWDY_E2E_PROVISIONING_TOKEN.
+// The suite never signs up or records an age under 13: since ck-api v2.61.0 that refusal locks
+// the client's address and user agent out of sign-up for 24 hours. The managed players it signs
+// in are deleted at the end; reports use reason OTHER.
 
 #include <cstdio>
 #include <ctime>
@@ -84,13 +95,15 @@ class OrgServer {
   /// mintManagedPlayerToken, which neither SDK wraps (an organization's server call).
   crowdy::graphql::GraphQLOutcome mint(const std::string& appId, const std::string& externalId,
                                        std::optional<int> ageYears,
-                                       std::optional<std::string> country) {
+                                       std::optional<std::string> country,
+                                       std::optional<std::string> region = std::nullopt) {
     crowdy::graphql::JVal vars;
     auto& input = vars["input"];
     input["appId"] = appId;
     input["externalId"] = externalId;
     if (ageYears) input["ageYears"] = *ageYears;
     if (country) input["country"] = *country;
+    if (region) input["region"] = *region;
     return client_->graphqlClient().requestOutcome(
         "mutation Mint($input: MintManagedPlayerTokenInput!) {"
         " mintManagedPlayerToken(input: $input) {"
@@ -100,14 +113,20 @@ class OrgServer {
   }
 
   crowdy::domains::AppTokenResponse mintOk(const std::string& appId, const std::string& externalId,
-                                           int ageYears, const std::string& country) {
-    const auto out = mint(appId, externalId, ageYears, country);
+                                           int ageYears, const std::string& country,
+                                           std::optional<std::string> region = std::nullopt) {
+    const auto out = mint(appId, externalId, ageYears, country, std::move(region));
     if (!out.ok()) {
       std::fprintf(stderr, "mint %s failed: %s\n", externalId.c_str(), firstCode(out).c_str());
     }
     E2E_CHECK(out.ok());
     minted_.push_back(externalId);
     return crowdy::domains::AppTokenResponse::fromJson(out.data["mintManagedPlayerToken"]);
+  }
+
+  /// Whether the organization has a player with this external id.
+  bool exists(const std::string& externalId) {
+    return !client_->admin().managedPlayers().get(org_.orgId, externalId).isNull();
   }
 
   /// Delete every managed player this run signed in; true when each was deleted.
@@ -143,6 +162,19 @@ crowdy::GameSession start(const E2eConfig& cfg, const crowdy::domains::AppTokenR
   E2E_CHECK(session.ok());
   E2E_CHECK(session.connection->state() == crowdy::replication::ConnState::Connected);
   return session;
+}
+
+/// An ISO 3166-2 code of a region of `country`, such as UA-43.
+bool isRegionOf(const std::string& region, const std::string& country) {
+  if (region.size() < country.size() + 2 || region.size() > country.size() + 4) return false;
+  if (region.compare(0, country.size(), country) != 0 || region[country.size()] != '-') {
+    return false;
+  }
+  for (std::size_t i = country.size() + 1; i < region.size(); ++i) {
+    const char ch = region[i];
+    if (!((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))) return false;
+  }
+  return true;
 }
 
 template <typename Fn>
@@ -194,9 +226,53 @@ int main() {
     const auto territory = crowdy::graphql::territoryNotSupportedOf(blocked.errors);
     E2E_CHECK(territory.has_value());
     E2E_CHECK(territory->country == "DE");
-    const auto young = org.mint(appId, "e2e-cpp-13p-young-" + suffix, 15, std::string("US"));
+    // Under 13, which no tier admits. The refusal names no age and locks this player (by its
+    // organization and external id, a fresh one each run) out for 24 hours; nobody else.
+    const auto young = org.mint(appId, "e2e-cpp-13p-young-" + suffix, 12, std::string("US"));
     E2E_CHECK(!young.ok());
     E2E_CHECK(crowdy::graphql::ageRequirementNotMetOf(young.errors));
+    E2E_CHECK(!org.exists("e2e-cpp-13p-de-" + suffix));
+    E2E_CHECK(!org.exists("e2e-cpp-13p-young-" + suffix));
+  }
+
+  E2E_SUBTEST("managed mint in a country checked by region (ck-api v2.61.0)");
+  {
+    const auto policies = publicClient.platform().territoryPolicies();
+    const crowdy::domains::TerritoryPolicy* blockedRegion = nullptr;
+    for (const auto& p : policies) {
+      if (!p.regionCode.isNull() && p.blocked() && !blockedRegion) blockedRegion = &p;
+    }
+    if (!blockedRegion) {
+      std::puts("   (no blocked region listed on this tier: region cases skipped)");
+    } else {
+      const std::string suffix = runSuffix();
+      const std::string country = blockedRegion->countryCode;
+      const std::string region = blockedRegion->regionCode.valueOrEmpty();
+      const auto inRegion =
+          org.mint(appId, "e2e-cpp-13p-blocked-region-" + suffix, 30, country, region);
+      E2E_CHECK(crowdy::graphql::territoryNotSupportedOf(inRegion.errors).has_value());
+      const auto noRegion = org.mint(appId, "e2e-cpp-13p-no-region-" + suffix, 30, country);
+      E2E_CHECK(crowdy::graphql::territoryNotSupportedOf(noRegion.errors).has_value());
+      E2E_CHECK(!org.exists("e2e-cpp-13p-blocked-region-" + suffix));
+      E2E_CHECK(!org.exists("e2e-cpp-13p-no-region-" + suffix));
+
+      // Another region of an open country is admitted (Ukraine's UA-30, when it is not listed).
+      bool countryBlocked = false;
+      bool otherListed = false;
+      for (const auto& p : policies) {
+        if (p.countryCode != country) continue;
+        if (p.regionCode.isNull()) countryBlocked = p.blocked();
+        if (p.regionCode == "UA-30") otherListed = true;
+      }
+      const bool admitOther = country == "UA" && !countryBlocked && !otherListed;
+      if (admitOther) {
+        const auto admitted = org.mintOk(appId, "e2e-cpp-13p-region-" + suffix, 30, country,
+                                         std::string("UA-30"));
+        E2E_CHECK(!admitted.token.empty());
+      }
+      std::printf("   (%s and %s without a region refused%s)\n", region.c_str(), country.c_str(),
+                  admitOther ? ", UA-30 admitted" : "");
+    }
   }
 
   E2E_SUBTEST("managed mint with ageYears and country, then startGameSession from the token");
@@ -274,6 +350,69 @@ int main() {
     if (!recording->enabled) E2E_CHECK(!recording->voice && !recording->video);
   }
 
+  E2E_SUBTEST("an appointed safety moderator, a player's own records, the regions (v2.61.0)");
+  {
+    // A member of the app's organization reads whether it appointed a moderator.
+    if (!cfg.ownerEmail.empty() && !envOr("CROWDY_E2E_OWNER_PASSWORD").empty()) {
+      const crowdy::graphql::Json app = owner(cfg).admin().apps().get(appId);
+      E2E_CHECK(app["hasSafetyModerator"].isBool());
+      std::printf("   (hasSafetyModerator %s, effectiveMinPlayerAge %lld)\n",
+                  app["hasSafetyModerator"].asBool() ? "true" : "false",
+                  static_cast<long long>(app["effectiveMinPlayerAge"].asInt64()));
+    }
+
+    // A player lists only its own sessions, with no filter.
+    const crowdy::graphql::Json mine = a.client->inputLog().sessions(appId, 5);
+    E2E_CHECK(mine["edges"].isArray());
+    mine["edges"].forEach([&](crowdy::graphql::Json edge) {
+      E2E_CHECK(edge["node"]["userId"].asBigIntString() == userA);
+    });
+
+    // An existing player outside the organization reads null, and its own sessions.
+    const std::string playerEmail = envOr("CROWDY_E2E_PLAYER_EMAIL");
+    const std::string playerPassword = envOr("CROWDY_E2E_PLAYER_PASSWORD");
+    if (!playerEmail.empty() && !playerPassword.empty()) {
+      crowdy::ClientConfig c;
+      c.httpUrl = cfg.apiUrl;
+      crowdy::CrowdyClient player(std::move(c));
+      const auto signedIn = player.auth().login(playerEmail, playerPassword);
+      E2E_CHECK(!signedIn.token.empty());
+      player.setToken(signedIn.token);
+      E2E_CHECK(player.admin().apps().get(appId)["hasSafetyModerator"].isNull());
+      if (!player.auth().playerLegalAcceptance(std::string_view(appId))) {
+        crowdy::domains::PlayerConsents consents;
+        consents.acceptLegal = true;
+        consents.appId = appId;
+        E2E_CHECK(player.auth().recordPlayerConsents(consents));
+      }
+      const auto token = player.portal().mintAppToken(appId);
+      crowdy::CrowdyClient game(crowdy::gameClientConfig(token, {}, cfg.apiUrl));
+      game.setToken(token.token);
+      const std::string me = player.users().me()["userId"].asBigIntString();
+      const crowdy::graphql::Json own = game.inputLog().sessions(appId, 5);
+      E2E_CHECK(own["edges"].isArray());
+      own["edges"].forEach([&](crowdy::graphql::Json edge) {
+        E2E_CHECK(edge["node"]["userId"].asBigIntString() == me);
+      });
+      std::printf("   (an outsider reads null; its own sessions listed: %zu)\n",
+                  own["edges"].size());
+      E2E_CHECK(player.auth().logout());
+    } else {
+      std::puts("   (CROWDY_E2E_PLAYER_EMAIL not configured: the outsider's reads skipped)");
+    }
+
+    // Each region row names a region of its own country.
+    std::size_t rows = 0;
+    std::size_t regions = 0;
+    for (const auto& p : publicClient.platform().territoryPolicies()) {
+      ++rows;
+      if (p.regionCode.isNull()) continue;
+      ++regions;
+      E2E_CHECK(isRegionOf(p.regionCode.valueOrEmpty(), p.countryCode));
+    }
+    std::printf("   (territory rows %zu, region rows %zu)\n", rows, regions);
+  }
+
   E2E_SUBTEST("a report, resolved by the app's moderator");
   if (!cfg.ownerEmail.empty() && !envOr("CROWDY_E2E_OWNER_PASSWORD").empty()) {
     crowdy::domains::SafetyReportFiling filing;
@@ -310,7 +449,9 @@ int main() {
   }
 
   E2E_SUBTEST("a CK account gives its age; a sign-up from a blocked country makes no account");
-  {
+  if (!envFlag("CROWDY_E2E_TEEN_SIGNUPS")) {
+    std::puts("   (CROWDY_E2E_TEEN_SIGNUPS not set: no account registered)");
+  } else {
     crowdy::ClientConfig c;
     c.httpUrl = cfg.apiUrl;
     applyProvisioningToken(c);

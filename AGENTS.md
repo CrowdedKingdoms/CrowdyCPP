@@ -226,22 +226,32 @@ longer has them, and codegen refuses an operation that names one. The Game API
 keeps tier features (`admin().appAccess()`), grid claims, the studio moderation
 fields and the compute budget (`gen::computeUnits`).
 
-## Teen safety (0.75.0)
+## Teen safety (0.75.0, 0.76.0)
 
 `client.safety()`, `client.moderation()` (the same `ModerationAPI` as `admin().moderation()`), the
 age, country and document calls on `AuthAPI`, `platform().territoryPolicies()`,
 `admin().apps().recording()` / `setRequiredDocuments()`, `portal().minecraftChallenge()` /
-`signInWithMinecraft()` and the `graphql::*Of` refusal readers mirror CrowdyJS 18.24.0 name for
-name. Do not read `minimumAge` or `ageBracket` from `AGE_REQUIREMENT_NOT_MET`: program decision
-35 says no refusal names an age, and ck-api drops them. CrowdyJS keeps a shared fragment in a
-file of its own; this codegen resolves fragments only within one file, so `operations/safety/`
-and `operations/moderation/` keep each domain's fragments and operations together.
+`signInWithMinecraft()` and the `graphql::*Of` refusal readers mirror CrowdyJS 18.24.0 and
+18.25.0 name for name (`safetyModeratorRequiredOf`, `hasSafetyModerator` on app reads,
+`TerritoryPolicy::regionCode`, and `parentalConsentUnavailableOf` returning the refusal with its
+`reason` since 0.76.0). Do not read `minimumAge` or `ageBracket` from `AGE_REQUIREMENT_NOT_MET`:
+program decision 35 says no refusal names an age, and ck-api v2.61.0 sends neither. CrowdyJS
+keeps a shared fragment in a file of its own; this codegen resolves fragments only within one
+file, so `operations/safety/` and `operations/moderation/` keep each domain's fragments and
+operations together.
 
 `crowdy::startGameSession` (`crowdy/game_session.hpp`) starts a session from any app token
 (a mint, a portal exchange, an organization's sign-in, `signInWithMinecraft`); the Minecraft
 mod's native libraries build on it. A `GameSession`'s connection refreshes its token and moves
 through its client, so its assignment and destruction release the connection first; keep that
 if you change the struct. `e2e_teen_safety` exercises it live with `CROWDY_E2E_MANAGED_FILE`.
+
+**Never sign up or record an age under 13 against a shared tier.** Since ck-api v2.61.0 an age
+refusal at `register` or `recordPlayerAge` locks the caller's address and user agent out of both
+for 24 hours, which on the shared builder blocks every harness; a managed player's refusal locks
+only that player (its organization and external id). `e2e_teen_safety` therefore registers its
+one CK account only with `CROWDY_E2E_TEEN_SIGNUPS=1`, and reads the existing-player cases from
+`CROWDY_E2E_PLAYER_EMAIL` / `_PASSWORD`.
 
 ## Writing tests against `graphql::Json`
 

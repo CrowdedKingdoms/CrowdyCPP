@@ -1,0 +1,3 @@
+query PlayerLegalAcceptanceFor($appId: BigInt) {
+  playerLegalAcceptance(appId: $appId)
+}

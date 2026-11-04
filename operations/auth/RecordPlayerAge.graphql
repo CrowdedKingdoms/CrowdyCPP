@@ -1,0 +1,7 @@
+mutation RecordPlayerAge($input: RecordPlayerAgeInput!) {
+  recordPlayerAge(input: $input) {
+    userId
+    ageBracket
+    country
+  }
+}

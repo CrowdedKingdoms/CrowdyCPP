@@ -304,7 +304,7 @@ void testIdentity() {
   rig.http->replies["DeveloperLegalAcceptance"] = R"({"data":{"developerLegalAcceptance":true}})";
   rig.http->replies["RecordDeveloperConsents"] = R"({"data":{"recordDeveloperConsents":true}})";
   rig.http->replies["TerritoryPolicies"] =
-      R"({"data":{"territoryPolicies":[{"countryCode":"DE","regionCode":null,"status":"blocked","minAge":13},{"countryCode":"KR","regionCode":null,"status":"open","minAge":14},{"countryCode":"UA","regionCode":"UA-43","status":"blocked","minAge":13}]}})";
+      R"({"data":{"territoryPolicies":[{"countryCode":"CU","regionCode":null,"status":"blocked","minAge":13},{"countryCode":"KR","regionCode":null,"status":"open","minAge":14},{"countryCode":"UA","regionCode":"UA-43","status":"blocked","minAge":13}]}})";
   auto& auth = rig.client->auth();
 
   domains::RegisterUserInput input;
@@ -558,8 +558,8 @@ void testRefusals() {
   CHECK(graphql::legalAcceptanceRequiredOf(older.errors).has_value());
   CHECK(graphql::legalAcceptanceRequiredOf(older.errors)->missingDocuments.empty());
 
-  const auto territory = refusal(R"({"code":"TERRITORY_NOT_SUPPORTED","country":"DE"})");
-  CHECK_EQ(graphql::territoryNotSupportedOf(territory.errors)->country, std::string("DE"));
+  const auto territory = refusal(R"({"code":"TERRITORY_NOT_SUPPORTED","country":"CU"})");
+  CHECK_EQ(graphql::territoryNotSupportedOf(territory.errors)->country, std::string("CU"));
   CHECK(!graphql::territoryNotSupportedOf(older.errors).has_value());
 
   CHECK(graphql::ageRequiredOf(refusal(R"({"code":"AGE_REQUIRED"})").errors));
@@ -608,13 +608,13 @@ void testRefusals() {
   // The blocking wrappers throw the same details.
   Rig rig;
   rig.http->replies["MyCommSettings"] =
-      R"({"errors":[{"message":"no","extensions":{"code":"TERRITORY_NOT_SUPPORTED","country":"GB"}}]})";
+      R"({"errors":[{"message":"no","extensions":{"code":"TERRITORY_NOT_SUPPORTED","country":"IR"}}]})";
   bool threw = false;
   try {
     rig.client->safety().commSettings("7");
   } catch (const graphql::CrowdyGraphQLError& e) {
     threw = true;
-    CHECK_EQ(graphql::territoryNotSupportedOf(e.errors())->country, std::string("GB"));
+    CHECK_EQ(graphql::territoryNotSupportedOf(e.errors())->country, std::string("IR"));
   }
   CHECK(threw);
 #endif

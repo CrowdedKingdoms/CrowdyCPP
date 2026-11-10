@@ -7,6 +7,7 @@
 // https://docs.crowdedkingdoms.com/replication-api/wire-formats.
 #include <atomic>
 #include <cstring>
+#include <string>
 
 #include "e2e_util.hpp"
 
@@ -27,11 +28,23 @@ int run() {
   E2E_CHECK(e2e::warmUp(*a.conn, chunk));
 
   const std::uint8_t pose[] = {0x5e, 0x1f, 0xec, 0x40};
-  std::atomic<int> payloadEchoes{0}, exactEchoes{0}, anySpatial{0}, errors{0};
+  std::atomic<int> payloadEchoes{0}, exactEchoes{0}, anySpatial{0}, ownSpatial{0}, errors{0};
   std::atomic<std::uint8_t> lastSeq{0};
 
   Handlers h;
-  h.any = [&](const SpatialNotification&) { ++anySpatial; };
+  // Which types arrive, so a count that moves in the heartbeat window says what moved it.
+  std::mutex seenMutex;
+  std::vector<int> seenTypes;
+  std::vector<std::string> seenNotes;
+  h.any = [&](const SpatialNotification& n) {
+    ++anySpatial;
+    std::lock_guard lock(seenMutex);
+    seenTypes.push_back(static_cast<int>(n.type));
+    const bool own = std::memcmp(n.uuid, uuid.data(), wire::kUuidSize) == 0;
+    if (own) ++ownSpatial;
+    seenNotes.push_back(std::string(own ? "own" : "other") + " reason=" +
+                        (n.payload.empty() ? std::string("-") : std::to_string(n.payload[0])));
+  };
   h.actorUpdate = [&](const SpatialNotification& n) {
     if (std::memcmp(n.uuid, uuid.data(), wire::kUuidSize) != 0) return;
     if (n.payload.size() != sizeof(pose) ||
@@ -91,6 +104,7 @@ int run() {
     }
   }
   const int baselineSpatial = anySpatial.load();
+  const int baselineOwn = ownSpatial.load();
   const int baselineErrors = errors.load();
   const auto hbStart = std::chrono::steady_clock::now();
   while (std::chrono::steady_clock::now() - hbStart < std::chrono::seconds(3)) {
@@ -102,7 +116,17 @@ int run() {
   a.conn->poll();
   std::printf("heartbeat window: spatial %d -> %d, errors %d -> %d\n", baselineSpatial,
               anySpatial.load(), baselineErrors, errors.load());
-  E2E_CHECK(anySpatial.load() == baselineSpatial);
+  {
+    std::lock_guard lock(seenMutex);
+    std::printf("types after the baseline:");
+    for (std::size_t i = static_cast<std::size_t>(baselineSpatial); i < seenTypes.size(); ++i)
+      std::printf(" %d(%s)", seenTypes[i], seenNotes[i].c_str());
+    std::printf("\n");
+  }
+  // About this client's own actor only. The app is shared: another actor in range can go
+  // stale in the window and its ACTOR_LEFT (145) arrives here, which is not the heartbeat's
+  // doing (OI-2026-11-10-007, seen on dev as 145 with reason 0 for another actor).
+  E2E_CHECK(ownSpatial.load() == baselineOwn);
   E2E_CHECK(errors.load() == baselineErrors);
 
   E2E_CHECK(a.conn->stats().hmacFailures == 0);

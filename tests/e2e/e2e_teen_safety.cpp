@@ -202,11 +202,11 @@ int main() {
   E2E_SUBTEST("public: territory policies and the player documents");
   {
     const auto policies = publicClient.platform().territoryPolicies();
-    bool deBlocked = false;
+    bool cuBlocked = false;
     for (const auto& p : policies) {
-      if (p.countryCode == "DE") deBlocked = p.blocked();
+      if (p.countryCode == "CU") cuBlocked = p.blocked();
     }
-    E2E_CHECK(deBlocked);
+    E2E_CHECK(cuBlocked);
     const auto documents = publicClient.auth().playerLegalDocuments();
     E2E_CHECK(!documents.empty());
     for (const auto& d : documents) {
@@ -221,17 +221,17 @@ int main() {
   E2E_SUBTEST("managed mint: a blocked country and a player under the minimum are refused");
   {
     const std::string suffix = runSuffix();
-    const auto blocked = org.mint(appId, "e2e-cpp-13p-de-" + suffix, 30, std::string("DE"));
+    const auto blocked = org.mint(appId, "e2e-cpp-13p-cu-" + suffix, 30, std::string("CU"));
     E2E_CHECK(!blocked.ok());
     const auto territory = crowdy::graphql::territoryNotSupportedOf(blocked.errors);
     E2E_CHECK(territory.has_value());
-    E2E_CHECK(territory->country == "DE");
+    E2E_CHECK(territory->country == "CU");
     // Under 13, which no tier admits. The refusal names no age and locks this player (by its
     // organization and external id, a fresh one each run) out for 24 hours; nobody else.
     const auto young = org.mint(appId, "e2e-cpp-13p-young-" + suffix, 12, std::string("US"));
     E2E_CHECK(!young.ok());
     E2E_CHECK(crowdy::graphql::ageRequirementNotMetOf(young.errors));
-    E2E_CHECK(!org.exists("e2e-cpp-13p-de-" + suffix));
+    E2E_CHECK(!org.exists("e2e-cpp-13p-cu-" + suffix));
     E2E_CHECK(!org.exists("e2e-cpp-13p-young-" + suffix));
   }
 
@@ -495,22 +495,22 @@ int main() {
     c2.httpUrl = cfg.apiUrl;
     applyProvisioningToken(c2);
     crowdy::CrowdyClient abroad(std::move(c2));
-    const std::string abroadEmail = deriveEmail(cfg, "13p-fr");
-    crowdy::domains::RegisterUserInput fr;
-    fr.email = abroadEmail;
-    fr.password = derivePassword(abroadEmail);
-    fr.acceptLegal = true;
-    fr.attestAgeOfMajority = true;
-    fr.birthDate = "1990-05-15";
-    fr.country = "FR";
+    const std::string abroadEmail = deriveEmail(cfg, "13p-cu");
+    crowdy::domains::RegisterUserInput cu;
+    cu.email = abroadEmail;
+    cu.password = derivePassword(abroadEmail);
+    cu.acceptLegal = true;
+    cu.attestAgeOfMajority = true;
+    cu.birthDate = "1990-05-15";
+    cu.country = "CU";
     std::optional<std::string> country;
     try {
-      abroad.auth().registerUser(fr);
+      abroad.auth().registerUser(cu);
     } catch (const crowdy::graphql::CrowdyGraphQLError& e) {
       if (const auto t = crowdy::graphql::territoryNotSupportedOf(e.errors())) country = t->country;
     }
-    E2E_CHECK(country.value_or("") == "FR");
-    E2E_CHECK(refusalCode([&] { abroad.auth().login(abroadEmail, fr.password); }) != "");
+    E2E_CHECK(country.value_or("") == "CU");
+    E2E_CHECK(refusalCode([&] { abroad.auth().login(abroadEmail, cu.password); }) != "");
   }
 
   a = crowdy::GameSession{};

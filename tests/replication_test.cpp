@@ -1252,6 +1252,72 @@ void runFirstSendRetry() {
   conn.disconnect();
 }
 
+// ---------------------------------------------------------------------------
+// A release for idleness is final (Buddy v0.44.0, 2026-11-10).
+// ---------------------------------------------------------------------------
+
+void runIdleReleaseIsFinal() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  CHECK_EQ(provider->assignCalls, 1);
+
+  // One update first: the fake server learns the client's address from it.
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('i');
+  send.payload = Bytes(pose, sizeof(pose));
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+
+  auto released = [&](std::uint8_t reason, bool forge) {
+    std::uint8_t frame[wire::kCommandSessionReleasedSize];
+    frame[0] = 28;
+    frame[1] = reason;
+    CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(frame, 2), frame + 2));
+    if (forge) frame[10] ^= 0xff;
+    server.sendToClient(frame, sizeof(frame));
+  };
+
+  // A forged release changes nothing.
+  released(static_cast<std::uint8_t>(wire::ReleaseReason::Idle), /*forge=*/true);
+  for (int i = 0; i < 5; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  CHECK(conn.stats().hmacFailures >= 1u);
+
+  // A verified one goes Inactive and never reassigns on its own.
+  released(static_cast<std::uint8_t>(wire::ReleaseReason::Idle), /*forge=*/false);
+  for (int i = 0; i < 20; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(provider->assignCalls, 1);
+  CHECK_EQ(std::string(connStateName(ConnState::Inactive)), std::string("Inactive"));
+
+  // The game's next input reconnects it.
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(provider->assignCalls, 2);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+}
+
 int main() {
   run();
   runEventsReadyHook();
@@ -1261,6 +1327,7 @@ int main() {
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
   runFirstSendRetry();
+  runIdleReleaseIsFinal();
   std::puts("replication_test OK");
   return 0;
 }

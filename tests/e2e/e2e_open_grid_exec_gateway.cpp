@@ -185,6 +185,8 @@ int main() {
 
   E2E_SUBTEST("a throwaway owner, org and app, and a player");
   auto owner = e2e::identityClient(cfg, e2e::deriveEmail(cfg, "open-grid-owner"));
+  // An account accepts the current developer terms before it creates or administers an org.
+  E2E_CHECK(owner->auth().recordDeveloperConsents(true));
   graphql::JVal orgInput;
   orgInput["name"] = "CrowdyCPP e2e open grids " + e2e::runSuffix();
   orgInput["slug"] = "cpp-e2e-open-grids-" + e2e::runSuffix();

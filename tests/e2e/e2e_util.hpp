@@ -275,6 +275,13 @@ inline void applyProvisioningToken(crowdy::ClientConfig& c) {
   if (inner) c.transport = std::make_shared<ProvisioningTransport>(std::move(inner), token);
 }
 
+/// The age and country every throwaway account declares: an adult in the US. Since the
+/// platform admits players from 13 (2026-11-04), an account that has declared no age is
+/// refused a gameplay token (AGE_REQUIRED), although a native sign-up succeeds without one.
+/// Only the year and month are kept. Suites about minors record their own.
+inline constexpr const char* kE2eBirthDate = "1990-01";
+inline constexpr const char* kE2eCountry = "US";
+
 /// Sign in an identity client (session token, shared origin).
 // DIRECT SIGN-IN FROM HERE IS ALLOWED, AND WILL STAY ALLOWED (ck-api v1.88.0).
 // The API serves `register` / `login` only to first-party browser origins and to
@@ -300,6 +307,11 @@ inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg
   // ck-api v2.35.0+ issues no gameplay token until the terms and the age attestation are
   // stored. These are the harness's own throwaway accounts, so it records them here.
   E2E_CHECK(client->auth().recordPlayerConsents(true, true));
+  // An account takes its age once (a second is CONFLICT), and suites in one run share
+  // CROWDY_E2E_EMAIL, so only an account without one declares it.
+  if (client->users().me()["ageBracket"].asString() == "unknown") {
+    client->auth().recordPlayerAge({kE2eBirthDate, kE2eCountry, std::nullopt});
+  }
   return client;
 }
 

@@ -307,7 +307,11 @@ inline std::unique_ptr<crowdy::CrowdyClient> identityClient(const E2eConfig& cfg
   // ck-api v2.35.0+ issues no gameplay token until the terms and the age attestation are
   // stored. These are the harness's own throwaway accounts, so it records them here.
   E2E_CHECK(client->auth().recordPlayerConsents(true, true));
-  client->auth().recordPlayerAge({kE2eBirthDate, kE2eCountry, std::nullopt});
+  // An account takes its age once (a second is CONFLICT), and suites in one run share
+  // CROWDY_E2E_EMAIL, so only an account without one declares it.
+  if (client->users().me()["ageBracket"].asString() == "unknown") {
+    client->auth().recordPlayerAge({kE2eBirthDate, kE2eCountry, std::nullopt});
+  }
   return client;
 }
 

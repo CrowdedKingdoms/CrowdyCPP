@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.76.0 passes the strict portable-parity gate against CrowdyJS
-**18.25.0**. The gate pins CrowdyJS commit
-`300eec349bc4fc943ec66a4b0bca1cc45cb021b0` (`prod/v18.25.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.77.0 passes the strict portable-parity gate against CrowdyJS
+**18.26.0**. The gate pins CrowdyJS commit
+`2924841bcff5b2cc884bb2263de3da5dd08e9f65` (`test/v18.26.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.77.0 mirrors CrowdyJS 18.26.0 (ck-api v2.64.0): a session the replication server releases for idleness (`COMMAND_SESSION_RELEASED` reason 5, Buddy v0.44.0) moves the connection to the new `ConnState::Inactive` and nothing reassigns until `connect()`; app reads and `update()` select `idleTimeoutSeconds` and `effectiveIdleTimeoutSeconds`.
 
 0.76.0 mirrors CrowdyJS 18.25.0 (ck-api v2.61.0, which admits players from 13 on dev): `graphql::safetyModeratorRequiredOf` and `kSafetyModeratorRequiredCode` (a minor in an app whose organization appointed no safety moderator; an admin alone does not count), `hasSafetyModerator` on `admin().apps().get()` and `update()` (null for a caller outside the app's organization), `TerritoryPolicy::regionCode` (a country checked by region), and `graphql::parentalConsentUnavailableOf` returning the refusal with its `reason` (`not_configured`, `provider_refused`, `provider_unavailable`; empty until the Game API release after v2.61.0 sends it) instead of a bool. An organization's mint and assertion take a `region` where the country is checked by region; neither SDK wraps the mint. A player's own records are the input log's existing reads. App reads and `territoryPolicies()` select fields an API older than v2.61.0 refuses. `childSafetyReports`, `eraseAccount` and `recordParentalConsentWithdrawal` are browser exclusions: only an operator calls them.
 
@@ -72,7 +74,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.76.0 | CrowdyJS 18.25.0 | Required public API generation |
+| Surface | CrowdyCPP 0.77.0 | CrowdyJS 18.26.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

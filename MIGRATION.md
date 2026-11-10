@@ -1,5 +1,27 @@
 # CrowdyCPP migration notes
 
+## 0.77.0 A session released for idleness is final; re-pinned to CrowdyJS 18.26.0
+
+**It needs ck-api v2.64.0 on the tier**: `admin().apps().get()` and `update()` select
+`idleTimeoutSeconds` and `effectiveIdleTimeoutSeconds`, which an older API refuses. Mirrors
+CrowdyJS 18.26.0.
+
+- **The replication server ends a session that sends no gameplay input** (movement, edits,
+  messages, voice, video; not heartbeats, and not keyframes repeating an unchanged state) for the
+  app's idle timeout: 15 minutes unless the app sets its own with `update()`'s
+  `idleTimeoutSeconds` (60 to 86400, `0` for never, null for the default). It says so with
+  `COMMAND_SESSION_RELEASED` (28) reason 5 (`wire::ReleaseReason::Idle`, Buddy v0.44.0).
+- **`ConnState::Inactive`** is new. A verified idle release closes the socket and moves the
+  connection there; the watchdog, the token refresh and reassignment stop, so the player is not
+  put back on a server by the SDK. Call `connect()` on the player's next input; it reassigns.
+  An exhaustive `switch` over `ConnState` needs a case for it.
+- `wire::verifySessionReleased` checks the release's HMAC (keyed on the game token over the two
+  leading bytes) and returns the reason; an unverified one is counted in `stats().hmacFailures`
+  and ignored. Other reasons keep their old handling.
+- `e2e_self_echo`'s heartbeat window counts only notifications about its own actor: in a shared
+  app another actor going stale delivers an `ACTOR_LEFT` (145) there, which is not the heartbeat's
+  doing.
+
 ## 0.76.0 Appointed moderators, regions, and the consent refusal's reason; re-pinned to CrowdyJS 18.25.0
 
 **It needs ck-api v2.61.0 on the tier**: `admin().apps().get()` and `update()` select

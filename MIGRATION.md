@@ -20,7 +20,7 @@ CrowdyJS 18.26.0.
   and ignored. Other reasons keep their old handling.
 - `e2e_self_echo`'s heartbeat window counts only notifications about its own actor: in a shared
   app another actor going stale delivers an `ACTOR_LEFT` (145) there, which is not the heartbeat's
-  doing (cks-project-root OI-2026-11-10-007).
+  doing.
 
 ## 0.76.0 Appointed moderators, regions, and the consent refusal's reason; re-pinned to CrowdyJS 18.25.0
 

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.77.0: a session released for idleness is final, and CrowdyJS 18.26.0.** The replication server ends a session that sends no gameplay input for the app's idle timeout (15 minutes unless `admin().apps().update()` sets `idleTimeoutSeconds`; 0 for never) with `COMMAND_SESSION_RELEASED` reason 5. The connection moves to the new `ConnState::Inactive` and nothing reassigns until `connect()`, which the game calls on the player's next input. App reads and `update()` return `idleTimeoutSeconds` and `effectiveIdleTimeoutSeconds`. It needs ck-api v2.64.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.76.0: appointed moderators, regions, the consent refusal's reason, and CrowdyJS 18.25.0.** `graphql::safetyModeratorRequiredOf` reads `SAFETY_MODERATOR_REQUIRED` (a player under 18 in an app whose organization appointed no safety moderator), and `admin().apps().get()` / `update()` return `hasSafetyModerator` to the organization's members. `platform().territoryPolicies()` rows carry `regionCode`, and an organization sends a player's `region` where the country is checked by region. `graphql::parentalConsentUnavailableOf` now returns `std::optional<ParentalConsentUnavailable>` with the refusal's `reason`. It needs ck-api v2.61.0 on the tier. See [MIGRATION.md](MIGRATION.md).
 
 **v0.75.0: teen safety, a session from any app token, and CrowdyJS 18.24.0.** `crowdy::startGameSession(token)` starts the realtime session from an app token the game already holds (a mint, a portal exchange, an organization's sign-in, `signInWithMinecraft`). The player's age and country (`auth().registerUser(RegisterUserInput)`, `recordPlayerAge`, `platform().territoryPolicies()`), documents per app, `client.safety()` (voice and video scopes, contacts, blocks, a parent's consent, reports), `client.moderation()`, the app's recording state (`admin().apps().recording`), the Minecraft sign-in and the gate's refusals (`graphql::territoryNotSupportedOf` and the rest). It needs ck-api v2.60.0 on the tier. See [MIGRATION.md](MIGRATION.md).
@@ -599,6 +601,8 @@ int main() {
   // 5) Pump notifications from your game loop (or use the owned-thread mode).
   while (running) {
     conn->poll();
+    // Inactive (0.77.0): released after the app's idle timeout without gameplay input.
+    // Reconnect on the player's next input with conn->connect().
     if (conn->state() == crowdy::replication::ConnState::Failed ||
         conn->state() == crowdy::replication::ConnState::Closed) {
       return 4;

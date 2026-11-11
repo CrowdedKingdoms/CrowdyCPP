@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.77.0 passes the strict portable-parity gate against CrowdyJS
-**18.26.0**. The gate pins CrowdyJS commit
-`71a63ddfa43a82be97896d78a8a8a867e9d8c99b` (`prod/v18.26.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.78.0 passes the strict portable-parity gate against CrowdyJS
+**18.27.0**. The gate pins CrowdyJS commit
+`b6050ce9e0506dbc94436b4e709286a237ed2950` (`test/v18.27.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.78.0 mirrors CrowdyJS 18.27.0: `graphql::emailConfirmationRequiredOf` and `kEmailConfirmationRequiredCode` read the refusal ck-api v2.65.0 gives a password account made since 2026-11-11 until it confirms its email; `auth().resendConfirmationEmail` (already wrapped) is the remedy. It selects nothing ck-api v2.64.0 lacks.
 
 0.77.0 mirrors CrowdyJS 18.26.0 (ck-api v2.64.0): a session the replication server releases for idleness (`COMMAND_SESSION_RELEASED` reason 5, Buddy v0.44.0) moves the connection to the new `ConnState::Inactive` and nothing reassigns until `connect()`; app reads and `update()` select `idleTimeoutSeconds` and `effectiveIdleTimeoutSeconds`.
 
@@ -74,7 +76,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.77.0 | CrowdyJS 18.26.0 | Required public API generation |
+| Surface | CrowdyCPP 0.78.0 | CrowdyJS 18.27.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

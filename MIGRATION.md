@@ -1,5 +1,60 @@
 # CrowdyCPP migration notes
 
+## 0.79.0 A replayed idle release, a stale reassignment, deep and long JSON, lean chunk reads, and a store that keeps what it loaded
+
+**It needs nothing new on the tier.** Still pinned to CrowdyJS 18.27.0; nothing here changes the
+portable surface. The Unreal SDK team's requests of 2026-11-11.
+
+- **An idle release that arrives within a minute of this client's own gameplay input
+  reassigns instead of ending the session** (`Config::idleReleaseGuardMs`, 60 s by default;
+  `Stats::idleReleasesAfterInput` counts them). `COMMAND_SESSION_RELEASED` is signed over its
+  two leading bytes only, so a frame captured from an earlier release verifies again for as long
+  as the game token lives, and anyone who saw one go past could end a playing player's session
+  with it whenever they liked. A genuine idle release cannot follow input the server counted
+  within the platform's shortest idle timeout (60 s). Gameplay input is what the server counts:
+  actor updates whose payload changed, voxel edits, text, events, generic spatial and
+  single-actor messages, audio, video and channel publishes; heartbeats and capability notices
+  never count. `0` makes every verified idle release final again. A replay can still end the
+  session of a player who has sent nothing for a minute; frames bound to the session, in a later
+  release, close that.
+- **`connect()` no longer reassigns the session it has just assigned.** A reassignment asked for
+  in the same pass as an idle release (a `COMMAND_RECONNECT`, a queued `TOKEN_EXPIRED`, the
+  watchdog) stayed set and fired right after the next `connect()`: one more assignment, a flip
+  back to `Reconnecting`, perhaps another server. The idle transition and `connect()` both
+  clear it.
+- **`graphql::Json::toMsgpack()` packs any depth without the call stack.** It called itself once
+  per level, so a forged answer a few hundred KB of `[[[[` deep overflowed the calling thread's
+  stack (the game thread). **`forEach()` and `forEachMember()` take one step per element.** They
+  looked each element up by index, and an index into an array of objects walks from its first
+  element, so iterating one chunk's 65,536 voxel states took about two billion steps. `at(i)` on
+  an array of objects or arrays still walks from the start: iterate with `forEach`.
+- **`chunks().byDistanceVoxels()` and `chunks().byDistanceVoxelTypes()`** (operations
+  `GetChunksByDistanceVoxels` and `GetChunksByDistanceVoxelTypes`) take `byDistance`'s input and
+  select only each chunk's `coordinates`, `voxels`, `voxelStates` and `voxelStatesTruncated`; the
+  second leaves out the edits' `state` bytes. `byDistance()` and both take `limit` and `skip`
+  (0: the server's default, 1,000 chunks from the first).
+- **Breaking: `chunks().getLods()` takes `lodLevels` with no default.** The schema requires
+  `[Int!]!`, so a call without levels never passed validation. Pass the levels to read.
+- **`voxels().history(args)` sends `args` as the operation's variables** (`appId`, and optionally
+  `userId`, `from`, `to`, `limit`, `offset`); so does `historyAsync`. They wrapped them in an
+  `input` the operation does not take, so `$appId` was never set and every call was refused.
+- **ChunkStore**:
+  - The Game API's source asks for the whole cube (`limit` (2 x distance + 1)^3: 4,913 at range 8)
+    and pages by the limit the answer echoes, keeping a chunk that comes back on two pages once.
+    Without a limit the server returned 1,000 chunks and range 8 lost the rest without a word.
+  - `ensureAround()` leaves a chunk already loaded from the store as the cache holds it, since
+    realtime merges and local edits are newer than the stored copy. It copied the stored grid
+    over every chunk the load returned, a chunk with unsaved local edits included. A chunk that
+    only held realtime merges is still filled from the store. It returns the chunks it applied.
+  - This client's edits the server has not echoed yet are put back over a stored copy when one
+    is applied, so a copy read before the server recorded them does not undo them.
+  - `hydrate(coord)` reads that one chunk (`getChunk`) and refreshes it unless it is dirty; it
+    loaded the 27 around it. It returns 1 when it applied a stored copy, 0 otherwise.
+  - `StoredChunk::voxelStatesTruncated` and `ChunkData::voxelStatesTruncated` say the server cut
+    a chunk's recorded edits short; read the rest with `voxels().list`.
+  - **`IChunkSource::chunkAt(appId, coord)`** is new, with a default that keeps `coord`'s chunk
+    out of `chunksAround(coord, 1)`, so a source written for 0.78.0 compiles and works unchanged.
+
 ## 0.78.0 A new account confirms its email; re-pinned to CrowdyJS 18.27.0
 
 **It needs nothing new on the tier**: it selects nothing ck-api v2.64.0 lacks. Mirrors CrowdyJS

@@ -257,4 +257,8 @@ one CK account only with `CROWDY_E2E_TEEN_SIGNUPS=1`, and reads the existing-pla
 
 Index arrays with `at(i)`. `json[0]` is now a compile error: `operator[]` takes
 a `string_view`, and the literal `0` used to bind to it as a null pointer and
-segfault in `strlen` at runtime.
+segfault in `strlen` at runtime. Iterate with `forEach` / `forEachMember`, never a
+loop over `at(i)`: an index into an array of objects or arrays walks from its first
+element, so the loop is quadratic (0.79.0 found one chunk's 65,536 voxel states
+taking about two billion steps that way). `toMsgpack()` is iterative on purpose:
+keep it free of recursion, because a response's depth is the server's to choose.

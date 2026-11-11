@@ -156,10 +156,7 @@ int run() {
   historyVars["userId"] = p.userId;
   historyVars["from"] = isoFromEpochMs(editStartMs - 2000);
   historyVars["to"] = isoFromEpochMs(editEndMs);
-  // Raw document: the VoxelUpdateHistory operation takes top-level args.
-  graphql::Json history = p.game->graphqlClient()
-                              .request(gen::voxels::documentFor("VoxelUpdateHistory"), historyVars,
-                                       "VoxelUpdateHistory")["voxelUpdateHistory"];
+  graphql::Json history = p.game->voxels().history(historyVars);
   bool sawEdit = false;
   history.forEach([&](graphql::Json entry) {
     if (entry["coordinates"]["x"].asBigInt() == allowed.x &&

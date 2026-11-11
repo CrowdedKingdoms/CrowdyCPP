@@ -1,5 +1,19 @@
 # CrowdyCPP migration notes
 
+## 0.78.0 A new account confirms its email; re-pinned to CrowdyJS 18.27.0
+
+**It needs nothing new on the tier**: it selects nothing ck-api v2.64.0 lacks. Mirrors CrowdyJS
+18.27.0.
+
+- **A password account made since 2026-11-11 gets no gameplay token until it confirms its
+  email** (ck-api v2.65.0): `portal().mintAppToken`, the portal code and the refresh answer
+  `EMAIL_CONFIRMATION_REQUIRED`, the player gate's last check. Accounts made before then, managed
+  players, staff, and dev or test accounts made with a provisioning token are not asked.
+- **`graphql::emailConfirmationRequiredOf(errors)`** and **`kEmailConfirmationRequiredCode`** are
+  new. A client that signs players up with `auth().registerUser` checks it at the mint, tells
+  the player to open the emailed link, offers `auth().resendConfirmationEmail(email)` (always
+  `true`), then mints again.
+
 ## 0.77.0 A session released for idleness is final; re-pinned to CrowdyJS 18.26.0
 
 **It needs ck-api v2.64.0 on the tier**: `admin().apps().get()` and `update()` select

@@ -19,7 +19,10 @@ Nothing to change in a game that does not want the new event. Mirrors CrowdyJS 1
   earlier assignment and sent again, is dropped and counted in the new
   `Stats::staleBoundControl`. A verified bound idle release is final at once:
   `Config::idleReleaseGuardMs` applies only to the legacy 28, which older servers and the Game
-  API's relay still send.
+  API's relay still send. Because the client cannot tell an older server from a replay, it
+  still accepts the legacy 22 and 28: a captured legacy reconnect still moves the session, and
+  a captured legacy idle release still ends it when this client sent no gameplay input in the
+  last minute.
 - **`Handlers::chunkChanged` and `WorldSessionConfig::onChunkChanged`** fire for
   `CHUNK_CHANGED_NOTIFICATION` (146), which the realtime servers send when a hub's or mod's
   `world.set_chunk` (ck-api v2.68.0) replaced a chunk near the player. They carry the chunk and

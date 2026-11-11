@@ -883,15 +883,16 @@ void testStatesShareOneBuffer() {
   store.insertGenerated({0, 0, 0}, {});
   const char sender[33] = "0123456789abcdef0123456789abcdef";
   std::vector<std::uint8_t> big(600, 7);
-  for (int i = 0; i < 64; ++i) {
-    store.ingest(voxelNote({0, 0, 0}, sender), {i % 16, i / 16, 0, 1, Bytes(big.data(), big.size())});
-  }
+  auto at = [](int i, Bytes state) {
+    return wire::VoxelPayloadView{static_cast<std::int16_t>(i % 16), static_cast<std::int16_t>(i / 16), 0,
+                                  1, state};
+  };
+  for (int i = 0; i < 64; ++i) store.ingest(voxelNote({0, 0, 0}, sender), at(i, Bytes(big.data(), big.size())));
   CHECK_EQ(store.find({0, 0, 0})->stateCount(), 64u);
   const std::uint8_t small[] = {9};
   for (int round = 0; round < 3; ++round) {
-    for (int i = 0; i < 64; ++i) store.ingest(voxelNote({0, 0, 0}, sender), {i % 16, i / 16, 0, 1, Bytes(small, 1)});
-    for (int i = 0; i < 64; ++i)
-      store.ingest(voxelNote({0, 0, 0}, sender), {i % 16, i / 16, 0, 1, Bytes(big.data(), big.size())});
+    for (int i = 0; i < 64; ++i) store.ingest(voxelNote({0, 0, 0}, sender), at(i, Bytes(small, 1)));
+    for (int i = 0; i < 64; ++i) store.ingest(voxelNote({0, 0, 0}, sender), at(i, Bytes(big.data(), big.size())));
   }
   const ChunkData* c = store.find({0, 0, 0});
   CHECK_EQ(c->stateCount(), 64u);

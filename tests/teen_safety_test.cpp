@@ -574,6 +574,14 @@ void testRefusals() {
       refusal(R"({"code":"SAFETY_LOG_REQUIRED"})").errors));
   CHECK_EQ(graphql::kSafetyModeratorRequiredCode, std::string_view("SAFETY_MODERATOR_REQUIRED"));
 
+  // ck-api v2.65.0: a new password account that has not confirmed its email.
+  const auto unconfirmed = refusal(R"({"code":"EMAIL_CONFIRMATION_REQUIRED"})");
+  CHECK(graphql::emailConfirmationRequiredOf(unconfirmed.errors));
+  CHECK(!graphql::legalAcceptanceRequiredOf(unconfirmed.errors).has_value());
+  CHECK(!graphql::emailConfirmationRequiredOf(legal.errors));
+  CHECK_EQ(graphql::kEmailConfirmationRequiredCode,
+           std::string_view("EMAIL_CONFIRMATION_REQUIRED"));
+
   // The consent refusal says why (extensions.reason, the Game API release after v2.61.0); an
   // older API says nothing.
   const auto unsaid = graphql::parentalConsentUnavailableOf(

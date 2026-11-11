@@ -1,5 +1,35 @@
 # CrowdyCPP migration notes
 
+## 0.80.0 Region reads: a box, a since and stable pages; your own keys on nearbyGrids
+
+**It needs ck-api v2.67.0** (cks-game-api #652): `gameApps().nearbyGrids()` selects
+`permissionKeys`, which an older Game API refuses as a whole query. Mirrors CrowdyJS 18.28.0.
+
+- **`domains::ChunkRegion`** describes what a region read covers and which page of it:
+  `ChunkRegion::cube(center, maxDistance)` or `ChunkRegion::box(low, high)` (both corners
+  inclusive, in either order, at most 4,913 chunks), then `.limit(n)`, `.skip(n)` and
+  `.since(isoTime)`. A box streams in only the slab a step uncovers: at range 8 a step along one
+  axis reads 289 chunks instead of 4,913.
+- **`chunks().region()`, `regionVoxels()` and `regionVoxelTypes()`** (with `Async` twins) read a
+  region with `byDistance()`'s, `byDistanceVoxels()`'s and `byDistanceVoxelTypes()`'s selections.
+  `byDistance()` and its two lean twins are unchanged: they read a cube.
+- **`voxels().listInRegion()`** (and `listInRegionAsync`) reads the recorded edits of a region,
+  grouped per chunk. It reads the edit log alone, so it returns edits in chunks whose grid was
+  never stored; for a box the answer's `centerCoordinate` is its middle chunk.
+- **Pages are stable.** A cube comes nearest first and then by x, y, z, a box by x, y, z, so each
+  chunk is on exactly one page; the answer's `limit` and `skip` are the ones applied (1,000 and 0
+  by default), never null.
+- **`since` on a chunk read** keeps only chunks whose stored row was written at or after it
+  (`updateChunk`, `updateChunkState`, `updateChunkLods`). A voxel edit does not move it: read
+  edits with `listInRegion`'s `since`.
+- **`voxels().list(input)` pages**: `limit` (1-65,536, the default) and `skip` in its input,
+  ordered by position. It was newest first and unbounded. `chunks().voxelList()` is its first
+  page.
+- **`gameApps().nearbyGrids()` returns each grid's `permissionKeys` for the caller**, so a game
+  can grey out a build tool or draw claim borders before an edit is refused. The grid that decides
+  a voxel edit is the smallest one covering its chunk (the lower `gridId` on a tie), and the edit
+  needs `update_voxel_data` there.
+
 ## 0.79.0 A replayed idle release, a stale reassignment, deep and long JSON, lean chunk reads, and a store that keeps what it loaded
 
 **It needs nothing new on the tier.** Still pinned to CrowdyJS 18.27.0; nothing here changes the

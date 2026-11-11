@@ -797,11 +797,88 @@ void runInjectedServices() {
   session.dispose();
 }
 
+/// One stored chunk, the grid 9 everywhere; the same copy for every read.
+class StoredNines final : public session::IChunkSource {
+ public:
+  int reads = 0;
+  std::vector<session::StoredChunk> chunksAround(const std::string&, const session::ChunkCoord&,
+                                                 int) override {
+    ++reads;
+    session::StoredChunk chunk;
+    chunk.coord = {5, 0, 0};
+    chunk.voxels.assign(session::kChunkVolume, 9);
+    return {chunk};
+  }
+  graphql::GraphQLOutcome writeChunk(const std::string&, const session::ChunkCoord&,
+                                     Bytes) override {
+    return {};
+  }
+};
+
+// 0.79.0: a stored copy can be read before the server recorded this client's last edits, so the
+// edits not echoed yet go back over it; an echoed one, or one another client's edit overtook, does
+// not.
+void runStoredCopyKeepsUnechoedEdits() {
+  FakeServer server;
+  server.start();
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  Connection conn(cfg, std::make_shared<StubProvider>(server.port), core::defaultCrypto());
+  CHECK(conn.connect().ok());
+
+  StoredNines source;
+  session::ChunkStore::Options options;
+  options.writeBackIntervalMs = 0;
+  session::ChunkStore store(conn, &source, "7", options);
+  const session::ChunkCoord at{5, 0, 0};
+  const core::ActorUuid me = uuidOf('e');
+
+  auto mine = store.setVoxel(at, 1, 2, 3, 3, Bytes(), me);
+  CHECK(mine.ok());
+  (void)server.recvOne();
+  auto overtaken = store.setVoxel(at, 2, 2, 2, 4, Bytes(), me);
+  CHECK(overtaken.ok());
+  (void)server.recvOne();
+
+  CHECK_EQ(store.ensureAround(at, 1), std::size_t{1});
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 9);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 3);
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 4);
+  CHECK_EQ(store.ensureAround(at, 1), std::size_t{0});  // loaded: the cache stays
+  CHECK_EQ(source.reads, 2);
+
+  // Another player's edit of (2, 2, 2) arrives first: our pending edit there is stale.
+  const char other[33] = "ffffffffffffffffffffffffffffffff";
+  const SpatialNotification foreign{wire::MessageType::VoxelUpdateNotification, 7, at, other,
+                                    Bytes(), 1, 9};
+  CHECK(store.ingest(foreign, wire::VoxelPayloadView{2, 2, 2, 6, Bytes()}));
+  // The echo of (1, 2, 3): applied already, so not again, and no longer pending.
+  const std::string meText(32, 'e');
+  const SpatialNotification echo{wire::MessageType::VoxelUpdateNotification, 7, at,
+                                 meText.data(), Bytes(), 2, mine.value()};
+  CHECK(!store.ingest(echo, wire::VoxelPayloadView{1, 2, 3, 3, Bytes()}));
+
+  CHECK_EQ(store.hydrate(at), std::size_t{1});
+  CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 9);  // echoed: the stored copy stands
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 9);  // overtaken: left to its echo
+  const SpatialNotification late{wire::MessageType::VoxelUpdateNotification, 7, at,
+                                 meText.data(), Bytes(), 3, overtaken.value()};
+  CHECK(store.ingest(late, wire::VoxelPayloadView{2, 2, 2, 4, Bytes()}));
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 4);
+  conn.disconnect();
+}
+
 int main() {
   run();
   runInjectedServices();
   runHeartbeatNotSent();
   runTickFlushesBundle();
+  runStoredCopyKeepsUnechoedEdits();
   std::puts("session_test OK");
   return 0;
 }

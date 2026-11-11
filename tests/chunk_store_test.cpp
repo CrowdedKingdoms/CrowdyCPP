@@ -528,10 +528,12 @@ void testALoadTakesTheServersStates() {
   CHECK(far != nullptr && far->state == std::vector<std::uint8_t>{0x01});
   CHECK_EQ(store.voxelTypeAt(at, 17, 0, 0), 0);
 
-  // A source that reports no states (any written before 0.56.0) keeps the cached ones.
+  // A source that reports no states (any written before 0.56.0) keeps the cached ones. The chunk
+  // is loaded now, so a bulk load leaves it alone (0.79.0) and hydrate() refreshes it.
   source.stored.front().voxelStates.clear();
   (void)store.setVoxel(at, 4, 5, 6, 3, Bytes(local, 1), core::ActorUuid{});
-  CHECK_EQ(store.ensureAround(at, 1), 1u);
+  CHECK_EQ(store.ensureAround(at, 1), 0u);
+  CHECK_EQ(store.hydrate(at), 1u);
   CHECK(store.voxelStateAt(at, 4, 5, 6) != nullptr);
   CHECK(store.voxelStateAt(at, 1, 2, 3) != nullptr);
 }
@@ -599,12 +601,132 @@ void testWideVoxelsGoToTheOverlay() {
   CHECK_EQ(store.find(at)->overlay.size(), 5u);
 }
 
+// 0.79.0: every bulk load used to copy the stored grid over every chunk it returned, which put a
+// stored copy over the realtime merges and local edits since the chunk loaded. A loaded chunk keeps
+// its cache now, a dirty one is never refreshed, and a chunk that only held merges is filled.
+void testALoadedChunkKeepsItsCache() {
+  ScriptedSource source;
+  StoredChunk stored;
+  stored.coord = {5, 0, 0};
+  stored.voxels.assign(kChunkVolume, 9);
+  source.stored.push_back(stored);
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore::Options options;
+  options.writeBackIntervalMs = 100;
+  options.sleep = [](std::int64_t) {};
+  ChunkStore store(conn, &source, "42", options);
+  const ChunkCoord at{5, 0, 0};
+  const char sender[33] = "0123456789abcdef0123456789abcdef";
+
+  CHECK_EQ(store.ensureAround(at, 1), 1u);
+  CHECK(store.find(at)->hydratedAtMs > 0);
+  CHECK(store.ingest(voxelNote(at, sender), {1, 1, 1, 4, Bytes()}));
+  CHECK_EQ(store.ensureAround(at, 1), 0u);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 4);
+
+  (void)store.setVoxel(at, 2, 2, 2, 7, Bytes(), core::ActorUuid{});
+  CHECK(store.find(at)->dirty);
+  CHECK_EQ(store.hydrate(at), 0u);
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 7);
+
+  const ChunkCoord merged{9, 0, 0};
+  CHECK(store.ingest(voxelNote(merged, sender), {3, 3, 3, 2, Bytes()}));
+  CHECK_EQ(store.find(merged)->hydratedAtMs, 0);
+  source.stored.front().coord = merged;
+  CHECK_EQ(store.ensureAround(merged, 1), 1u);
+  CHECK_EQ(store.voxelTypeAt(merged, 0, 0, 0), 9);
+  CHECK(store.find(merged)->storedOnServer);
+}
+
+std::string storedChunkJson(std::int64_t x, bool truncated) {
+  const std::vector<std::uint8_t> grid(kChunkVolume, 9);
+  return R"({"coordinates":{"x":")" + std::to_string(x) + R"(","y":"0","z":"0"},"voxels":")" +
+         core::base64Encode(Bytes(grid.data(), grid.size())) +
+         R"(","voxelStates":[{"voxelCoord":{"x":1,"y":1,"z":1},"voxelType":3,"state":null}],)" +
+         R"("voxelStatesTruncated":)" + (truncated ? "true" : "false") + "}";
+}
+
+/// Answers getChunksByDistance from `pages`, keyed by the request's skip, echoing `pageLimit`, and
+/// getChunk with `single`. Keeps every request body.
+class PagedChunksTransport final : public graphql::IHttpTransport {
+ public:
+  std::int64_t pageLimit = 2;
+  std::map<std::int64_t, std::string> pages;
+  std::string single = "null";
+  std::vector<std::string> bodies;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& request) override {
+    return sendOutcome(request).response;
+  }
+
+  graphql::HttpOutcome sendOutcome(const graphql::HttpRequest& request) noexcept override {
+    bodies.push_back(request.body);
+    const graphql::Json body = graphql::Json::parse(request.body);
+    if (body["query"].asStringView().find("getChunksByDistance") != std::string_view::npos) {
+      const std::int64_t skip = body["variables"]["input"]["skip"].asInt64(0);
+      const auto page = pages.find(skip);
+      return {Errc::Ok,
+              {200, R"({"data":{"getChunksByDistance":{"limit":)" + std::to_string(pageLimit) +
+                        R"(,"skip":)" + std::to_string(skip) + R"(,"chunks":)" +
+                        (page == pages.end() ? std::string("[]") : page->second) + "}}}"},
+              {}};
+    }
+    return {Errc::Ok, {200, R"({"data":{"getChunk":)" + single + "}}"}, {}};
+  }
+};
+
+// 0.79.0: the Game API's source asked for no limit, and the server's default of 1,000 chunks cut
+// range 8 (4,913) short without a word. It asks for the whole cube and pages by the limit the
+// server echoes; a chunk on two pages is kept once. hydrate() reads one chunk with getChunk, where
+// it used to load the 27 around it.
+void testTheGameApiSourceLoadsTheWholeCubeAndOneChunk() {
+  auto http = std::make_shared<PagedChunksTransport>();
+  http->pages[0] = "[" + storedChunkJson(1, false) + "," + storedChunkJson(2, false) + "]";
+  http->pages[2] = "[" + storedChunkJson(2, false) + "," + storedChunkJson(3, true) + "]";
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+      std::make_shared<graphql::AuthState>());
+  domains::ChunksAPI chunksApi{gql};
+  replication::Connection conn{replication::Config{}, std::make_shared<NoProvider>(),
+                               core::defaultCrypto()};
+  ChunkStore store(conn, &chunksApi, "42", ChunkStore::Options{});
+
+  CHECK_EQ(store.ensureAround({2, 0, 0}, 1), 3u);
+  CHECK_EQ(http->bodies.size(), 3u);
+  const graphql::Json first = graphql::Json::parse(http->bodies[0]);
+  CHECK_EQ(first["variables"]["input"]["limit"].asInt64(), 27);
+  CHECK(first["variables"]["input"]["skip"].isNull());
+  const graphql::Json second = graphql::Json::parse(http->bodies[1]);
+  CHECK_EQ(second["variables"]["input"]["skip"].asInt64(), 2);
+  CHECK_EQ(second["variables"]["input"]["limit"].asInt64(), 25);
+  CHECK(store.find({3, 0, 0})->voxelStatesTruncated);
+  CHECK(!store.find({1, 0, 0})->voxelStatesTruncated);
+  CHECK_EQ(store.voxelTypeAt({2, 0, 0}, 1, 1, 1), 3);
+
+  http->bodies.clear();
+  http->single = storedChunkJson(7, false);
+  CHECK_EQ(store.hydrate({7, 0, 0}), 1u);
+  CHECK_EQ(http->bodies.size(), 1u);
+  const std::string query = graphql::Json::parse(http->bodies[0])["query"].asString();
+  CHECK(query.find("getChunk(") != std::string::npos);
+  CHECK(query.find("getChunksByDistance") == std::string::npos);
+  CHECK_EQ(store.voxelTypeAt({7, 0, 0}, 0, 0, 0), 9);
+  CHECK_EQ(store.voxelTypeAt({7, 0, 0}, 1, 1, 1), 3);
+
+  http->single = "null";
+  CHECK_EQ(store.hydrate({8, 0, 0}), 0u);
+  CHECK(store.find({8, 0, 0}) == nullptr);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
   testWideVoxelsGoToTheOverlay();
   testAnInjectedSourceHydratesAndWritesBack();
   testABulkLoadAppliesTheRecordedEdits();
   testALoadTakesTheServersStates();
+  testALoadedChunkKeepsItsCache();
+  testTheGameApiSourceLoadsTheWholeCubeAndOneChunk();
   testARefusedChunkDoesNotBlockTheOthers();
   testABackingOffChunkDoesNotBlockTheOthers();
   testFlushReportsDroppedWriteBacks();

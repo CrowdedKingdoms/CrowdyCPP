@@ -1274,14 +1274,10 @@ void runIdleReleaseIsFinal() {
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
   CHECK_EQ(provider->assignCalls, 1);
 
-  // One update first: the fake server learns the client's address from it.
-  const std::uint8_t pose[] = {1, 2, 3, 4};
-  SpatialSend send;
-  send.chunk = {1, 2, 3};
-  send.uuid = uuid('i');
-  send.payload = Bytes(pose, sizeof(pose));
-  CHECK(conn.sendActorUpdate(send).ok());
-  CHECK_EQ(server.recvOne()[0], 128u);
+  // A heartbeat first: the fake server learns the client's address from it, and it is not
+  // gameplay input, so the release below is not one that follows input.
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('i')).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
 
   auto released = [&](std::uint8_t reason, bool forge) {
     std::uint8_t frame[wire::kCommandSessionReleasedSize];
@@ -1318,6 +1314,133 @@ void runIdleReleaseIsFinal() {
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
 }
 
+/// The system clock, moved forward on demand.
+struct SteppedClock final : core::IClock {
+  std::atomic<std::int64_t> aheadMs{0};
+  std::int64_t epochMillis() const override {
+    return core::systemClock().epochMillis() + aheadMs.load();
+  }
+  std::int64_t monotonicMillis() const override {
+    return core::systemClock().monotonicMillis() + aheadMs.load();
+  }
+};
+
+void sendRelease(FakeServer& server, wire::ReleaseReason reason) {
+  std::uint8_t frame[wire::kCommandSessionReleasedSize];
+  frame[0] = 28;
+  frame[1] = static_cast<std::uint8_t>(reason);
+  CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(frame, 2), frame + 2));
+  server.sendToClient(frame, sizeof(frame));
+}
+
+Config idleTestConfig() {
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  return cfg;
+}
+
+// 0.79.0: a release frame carries nothing tied to one session, so one captured earlier verifies
+// again. An idle release within a minute of this client's own gameplay input reassigns instead of
+// ending the session; a keyframe that repeats an unchanged state is not input.
+void runIdleReleaseAfterInputReassigns() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  SteppedClock clock;
+  Connection conn(idleTestConfig(), provider, core::opensslCrypto(), clock);
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('g');
+  send.payload = Bytes(pose, sizeof(pose));
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+
+  sendRelease(server, wire::ReleaseReason::Idle);
+  for (int i = 0; i < 20 && provider->assignCalls < 2; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assignCalls, 2);
+  CHECK_EQ(conn.stats().idleReleasesAfterInput, 1u);
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+
+  // The new session's first update is input; the same pose again a minute later is not.
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  clock.aheadMs.store(61'000);
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  CHECK(conn.sendHeartbeat(send.chunk, send.uuid).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+
+  sendRelease(server, wire::ReleaseReason::Idle);
+  for (int i = 0; i < 20 && conn.state() != ConnState::Inactive; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(provider->assignCalls, 2);
+  CHECK_EQ(conn.stats().idleReleasesAfterInput, 1u);
+
+  // With the guard off every verified idle release is final.
+  Config off = idleTestConfig();
+  off.idleReleaseGuardMs = 0;
+  auto provider2 = std::make_shared<StubProvider>(server.port);
+  Connection unguarded(off, provider2, core::opensslCrypto());
+  CHECK(unguarded.connect().ok());
+  unguarded.pump(0);
+  CHECK(unguarded.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  sendRelease(server, wire::ReleaseReason::Idle);
+  for (int i = 0; i < 20 && unguarded.state() != ConnState::Inactive; ++i) {
+    unguarded.pump(20);
+    unguarded.poll();
+  }
+  CHECK_EQ(static_cast<int>(unguarded.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(provider2->assignCalls, 1);
+}
+
+// 0.79.0: a reassignment asked for in the pass that saw an idle release used to survive into the
+// next session, which then reassigned right after connect() had assigned it.
+void runReassignmentDoesNotOutliveIdleRelease() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Connection conn(idleTestConfig(), provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('r')).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+
+  conn.requestReassignment();
+  sendRelease(server, wire::ReleaseReason::Idle);
+  conn.pump(500);
+  conn.poll();
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(provider->assignCalls, 1);
+
+  CHECK(conn.connect().ok());
+  CHECK_EQ(provider->assignCalls, 2);
+  for (int i = 0; i < 5; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assignCalls, 2);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  CHECK_EQ(conn.stats().reconnects, 0u);
+}
+
 int main() {
   run();
   runEventsReadyHook();
@@ -1328,6 +1451,8 @@ int main() {
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
   runFirstSendRetry();
   runIdleReleaseIsFinal();
+  runIdleReleaseAfterInputReassigns();
+  runReassignmentDoesNotOutliveIdleRelease();
   std::puts("replication_test OK");
   return 0;
 }

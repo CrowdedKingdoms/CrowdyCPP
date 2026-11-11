@@ -1,4 +1,6 @@
+#include <chrono>
 #include <limits>
+#include <string>
 
 #include "crowdy/graphql/json.hpp"
 #include "test_util.hpp"
@@ -90,11 +92,55 @@ void testJsonParseAccessors() {
   CHECK(!parseBigInt("12x").has_value());
 }
 
+// 0.79.0: forEach used at(i), and at(i) walks an array of objects from its first element, so a
+// chunk's 65,536 voxelStates took about two billion steps. Iteration is one step per element now.
+void testIterationIsLinearAndInOrder() {
+  constexpr int kCount = 65'536;
+  std::string doc = "[";
+  for (int i = 0; i < kCount; ++i) {
+    if (i > 0) doc += ',';
+    doc += R"({"i":)" + std::to_string(i) + R"(,"nested":[1,{"x":2}]})";
+  }
+  doc += "]";
+  const Json states = Json::parse(doc);
+  CHECK(states.ok());
+  const auto start = std::chrono::steady_clock::now();
+  int seen = 0;
+  bool ordered = true;
+  states.forEach([&](Json entry) {
+    if (entry["i"].asInt64() != seen) ordered = false;
+    ++seen;
+  });
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  CHECK_EQ(seen, kCount);
+  CHECK(ordered);
+  CHECK(elapsed < std::chrono::seconds(1));
+
+  const Json obj = Json::parse(R"({"a":{"x":[1,2]},"b":[[3]],"c":3,"d":{}})");
+  std::string keys;
+  std::int64_t total = 0;
+  obj.forEachMember([&](std::string_view key, Json value) {
+    keys += key;
+    if (value.isNumber()) total += value.asInt64();
+    if (value.isObject() && value["x"].isArray()) total += value["x"].at(1).asInt64();
+  });
+  CHECK_EQ(keys, "abcd");
+  CHECK_EQ(total, 5);
+
+  int none = 0;
+  Json::parse("[]").forEach([&](Json) { ++none; });
+  Json::parse("{}").forEachMember([&](std::string_view, Json) { ++none; });
+  Json::parse("7").forEach([&](Json) { ++none; });
+  Json().forEachMember([&](std::string_view, Json) { ++none; });
+  CHECK_EQ(none, 0);
+}
+
 }  // namespace
 
 int main() {
   testJValBuildAndDump();
   testJsonParseAccessors();
+  testIterationIsLinearAndInOrder();
   std::puts("json_test OK");
   return 0;
 }

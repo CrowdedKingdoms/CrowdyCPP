@@ -1,0 +1,23 @@
+query GetChunksByDistanceVoxelTypes($input: GetChunksByDistanceInput!) {
+  getChunksByDistance(input: $input) {
+    limit
+    skip
+    chunks {
+      coordinates {
+        x
+        y
+        z
+      }
+      voxels
+      voxelStates {
+        voxelCoord {
+          x
+          y
+          z
+        }
+        voxelType
+      }
+      voxelStatesTruncated
+    }
+  }
+}

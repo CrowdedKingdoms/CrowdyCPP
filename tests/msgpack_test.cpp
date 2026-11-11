@@ -85,6 +85,35 @@ void testRefusesMalformedInput() {
   CHECK(!Json::fromMsgpack(deep).ok());
 }
 
+// 0.79.0: encoding used one stack frame per nesting level, so a forged answer a few hundred KB of
+// `[[[[` deep overflowed the calling thread's stack. Nesting costs heap now, at any depth.
+void testEncodesAnyDepthWithoutTheStack() {
+  CHECK_EQ(pack(R"({"k":[1,[2,[]],{}],"z":{"y":null}})"), "82a16b930192029080a17a81a179c0");
+  CHECK_EQ(pack(R"([[],{},[[{}]]])"), "939080919180");
+
+  constexpr std::size_t kDepth = 400'000;
+  std::string arrays(kDepth, '[');
+  arrays.append(kDepth, ']');
+  const Json nested = Json::parse(arrays);
+  CHECK(nested.ok());
+  const std::string packed = nested.toMsgpack();
+  CHECK_EQ(packed.size(), kDepth);
+  std::size_t singletons = 0;
+  for (std::size_t i = 0; i + 1 < packed.size(); ++i) {
+    if (static_cast<unsigned char>(packed[i]) == 0x91) ++singletons;
+  }
+  CHECK_EQ(singletons, kDepth - 1);
+  CHECK_EQ(static_cast<unsigned char>(packed.back()), 0x90u);
+
+  std::string objects;
+  for (std::size_t i = 0; i < kDepth; ++i) objects += R"({"a":)";
+  objects += "1";
+  objects.append(kDepth, '}');
+  const std::string packedObjects = Json::parse(objects).toMsgpack();
+  CHECK_EQ(packedObjects.size(), 3 * kDepth + 1);  // 81 a1 61 per level, then 01
+  CHECK_EQ(static_cast<unsigned char>(packedObjects.back()), 0x01u);
+}
+
 }  // namespace
 
 int main() {
@@ -92,6 +121,7 @@ int main() {
   testRoundTripsKeepIntegersExact();
   testDecodesWhatJsonCannotHold();
   testRefusesMalformedInput();
+  testEncodesAnyDepthWithoutTheStack();
   std::puts("msgpack_test OK");
   return 0;
 }

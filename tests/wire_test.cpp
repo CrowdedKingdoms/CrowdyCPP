@@ -40,11 +40,23 @@ const std::uint8_t kGoldenSpatial[] = {
     0x2d, 0xa1, 0x65, 0xac, 0xf4, 0xca, 0x2b, 0xfe, 0x16, 0x39, 0x6c, 0x43, 0x36, 0x2a, 0x15,
     0xcd, 0x5b, 0x07, 0x00, 0x00, 0x00, 0x00, 0x2a};
 
-// Golden COMMAND_RECONNECT frame for the same token.
+// Golden COMMAND_RECONNECT frame for the same token: HMAC-SHA256(token, the type byte), as the
+// server and the game API's UDP proxy compute it. (Until 0.81.0 this vector appended the token
+// to the message, a frame no server sends.)
 const std::uint8_t kGoldenReconnect[] = {
-    0x16, 0x74, 0x8a, 0x0e, 0x41, 0x6b, 0xaa, 0x63, 0xbe, 0xfb, 0xa6,
-    0xff, 0x5f, 0x52, 0x61, 0x1c, 0xc0, 0x93, 0x85, 0x5e, 0x04, 0xe6,
-    0x0a, 0xc0, 0x57, 0xe1, 0x4e, 0x8f, 0xbe, 0x19, 0x82, 0x81, 0xe2};
+    0x16, 0xc8, 0x0d, 0x2c, 0xee, 0x89, 0x77, 0x57, 0x81, 0x29, 0xf7,
+    0x29, 0x50, 0x01, 0xcd, 0x1b, 0xea, 0x65, 0xdd, 0x11, 0xbe, 0x3f,
+    0x51, 0x85, 0x60, 0x52, 0x9c, 0xb2, 0x98, 0xce, 0x5f, 0xc4, 0x2b};
+
+// Golden bound control frames (Buddy v0.45.0) for the same token and nonce 01..08.
+const std::uint8_t kGoldenReconnectBound[] = {
+    0x2c, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0xda, 0x5c, 0x2e, 0x0f,
+    0x16, 0xec, 0x59, 0x2b, 0xd4, 0x1e, 0x81, 0x28, 0x65, 0x27, 0x37, 0x3b, 0x1e, 0xca,
+    0xbb, 0x59, 0x1b, 0xcc, 0x7f, 0x64, 0x81, 0xdf, 0xdb, 0x6e, 0xd2, 0xa5, 0xc2};
+const std::uint8_t kGoldenReleasedBound[] = {  // reason 5 (idle)
+    0x2d, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xfa, 0xe4, 0x50, 0xe0,
+    0x83, 0x64, 0x0d, 0xfd, 0xf2, 0x3f, 0xd6, 0xcd, 0x96, 0x3a, 0xef, 0x35, 0xd6, 0xf5,
+    0x0b, 0xe3, 0x23, 0x04, 0x62, 0x44, 0x68, 0x25, 0x8d, 0xc7, 0xd8, 0xc1, 0x8e, 0xdf};
 
 void testLayoutConstants() {
   CHECK_EQ(kLongSpatialHeaderSize, 68u);
@@ -64,7 +76,12 @@ void testLayoutConstants() {
   CHECK(!isLongSpatialLayout(141)); // short spatial reserved
   // v0.30.0: the video pair and actor-left share the layout (Buddy v0.25.0).
   CHECK(isLongSpatialLayout(143) && isLongSpatialLayout(144) && isLongSpatialLayout(145));
-  CHECK(!isLongSpatialLayout(146));
+  // 0.81.0: the chunk-changed notification (Buddy v0.45.0) shares it too; 147 does not exist.
+  CHECK(isLongSpatialLayout(146));
+  CHECK(!isLongSpatialLayout(147));
+  CHECK_EQ(static_cast<int>(MessageType::ChunkChangedNotification), 146);
+  CHECK_EQ(static_cast<int>(MessageType::CommandReconnectBound), 44);
+  CHECK_EQ(static_cast<int>(MessageType::CommandSessionReleasedBound), 45);
   CHECK_EQ(static_cast<int>(MessageType::ClientVideoPacket), 143);
   CHECK_EQ(static_cast<int>(MessageType::ClientVideoNotification), 144);
   CHECK_EQ(static_cast<int>(MessageType::ActorLeftNotification), 145);
@@ -172,6 +189,45 @@ void testCommandReconnect() {
   std::vector<std::uint8_t> bad(kGoldenReconnect, kGoldenReconnect + sizeof(kGoldenReconnect));
   bad[5] ^= 0xff;
   CHECK(!verifyCommandReconnect(crypto(), Bytes(bad.data(), bad.size()), testToken()).ok());
+}
+
+void testBoundControlFrames() {
+  const std::uint8_t nonce[kControlNonceSize] = {1, 2, 3, 4, 5, 6, 7, 8};
+  const std::uint8_t other[kControlNonceSize] = {1, 2, 3, 4, 5, 6, 7, 9};
+  Bytes reconnect(kGoldenReconnectBound, sizeof(kGoldenReconnectBound));
+  CHECK_EQ(sizeof(kGoldenReconnectBound), kCommandReconnectBoundSize);
+  CHECK(verifyCommandReconnectBound(crypto(), reconnect, testToken(), nonce).ok());
+  CHECK_EQ(static_cast<int>(verifyCommandReconnectBound(crypto(), reconnect, testToken(), other).code),
+           static_cast<int>(Errc::Rejected));
+  auto otherToken = *Token64::fromString(std::string(64, 'x'));
+  CHECK_EQ(static_cast<int>(verifyCommandReconnectBound(crypto(), reconnect, otherToken, nonce).code),
+           static_cast<int>(Errc::HmacMismatch));
+  CHECK_EQ(static_cast<int>(verifyCommandReconnectBound(crypto(), Bytes(kGoldenReconnect, sizeof(kGoldenReconnect)),
+                                                          testToken(), nonce)
+                                .code),
+           static_cast<int>(Errc::Malformed));
+
+  Bytes released(kGoldenReleasedBound, sizeof(kGoldenReleasedBound));
+  CHECK_EQ(sizeof(kGoldenReleasedBound), kCommandSessionReleasedBoundSize);
+  auto reason = verifySessionReleasedBound(crypto(), released, testToken(), nonce);
+  CHECK(reason.ok());
+  CHECK_EQ(reason.value(), 5);
+  CHECK(!verifySessionReleasedBound(crypto(), released, testToken(), other).ok());
+  std::vector<std::uint8_t> rewritten(kGoldenReleasedBound, kGoldenReleasedBound + sizeof(kGoldenReleasedBound));
+  rewritten[1] = 1;  // the reason is inside the signature
+  CHECK(!verifySessionReleasedBound(crypto(), Bytes(rewritten.data(), rewritten.size()), testToken(), nonce).ok());
+
+  CHECK_EQ(ClientCapability::kBoundControl, 2u);
+  CHECK_EQ(ClientCapability::kAll, 3u);
+}
+
+void testChunkChangedPayload() {
+  std::uint8_t payload[8];
+  le::writeI64(payload, 1'794'400'000'321);
+  CHECK_EQ(chunkChangedUpdatedAtMs(Bytes(payload, sizeof(payload))), 1'794'400'000'321);
+  CHECK_EQ(chunkChangedUpdatedAtMs(Bytes(payload, 7)), 0);
+  CHECK(isLongSpatialLayout(146));
+  CHECK(isServerOnlySpatialType(146));
 }
 
 void testVoxelPayloadRoundTrip() {
@@ -739,6 +795,8 @@ int main() {
   testEncodeClientCapabilities();
   testGoldenParseAndVerify();
   testCommandReconnect();
+  testBoundControlFrames();
+  testChunkChangedPayload();
   testVoxelPayloadRoundTrip();
   testEventPayloadRoundTrip();
   testChannelRoundTrip();

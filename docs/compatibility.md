@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.80.0 passes the strict portable-parity gate against CrowdyJS
-**18.28.0**. The gate pins CrowdyJS commit
-`bc8b2b0737c0caf1486358c721123fa72fc1b955` (`dev/v18.28.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.81.0 passes the strict portable-parity gate against CrowdyJS
+**18.29.0**. The gate pins CrowdyJS commit
+`f698cfe05fda587d30195531ac896325f7d43ea2` (`dev/v18.29.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.81.0 mirrors CrowdyJS 18.29.0's `chunkChanged` (`Handlers::chunkChanged`, `WorldSessionConfig::onChunkChanged`; `CHUNK_CHANGED_NOTIFICATION` 146 from realtime servers v0.45.0). Natively, and outside the portable gate: `COMMAND_RECONNECT` (22) verifies with the HMAC the servers send, and the reconnect and release frames are bound to a per-assignment nonce (`ClientCapability::kBoundControl`; 44 and 45), with legacy 22 and 28 still accepted from older servers and the relay. It selects nothing ck-api v2.67.0 lacks.
 
 0.80.0 mirrors CrowdyJS 18.28.0's region reads (ck-api v2.67.0): `domains::ChunkRegion` (a cube or a box between two corners, a page, `since`) for `chunks().region()`, `regionVoxels()`, `regionVoxelTypes()` and `voxels().listInRegion()` (native equivalents of CrowdyJS's input objects), stable pages that answer the paging applied, `voxels().list()` paging by position, and `gameApps().nearbyGrids()` selecting the caller's `permissionKeys`, which an older Game API refuses.
 
@@ -80,7 +82,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.80.0 | CrowdyJS 18.28.0 | Required public API generation |
+| Surface | CrowdyCPP 0.81.0 | CrowdyJS 18.29.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

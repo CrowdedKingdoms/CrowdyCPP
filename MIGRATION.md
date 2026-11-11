@@ -1,5 +1,35 @@
 # CrowdyCPP migration notes
 
+## 0.81.0 Reconnect commands verify again; control frames bound to the assignment; chunkChanged
+
+Nothing to change in a game that does not want the new event. Mirrors CrowdyJS 18.29.0's
+`chunkChanged`.
+
+- **A `COMMAND_RECONNECT` (22) from the server is honoured again.** The verifier computed the
+  HMAC over the type byte followed by the game token, while the realtime servers and the Game
+  API's UDP proxy sign the type byte alone (the documented scheme), so no reconnect command ever
+  verified: each was dropped and counted in `Stats::hmacFailures`, and a client the server asked
+  to move stayed until its watchdog or the next reassignment. It now verifies `[22]` alone, and
+  the wire golden is the server's.
+- **Control frames bound to this assignment (realtime servers v0.45.0).** Each assignment draws a
+  random 8-byte control nonce and sends it after the flags in `CLIENT_CAPABILITIES`
+  (`ClientCapability::kBoundControl`, bit 1). A server that reads it sends
+  `COMMAND_RECONNECT_BOUND` (44) and `COMMAND_SESSION_RELEASED_BOUND` (45) instead of 22 and 28,
+  with the nonce inside the HMAC. A bound frame carrying another nonce, one captured from an
+  earlier assignment and sent again, is dropped and counted in the new
+  `Stats::staleBoundControl`. A verified bound idle release is final at once:
+  `Config::idleReleaseGuardMs` applies only to the legacy 28, which older servers and the Game
+  API's relay still send. Because the client cannot tell an older server from a replay, it
+  still accepts the legacy 22 and 28: a captured legacy reconnect still moves the session, and
+  a captured legacy idle release still ends it when this client sent no gameplay input in the
+  last minute.
+- **`Handlers::chunkChanged` and `WorldSessionConfig::onChunkChanged`** fire for
+  `CHUNK_CHANGED_NOTIFICATION` (146), which the realtime servers send when a hub's or mod's
+  `world.set_chunk` (ck-api v2.68.0) replaced a chunk near the player. They carry the chunk and
+  its new `updatedAt` in epoch milliseconds: read the chunk again (`chunks().get()`, or a region
+  read with `since`). The change arrives as this one notification instead of a voxel update per
+  voxel, so a game that ignores it sees the chunk change only on its next read.
+
 ## 0.80.0 Region reads: a box, a since and stable pages; your own keys on nearbyGrids
 
 **It needs ck-api v2.67.0** (cks-game-api #652): `gameApps().nearbyGrids()` selects

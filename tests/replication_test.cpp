@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -85,18 +86,44 @@ wire::Token64 token64() { return *wire::Token64::fromString(kToken); }
 
 // CLIENT_CAPABILITIES (29) leaves once housekeeping sees Connected. 0.42.0
 // encoded nothing, so these reads used to see the next application datagram.
-void expectCapabilities(FakeServer& server) {
+// The CLIENT_CAPABILITIES a connection sends: both bits, and this assignment's nonce after the
+// flags. Returns the nonce.
+std::array<std::uint8_t, wire::kControlNonceSize> expectCapabilities(FakeServer& server) {
   auto got = server.recvOne();
   CHECK_EQ(got[0], static_cast<std::uint8_t>(wire::MessageType::ClientCapabilities));
   auto parsed = wire::parseLongSpatial(Bytes(got.data(), got.size()));
   CHECK(parsed.ok());
-  CHECK_EQ(parsed->payload.size(), 4u);
-  CHECK_EQ(parsed->payload[0], 0x01);
+  CHECK_EQ(parsed->payload.size(), 4u + wire::kControlNonceSize);
+  CHECK_EQ(parsed->payload[0], 0x03);
   CHECK_EQ(parsed->payload[1], 0x00);
   CHECK_EQ(parsed->payload[2], 0x00);
   CHECK_EQ(parsed->payload[3], 0x00);
   CHECK(wire::verifyLongSpatial(core::opensslCrypto(), Bytes(got.data(), got.size()), token64())
             .ok());
+  std::array<std::uint8_t, wire::kControlNonceSize> nonce{};
+  if (parsed.ok() && parsed->payload.size() >= 4 + nonce.size())
+    std::memcpy(nonce.data(), parsed->payload.data() + 4, nonce.size());
+  return nonce;
+}
+
+// COMMAND_RECONNECT as the server signs it: HMAC(token, the type byte).
+void signReconnect(std::uint8_t (&rc)[wire::kCommandReconnectSize]) {
+  rc[0] = 22;
+  CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(rc, 1), rc + 1));
+}
+
+// A bound control frame (44 or 45) over `nonce`: HMAC(token, everything before it).
+std::vector<std::uint8_t> boundFrame(bool reconnect, std::uint8_t reason,
+                                     const std::array<std::uint8_t, wire::kControlNonceSize>& nonce) {
+  std::vector<std::uint8_t> f;
+  f.push_back(reconnect ? 44 : 45);
+  if (!reconnect) f.push_back(reason);
+  f.insert(f.end(), nonce.begin(), nonce.end());
+  const std::size_t signedLen = f.size();
+  f.resize(signedLen + wire::kHmacTagSize);
+  CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(f.data(), signedLen),
+                                         f.data() + signedLen));
+  return f;
 }
 
 core::ActorUuid uuid(char fill) {
@@ -303,11 +330,7 @@ void run() {
 
   // --- COMMAND_RECONNECT: verified command triggers reassignment.
   std::uint8_t rc[wire::kCommandReconnectSize];
-  rc[0] = 22;
-  std::uint8_t msg[1 + wire::kTokenOctets];
-  msg[0] = 22;
-  std::memcpy(msg + 1, kToken.data(), 64);
-  CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(msg, sizeof(msg)), rc + 1));
+  signReconnect(rc);
   server.sendToClient(rc, sizeof(rc));
 
   for (int i = 0; i < 100 && provider->assignCalls < 2; ++i) {
@@ -1096,14 +1119,7 @@ void runFirstSendRetry() {
   std::vector<std::uint8_t> requests;  // the opcode of every request answered
   std::atomic<bool> stop{false};
   std::uint8_t reconnectCommand[wire::kCommandReconnectSize];
-  {
-    std::uint8_t msg[1 + wire::kTokenOctets];
-    reconnectCommand[0] = 22;
-    msg[0] = 22;
-    std::memcpy(msg + 1, kToken.data(), 64);
-    CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(msg, sizeof(msg)),
-                                           reconnectCommand + 1));
-  }
+  signReconnect(reconnectCommand);
   std::thread responder([&] {
     timeval tv{0, 50 * 1000};
     ::setsockopt(server.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -1176,11 +1192,7 @@ void runFirstSendRetry() {
   auto reassign = [&] {
     const int before = provider->assignCalls;
     std::uint8_t rc[wire::kCommandReconnectSize];
-    std::uint8_t msg[1 + wire::kTokenOctets];
-    rc[0] = 22;
-    msg[0] = 22;
-    std::memcpy(msg + 1, kToken.data(), 64);
-    CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(msg, sizeof(msg)), rc + 1));
+    signReconnect(rc);
     ::sendto(server.fd, rc, sizeof(rc), 0, reinterpret_cast<sockaddr*>(&server.lastClient),
              server.lastClientLen);
     for (int i = 0; i < 100 && provider->assignCalls == before; ++i) {
@@ -1441,6 +1453,74 @@ void runReassignmentDoesNotOutliveIdleRelease() {
   CHECK_EQ(conn.stats().reconnects, 0u);
 }
 
+// 0.81.0 (Buddy v0.45.0): the bound control frames carry this assignment's nonce inside their
+// signature. A verified one is final: an idle release right after input ends the session, with no
+// guard. One carrying an earlier assignment's nonce is dropped and counted.
+void runBoundControlFrames() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg = idleTestConfig();
+  cfg.advertiseCapabilities = true;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  const auto first = expectCapabilities(server);
+  CHECK(first != (std::array<std::uint8_t, wire::kControlNonceSize>{}));
+
+  // A bound reconnect with this assignment's nonce moves the client.
+  auto reconnect = boundFrame(/*reconnect=*/true, 0, first);
+  server.sendToClient(reconnect.data(), reconnect.size());
+  for (int i = 0; i < 20 && provider->assignCalls < 2; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assignCalls, 2);
+  conn.pump(0);
+  const auto second = expectCapabilities(server);
+  CHECK(second != first);
+
+  // The same frame again, bound to the assignment the client left, moves nothing.
+  server.sendToClient(reconnect.data(), reconnect.size());
+  auto staleRelease = boundFrame(/*reconnect=*/false, static_cast<std::uint8_t>(wire::ReleaseReason::Idle), first);
+  server.sendToClient(staleRelease.data(), staleRelease.size());
+  for (int i = 0; i < 5; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assignCalls, 2);
+  CHECK_EQ(conn.stats().staleBoundControl, 2u);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+
+  // A forged one (right nonce, wrong key) is an HMAC failure, not a stale frame.
+  auto forged = boundFrame(/*reconnect=*/true, 0, second);
+  forged.back() ^= 0xff;
+  const std::uint64_t hmacBefore = conn.stats().hmacFailures;
+  server.sendToClient(forged.data(), forged.size());
+  conn.pump(20);
+  CHECK_EQ(conn.stats().hmacFailures, hmacBefore + 1);
+  CHECK_EQ(provider->assignCalls, 2);
+
+  // Right after gameplay input, a bound idle release still ends the session.
+  const std::uint8_t pose[] = {9, 9};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('b');
+  send.payload = Bytes(pose, sizeof(pose));
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  auto release = boundFrame(/*reconnect=*/false, static_cast<std::uint8_t>(wire::ReleaseReason::Idle), second);
+  server.sendToClient(release.data(), release.size());
+  for (int i = 0; i < 20 && conn.state() != ConnState::Inactive; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(conn.stats().idleReleasesAfterInput, 0u);
+  CHECK_EQ(provider->assignCalls, 2);
+}
+
 int main() {
   run();
   runEventsReadyHook();
@@ -1453,6 +1533,7 @@ int main() {
   runIdleReleaseIsFinal();
   runIdleReleaseAfterInputReassigns();
   runReassignmentDoesNotOutliveIdleRelease();
+  runBoundControlFrames();
   std::puts("replication_test OK");
   return 0;
 }

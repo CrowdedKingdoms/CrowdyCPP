@@ -50,32 +50,37 @@ int main() try {
   const ChunkData* hydrated = session.chunks().find(base);
   E2E_CHECK(hydrated != nullptr);
   E2E_CHECK(hydrated->storedOnServer);
-  E2E_CHECK(std::memcmp(hydrated->voxels.data(), stored.data(), stored.size()) == 0);
+  E2E_CHECK(std::memcmp(hydrated->grid(), stored.data(), stored.size()) == 0);
   E2E_CHECK(session.chunks().voxelTypeAt(base, 1, 0, 0) == stored[1]);
 
-  E2E_SUBTEST("optimistic setVoxel + write-back persists durably");
+  E2E_SUBTEST("optimistic setVoxel is echoed and recorded by the server");
   const std::uint8_t meta[] = {0x77};
-  auto seq = session.chunks().setVoxel(base, 3, 4, 5, 99, Bytes(meta, 1), session.actorUuid());
-  E2E_CHECK(seq.ok());
+  bool echoed = false;
+  auto edit = session.chunks().setVoxel(base, 3, 4, 5, 99, Bytes(meta, 1), session.actorUuid(), true,
+                                        [&](const EditOutcome& o) { echoed = o.result == EditResult::Echoed; });
+  E2E_CHECK(edit.ok());
   E2E_CHECK(session.chunks().voxelTypeAt(base, 3, 4, 5) == 99);
-  // Drive ticks until the throttled write-back flushes the dirty chunk.
+  E2E_CHECK(session.chunks().pendingWriteBacks() == 0);  // a realtime edit is not written back
   const auto start = std::chrono::steady_clock::now();
-  bool persisted = false;
-  while (!persisted && std::chrono::steady_clock::now() - start < std::chrono::seconds(15)) {
+  while (!echoed && std::chrono::steady_clock::now() - start < std::chrono::seconds(15)) {
     session.tick();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const ChunkData* c = session.chunks().find(base);
-    persisted = c && !c->dirty;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  E2E_CHECK(persisted);
-  // A second, independent session must hydrate the edited value.
+  E2E_CHECK(echoed);
+  // A second, independent session reads the recorded edit (the server records it within ~2 s).
   {
     WorldSessionConfig sc2;
     sc2.appId = cfg.appId;
     sc2.hostHeartbeatIntervalMs = 0;
-    WorldSession fresh(p.conn, p.game.get(), sc2);
-    E2E_CHECK(fresh.chunks().ensureAround(base, 0) >= 1);
-    E2E_CHECK(fresh.chunks().voxelTypeAt(base, 3, 4, 5) == 99);
+    bool seen = false;
+    const auto readStart = std::chrono::steady_clock::now();
+    while (!seen && std::chrono::steady_clock::now() - readStart < std::chrono::seconds(15)) {
+      WorldSession fresh(p.conn, p.game.get(), sc2);
+      E2E_CHECK(fresh.chunks().ensureAround(base, 0) >= 1);
+      seen = fresh.chunks().voxelTypeAt(base, 3, 4, 5) == 99;
+      if (!seen) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    E2E_CHECK(seen);
   }
 
   E2E_SUBTEST("seed() worldgen write-back reaches the durable store");
@@ -83,7 +88,7 @@ int main() try {
   const auto generated = patternVoxels(2);
   session.chunks().seed(genCoord, generated);
   {
-    const ChunkFlushResult flushed = session.chunks().flush();
+    const ChunkFlushResult flushed = session.chunks().flushAndWait();
     E2E_CHECK(flushed.persisted >= 1);
     E2E_CHECK(flushed.dropped.empty());
   }
@@ -95,19 +100,24 @@ int main() try {
     E2E_CHECK(fresh.chunks().ensureAround(genCoord, 0) >= 1);
     const ChunkData* c = fresh.chunks().find(genCoord);
     E2E_CHECK(c != nullptr);
-    E2E_CHECK(std::memcmp(c->voxels.data(), generated.data(), generated.size()) == 0);
+    E2E_CHECK(std::memcmp(c->grid(), generated.data(), generated.size()) == 0);
   }
 
-  E2E_SUBTEST("pruneBeyond persists dirty chunks before evicting");
+  E2E_SUBTEST("pruneBeyond keeps a dirty chunk until it is written back, then evicts it");
   const wire::ChunkCoord farCoord{510050, 0, 510000};
   session.chunks().seed(farCoord, patternVoxels(3));  // dirty, far away
-  const std::size_t before = session.chunks().size();
-  const std::size_t pruned = session.chunks().pruneBeyond(base, 10);
-  E2E_CHECK(pruned >= 1);
-  E2E_CHECK(session.chunks().size() == before - pruned);
+  session.chunks().pruneBeyond(base, 10);
+  E2E_CHECK(session.chunks().find(farCoord) != nullptr);  // its write-back is queued
+  const auto pruneStart = std::chrono::steady_clock::now();
+  while (session.chunks().find(farCoord)->dirty &&
+         std::chrono::steady_clock::now() - pruneStart < std::chrono::seconds(15)) {
+    session.tick();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  E2E_CHECK(!session.chunks().find(farCoord)->dirty);
+  E2E_CHECK(session.chunks().pruneBeyond(base, 10) >= 1);
   E2E_CHECK(session.chunks().find(farCoord) == nullptr);
   {
-    // The pruned-but-dirty chunk must have been flushed on the way out.
     WorldSessionConfig sc2;
     sc2.appId = cfg.appId;
     sc2.hostHeartbeatIntervalMs = 0;
@@ -138,7 +148,7 @@ int main() try {
     const auto closeStart = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - closeStart < std::chrono::seconds(45)) {
       session.chunks().seed(refusedCoord, patternVoxels(4));
-      refused = session.chunks().flush();
+      refused = session.chunks().flushAndWait();
       if (!refused.dropped.empty()) break;
       std::this_thread::sleep_for(std::chrono::seconds(2));  // not yet on this replica
     }
@@ -173,7 +183,7 @@ int main() try {
     while (!persistedAgain &&
            std::chrono::steady_clock::now() - openStart < std::chrono::seconds(45)) {
       session.chunks().seed(refusedCoord, patternVoxels(5));
-      persistedAgain = session.chunks().flush().persisted == 1;
+      persistedAgain = session.chunks().flushAndWait().persisted == 1;
       if (!persistedAgain) std::this_thread::sleep_for(std::chrono::seconds(2));
     }
     E2E_CHECK(persistedAgain);

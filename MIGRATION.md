@@ -1,5 +1,120 @@
 # CrowdyCPP migration notes
 
+## 0.82.0 ChunkStore v2: nothing blocks the game thread, refused edits are undone, compact storage
+
+The Unreal team's C3-C6, and CrowdyJS 18.30.0's ChunkStore. **Breaking** for code that reads
+`ChunkData`'s fields, keeps `setVoxel()`'s return value, or calls `flush()` and `pruneBeyond()` for
+their outcomes; CrowdyPy rebinds it. Box reads and `since` need ck-api v2.67.0.
+
+- **Threads.** The durable store's calls (`IChunkSource`) run on a thread the store owns
+  (`Options::ioThread`, or call `runIo()` from your own worker with it off), never on the game
+  thread; everything else, every callback included, runs on the thread that calls `tick()`.
+  `ensureAroundAsync()` returns at once and `tick()` applies what arrived within
+  `Options::adoptBudgetUs` (2 ms). `ensureAround()`, `hydrate()` and `flushAndWait()` still wait.
+- **Loads read only what is missing.** A step at range 8 asks for the 289-chunk slab it uncovers,
+  as boxes (`IChunkSource::chunksInBox`, new; the default reads the bounding cube with
+  `chunksAround()`); the Game API's source pages each box by the limit the server applied, and a
+  chunk two pages return is applied once (`duplicatePageChunks()`). A chunk the server does not
+  have is not asked for again until it is pruned. Range 0 reads one chunk. A stored copy now
+  **replaces** a chunk's states and overlay (a `world.set_chunk` drops the older edits), so a
+  source must report `voxelStates`; this client's unanswered edits are put back over it. A dirty
+  chunk is never overwritten.
+- **Realtime edits are not written back.** `setVoxel()` no longer marks a chunk dirty: the server
+  records realtime edits. Only `seed()`, `insertGenerated()` and `markDirty()` grids are written
+  back.
+- **`setVoxel()` returns an edit id and is paced.** At most `Options::maxEditsInFlight` (128) are
+  unanswered and `maxEditsPerSecond` (250) go out a second; the rest wait in order, already shown.
+  The optional callback (and `onEditRefused`) reports `EditOutcome`: `Echoed`, `Refused` (a
+  `GENERIC_ERROR` for its sequence number, `errorCode`), `NotSent`, or `TimedOut`
+  (`Options::editTimeoutMs`, 10 s). A refused, unsent or unanswered edit is undone (`restored`).
+  `sequenceOf(editId)` gives the sequence number while it waits; `onEditSent` reports each send.
+- **`flush()` queues and returns** (`persisted` is the number queued); `flushAndWait(timeoutMs)`
+  waits for the outcomes, backoff included, without sleeping the store (`Options::sleep` is
+  unused). **`pruneBeyond()` keeps a dirty chunk** until its write-back ends (queued by the prune);
+  a later prune evicts it.
+- **`ChunkData` is compact.** A chunk whose voxels have one type keeps the type alone
+  (`uniform()`, `uniformType()`); states and overlay voxels live in one buffer per chunk. Read
+  with `grid()` (no copy), `typeAt(index)`, `stateAt(index)`, `forEachState()`, `overlayAt()`,
+  `forEachOverlay()`, `stateCount()`, `overlayCount()`, `memoryBytes()`; the `voxels`,
+  `voxelStates` and `overlay` members are gone. `voxelStateAt()` returns
+  `std::optional<VoxelStateView>` (its `state` points into the chunk: copy what you keep).
+  `storedAtMs` is the stored row's `updatedAt`.
+- **Changes once per tick.** `onChanges()` reports every chunk that changed since the last tick
+  with `ChunkChangeFlag` bits (loaded, voxels, states, unloaded), and flags the face neighbours of
+  a border edit (`kChunkNeighborEdge` with the face). `onChunkChanged()` still fires per change.
+- **`chunkChanged` and reconnects.** The session hands chunk-changed notifications, errors and the
+  connection state to the store: a replaced chunk it holds is read again
+  (`Options::reloadReplacedChunks`), and after the connection comes back `catchUp()` reads the
+  last area's edits and rewritten chunks from 30 s before it dropped (`catchUpOnReconnect`;
+  `IChunkSource::editsInBox`, new).
+- `makeGameApiChunkSource(chunks, voxels)` builds the Game API's source for a custom store.
+
+Measured on the builder (`benchmarks/bench_chunk_store`): 125 chunks with 256 edits each (64-byte
+states, 5.5 MB of JSON) parse in 26 ms on the I/O thread, and the longest tick applying them is
+1.1 ms at the 2 ms budget (0.6 ms at 500 us); before, the whole load ran inside one call on the
+game thread. Range 8 (4,913 chunks, 4,298 of them air) holds 2.8 MB, where a 4 KiB grid each is
+20.1 MB.
+
+## 0.81.0 Reconnect commands verify again; control frames bound to the assignment; chunkChanged
+
+Nothing to change in a game that does not want the new event. Mirrors CrowdyJS 18.29.0's
+`chunkChanged`.
+
+- **A `COMMAND_RECONNECT` (22) from the server is honoured again.** The verifier computed the
+  HMAC over the type byte followed by the game token, while the realtime servers and the Game
+  API's UDP proxy sign the type byte alone (the documented scheme), so no reconnect command ever
+  verified: each was dropped and counted in `Stats::hmacFailures`, and a client the server asked
+  to move stayed until its watchdog or the next reassignment. It now verifies `[22]` alone, and
+  the wire golden is the server's.
+- **Control frames bound to this assignment (realtime servers v0.45.0).** Each assignment draws a
+  random 8-byte control nonce and sends it after the flags in `CLIENT_CAPABILITIES`
+  (`ClientCapability::kBoundControl`, bit 1). A server that reads it sends
+  `COMMAND_RECONNECT_BOUND` (44) and `COMMAND_SESSION_RELEASED_BOUND` (45) instead of 22 and 28,
+  with the nonce inside the HMAC. A bound frame carrying another nonce, one captured from an
+  earlier assignment and sent again, is dropped and counted in the new
+  `Stats::staleBoundControl`. A verified bound idle release is final at once:
+  `Config::idleReleaseGuardMs` applies only to the legacy 28, which older servers and the Game
+  API's relay still send. Because the client cannot tell an older server from a replay, it
+  still accepts the legacy 22 and 28: a captured legacy reconnect still moves the session, and
+  a captured legacy idle release still ends it when this client sent no gameplay input in the
+  last minute.
+- **`Handlers::chunkChanged` and `WorldSessionConfig::onChunkChanged`** fire for
+  `CHUNK_CHANGED_NOTIFICATION` (146), which the realtime servers send when a hub's or mod's
+  `world.set_chunk` (ck-api v2.68.0) replaced a chunk near the player. They carry the chunk and
+  its new `updatedAt` in epoch milliseconds: read the chunk again (`chunks().get()`, or a region
+  read with `since`). The change arrives as this one notification instead of a voxel update per
+  voxel, so a game that ignores it sees the chunk change only on its next read.
+
+## 0.80.0 Region reads: a box, a since and stable pages; your own keys on nearbyGrids
+
+**It needs ck-api v2.67.0** (cks-game-api #652): `gameApps().nearbyGrids()` selects
+`permissionKeys`, which an older Game API refuses as a whole query. Mirrors CrowdyJS 18.28.0.
+
+- **`domains::ChunkRegion`** describes what a region read covers and which page of it:
+  `ChunkRegion::cube(center, maxDistance)` or `ChunkRegion::box(low, high)` (both corners
+  inclusive, in either order, at most 4,913 chunks), then `.limit(n)`, `.skip(n)` and
+  `.since(isoTime)`. A box streams in only the slab a step uncovers: at range 8 a step along one
+  axis reads 289 chunks instead of 4,913.
+- **`chunks().region()`, `regionVoxels()` and `regionVoxelTypes()`** (with `Async` twins) read a
+  region with `byDistance()`'s, `byDistanceVoxels()`'s and `byDistanceVoxelTypes()`'s selections.
+  `byDistance()` and its two lean twins are unchanged: they read a cube.
+- **`voxels().listInRegion()`** (and `listInRegionAsync`) reads the recorded edits of a region,
+  grouped per chunk. It reads the edit log alone, so it returns edits in chunks whose grid was
+  never stored; for a box the answer's `centerCoordinate` is its middle chunk.
+- **Pages are stable.** A cube comes nearest first and then by x, y, z, a box by x, y, z, so each
+  chunk is on exactly one page; the answer's `limit` and `skip` are the ones applied (1,000 and 0
+  by default), never null.
+- **`since` on a chunk read** keeps only chunks whose stored row was written at or after it
+  (`updateChunk`, `updateChunkState`, `updateChunkLods`). A voxel edit does not move it: read
+  edits with `listInRegion`'s `since`.
+- **`voxels().list(input)` pages**: `limit` (1-65,536, the default) and `skip` in its input,
+  ordered by position. It was newest first and unbounded. `chunks().voxelList()` is its first
+  page.
+- **`gameApps().nearbyGrids()` returns each grid's `permissionKeys` for the caller**, so a game
+  can grey out a build tool or draw claim borders before an edit is refused. The grid that decides
+  a voxel edit is the smallest one covering its chunk (the lower `gridId` on a tie), and the edit
+  needs `update_voxel_data` there.
+
 ## 0.79.0 A replayed idle release, a stale reassignment, deep and long JSON, lean chunk reads, and a store that keeps what it loaded
 
 **It needs nothing new on the tier.** Still pinned to CrowdyJS 18.27.0; nothing here changes the

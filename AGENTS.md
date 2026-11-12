@@ -85,7 +85,9 @@ When the unified GraphQL surface changes:
 
 CrowdyPy (the Python SDK) vendors this repository at a pinned release and binds the
 replication `Connection`, `WorldSession` and the wrapper seams added for it in 0.54.0:
-`Config::onEventsReady`, `IChunkSource` with the injectable `ChunkStore` constructor,
+`Config::onEventsReady`, `IChunkSource` with the injectable `ChunkStore` constructor (since
+0.82.0 called on the store's I/O thread, or on the thread that calls `runIo()`; CrowdyPy turns
+`Options::ioThread` off and its staged source answers inline),
 `IHostElection` and `WorldSessionServices`. A change to those contracts is a change to
 CrowdyPy too: say so in `MIGRATION.md`, and CrowdyPy re-vendors at its next release
 (`scripts/vendor_crowdycpp.py`). Its Windows build includes these headers after

@@ -1,11 +1,17 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.79.0 passes the strict portable-parity gate against CrowdyJS
-**18.27.0**. The gate pins CrowdyJS commit
-`b6050ce9e0506dbc94436b4e709286a237ed2950` (`test/v18.27.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.82.0 passes the strict portable-parity gate against CrowdyJS
+**18.30.0**. The gate pins CrowdyJS commit
+`5db77a3115210718e2732d7d3b2e905a9d43bf86` (`test/v18.30.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.82.0 mirrors CrowdyJS 18.30.0's ChunkStore rework as native equivalents: region loads of only the chunks missing, as boxes paged by the limit applied, on the store's I/O thread and applied within `Options::adoptBudgetUs`; paced edits (128 unanswered, 250 a second) undone when refused, not sent or unanswered (`onEditRefused`, `EditOutcome`); `ingestChunkChanged` re-reads and `catchUp()` after a reconnect; and, natively only, compact chunk storage and per-tick change reports with neighbour flags. It selects nothing ck-api v2.67.0 lacks.
+
+0.81.0 mirrors CrowdyJS 18.29.0's `chunkChanged` (`Handlers::chunkChanged`, `WorldSessionConfig::onChunkChanged`; `CHUNK_CHANGED_NOTIFICATION` 146 from realtime servers v0.45.0). Natively, and outside the portable gate: `COMMAND_RECONNECT` (22) verifies with the HMAC the servers send, and the reconnect and release frames are bound to a per-assignment nonce (`ClientCapability::kBoundControl`; 44 and 45), with legacy 22 and 28 still accepted from older servers and the relay. It selects nothing ck-api v2.67.0 lacks.
+
+0.80.0 mirrors CrowdyJS 18.28.0's region reads (ck-api v2.67.0): `domains::ChunkRegion` (a cube or a box between two corners, a page, `since`) for `chunks().region()`, `regionVoxels()`, `regionVoxelTypes()` and `voxels().listInRegion()` (native equivalents of CrowdyJS's input objects), stable pages that answer the paging applied, `voxels().list()` paging by position, and `gameApps().nearbyGrids()` selecting the caller's `permissionKeys`, which an older Game API refuses.
 
 0.79.0 keeps the 18.27.0 pin and changes nothing portable: an idle release right after this client's own gameplay input reassigns instead of ending the session (`Config::idleReleaseGuardMs`), `connect()` clears a reassignment left from the session that ended, `Json::toMsgpack()` packs any depth without the call stack and `forEach()` is linear, `chunks().byDistanceVoxels()` and `byDistanceVoxelTypes()` select only what a renderer draws (native equivalents: CrowdyJS's ChunkStore hydrates per chunk instead), `getLods()` requires `lodLevels`, `voxels().history()` sends its variables as the operation takes them, and ChunkStore pages its bulk load, keeps loaded chunks, puts unechoed local edits back over a stored copy, and `hydrate()` reads one chunk. It selects nothing ck-api v2.65.0 lacks.
 
@@ -78,7 +84,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.79.0 | CrowdyJS 18.27.0 | Required public API generation |
+| Surface | CrowdyCPP 0.82.0 | CrowdyJS 18.30.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

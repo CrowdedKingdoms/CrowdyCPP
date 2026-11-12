@@ -102,7 +102,7 @@ void testSharedDiagnosticFixture() {
         "crowdy.studio-diagnostics/1");
   CHECK(fixture["crowdyJs"]["version"].asStringView() == "18.30.0");
   CHECK(fixture["crowdyJs"]["commit"].asStringView() ==
-        "5db77a3115210718e2732d7d3b2e905a9d43bf86");
+        "7a858e1fb20f8a6c7614a2984d937a327c4f9710");
   fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
     const auto parsed = parseRustcDiagnostics(
         fixtureCase["output"].asStringView(),

@@ -85,6 +85,10 @@ class PortableTransport final : public graphql::IHttpTransport {
       return {200,
               R"({"data":{"ban":{"groupMemberId":"9","groupId":"11","userId":"42","status":"banned","createdAt":"t","roles":[]}}})"};
     }
+    if (request.body.find("query NearbyGrids(") != std::string::npos) {
+      return {200,
+              R"({"data":{"nearbyGrids":[{"appId":"42","gridId":"7","lowChunk":{"x":"0","y":"0","z":"0"},"highChunk":{"x":"3","y":"3","z":"3"},"permissionKeys":["update_voxel_data"]}]}})"};
+    }
     return {200, R"({"data":{"ok":true}})"};
   }
 };
@@ -675,7 +679,57 @@ void testGroupBansSendTheirMutations() {
   CHECK_EQ(lastBody()["variables"]["groupId"].asString(), "11");
 }
 
+// Region reads (ck-api v2.67.0): a cube or a box, the page and `since` go out as given, and
+// byDistance is the cube. nearbyGrids selects the caller's own keys.
+void testRegionReadsSendTheirInputs() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient client(portableConfig(transport));
+  auto body = [&] { return graphql::Json::parse(transport->requests.back().body); };
+  auto input = [&] { return body()["variables"]["input"]; };
+
+  client.chunks().regionVoxelTypes(
+      "42", domains::ChunkRegion::box({10, 0, -4}, {10, 2, 4})
+                .limit(289)
+                .since("2026-11-11T00:00:00.000Z"));
+  CHECK(body()["query"].asString().rfind("query GetChunksByDistanceVoxelTypes(", 0) == 0);
+  CHECK_EQ(input()["appId"].asString(), "42");
+  CHECK_EQ(input()["lowChunk"]["x"].asString(), "10");
+  CHECK_EQ(input()["lowChunk"]["z"].asString(), "-4");
+  CHECK_EQ(input()["highChunk"]["y"].asString(), "2");
+  CHECK(!input()["centerCoordinate"].ok());
+  CHECK(!input()["maxDistance"].ok());
+  CHECK_EQ(input()["limit"].asInt64(), 289);
+  CHECK(!input()["skip"].ok());
+  CHECK_EQ(input()["since"].asString(), "2026-11-11T00:00:00.000Z");
+
+  client.chunks().byDistance("42", {1, 2, 3}, 2, 0, 1000);
+  CHECK(body()["query"].asString().rfind("query GetChunksByDistance(", 0) == 0);
+  CHECK_EQ(input()["centerCoordinate"]["y"].asString(), "2");
+  CHECK_EQ(input()["maxDistance"].asInt64(), 2);
+  CHECK(!input()["limit"].ok());
+  CHECK_EQ(input()["skip"].asInt64(), 1000);
+  CHECK(!input()["lowChunk"].ok());
+  CHECK(!input()["since"].ok());
+
+  client.chunks().region("42", domains::ChunkRegion::cube({5, 5, 5}, 8).skip(4000));
+  CHECK_EQ(input()["maxDistance"].asInt64(), 8);
+  CHECK_EQ(input()["skip"].asInt64(), 4000);
+
+  client.voxels().listInRegion("42", domains::ChunkRegion::box({0, 0, 0}, {4, 0, 0}));
+  CHECK(body()["query"].asString().rfind("query ListVoxelUpdatesByDistance(", 0) == 0);
+  CHECK_EQ(input()["highChunk"]["x"].asString(), "4");
+
+  graphql::JVal near;
+  near["appId"] = "42";
+  near["lowChunk"] = domains::ChunkRef{0, 0, 0}.toInput();
+  near["highChunk"] = domains::ChunkRef{3, 3, 3}.toInput();
+  auto grids = client.gameApps().nearbyGrids(near);
+  CHECK(body()["query"].asString().find("permissionKeys") != std::string::npos);
+  CHECK_EQ(grids.at(0)["permissionKeys"].at(0).asString(), "update_voxel_data");
+}
+
 int main() {
+  testRegionReadsSendTheirInputs();
   testAMovedClientIsFullyUsable();
   testQuotasSetRefusesAPlatformGlobalRule();
   testGroupBansSendTheirMutations();

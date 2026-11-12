@@ -10,6 +10,20 @@ cmake --build build -j
 `bench_e2e_latency` measures echo round-trip against a deployment and needs the
 `CROWDY_E2E_*` variables; it is not part of the offline set.
 
+## bench_chunk_store (0.82.0)
+
+What a region load costs the game thread, against the Unreal team's measurements (C3, C6):
+the Game API's source answered by an in-process fake, the parse on the store's I/O thread, and
+`tick()` applying within `Options::adoptBudgetUs`. On the CKS builder, Release:
+
+| Load | I/O thread | Longest tick | Held |
+| --- | --- | --- | --- |
+| 125 chunks x 256 edits, 64-byte states (5.5 MB JSON) | 26 ms read + parse | 1.1 ms (2 ms budget), 0.6 ms (500 us) | |
+| Range 8, 4,913 chunks, 4,298 of them air | | 2.1 ms (2 ms budget) | 2.8 MB (20.1 MB as 4 KiB grids) |
+
+Before 0.82.0 the first load ran inside one `ensureAround()` call on the game thread (57 ms for the
+same 125 chunks in the team's own test), and every chunk kept a 4 KiB grid.
+
 ## What bench_send is for
 
 `bench_codec` reports encode+sign as a single number, which is enough to see a

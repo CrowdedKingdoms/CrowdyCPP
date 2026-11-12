@@ -269,10 +269,10 @@ void run() {
   const ChunkData* chunk = session.chunks().find({2, 0, 0});
   CHECK(chunk != nullptr);
   CHECK_EQ(voxelsSeen, 1);
-  CHECK_EQ(chunk->voxels[static_cast<std::size_t>(voxelIndex(3, 4, 5))], 7u);
-  auto vs = chunk->voxelStates.find(voxelIndex(3, 4, 5));
-  CHECK(vs != chunk->voxelStates.end());
-  CHECK_EQ(vs->second.state.size(), 2u);
+  CHECK_EQ(chunk->typeAt(voxelIndex(3, 4, 5)), 7u);
+  auto vs = chunk->stateAt(voxelIndex(3, 4, 5));
+  CHECK(vs.has_value());
+  CHECK_EQ(vs->state.size(), 2u);
 
   auto channelMsgs = session.channelInbox().drain();
   CHECK_EQ(channelMsgs.size(), 1u);
@@ -310,9 +310,11 @@ void run() {
                                        session.actorUuid());
   CHECK(seq.ok());
   const ChunkData* edited = session.chunks().find({2, 0, 0});
-  CHECK_EQ(edited->voxels[static_cast<std::size_t>(voxelIndex(1, 1, 1))], 3u);
+  CHECK_EQ(edited->typeAt(voxelIndex(1, 1, 1)), 3u);
   CHECK(session.chunks().revision() >= 2);
-  CHECK_EQ(session.chunks().pendingWriteBacks(), std::size_t{1});
+  // A realtime edit is recorded by the server: nothing to write back (0.82.0).
+  CHECK_EQ(session.chunks().pendingWriteBacks(), std::size_t{0});
+  CHECK_EQ(session.chunks().editsInFlight(), std::size_t{1});
   // Drain until we see the voxel request (actor keyframes may interleave).
   bool sawVoxel = false;
   for (int i = 0; i < 5 && !sawVoxel; ++i) sawVoxel = server.recvOne()[0] == 131;
@@ -361,7 +363,7 @@ void run() {
 
   // ChunkStore ergonomics.
   CHECK_EQ(session.chunks().voxelTypeAt({2, 0, 0}, 3, 4, 5), 7u);
-  CHECK(session.chunks().voxelStateAt({2, 0, 0}, 3, 4, 5) != nullptr);
+  CHECK(session.chunks().voxelStateAt({2, 0, 0}, 3, 4, 5).has_value());
   CHECK(session.chunks().list().size() >= 1);
   CHECK_EQ(session.chunks().pruneBeyond({2, 0, 0}, 0), 0u);  // only chunk 2,0,0 cached
 
@@ -415,7 +417,7 @@ void run() {
     int changes = 0;
     session.chunks().onChunkChanged([&](const ChunkData&) { ++changes; });
 
-    echo(session.actorUuid(), seq.value(), 3);  // the edit sent above
+    echo(session.actorUuid(), *session.chunks().sequenceOf(seq.value()), 3);  // the edit sent above
     CHECK_EQ(changes, 0);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 3);
 
@@ -423,19 +425,21 @@ void run() {
     CHECK(s2.ok());
     echo(other, 200, 9);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 9);
-    echo(session.actorUuid(), s2.value(), 4);
+    echo(session.actorUuid(), *session.chunks().sequenceOf(s2.value()), 4);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 4);
 
     auto s3 = session.chunks().setVoxel(at, 1, 1, 1, 5, Bytes(), session.actorUuid());
     auto s4 = session.chunks().setVoxel(at, 1, 1, 1, 6, Bytes(), session.actorUuid());
     CHECK(s3.ok() && s4.ok());
+    const std::uint8_t q3 = *session.chunks().sequenceOf(s3.value());
+    const std::uint8_t q4 = *session.chunks().sequenceOf(s4.value());
     echo(other, 201, 9);
-    echo(session.actorUuid(), s3.value(), 5);
+    echo(session.actorUuid(), q3, 5);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 9);
-    echo(session.actorUuid(), s4.value(), 6);
+    echo(session.actorUuid(), q4, 6);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
     const int afterEchoes = changes;
-    echo(session.actorUuid(), s4.value(), 6);  // a duplicate after the match is a plain edit
+    echo(session.actorUuid(), q4, 6);  // a duplicate after the match is a plain edit
     CHECK_EQ(changes, afterEchoes + 1);
     session.chunks().onChunkChanged(nullptr);
 
@@ -446,10 +450,11 @@ void run() {
     auto s5 = session.chunks().setVoxel(at, 1, 1, 1, 8, Bytes(), session.actorUuid(),
                                         /*optimistic=*/false);
     CHECK(s5.ok());
+    const std::uint8_t q5 = *session.chunks().sequenceOf(s5.value());
     CHECK_EQ(changes, 0);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 6);
     CHECK_EQ(session.chunks().pendingWriteBacks(), dirtyBefore);
-    echo(session.actorUuid(), s5.value(), 8);
+    echo(session.actorUuid(), q5, 8);
     CHECK_EQ(changes, 1);
     CHECK_EQ(session.chunks().voxelTypeAt(at, 1, 1, 1), 8);
     CHECK_EQ(session.chunks().pendingWriteBacks(), dirtyBefore);
@@ -840,9 +845,11 @@ void runStoredCopyKeepsUnechoedEdits() {
 
   auto mine = store.setVoxel(at, 1, 2, 3, 3, Bytes(), me);
   CHECK(mine.ok());
+  const std::uint8_t mineSeq = *store.sequenceOf(mine.value());
   (void)server.recvOne();
   auto overtaken = store.setVoxel(at, 2, 2, 2, 4, Bytes(), me);
   CHECK(overtaken.ok());
+  const std::uint8_t overtakenSeq = *store.sequenceOf(overtaken.value());
   (void)server.recvOne();
 
   CHECK_EQ(store.ensureAround(at, 1), std::size_t{1});
@@ -850,7 +857,7 @@ void runStoredCopyKeepsUnechoedEdits() {
   CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 3);
   CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 4);
   CHECK_EQ(store.ensureAround(at, 1), std::size_t{0});  // loaded: the cache stays
-  CHECK_EQ(source.reads, 2);
+  CHECK_EQ(source.reads, 1);  // and nothing it holds, or knows is not stored, is read again
 
   // Another player's edit of (2, 2, 2) arrives first: our pending edit there is stale.
   const char other[33] = "ffffffffffffffffffffffffffffffff";
@@ -860,14 +867,14 @@ void runStoredCopyKeepsUnechoedEdits() {
   // The echo of (1, 2, 3): applied already, so not again, and no longer pending.
   const std::string meText(32, 'e');
   const SpatialNotification echo{wire::MessageType::VoxelUpdateNotification, 7, at,
-                                 meText.data(), Bytes(), 2, mine.value()};
+                                 meText.data(), Bytes(), 2, mineSeq};
   CHECK(!store.ingest(echo, wire::VoxelPayloadView{1, 2, 3, 3, Bytes()}));
 
   CHECK_EQ(store.hydrate(at), std::size_t{1});
   CHECK_EQ(store.voxelTypeAt(at, 1, 2, 3), 9);  // echoed: the stored copy stands
   CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 9);  // overtaken: left to its echo
   const SpatialNotification late{wire::MessageType::VoxelUpdateNotification, 7, at,
-                                 meText.data(), Bytes(), 3, overtaken.value()};
+                                 meText.data(), Bytes(), 3, overtakenSeq};
   CHECK(store.ingest(late, wire::VoxelPayloadView{2, 2, 2, 4, Bytes()}));
   CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 4);
   conn.disconnect();

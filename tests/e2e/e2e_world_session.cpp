@@ -71,7 +71,7 @@ int main() {
     sa->tick();
     sb->tick();
     const ChunkData* c = sb->chunks().find(chunk);
-    if (c && c->voxels[static_cast<std::size_t>(voxelIndex(4, 5, 6))] == 42) {
+    if (c && c->typeAt(voxelIndex(4, 5, 6)) == 42) {
       voxelMerged = true;
       break;
     }

@@ -177,9 +177,10 @@ std::pair<int, std::vector<std::uint8_t>> load(e2e::Player& p, const std::string
                                                const wire::ChunkCoord& chunk, const Voxel& v) {
   ChunkStore store(*p.conn, &p.game->chunks(), appId, ChunkStore::Options{});
   LIVE_CHECK(store.ensureAround(chunk, 1) >= 1);
-  const VoxelState* state = store.voxelStateAt(chunk, v.x, v.y, v.z);
+  const auto state = store.voxelStateAt(chunk, v.x, v.y, v.z);
   return {store.voxelTypeAt(chunk, v.x, v.y, v.z),
-          state ? state->state : std::vector<std::uint8_t>{}};
+          state ? std::vector<std::uint8_t>(state->state.begin(), state->state.end())
+                : std::vector<std::uint8_t>{}};
 }
 
 }  // namespace

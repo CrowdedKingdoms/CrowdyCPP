@@ -1327,10 +1327,33 @@ const CROSS_CUTTING_BEHAVIORS = {
   },
   'chunk-store-self-echo': {
     path: 'src/stores/chunks.ts',
-    markers: ['const PENDING_EDIT_TTL_MS = 10_000;'],
+    markers: ['const EDIT_TIMEOUT_MS = 10_000;'],
     classification: classification(
       CATEGORY.NATIVE,
-      'ChunkStore::setVoxel records each sent edit (uuid, sequence, voxel) for kPendingEditTtlMs and ingest() skips its echo (Buddy v0.37.0 echoes every accepted edit to its sender), applying it only when another client\'s edit of that voxel arrived in between and no newer local edit is pending (0.60.0)',
+      'ChunkStore::setVoxel records each edit (uuid, sequence, voxel) until it is echoed, refused or times out (Options::editTimeoutMs) and ingest() skips its echo (Buddy v0.37.0 echoes every accepted edit to its sender), applying it only when another client\'s edit of that voxel arrived in between and no newer local edit is pending (0.60.0)',
+    ),
+  },
+  // CrowdyJS 18.30.0 and CrowdyCPP 0.82.0: the ChunkStore rework (the Unreal team's C3-C5).
+  'chunk-store-paced-edits': {
+    path: 'src/stores/chunks.ts',
+    markers: [
+      'const MAX_EDITS_IN_FLIGHT = 128;',
+      'onEditRefused(listener: (refusal: VoxelEditRefusal<TVoxelState>) => void): () => void {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::setVoxel paces sends (Options::maxEditsInFlight 128, maxEditsPerSecond 250) and undoes an edit the server refuses (ingestError), the connection does not take, or whose echo does not come back in time; onEditRefused(EditOutcome) and the edit\'s own callback report it on the game thread (0.82.0)',
+    ),
+  },
+  'chunk-store-region-loads': {
+    path: 'src/stores/chunks.ts',
+    markers: [
+      'function coverWithBoxes(coords: readonly ChunkCoord[]): ChunkBox[] {',
+      'async catchUp(since: Date): Promise<void> {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore::ensureAroundAsync reads only the chunks the store does not hold, as boxes cut the same way, paged by the limit the server applied, on the store\'s I/O thread, and tick() applies them within adoptBudgetUs; catchUp(sinceIso) after a reconnect (connectionState) and ingestChunkChanged re-read what changed (0.82.0)',
     ),
   },
   'voxel-edit-limits': {

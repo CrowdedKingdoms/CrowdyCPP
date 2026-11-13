@@ -65,7 +65,9 @@ std::string chunkJson(std::int64_t x, std::int64_t y, std::int64_t z, int edits,
   for (int i = 0; i < edits; ++i) {
     if (i) out += ",";
     out += R"({"voxelCoord":{"x":)" + std::to_string(i % 16) + R"(,"y":)" + std::to_string((i / 16) % 16) +
-           R"(,"z":)" + std::to_string(i / 256) + R"(},"voxelType":3,"state":")" + stateB64 + R"("})";
+           R"(,"z":)" + std::to_string(i / 256) + R"(},"voxelType":3,"state":")" + stateB64 +
+           // Recorded after the row was written, as ck-api v2.69.0 dates an edit.
+           R"(","updatedAt":"2026-11-11T20:00:01.000Z"})";
   }
   out += R"(],"voxelStatesTruncated":false,"updatedAt":"2026-11-11T20:00:00.000Z"})";
   return out;
@@ -129,6 +131,11 @@ int main() {
       std::printf("  tick budget %lld us: longest tick %.2f ms, %d ticks, %.1f ms on the game thread in all, "
                   "%.1f ms wall\n",
                   static_cast<long long>(budgetUs), run.longestTickMs, run.ticks, run.totalTickMs, run.wallMs);
+      if (budgetUs == 2000) {
+        std::size_t held = 0;
+        for (const ChunkData* c : store.list()) held += c->memoryBytes();
+        std::printf("  held: %.2f MB (the edits' times included)\n", static_cast<double>(held) / 1e6);
+      }
     }
     ChunkStore blocking(conn, &api, "42", ChunkStore::Options{});
     const auto b0 = Clock::now();

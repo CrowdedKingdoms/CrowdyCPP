@@ -35,7 +35,13 @@ int main() try {
   sc.chunks.writeBackIntervalMs = 200;  // fast write-back for the test
   WorldSession session(p.conn, p.game.get(), sc);
 
-  const wire::ChunkCoord base{510000, 0, 510000};
+  // A fresh base each run: the edits a run records stay in the chunk's edit log and show over any
+  // later grid written there, so a reused base never reads back byte-identical.
+  const std::int64_t run = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count() %
+                           1000000;
+  const wire::ChunkCoord base{510000 + run * 128, 0, 510000};
 
   E2E_SUBTEST("durable write then ensureAround hydrates byte-identical");
   const auto stored = patternVoxels(1);
@@ -84,7 +90,7 @@ int main() try {
   }
 
   E2E_SUBTEST("seed() worldgen write-back reaches the durable store");
-  const wire::ChunkCoord genCoord{510005, 0, 510000};
+  const wire::ChunkCoord genCoord{base.x + 5, 0, base.z};
   const auto generated = patternVoxels(2);
   session.chunks().seed(genCoord, generated);
   {
@@ -104,7 +110,7 @@ int main() try {
   }
 
   E2E_SUBTEST("pruneBeyond keeps a dirty chunk until it is written back, then evicts it");
-  const wire::ChunkCoord farCoord{510050, 0, 510000};
+  const wire::ChunkCoord farCoord{base.x + 50, 0, base.z};
   session.chunks().seed(farCoord, patternVoxels(3));  // dirty, far away
   session.chunks().pruneBeyond(base, 10);
   E2E_CHECK(session.chunks().find(farCoord) != nullptr);  // its write-back is queued
@@ -143,7 +149,7 @@ int main() try {
     std::vector<ChunkWriteBackFailure> reported;
     session.chunks().onWriteBackFailed(
         [&](const ChunkWriteBackFailure& failure) { reported.push_back(failure); });
-    const wire::ChunkCoord refusedCoord{510090, 0, 510000};
+    const wire::ChunkCoord refusedCoord{base.x + 90, 0, base.z};
     ChunkFlushResult refused;
     const auto closeStart = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - closeStart < std::chrono::seconds(45)) {

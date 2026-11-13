@@ -7,6 +7,8 @@ CrowdyCPP 0.84.0 passes the strict portable-parity gate against CrowdyJS
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
 
+0.85.0 mirrors CrowdyJS 18.32.0's floor: a copy's voxels are dated by `Chunk.voxelsUpdatedAt` (`StoredChunk::voxelsUpdatedAtMs` into `storedAtMs`; null means no floor) and copies are ordered by the row's `updatedAt` (`rowAtMs`). Native only: `ClientConfig::maxResponseBytes` with `Errc::ResponseTooLarge`, the curl transport's http/https-only rule, and `ChunkReadLimits`. Needs ck-api v2.70.0.
+
 0.84.0 mirrors CrowdyJS 18.31.1's ChunkStore merge (B1 to B8) as native equivalents: per-voxel server times (`confirmedAtMs`), a copy merged under newer changes, echoes matched by value, a confirmed value under unanswered edits, `catchUp` over every chunk held or known never stored (or boxes), `evict`/`pruneIf`, `hydrateAsync(coord, done)`. Native only: the `SendFn` constructor, `IAsyncChunkSource`, `graphql::interpretResponse`/`requestBody`, and `CONTROL_BOUND_ACK` (46) from realtime servers v0.46.0. Needs ck-api v2.69.0.
 
 0.83.0 changes nothing on the portable surface: MessagePack decoding refuses container keys, `Json::dump()` writes NaN and infinity as `null` (as JavaScript's JSON.stringify does), the idle guard tracks every actor, legacy reconnects are paced, and `voxels().listInRegionCells()` adds a lean edit read.

@@ -18,6 +18,13 @@
 #include "crowdy/graphql/json.hpp"
 #include "test_util.hpp"
 
+#if !defined(_WIN32)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 using namespace crowdy;
 using namespace crowdy::graphql;
 
@@ -568,10 +575,158 @@ void testSyncRequestThrowsHttp() {
 }
 #endif
 
+// 0.85.0: a response past the client's maxResponseBytes is refused before it is parsed, whether
+// the transport honors HttpRequest::maxResponseBytes (and reports ResponseTooLarge) or not.
+class CapturingTransport final : public IHttpTransport {
+ public:
+  std::size_t seenMax = 0;
+  HttpResponse response{200, R"({"data":{"v":"ok"}})"};
+  HttpResponse send(const HttpRequest& request) override {
+    seenMax = request.maxResponseBytes;
+    return response;
+  }
+#ifdef CROWDY_NO_EXCEPTIONS
+  HttpOutcome sendOutcome(const HttpRequest& request) noexcept override {
+    seenMax = request.maxResponseBytes;
+    return {Errc::Ok, response, {}};
+  }
+#endif
+};
+
+void testAnOversizedResponseIsRefusedUnparsed() {
+  const std::string body = R"({"data":{"v":")" + std::string(100, 'x') + R"("}})";
+  GraphQLOutcome direct = interpretResponse(200, body, 64);
+  CHECK(!direct.ok());
+  CHECK(direct.status.code == Errc::ResponseTooLarge);
+  CHECK(direct.kind == GraphQLErrorKind::Protocol);
+  CHECK(interpretResponse(200, body).ok());  // the default cap is 128 MiB
+
+  auto http = std::make_shared<CapturingTransport>();
+  http->response = HttpResponse{200, body};
+  GraphQLClientConfig config{"http://test/graphql", 1000};
+  config.maxResponseBytes = 64;
+  GraphQLClient client(config, http, std::make_shared<AuthState>());
+  GraphQLOutcome got = client.requestOutcome("query", JVal());
+  CHECK_EQ(http->seenMax, std::size_t{64});
+  CHECK(got.status.code == Errc::ResponseTooLarge);
+  CHECK(got.kind == GraphQLErrorKind::Protocol);
+
+  // A transport that stops reading reports it the same way, not as a network failure.
+  auto async = std::make_shared<FakeAsyncTransport>();
+  async->outcome.status = Errc::ResponseTooLarge;
+  auto asyncClient = makeClient(std::make_shared<FakeSyncTransport>());
+  asyncClient->setAsyncTransport(async);
+  GraphQLOutcome asyncGot;
+  asyncClient->requestAsync("query", JVal(), {}, [&](GraphQLOutcome out) { asyncGot = std::move(out); });
+  CHECK(asyncGot.status.code == Errc::ResponseTooLarge);
+  CHECK(asyncGot.kind == GraphQLErrorKind::Protocol);
+
+  auto defaults = std::make_shared<CapturingTransport>();
+  makeClient(defaults)->requestOutcome("query", JVal());
+  CHECK_EQ(defaults->seenMax, kDefaultMaxResponseBytes);
+  CHECK_EQ(std::string(errcName(Errc::ResponseTooLarge)), std::string("ResponseTooLarge"));
+}
+
+#if !defined(_WIN32)
+// The client hangs up mid-body by design: a write to it must not raise SIGPIPE.
+#ifdef MSG_NOSIGNAL
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+
+// A loopback server that answers `replies` connections, one canned response each.
+class LoopbackHttp {
+ public:
+  explicit LoopbackHttp(std::vector<std::string> replies) : replies_(std::move(replies)) {
+    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    CHECK(::bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof addr) == 0);
+    CHECK(::listen(fd_, 4) == 0);
+    socklen_t len = sizeof addr;
+    ::getsockname(fd_, reinterpret_cast<sockaddr*>(&addr), &len);
+    port_ = ntohs(addr.sin_port);
+    thread_ = std::thread([this] {
+      for (const std::string& reply : replies_) {
+        const int c = ::accept(fd_, nullptr, nullptr);
+        if (c < 0) return;
+#ifdef SO_NOSIGPIPE
+        int one = 1;
+        ::setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+        char buf[4096];
+        std::string request;
+        while (request.find("\r\n\r\n") == std::string::npos) {
+          const auto n = ::recv(c, buf, sizeof buf, 0);
+          if (n <= 0) break;
+          request.append(buf, static_cast<std::size_t>(n));
+        }
+        std::size_t sent = 0;
+        while (sent < reply.size()) {
+          const auto n = ::send(c, reply.data() + sent, reply.size() - sent, kSendFlags);
+          if (n <= 0) break;
+          sent += static_cast<std::size_t>(n);
+        }
+        ::close(c);
+      }
+    });
+  }
+  ~LoopbackHttp() {
+    ::shutdown(fd_, SHUT_RDWR);
+    ::close(fd_);
+    if (thread_.joinable()) thread_.join();
+  }
+  std::string url() const { return "http://127.0.0.1:" + std::to_string(port_) + "/graphql"; }
+
+ private:
+  std::vector<std::string> replies_;
+  int fd_ = -1;
+  int port_ = 0;
+  std::thread thread_;
+};
+
+// 0.85.0: the curl transport stops reading a body past maxResponseBytes (counted as it arrives,
+// so a compressed body is counted expanded), refuses one whose declared length passes it, and
+// takes only http and https.
+void testTheCurlTransportHoldsTheResponseCap() {
+  auto curl = makeCurlTransport();
+  if (!curl) return;  // built without libcurl
+  const std::string big(200 * 1024, 'x');
+  const std::string undeclared =
+      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n" + big;
+  const std::string declared = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+                               std::to_string(big.size()) + "\r\nConnection: close\r\n\r\n" + big;
+  LoopbackHttp server({undeclared, declared});
+  HttpRequest request;
+  request.url = server.url();
+  request.body = "{}";
+  request.timeoutMs = 5000;
+  request.maxResponseBytes = 64 * 1024;
+  const HttpOutcome streamed = curl->sendOutcome(request);
+  CHECK(streamed.status.code == Errc::ResponseTooLarge);
+  const HttpOutcome refused = curl->sendOutcome(request);
+  CHECK(refused.status.code == Errc::ResponseTooLarge);
+
+  HttpRequest file;
+  file.url = "file:///etc/hosts";
+  file.method = "GET";
+  file.timeoutMs = 2000;
+  const HttpOutcome local = curl->sendOutcome(file);
+  CHECK(!local.status.ok());
+}
+#endif
+
 }  // namespace
 
 int main() {
   testAsyncSuccess();
+  testAnOversizedResponseIsRefusedUnparsed();
+#if !defined(_WIN32)
+  testTheCurlTransportHoldsTheResponseCap();
+#endif
   testAsyncGraphqlErrors();
   testRetryAfterMsIsReadFromExtensions();
   testRetryAfterMsDistinguishesZeroFromAbsent();

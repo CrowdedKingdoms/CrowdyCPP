@@ -1,5 +1,59 @@
 # CrowdyCPP migration notes
 
+## 0.84.0 ChunkStore v3: merging by the server's time; the bound-control acknowledgement
+
+The Unreal team's feedback on 0.82.0 (B1 to B10, and A4's follow-up). **Needs ck-api v2.69.0**:
+`chunks().get()` and `region()` select each voxel state's `updatedAt`, which an older Game API
+refuses. Realtime servers v0.46.0 send `CONTROL_BOUND_ACK` and date a realtime edit with the moment
+they accepted it; with an older server the store still merges, by the database's write times.
+Pinned to CrowdyJS 18.31.0, which mirrors B1 to B8.
+
+**Breaking** for code that relied on the old merge: another client's edit no longer shows over
+one of this client's unanswered edits of that voxel (it shows if that edit is refused or times
+out), `EditOutcome::restored` is true whenever the voxel stopped showing the edit, `ingest()`
+returns whether what the cache shows changed (an echo usually changes nothing), and an echo must
+carry the edit's state.
+
+- **Changes merge by the server's time (B1).** Each voxel keeps the value the server confirmed last
+  and when: a stored row's write, an entry's `StoredVoxelState::updatedAtMs` (ck-api v2.69.0's
+  `VoxelState.updatedAt`), a notification's `epochMillis`, a recorded edit's `createdAt`. A change
+  older than the value held is dropped, whatever order changes arrive in.
+  `ChunkStore::confirmedAtMs(coord, x, y, z)` reads it. A time more than
+  `Options::maxFutureSkewMs` (5 min) past this machine's clock counts as that much ahead. A source
+  without times (`updatedAtMs` 0) still merges: a change that arrived after its read was asked for
+  wins.
+- **A change that arrives while a chunk loads survives it (B2).** A stored copy, from a load, a
+  hydration or a catch-up, merges under what the store merged meanwhile: a newer change stays, an
+  older one gives way.
+- **An echo matches by its value (B3)**: sender, sequence number, voxel, type and state. A change
+  with this client's uuid and sequence number but another value is another change (a sequence
+  number comes round every 256 sends).
+- **A confirmed value under an unanswered edit is kept (B4).** The voxel shows this client's newest
+  unanswered edit; another client's change, or a stored copy, becomes the confirmed value under it,
+  and a refusal or a timeout shows the next unanswered edit or that value. It went back to what the
+  voxel held before the edit.
+- **`catchUp()` covers every chunk the store holds or knows was never stored (B5)**, in boxes of at
+  most 17³; edits in a chunk never stored give it a slot. **`catchUp(since, boxes)` (B6)** reads the
+  boxes you pass (cut to 17³; more than 64 boxes returns false). It read the last area
+  `ensureAround()` covered.
+- **`evict(coord)` and `pruneIf(predicate)` (B7)** prune a view that is not a cube. A dirty chunk
+  stays until its write-back ends. A read of a chunk evicted while it was out is not applied.
+- **`hydrateAsync(coord, done)` (B8)** calls `done(applied)` on the game thread once a read asked for
+  after the call has ended; a call while a read is out waits for the next one.
+- **A store without a connection (B9)**: `ChunkStore(SendFn send, source, appId, options)`. Feed it
+  notifications, errors and the connection's state yourself.
+- **`IAsyncChunkSource` (B10)** carries the store's requests over an engine's own HTTP client: the
+  store builds each GraphQL body (box reads paged by the limit applied, one-chunk reads, edits since
+  a time, write-back) and parses each raw answer on its I/O thread. `graphql::interpretResponse()`
+  and `graphql::requestBody()` are public for the same purpose.
+- **`CONTROL_BOUND_ACK` (46)**: realtime servers v0.46.0 acknowledge a `CLIENT_CAPABILITIES` that
+  carries `BOUND_CONTROL` and its nonce with `[46][8-byte nonce][HMAC-SHA256(token, the first 9
+  bytes)]`. Once one verifies for the current assignment, every legacy `COMMAND_RECONNECT` (22) and
+  `COMMAND_SESSION_RELEASED` (28) on it is dropped and counted in `Stats::legacyControlDropped`
+  (`Stats::boundControlAcks` counts the acknowledgements).
+- `ChunkData::memoryBytes()` includes the voxels' times: 16 bytes per voxel whose value is newer
+  than its chunk's stored row.
+
 ## 0.83.0 Hardening: msgpack keys, NaN in dumps, idle input for many actors, paced legacy reconnects, lean edit reads
 
 The Unreal team's feedback on 0.82.0 (A1 to A6). It needs nothing new on the tier and is still

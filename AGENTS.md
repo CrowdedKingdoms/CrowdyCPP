@@ -88,7 +88,9 @@ replication `Connection`, `WorldSession` and the wrapper seams added for it in 0
 `Config::onEventsReady`, `IChunkSource` with the injectable `ChunkStore` constructor (since
 0.82.0 called on the store's I/O thread, or on the thread that calls `runIo()`; CrowdyPy turns
 `Options::ioThread` off and its staged source answers inline),
-`IHostElection` and `WorldSessionServices`. A change to those contracts is a change to
+`IHostElection` and `WorldSessionServices`. Since 0.84.0 a source should fill
+`StoredVoxelState::updatedAtMs` (the entry's `updatedAt`): without it the store merges by arrival
+order. A change to those contracts is a change to
 CrowdyPy too: say so in `MIGRATION.md`, and CrowdyPy re-vendors at its next release
 (`scripts/vendor_crowdycpp.py`). Its Windows build includes these headers after
 `<windows.h>`, whose `far` and `near` macros are empty, so no public header may use
@@ -254,6 +256,20 @@ for 24 hours, which on the shared builder blocks every harness; a managed player
 only that player (its organization and external id). `e2e_teen_safety` therefore registers its
 one CK account only with `CROWDY_E2E_TEEN_SIGNUPS=1`, and reads the existing-player cases from
 `CROWDY_E2E_PLAYER_EMAIL` / `_PASSWORD`.
+
+## ChunkStore merging (0.84.0)
+
+`ChunkStore::confirm()` is the one path a confirmed value takes (a notification, a catch-up edit,
+an echo settling a voxel): it compares the server's time with the voxel's (`ChunkData::times_`,
+16 bytes per voxel newer than `storedAtMs`) and drops an older change. `arrivals_` and `mergeSeq_`
+order merges for a source without times. `applyStored()` keeps a merged value newer than the
+copy's entry (or row) for its voxel. A voxel with unanswered edits is a `PendingCell`: its edits
+over the confirmed `base`; `finishEdit()` shows the next optimistic edit or the base. `show()`
+reports a change only when what the voxel shows differs, so `ingest()` returns false for most
+echoes. An `IAsyncChunkSource` answer reaches the store through `ReplySink` (detached in the
+destructor, so a late answer is dropped) and is parsed in `serviceIo()`. Session tests that fake
+an echo must carry the edit's state. `CONTROL_BOUND_ACK` (46) sets `controlBound_` for the nonce
+it verifies; `doAssign()` clears it with each new nonce.
 
 ## Writing tests against `graphql::Json`
 

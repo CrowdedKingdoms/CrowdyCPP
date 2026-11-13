@@ -2,11 +2,17 @@
 // and dropped, a failure that can clear is retried with backoff and then dropped, and neither
 // holds up the other chunks), region loads off the game thread, paced realtime edits that are
 // undone when refused or unanswered, the compact chunk storage and the per-tick change reports.
+// 0.84.0: merging by the server's time, catch-up over every chunk the store knows, eviction,
+// hydration callbacks, a store without a connection and an asynchronous source.
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -378,9 +384,16 @@ class ScriptedSource final : public IChunkSource {
     return out;
   }
 
-  std::vector<StoredChunkEdits> editsInBox(const std::string&, const ChunkCoord&,
-                                           const ChunkCoord&, const std::string&) override {
-    return edits;
+  std::vector<StoredChunkEdits> editsInBox(const std::string&, const ChunkCoord& lo,
+                                           const ChunkCoord& hi, const std::string&) override {
+    if (!viaBoxes) return edits;
+    std::vector<StoredChunkEdits> out;
+    for (const StoredChunkEdits& e : edits) {
+      if (e.coord.x >= lo.x && e.coord.x <= hi.x && e.coord.y >= lo.y && e.coord.y <= hi.y &&
+          e.coord.z >= lo.z && e.coord.z <= hi.z)
+        out.push_back(e);
+    }
+    return out;
   }
 
   std::optional<StoredChunk> chunkAt(const std::string&, const ChunkCoord& coord) override {
@@ -945,7 +958,8 @@ void testChangesAreReportedOncePerTick() {
 }
 
 // C5: an edit the server refuses is undone and reported; a newer edit of the voxel undoes to what
-// the voxel held before both; another client's edit stands.
+// the voxel held before both; another client's edit under an unanswered one shows once it is
+// refused (0.84.0: the voxel showed the unanswered edit until then).
 void testARefusedEditIsUndone() {
   FakeSends sends;
   ChunkStore store(unopened(), nullptr, "42", onThisThread(sends.install({})));
@@ -978,9 +992,10 @@ void testARefusedEditIsUndone() {
   const char other[33] = "0123456789abcdef0123456789abcdef";
   (void)store.setVoxel({0, 0, 0}, 3, 3, 3, 8, Bytes(), core::ActorUuid{});
   store.ingest(voxelNote({0, 0, 0}, other, 200), {3, 3, 3, 9, Bytes()});
+  CHECK_EQ(store.voxelTypeAt({0, 0, 0}, 3, 3, 3), 8);
   CHECK(store.ingestError({sends.sent[3], wire::ErrorCode::Unauthorized}));
   CHECK_EQ(store.voxelTypeAt({0, 0, 0}, 3, 3, 3), 9);
-  CHECK(!refused.back().restored);
+  CHECK(refused.back().restored);
   CHECK(!store.ingestError({250, wire::ErrorCode::Unauthorized}));  // nobody's
 }
 
@@ -1116,6 +1131,461 @@ void testAReconnectCatchesUp() {
   CHECK_EQ(store.find({0, 0, 0})->storedAtMs, 2000);
 }
 
+// ---------------------------------------------------------------------------
+// 0.84.0 (the Unreal team's feedback on 0.82.0)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+const char kOther[33] = "0123456789abcdef0123456789abcdef";
+const char kMine[33] = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm";
+
+core::ActorUuid uuidOf(const char* s) {
+  core::ActorUuid u;
+  std::memcpy(u.data(), s, 32);
+  return u;
+}
+
+replication::SpatialNotification timedNote(const ChunkCoord& chunk, const char* uuid,
+                                           std::int64_t epochMs, std::uint8_t sequence = 1) {
+  return {wire::MessageType::VoxelUpdateNotification, 42, chunk, uuid, Bytes(), epochMs, sequence};
+}
+
+std::int64_t wallMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
+StoredChunk storedAt(const ChunkCoord& coord, std::uint8_t fill, std::int64_t updatedAtMs) {
+  StoredChunk stored;
+  stored.coord = coord;
+  stored.voxels.assign(kChunkVolume, fill);
+  stored.updatedAtMs = updatedAtMs;
+  return stored;
+}
+
+bool inside(const std::pair<ChunkCoord, ChunkCoord>& box, const ChunkCoord& c) {
+  return c.x >= box.first.x && c.x <= box.second.x && c.y >= box.first.y && c.y <= box.second.y &&
+         c.z >= box.first.z && c.z <= box.second.z;
+}
+
+/// An IAsyncChunkSource over canned Game API answers: it keeps each request and answers when told,
+/// on the thread that tells it.
+class FakeAsyncSource final : public IAsyncChunkSource {
+ public:
+  struct Call {
+    ChunkSourceRequest request;
+    std::function<void(ChunkSourceReply)> done;
+  };
+
+  void request(ChunkSourceRequest request, std::function<void(ChunkSourceReply)> done) override {
+    std::lock_guard lock(mutex_);
+    names_.push_back(request.operationName);
+    calls_.push_back({std::move(request), std::move(done)});
+  }
+
+  /// Answer the oldest request with `answer(its body)`; false when none waits.
+  bool answerNext(const std::function<ChunkSourceReply(const graphql::Json&)>& answer) {
+    Call call;
+    {
+      std::lock_guard lock(mutex_);
+      if (calls_.empty()) return false;
+      call = std::move(calls_.front());
+      calls_.erase(calls_.begin());
+    }
+    call.done(answer(graphql::Json::parse(call.request.body)));
+    return true;
+  }
+
+  std::size_t requests() {
+    std::lock_guard lock(mutex_);
+    return names_.size();
+  }
+
+ private:
+  std::mutex mutex_;
+  std::vector<Call> calls_;
+  std::vector<std::string> names_;
+};
+
+std::string timedChunkJson(std::int64_t x) {
+  const std::vector<std::uint8_t> grid(kChunkVolume, 9);
+  return R"({"coordinates":{"x":")" + std::to_string(x) + R"(","y":"0","z":"0"},"voxels":")" +
+         core::base64Encode(Bytes(grid.data(), grid.size())) +
+         R"(","voxelStates":[{"voxelCoord":{"x":1,"y":1,"z":1},"voxelType":3,"state":null,)" +
+         R"("updatedAt":"2026-11-12T01:00:00.000Z"}],"voxelStatesTruncated":false,)" +
+         R"("updatedAt":"2026-11-11T20:00:00.000Z"})";
+}
+
+ChunkSourceReply boxPage(const graphql::Json& body) {
+  CHECK(body["query"].asStringView().find("getChunksByDistance") != std::string_view::npos);
+  CHECK_EQ(body["operationName"].asString(), std::string("GetChunksByDistance"));
+  CHECK_EQ(body["variables"]["input"]["appId"].asString(), std::string("42"));
+  const std::int64_t skip = body["variables"]["input"]["skip"].asInt64(0);
+  const std::string chunks =
+      skip == 0   ? "[" + storedChunkJson(1, false) + "," + storedChunkJson(2, false) + "]"
+      : skip == 2 ? "[" + storedChunkJson(2, false) + "," + storedChunkJson(3, true) + "]"
+                  : "[]";
+  return {200, R"({"data":{"getChunksByDistance":{"limit":2,"skip":)" + std::to_string(skip) +
+                   R"(,"chunks":)" + chunks + "}}}"};
+}
+
+}  // namespace
+
+// B1: a voxel keeps the newest value by the server's time, whatever order changes arrive in; a time
+// far past this machine's clock counts as 5 minutes ahead of it at most.
+void testChangesMergeByServerTime() {
+  ScriptedSource source;
+  source.viaBoxes = true;
+  source.stored.push_back(storedAt({0, 0, 0}, 1, 1000));
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  const ChunkCoord at{0, 0, 0};
+  CHECK_EQ(store.ensureAround(at, 0), 1u);
+  CHECK_EQ(store.confirmedAtMs(at, 1, 1, 1), 1000);
+  CHECK(store.ingest(timedNote(at, kOther, 3000), {1, 1, 1, 5, Bytes()}));
+  CHECK(!store.ingest(timedNote(at, kOther, 2000), {1, 1, 1, 6, Bytes()}));  // older: dropped
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+  CHECK(store.ingest(timedNote(at, kOther, 3000), {1, 1, 1, 7, Bytes()}));  // as new: applied
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 7);
+  CHECK_EQ(store.confirmedAtMs(at, 1, 1, 1), 3000);
+  CHECK(!store.ingest(timedNote(at, kOther, 500), {2, 2, 2, 9, Bytes()}));  // older than the row
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 1);
+
+  const std::int64_t now = wallMs();
+  CHECK(store.ingest(timedNote(at, kOther, now + 86'400'000), {3, 3, 3, 4, Bytes()}));
+  CHECK(store.confirmedAtMs(at, 3, 3, 3) <= wallMs() + 5 * 60 * 1000);
+  CHECK(!store.ingest(timedNote(at, kOther, now + 60'000), {3, 3, 3, 5, Bytes()}));
+  CHECK(store.ingest(timedNote(at, kOther, now + 6 * 60 * 1000), {3, 3, 3, 6, Bytes()}));
+  CHECK_EQ(store.voxelTypeAt(at, 3, 3, 3), 6);
+}
+
+// B2: a change that arrives while a chunk loads survives the chunk's stored copy when it is newer;
+// the copy's entry wins when it is newer. Without server times, what was merged after the read was
+// asked for is the newer.
+void testALoadKeepsChangesNewerThanItsCopy() {
+  ScriptedSource source;
+  source.viaBoxes = true;
+  StoredChunk stored = storedAt({0, 0, 0}, 1, 1000);
+  stored.voxelStates.push_back({3, 3, 3, 4, {}, 9000});
+  source.stored.push_back(stored);
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  const ChunkCoord at{0, 0, 0};
+  CHECK_EQ(store.ensureAroundAsync(at, 0), 1u);
+  store.ingest(timedNote(at, kOther, 5000), {2, 2, 2, 3, Bytes()});
+  store.ingest(timedNote(at, kOther, 5000), {3, 3, 3, 6, Bytes()});
+  store.ingest(timedNote(at, kOther, 500), {4, 4, 4, 7, Bytes()});
+  store.runIo();
+  store.tick(0);
+  CHECK(store.find(at)->hydratedAtMs > 0);
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 3);
+  CHECK_EQ(store.voxelTypeAt(at, 3, 3, 3), 4);
+  CHECK_EQ(store.confirmedAtMs(at, 3, 3, 3), 9000);
+  CHECK_EQ(store.voxelTypeAt(at, 4, 4, 4), 1);
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 1);
+
+  ScriptedSource untimed;
+  untimed.viaBoxes = true;
+  untimed.stored.push_back(storedAt(at, 2, 0));
+  ChunkStore second(unopened(), &untimed, "42", onThisThread());
+  second.ingest(timedNote(at, kOther, 5000), {5, 5, 5, 8, Bytes()});
+  CHECK_EQ(second.ensureAroundAsync(at, 0), 1u);
+  second.ingest(timedNote(at, kOther, 6000), {6, 6, 6, 9, Bytes()});
+  second.runIo();
+  second.tick(0);
+  CHECK_EQ(second.voxelTypeAt(at, 5, 5, 5), 2);
+  CHECK_EQ(second.voxelTypeAt(at, 6, 6, 6), 9);
+}
+
+// B3: an echo is this client's edit coming back with its sender, sequence number, voxel, type and
+// state. One with this client's uuid and sequence number but another value is another change (a
+// sequence number comes round every 256 sends).
+void testAnEchoMatchesTheEditsValue() {
+  FakeSends sends;
+  ChunkStore store(unopened(), nullptr, "42", onThisThread(sends.install({})));
+  const ChunkCoord at{0, 0, 0};
+  store.insertGenerated(at, {});
+  const std::uint8_t state[] = {7};
+  CHECK(store.setVoxel(at, 1, 1, 1, 5, Bytes(state, 1), uuidOf(kMine)).ok());
+  const std::uint8_t seq = sends.sent.back();
+  store.ingest(timedNote(at, kMine, 2000, seq), {1, 1, 1, 6, Bytes()});
+  CHECK_EQ(store.editsInFlight(), 1u);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+  store.ingest(timedNote(at, kMine, 2100, seq), {1, 1, 1, 5, Bytes()});
+  CHECK_EQ(store.editsInFlight(), 1u);
+  store.ingest(timedNote(at, kMine, 2200, seq), {1, 1, 1, 5, Bytes(state, 1)});
+  CHECK_EQ(store.editsInFlight(), 0u);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+  CHECK_EQ(store.voxelStateAt(at, 1, 1, 1)->state.size(), 1u);
+  CHECK_EQ(store.confirmedAtMs(at, 1, 1, 1), 2200);
+}
+
+// B4: a confirmed change under this client's unanswered edit is kept: the edit shows until it is
+// answered, and the voxel shows the change when the edit times out or is refused. A stored copy
+// that arrives under the edit is its confirmed value too.
+void testAConfirmedChangeUnderAPendingEditIsKept() {
+  FakeSends sends;
+  std::int64_t now = 0;
+  ChunkStore::Options options = onThisThread(sends.install({}));
+  options.now = [&] { return now; };
+  options.editTimeoutMs = 1000;
+  ScriptedSource source;
+  source.viaBoxes = true;
+  source.stored.push_back(storedAt({0, 0, 0}, 1, 1000));
+  ChunkStore store(unopened(), &source, "42", options);
+  const ChunkCoord at{0, 0, 0};
+  CHECK_EQ(store.ensureAround(at, 0), 1u);
+  (void)store.setVoxel(at, 1, 1, 1, 5, Bytes(), uuidOf(kMine));
+  store.ingest(timedNote(at, kOther, 3000), {1, 1, 1, 9, Bytes()});
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+  CHECK_EQ(store.confirmedAtMs(at, 1, 1, 1), 3000);
+  now = 2000;
+  store.tick(now);  // times out, and reads the chunk again
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 9);
+  store.runIo();
+  store.tick(now);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 9);  // the copy is older there
+
+  (void)store.setVoxel(at, 2, 2, 2, 6, Bytes(), uuidOf(kMine));
+  source.stored[0].voxelStates.push_back({2, 2, 2, 8, {}, 4000});
+  source.stored[0].updatedAtMs = 1500;
+  CHECK_EQ(store.hydrate(at), 1u);
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 6);
+  CHECK(store.ingestError({sends.sent.back(), wire::ErrorCode::Unauthorized}));
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 8);
+}
+
+// B5/B6: a catch-up reads every chunk the store holds or knows was never stored, in boxes of at
+// most 17^3; edits in a chunk never stored give it a slot, and an edit older than the chunk's row
+// is dropped. catchUp() also takes boxes, cut to 17^3; a chunk the store knows nothing about gets
+// no slot.
+void testACatchUpCoversEveryChunkTheStoreKnows() {
+  ScriptedSource source;
+  source.viaBoxes = true;
+  source.stored.push_back(storedAt({0, 0, 0}, 1, 1000));
+  source.stored.push_back(storedAt({40, 0, 0}, 1, 1000));
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  CHECK_EQ(store.ensureAround({0, 0, 0}, 1), 1u);
+  CHECK_EQ(store.ensureAround({40, 0, 0}, 0), 1u);
+  source.boxes.clear();
+  source.edits.push_back({{1, 0, 0}, {{2, 2, 2, 3, {}, 5000}}});
+  source.edits.push_back({{0, 0, 0}, {{4, 4, 4, 6, {}, 5000}, {5, 5, 5, 7, {}, 500}}});
+  CHECK(store.catchUp("2026-11-12T00:00:00.000Z"));
+  store.runIo();
+  store.tick(0);
+  for (const auto& box : source.boxes) {
+    CHECK((box.second.x - box.first.x + 1) * (box.second.y - box.first.y + 1) *
+              (box.second.z - box.first.z + 1) <=
+          17 * 17 * 17);
+  }
+  auto covered = [&](const ChunkCoord& c) {
+    return std::any_of(source.boxes.begin(), source.boxes.end(),
+                       [&](const auto& box) { return inside(box, c); });
+  };
+  for (int x = -1; x <= 1; ++x)
+    for (int y = -1; y <= 1; ++y)
+      for (int z = -1; z <= 1; ++z) CHECK(covered({x, y, z}));
+  CHECK(covered({40, 0, 0}));
+  CHECK(!covered({9, 0, 0}));
+  CHECK(store.find({1, 0, 0}) != nullptr);
+  CHECK(!store.find({1, 0, 0})->storedOnServer);
+  CHECK_EQ(store.voxelTypeAt({1, 0, 0}, 2, 2, 2), 3);
+  CHECK_EQ(store.voxelTypeAt({0, 0, 0}, 4, 4, 4), 6);
+  CHECK_EQ(store.voxelTypeAt({0, 0, 0}, 5, 5, 5), 1);
+
+  source.boxes.clear();
+  source.edits.push_back({{9, 0, 0}, {{1, 1, 1, 2, {}, 5000}}});
+  CHECK(store.catchUp("2026-11-12T00:00:00.000Z", {ChunkBox{{-20, 0, 0}, {20, 0, 0}}}));
+  store.runIo();
+  store.tick(0);
+  CHECK_EQ(source.boxes.size(), 3u);  // 41 wide: 17 + 17 + 7
+  CHECK(store.find({9, 0, 0}) == nullptr);
+  CHECK(!store.catchUp("2026-11-12T00:00:00.000Z", {ChunkBox{{0, 0, 0}, {200, 200, 0}}}));
+}
+
+// B7: evict() takes one chunk and pruneIf() the chunks a predicate picks, each reported unloaded;
+// a dirty chunk stays until its write-back ends.
+void testEvictAndPruneIf() {
+  ScriptedSource source;
+  ChunkStore::Options options = onThisThread();
+  options.writeBackIntervalMs = 0;
+  ChunkStore store(unopened(), &source, "42", options);
+  for (int x = 0; x < 6; ++x) store.insertGenerated({x, 0, 0}, {});
+  std::size_t unloaded = 0;
+  store.onChanges([&](const std::vector<ChunkChange>& changes) {
+    for (const ChunkChange& c : changes) unloaded += (c.flags & kChunkUnloaded) ? 1 : 0;
+  });
+  store.tick(0);
+  CHECK(store.evict({1, 0, 0}));
+  CHECK(!store.evict({1, 0, 0}));
+  CHECK(!store.evict({99, 0, 0}));
+  CHECK_EQ(store.pruneIf([](const ChunkData& c) { return c.coord.x % 2 == 0; }), 3u);
+  CHECK_EQ(store.size(), 2u);
+  store.tick(0);
+  CHECK_EQ(unloaded, 4u);
+
+  ChunkStore::Options dirtyOptions = onThisThread();
+  dirtyOptions.writeBackIntervalMs = 100;
+  ChunkStore dirty(unopened(), &source, "42", dirtyOptions);
+  dirty.insertGenerated({7, 0, 0}, {});
+  CHECK(!dirty.evict({7, 0, 0}));
+  dirty.runIo();
+  dirty.tick(0);
+  CHECK_EQ(dirty.pendingWriteBacks(), 0u);
+  CHECK(dirty.evict({7, 0, 0}));
+}
+
+// B8: hydrateAsync() calls back once a read asked for after the call has ended. A call while a read
+// is out waits for the next read; a chunk never stored, or evicted while its read was out, reports
+// false.
+void testHydrateAsyncCallsBackAfterAFreshRead() {
+  ScriptedSource source;
+  source.stored.push_back(storedAt({0, 0, 0}, 3, 1000));
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  const ChunkCoord at{0, 0, 0};
+  std::vector<std::string> calls;
+  CHECK(store.hydrateAsync(at, [&](bool applied) { calls.push_back(applied ? "first" : "-"); }));
+  CHECK_EQ(store.runIo(), 1u);  // the first read ran: its copy has 3
+  source.stored[0].voxels.assign(kChunkVolume, 4);
+  source.stored[0].updatedAtMs = 2000;
+  CHECK(store.hydrateAsync(at, [&](bool applied) { calls.push_back(applied ? "second" : "-"); }));
+  store.tick(0);
+  CHECK_EQ(calls.size(), 1u);
+  CHECK_EQ(calls[0], std::string("first"));
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 3);
+  store.runIo();
+  store.tick(0);
+  CHECK_EQ(calls.size(), 2u);
+  CHECK_EQ(calls[1], std::string("second"));
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 4);
+
+  std::optional<bool> never;
+  CHECK(store.hydrateAsync({5, 0, 0}, [&](bool applied) { never = applied; }));
+  store.runIo();
+  store.tick(0);
+  CHECK(never.has_value() && !*never);
+
+  std::optional<bool> evicted;
+  CHECK(store.hydrateAsync(at, [&](bool applied) { evicted = applied; }));
+  store.runIo();
+  CHECK(store.evict(at));
+  store.tick(0);
+  CHECK(evicted.has_value() && !*evicted);
+  CHECK(store.find(at) == nullptr);
+  CHECK_EQ(store.hydrate(at), 1u);
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 4);
+}
+
+// B9: a store without a replication::Connection sends every edit through its SendFn; without one,
+// an edit cannot go out.
+void testAStoreWithoutAConnection() {
+  FakeSends sends;
+  ChunkStore store(sends.install({}).send, nullptr, "42", onThisThread());
+  const ChunkCoord at{0, 0, 0};
+  store.insertGenerated(at, {});
+  CHECK(store.setVoxel(at, 1, 1, 1, 5, Bytes(), uuidOf(kMine)).ok());
+  CHECK_EQ(sends.sent.size(), 1u);
+  store.ingest(timedNote(at, kMine, 1000, sends.sent[0]), {1, 1, 1, 5, Bytes()});
+  CHECK_EQ(store.editsInFlight(), 0u);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+
+  ChunkStore silent(ChunkStore::SendFn{}, nullptr, "42", onThisThread());
+  std::optional<EditResult> result;
+  (void)silent.setVoxel(at, 1, 1, 1, 5, Bytes(), uuidOf(kMine), true,
+                        [&](const EditOutcome& o) { result = o.result; });
+  CHECK(result.has_value() && *result == EditResult::NotSent);
+}
+
+// B10: an asynchronous source carries the store's own requests: a box paged by the limit the server
+// applied, one chunk with getChunk (an entry's updatedAt reaches the merge), a write-back retried
+// after an answer that never came. The store parses the raw answers; one that arrives after the
+// store is gone is dropped.
+void testAnAsyncSourceCarriesTheStoresRequests() {
+  FakeAsyncSource source;
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  CHECK_EQ(store.ensureAroundAsync({2, 0, 0}, 1), 27u);
+  CHECK_EQ(store.runIo(), 1u);
+  for (int page = 0; page < 3; ++page) {
+    std::thread([&] { CHECK(source.answerNext(boxPage)); }).join();
+    store.runIo();
+  }
+  store.tick(0);
+  CHECK_EQ(source.requests(), 3u);
+  CHECK_EQ(store.size(), 3u);
+  CHECK_EQ(store.duplicatePageChunks(), 1u);
+  CHECK_EQ(store.loadsInFlight(), 0u);
+  CHECK(store.find({3, 0, 0})->voxelStatesTruncated);
+  CHECK_EQ(store.voxelTypeAt({2, 0, 0}, 1, 1, 1), 3);
+
+  std::optional<bool> applied;
+  CHECK(store.hydrateAsync({7, 0, 0}, [&](bool a) { applied = a; }));
+  store.runIo();
+  CHECK(source.answerNext([](const graphql::Json& body) -> ChunkSourceReply {
+    CHECK(body["query"].asStringView().find("getChunk(") != std::string_view::npos);
+    CHECK_EQ(body["variables"]["input"]["coordinates"]["x"].asBigInt(), 7);
+    return {200, R"({"data":{"getChunk":)" + timedChunkJson(7) + "}}"};
+  }));
+  store.runIo();
+  store.tick(0);
+  CHECK(applied.has_value() && *applied);
+  CHECK_EQ(store.confirmedAtMs({7, 0, 0}, 1, 1, 1),
+           core::parseIso8601Millis("2026-11-12T01:00:00.000Z", 24));
+  CHECK_EQ(store.confirmedAtMs({7, 0, 0}, 0, 0, 0),
+           core::parseIso8601Millis("2026-11-11T20:00:00.000Z", 24));
+
+  FakeAsyncSource writes;
+  ChunkStore::Options writing = onThisThread();
+  writing.writeBackIntervalMs = 1;
+  writing.writeBackBackoffMs = 1;
+  ChunkStore w(unopened(), &writes, "42", writing);
+  w.insertGenerated({9, 0, 0}, {});
+  w.tick(10);
+  w.runIo();
+  CHECK(writes.answerNext([](const graphql::Json& body) -> ChunkSourceReply {
+    CHECK(body["query"].asStringView().find("updateChunk") != std::string_view::npos);
+    CHECK_EQ(body["variables"]["input"]["voxels"].asStringView().size(), 5464u);
+    return {0, "connection reset"};
+  }));
+  w.runIo();
+  w.tick(20);
+  CHECK_EQ(w.pendingWriteBacks(), 1u);
+  w.tick(40);
+  w.runIo();
+  CHECK(writes.answerNext([](const graphql::Json&) -> ChunkSourceReply {
+    return {200, R"({"data":{"updateChunk":{"appId":"42"}}})"};
+  }));
+  w.runIo();
+  w.tick(60);
+  CHECK_EQ(w.pendingWriteBacks(), 0u);
+
+  FakeAsyncSource late;
+  {
+    ChunkStore gone(unopened(), &late, "42", onThisThread());
+    CHECK(gone.hydrateAsync({1, 0, 0}));
+    gone.runIo();
+  }
+  CHECK(late.answerNext([](const graphql::Json&) -> ChunkSourceReply {
+    return {200, R"({"data":{"getChunk":null}})"};
+  }));
+}
+
+// B10 with the store's own I/O thread: answers come from a third thread while the game thread
+// waits in ensureAround().
+void testAnAsyncSourceWithTheIoThread() {
+  FakeAsyncSource source;
+  ChunkStore store(unopened(), &source, "42", ChunkStore::Options{});
+  std::atomic<bool> stop{false};
+  std::thread answering([&] {
+    while (!stop.load()) {
+      if (!source.answerNext(boxPage)) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  });
+  CHECK_EQ(store.ensureAround({2, 0, 0}, 1), 3u);
+  stop.store(true);
+  answering.join();
+  CHECK_EQ(store.voxelTypeAt({1, 0, 0}, 1, 1, 1), 3);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
   testWideVoxelsGoToTheOverlay();
@@ -1139,6 +1609,16 @@ int main() {
   testEditsArePaced();
   testAChunkChangedReloadsTheChunk();
   testAReconnectCatchesUp();
+  testChangesMergeByServerTime();
+  testALoadKeepsChangesNewerThanItsCopy();
+  testAnEchoMatchesTheEditsValue();
+  testAConfirmedChangeUnderAPendingEditIsKept();
+  testACatchUpCoversEveryChunkTheStoreKnows();
+  testEvictAndPruneIf();
+  testHydrateAsyncCallsBackAfterAFreshRead();
+  testAStoreWithoutAConnection();
+  testAnAsyncSourceCarriesTheStoresRequests();
+  testAnAsyncSourceWithTheIoThread();
   std::puts("chunk_store_test OK");
   return 0;
 }

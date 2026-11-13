@@ -126,6 +126,19 @@ std::vector<std::uint8_t> boundFrame(bool reconnect, std::uint8_t reason,
   return f;
 }
 
+// CONTROL_BOUND_ACK (46) over `nonce`, as the server signs it.
+std::vector<std::uint8_t> ackFrame(const std::array<std::uint8_t, wire::kControlNonceSize>& nonce) {
+  std::vector<std::uint8_t> f;
+  f.push_back(46);
+  f.insert(f.end(), nonce.begin(), nonce.end());
+  const std::size_t signedLen = f.size();
+  f.resize(signedLen + wire::kHmacTagSize);
+  CHECK(core::opensslCrypto().hmacSha256(asBytes(kToken), Bytes(f.data(), signedLen),
+                                         f.data() + signedLen));
+  CHECK_EQ(f.size(), wire::kControlBoundAckSize);
+  return f;
+}
+
 core::ActorUuid uuid(char fill) {
   core::ActorUuid u;
   std::memset(u.data(), fill, 32);
@@ -1618,6 +1631,63 @@ void runBoundControlFrames() {
   CHECK_EQ(provider->assignCalls, 2);
 }
 
+// 0.84.0 (Buddy v0.46.0): once the server acknowledges the bound forms with this assignment's
+// nonce, a legacy 22 or 28 on the assignment can only be a captured frame sent again, and is
+// dropped. An acknowledgement bound to another assignment changes nothing.
+void runBoundAckDropsLegacyControl() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg = idleTestConfig();
+  cfg.advertiseCapabilities = true;
+  cfg.legacyReconnectWindowMs = 0;  // every verified 22 would be honoured
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  const auto first = expectCapabilities(server);
+
+  auto pumpUntil = [&](auto done) {
+    for (int i = 0; i < 50 && !done(); ++i) {
+      conn.pump(20);
+      conn.poll();
+    }
+  };
+  auto ack = ackFrame(first);
+  server.sendToClient(ack.data(), ack.size());
+  pumpUntil([&] { return conn.stats().boundControlAcks == 1; });
+  CHECK_EQ(conn.stats().boundControlAcks, 1u);
+
+  std::uint8_t rc[wire::kCommandReconnectSize];
+  signReconnect(rc);
+  server.sendToClient(rc, sizeof(rc));
+  sendRelease(server, wire::ReleaseReason::Idle);
+  pumpUntil([&] { return conn.stats().legacyControlDropped == 2; });
+  CHECK_EQ(conn.stats().legacyControlDropped, 2u);
+  CHECK_EQ(provider->assignCalls, 1);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+
+  // A bound reconnect still moves the client; the new assignment starts unacknowledged.
+  auto reconnect = boundFrame(/*reconnect=*/true, 0, first);
+  server.sendToClient(reconnect.data(), reconnect.size());
+  pumpUntil([&] { return provider->assignCalls == 2; });
+  CHECK_EQ(provider->assignCalls, 2);
+  conn.pump(0);
+  const auto second = expectCapabilities(server);
+  CHECK(second != first);
+
+  // The first assignment's acknowledgement, sent again, is stale.
+  server.sendToClient(ack.data(), ack.size());
+  pumpUntil([&] { return conn.stats().staleBoundControl == 1; });
+  CHECK_EQ(conn.stats().staleBoundControl, 1u);
+  CHECK_EQ(conn.stats().boundControlAcks, 1u);
+
+  // Without an acknowledgement on this assignment, a verified 22 is honoured.
+  server.sendToClient(rc, sizeof(rc));
+  pumpUntil([&] { return provider->assignCalls == 3; });
+  CHECK_EQ(provider->assignCalls, 3);
+  CHECK_EQ(conn.stats().legacyControlDropped, 2u);
+}
+
 int main() {
   run();
   runEventsReadyHook();
@@ -1633,6 +1703,7 @@ int main() {
   runLegacyReconnectIsPaced();
   runReassignmentDoesNotOutliveIdleRelease();
   runBoundControlFrames();
+  runBoundAckDropsLegacyControl();
   std::puts("replication_test OK");
   return 0;
 }

@@ -2580,11 +2580,11 @@ function relativeName(path) {
 }
 
 function escapeCell(value) {
-  return String(value).replace(/\|/gu, '\\|').replace(/\n/gu, ' ');
+  return String(value).replace(/\\/gu, '\\\\').replace(/\|/gu, '\\|').replace(/\n/gu, ' ');
 }
 
 function escapeInlineCode(value) {
-  return String(value).replace(/`/gu, '\\`');
+  return String(value).replace(/\\/gu, '\\\\').replace(/`/gu, '\\`');
 }
 
 function countPrefixes(values) {

@@ -119,7 +119,7 @@ test('the README target line names the current version', () => {
   const version = projectVersion();
   assert.match(
     read('README.md'),
-    new RegExp(`\\*\\*v${version.replace(/\./gu, '\\.')}\\b`, 'u'),
+    new RegExp(`\\*\\*v${version.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u'),
     `README.md has no **v${version}** target line`,
   );
 });

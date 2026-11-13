@@ -35,13 +35,10 @@ int main() try {
   sc.chunks.writeBackIntervalMs = 200;  // fast write-back for the test
   WorldSession session(p.conn, p.game.get(), sc);
 
-  // A fresh base each run: the edits a run records stay in the chunk's edit log and show over any
-  // later grid written there, so a reused base never reads back byte-identical.
-  const std::int64_t run = std::chrono::duration_cast<std::chrono::seconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
-                               .count() %
-                           1000000;
-  const wire::ChunkCoord base{510000 + run * 128, 0, 510000};
+  // One base for every run: since ck-api v2.70.0 a whole-chunk write supersedes the edits earlier
+  // runs recorded there, so the chunk reads back exactly as written (0.84.0's e2e had to move to a
+  // fresh base each run).
+  const wire::ChunkCoord base{510000, 0, 510000};
 
   E2E_SUBTEST("durable write then ensureAround hydrates byte-identical");
   const auto stored = patternVoxels(1);
@@ -87,6 +84,26 @@ int main() try {
       if (!seen) std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     E2E_CHECK(seen);
+  }
+
+  E2E_SUBTEST("a whole-chunk write supersedes the recorded edit (ck-api v2.70.0)");
+  {
+    graphql::JVal input;
+    input["appId"] = cfg.appId;
+    input["coordinates"] = domains::ChunkRef{base.x, base.y, base.z}.toInput();
+    input["voxels"] = core::base64Encode(Bytes(stored.data(), stored.size()));
+    p.game->chunks().update(input);
+    WorldSessionConfig sc3;
+    sc3.appId = cfg.appId;
+    sc3.hostHeartbeatIntervalMs = 0;
+    WorldSession fresh(p.conn, p.game.get(), sc3);
+    E2E_CHECK(fresh.chunks().ensureAround(base, 0) >= 1);
+    const ChunkData* rewritten = fresh.chunks().find(base);
+    E2E_CHECK(rewritten != nullptr);
+    E2E_CHECK(std::memcmp(rewritten->grid(), stored.data(), stored.size()) == 0);
+    E2E_CHECK(fresh.chunks().voxelTypeAt(base, 3, 4, 5) == stored[3 + 4 * 16 + 5 * 256]);
+    E2E_CHECK(rewritten->storedAtMs > 0);  // the voxels write
+    E2E_CHECK(rewritten->rowAtMs >= rewritten->storedAtMs);
   }
 
   E2E_SUBTEST("seed() worldgen write-back reaches the durable store");

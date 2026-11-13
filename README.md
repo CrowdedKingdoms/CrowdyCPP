@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.83.0: hardening.** `Json::fromMsgpack()` refuses container, binary and extension map keys (a nested key blew up memory); `dump()` writes NaN and infinity as `null` in place and `tryDump()` reports what it cannot write; unchanged keyframes of more than 8 actors no longer count as gameplay input; a legacy `COMMAND_RECONNECT` (22) is paced (`Config::legacyReconnectWindowMs`); `voxels().listInRegionCells()` reads only what rebuilds a cell. See [MIGRATION.md](MIGRATION.md).
+
 **v0.82.0: ChunkStore v2.** Region loads run on the store's I/O thread and `tick()` applies them within a budget; a step reads only the slab it uncovers; realtime edits are paced, and one the server refuses or never echoes is undone (`onEditRefused`); uniform chunks keep one type and states share one buffer per chunk; changes are reported once per tick with neighbour flags. Breaking for `ChunkData`'s fields, `setVoxel()`'s return value and `flush()`. See [MIGRATION.md](MIGRATION.md).
 
 **v0.81.0: reconnect commands verify, control frames a capture cannot replay, and `chunkChanged`.** A server's `COMMAND_RECONNECT` verifies again (the HMAC had been computed over the wrong bytes, so none ever did). Against realtime servers v0.45.0 the reconnect and release frames carry a per-assignment nonce under their HMAC, so one captured earlier is refused, and a verified idle release is final without the idle guard. `Handlers::chunkChanged` and `WorldSessionConfig::onChunkChanged` report a chunk a hub's or mod's `world.set_chunk` replaced. See [MIGRATION.md](MIGRATION.md).

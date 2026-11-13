@@ -1107,6 +1107,7 @@ void runFirstSendRetry() {
   cfg.sessionReadyWaitMs = 0;
   cfg.bundleSends = false;
   cfg.advertiseCapabilities = false;
+  cfg.legacyReconnectWindowMs = 0;  // this test reassigns with legacy 22s moments apart
   Connection conn(cfg, provider, core::opensslCrypto());
   CHECK(conn.connect().ok());
   conn.pump(0);
@@ -1125,11 +1126,17 @@ void runFirstSendRetry() {
     ::setsockopt(server.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     while (!stop.load()) {
       std::uint8_t buf[2048];
-      server.lastClientLen = sizeof(server.lastClient);
-      const ssize_t n = ::recvfrom(server.fd, buf, sizeof(buf), 0,
-                                   reinterpret_cast<sockaddr*>(&server.lastClient),
-                                   &server.lastClientLen);
+      sockaddr_in from{};
+      socklen_t fromLen = sizeof(from);
+      const ssize_t n =
+          ::recvfrom(server.fd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
       if (n <= 0) continue;
+      {
+        // The main thread sends to this address too (reassign below).
+        std::lock_guard lock(scriptMutex);
+        std::memcpy(&server.lastClient, &from, sizeof(from));
+        server.lastClientLen = fromLen;
+      }
       auto parsed = wire::parseLongSpatial(Bytes(buf, static_cast<std::size_t>(n)));
       if (!parsed.ok()) continue;
       const auto type = static_cast<std::uint8_t>(parsed->type);
@@ -1145,15 +1152,14 @@ void runFirstSendRetry() {
       }
       if (reply == Reply::Refuse) {
         const std::uint8_t err[] = {3, parsed->sequence, 7};
-        ::sendto(server.fd, err, sizeof(err), 0, reinterpret_cast<sockaddr*>(&server.lastClient),
-                 server.lastClientLen);
+        ::sendto(server.fd, err, sizeof(err), 0, reinterpret_cast<sockaddr*>(&from), fromLen);
       } else if (reply == Reply::Echo) {
         auto echo = echoFor(parsed->sequence, 'a');
-        ::sendto(server.fd, echo.data(), echo.size(), 0,
-                 reinterpret_cast<sockaddr*>(&server.lastClient), server.lastClientLen);
+        ::sendto(server.fd, echo.data(), echo.size(), 0, reinterpret_cast<sockaddr*>(&from),
+                 fromLen);
       } else if (reply == Reply::Reassign) {
         ::sendto(server.fd, reconnectCommand, sizeof(reconnectCommand), 0,
-                 reinterpret_cast<sockaddr*>(&server.lastClient), server.lastClientLen);
+                 reinterpret_cast<sockaddr*>(&from), fromLen);
       }
     }
   });
@@ -1193,8 +1199,14 @@ void runFirstSendRetry() {
     const int before = provider->assignCalls;
     std::uint8_t rc[wire::kCommandReconnectSize];
     signReconnect(rc);
-    ::sendto(server.fd, rc, sizeof(rc), 0, reinterpret_cast<sockaddr*>(&server.lastClient),
-             server.lastClientLen);
+    sockaddr_in to{};
+    socklen_t toLen = 0;
+    {
+      std::lock_guard lock(scriptMutex);
+      std::memcpy(&to, &server.lastClient, sizeof(to));
+      toLen = server.lastClientLen;
+    }
+    ::sendto(server.fd, rc, sizeof(rc), 0, reinterpret_cast<sockaddr*>(&to), toLen);
     for (int i = 0; i < 100 && provider->assignCalls == before; ++i) {
       conn.pump(20);
       conn.poll();
@@ -1423,6 +1435,91 @@ void runIdleReleaseAfterInputReassigns() {
   CHECK_EQ(provider2->assignCalls, 1);
 }
 
+// 0.83.0: only 8 actors' last payloads were kept, round-robin, so a host keeping more than 8
+// actors' unchanged keyframes going missed every time and always looked active: a genuine idle
+// release reassigned instead of ending the session, at every idle timeout.
+void runUnchangedKeyframesOfManyActorsAreNotInput() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  SteppedClock clock;
+  Connection conn(idleTestConfig(), provider, core::opensslCrypto(), clock);
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  const std::uint8_t pose[] = {5, 6, 7, 8};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.payload = Bytes(pose, sizeof(pose));
+  for (int round = 0; round < 2; ++round) {
+    if (round == 1) clock.aheadMs.store(61'000);
+    for (char a = 'a'; a < 'a' + 20; ++a) {
+      send.uuid = uuid(a);
+      CHECK(conn.sendActorUpdate(send).ok());
+      CHECK_EQ(server.recvOne()[0], 128u);
+    }
+  }
+  sendRelease(server, wire::ReleaseReason::Idle);
+  for (int i = 0; i < 20 && conn.state() != ConnState::Inactive; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Inactive));
+  CHECK_EQ(provider->assignCalls, 1);
+  CHECK_EQ(conn.stats().idleReleasesAfterInput, 0u);
+}
+
+// 0.83.0: a legacy COMMAND_RECONNECT verifies since 0.81.0 and signs fixed bytes, so one captured
+// earlier moved the player to another server as often as it was sent again. One is honoured per
+// assignment, each at least a window after the last; the window doubles to 10 min.
+void runLegacyReconnectIsPaced() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  SteppedClock clock;
+  Connection conn(idleTestConfig(), provider, core::opensslCrypto(), clock);
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  auto send22 = [&] {
+    // The heartbeat tells the fake server where this assignment's socket is.
+    CHECK(conn.sendHeartbeat({1, 2, 3}, uuid('p')).ok());
+    CHECK_EQ(server.recvOne()[0], 26u);
+    std::uint8_t rc[wire::kCommandReconnectSize];
+    signReconnect(rc);
+    server.sendToClient(rc, sizeof(rc));
+  };
+  auto honoured = [&](int assigns) {
+    send22();
+    for (int i = 0; i < 50 && provider->assignCalls < assigns; ++i) {
+      conn.pump(20);
+      conn.poll();
+    }
+    CHECK_EQ(provider->assignCalls, assigns);
+    conn.pump(20);
+  };
+  auto dropped = [&](std::uint64_t suppressed) {
+    const int assigns = provider->assignCalls;
+    send22();
+    for (int i = 0; i < 50 && conn.stats().legacyReconnectsSuppressed < suppressed; ++i) {
+      conn.pump(20);
+      conn.poll();
+    }
+    CHECK_EQ(conn.stats().legacyReconnectsSuppressed, suppressed);
+    CHECK_EQ(provider->assignCalls, assigns);
+  };
+  honoured(2);
+  dropped(1);  // moments later
+  clock.aheadMs.store(31'000);
+  honoured(3);  // 31 s later; the window is 60 s now
+  clock.aheadMs.store(62'000);
+  dropped(2);  // 31 s after it
+  clock.aheadMs.store(92'000);
+  honoured(4);  // 61 s after it; 120 s now
+  clock.aheadMs.store(92'000 + 600'000);
+  honoured(5);  // 10 min without one: back to 30 s
+  clock.aheadMs.store(92'000 + 600'000 + 31'000);
+  honoured(6);
+}
+
 // 0.79.0: a reassignment asked for in the pass that saw an idle release used to survive into the
 // next session, which then reassigned right after connect() had assigned it.
 void runReassignmentDoesNotOutliveIdleRelease() {
@@ -1532,6 +1629,8 @@ int main() {
   runFirstSendRetry();
   runIdleReleaseIsFinal();
   runIdleReleaseAfterInputReassigns();
+  runUnchangedKeyframesOfManyActorsAreNotInput();
+  runLegacyReconnectIsPaced();
   runReassignmentDoesNotOutliveIdleRelease();
   runBoundControlFrames();
   std::puts("replication_test OK");

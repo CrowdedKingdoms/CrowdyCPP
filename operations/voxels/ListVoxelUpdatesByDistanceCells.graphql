@@ -1,0 +1,22 @@
+query ListVoxelUpdatesByDistanceCells($input: ListVoxelUpdatesByDistanceInput!) {
+  listVoxelUpdatesByDistance(input: $input) {
+    limit
+    skip
+    chunks {
+      coordinates {
+        x
+        y
+        z
+      }
+      voxels {
+        location {
+          x
+          y
+          z
+        }
+        voxelType
+        state
+      }
+    }
+  }
+}

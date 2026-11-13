@@ -264,3 +264,7 @@ loop over `at(i)`: an index into an array of objects or arrays walks from its fi
 element, so the loop is quadratic (0.79.0 found one chunk's 65,536 voxel states
 taking about two billion steps that way). `toMsgpack()` is iterative on purpose:
 keep it free of recursion, because a response's depth is the server's to choose.
+`fromMsgpack()` decodes peers' and mods' bytes: never write a container key as text
+(0.83.0 refuses array, map, binary and extension keys; a key nested in keys was
+escaped again at every level, gigabytes from 130 bytes), and keep `dump()` writing
+NaN and infinity as `null` rather than failing the whole value.

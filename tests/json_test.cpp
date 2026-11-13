@@ -33,6 +33,16 @@ void testJValBuildAndDump() {
   CHECK(parsed["nothing"].isNull());
 }
 
+// 0.83.0: a NaN or an infinity was written as `nan` or `inf`, which no JSON parser reads.
+void testJValWritesNonFiniteAsNull() {
+  JVal v;
+  v["a"] = JVal(std::numeric_limits<double>::quiet_NaN());
+  v["b"] = JVal(-std::numeric_limits<double>::infinity());
+  v["c"] = JVal(1.5);
+  CHECK_EQ(v.dump(), R"({"a":null,"b":null,"c":1.5})");
+  CHECK(Json::parse(v.dump()).ok());
+}
+
 void testJsonParseAccessors() {
   Json j = Json::parse(R"({
     "s": "text", "i": 7, "f": 1.5, "b": false,
@@ -139,6 +149,7 @@ void testIterationIsLinearAndInOrder() {
 
 int main() {
   testJValBuildAndDump();
+  testJValWritesNonFiniteAsNull();
   testJsonParseAccessors();
   testIterationIsLinearAndInOrder();
   std::puts("json_test OK");

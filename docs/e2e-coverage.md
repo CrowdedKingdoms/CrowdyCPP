@@ -24,6 +24,18 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.82.0 live validation
+
+On 2026-11-12 the dev deployment (ck-api `v2.68.1`, replication servers `v0.45.0`) passed live
+`e2e_chunk_store_live` against ChunkStore v2 (`dev` at `c6875412`, app `96701660793088`, the
+tier's org admin as owner and the `harness` provisioning token): a durable write hydrated
+byte-identical through the box loads, an optimistic `setVoxel` was echoed and recorded, a seed's
+write-back reached the store, `pruneBeyond` kept a dirty chunk until its write-back ended, a
+write-back refused in a closed wilderness was dropped after one attempt, and realtime merges
+fired `onChunkChanged`. `e2e_world_session` (two sessions, mutual visibility, a voxel merged
+into the other store) and `e2e_stores_live` passed too. `e2e_chunk_recorded_edits` needs a
+Blocks with Friends hub, which no tier runs since the games' retirement, and skipped.
+
 ## 0.49.0 live validation
 
 On 2026-09-27 the dev deployment (ck-api `v2.24.0`) passed live

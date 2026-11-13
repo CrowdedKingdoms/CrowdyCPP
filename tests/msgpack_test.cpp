@@ -1,3 +1,4 @@
+#include <chrono>
 #include <string>
 
 #include "crowdy/graphql/json.hpp"
@@ -85,6 +86,45 @@ void testRefusesMalformedInput() {
   CHECK(!Json::fromMsgpack(deep).ok());
 }
 
+// 0.83.0: a container key was written as escaped text, again at every level a key nests in a
+// key, so about 130 bytes nested 60 deep asked for gigabytes. Only scalar keys are kept now.
+void testRefusesContainerKeys() {
+  std::string nested = unhex("a161");
+  for (int i = 0; i < 60; ++i) nested = "\x81" + nested + "\xc0";
+  CHECK(nested.size() < 140);
+  const auto start = std::chrono::steady_clock::now();
+  CHECK(!Json::fromMsgpack(nested).ok());
+  CHECK(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100));
+
+  CHECK(!Json::fromMsgpack(unhex("81910102")).ok());    // [1]: 2
+  CHECK(!Json::fromMsgpack(unhex("8180c002")).ok());    // {}: 2
+  CHECK(!Json::fromMsgpack(unhex("81c4014102")).ok());  // bin: 2
+  CHECK(!Json::fromMsgpack(unhex("81d4010502")).ok());  // fixext: 2
+  CHECK(!Json::fromMsgpack(unhex("91819101c0")).ok());  // [{[1]: nil}]: a refused key in an array
+  CHECK(Json::fromMsgpack(unhex("91810191c0")).ok());   // [{1: [nil]}]: a scalar key, kept
+
+  CHECK_EQ(Json::fromMsgpack(unhex("81c302"))["true"].asInt64(), 2);
+  CHECK_EQ(Json::fromMsgpack(unhex("81c002"))["null"].asInt64(), 2);
+  CHECK_EQ(Json::fromMsgpack(unhex("81ff02"))["-1"].asInt64(), 2);
+  CHECK_EQ(Json::fromMsgpack(unhex("81ca3fc0000002"))["1.5"].asInt64(), 2);
+}
+
+// 0.83.0: dump() returned "null" for a whole value holding one NaN, which yyjson refuses to
+// write. NaN and infinity are written as null in place; tryDump() reports what still fails.
+void testDumpKeepsTheRestOfAValue() {
+  const Json nan = Json::fromMsgpack(unhex("83a161cb7ff8000000000000a162cb7ff0000000000000a16301"));
+  CHECK(nan.ok());
+  CHECK_EQ(nan.dump(), R"({"a":null,"b":null,"c":1})");
+  CHECK(nan.tryDump().ok());
+
+  const Json badText = Json::fromMsgpack(unhex("81a161a1ff"));
+  CHECK(badText.ok());
+  CHECK_EQ(badText.dump(), "null");
+  CHECK(!badText.tryDump().ok());
+  CHECK(badText.tryDump().error() == crowdy::Errc::Malformed);
+  CHECK_EQ(Json().tryDump().value(), "null");
+}
+
 // 0.79.0: encoding used one stack frame per nesting level, so a forged answer a few hundred KB of
 // `[[[[` deep overflowed the calling thread's stack. Nesting costs heap now, at any depth.
 void testEncodesAnyDepthWithoutTheStack() {
@@ -121,6 +161,8 @@ int main() {
   testRoundTripsKeepIntegersExact();
   testDecodesWhatJsonCannotHold();
   testRefusesMalformedInput();
+  testRefusesContainerKeys();
+  testDumpKeepsTheRestOfAValue();
   testEncodesAnyDepthWithoutTheStack();
   std::puts("msgpack_test OK");
   return 0;

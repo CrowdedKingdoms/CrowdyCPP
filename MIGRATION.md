@@ -1,5 +1,42 @@
 # CrowdyCPP migration notes
 
+## 0.83.0 Hardening: msgpack keys, NaN in dumps, idle input for many actors, paced legacy reconnects, lean edit reads
+
+The Unreal team's feedback on 0.82.0 (A1 to A6). It needs nothing new on the tier and is still
+pinned to CrowdyJS 18.30.0. **Breaking** only for code that decodes MessagePack maps with array,
+map, binary or extension keys, which now fail.
+
+- **`Json::fromMsgpack()` refuses a map key that is an array, a map, binary or an extension**, and the
+  whole decode returns a null `Json` (`ok() == false`). A number, boolean or nil key still becomes
+  its JSON text. A container key was written as escaped text, again at every level a key nests in a
+  key, so about 130 bytes nested 60 deep asked for gigabytes: a peer's actor state or a mod's reply
+  could freeze or crash the decoding thread. A pre-scan in front of `fromMsgpack` can go.
+- **`Json::dump()` writes NaN and infinity as `null` in place**, as JSON.stringify does, so one NaN no
+  longer turns the whole value into `"null"`. A value it still cannot write (a string that is not
+  valid UTF-8, which `fromMsgpack` can produce) still comes back as `"null"`; **`tryDump()`** reports
+  that as `Errc::Malformed` instead. `JVal::dump()` writes NaN and infinity as `null` too (it wrote
+  `nan`, which no parser reads).
+- **Unchanged keyframes of many actors are not gameplay input.** The idle guard kept the last
+  payload of 8 actors, round-robin, so a client keeping more than 8 actors' unchanged keyframes
+  going always looked active, and a genuine legacy idle release (28) reassigned instead of ending
+  the session, at every idle timeout. It now keeps one hash per actor for the assignment (up to
+  4,096 actors; past that, an untracked actor's keyframe is not input).
+- **A legacy `COMMAND_RECONNECT` (22) is paced** (`Config::legacyReconnectWindowMs`, 30 s). A 22 signs
+  fixed bytes, so one captured earlier verifies for the game token's life, and since 0.81.0 each
+  verified one moves the player to another server. One is honoured per assignment, each at least a
+  window after the last; the window doubles with each honoured one up to 10 minutes and goes back
+  to 30 s after 10 minutes without one. The rest are dropped and counted in
+  `Stats::legacyReconnectsSuppressed`. The bound form (44) is not limited. `0` restores the old
+  behaviour. Realtime servers v0.45.0 send a client that advertised a control nonce only the bound
+  forms; a release with the servers' acknowledgement of the nonce lets a client drop legacy frames
+  outright.
+- **`voxels().listInRegionCells()`** (operation `ListVoxelUpdatesByDistanceCells`) reads a region's
+  recorded edits with only what rebuilds a cell: each chunk's `coordinates`, and each edit's
+  `location`, `voxelType` and `state`. `listInRegionCellsTimed()` adds `createdAt`. The edit log keeps
+  one row per position, its latest write, so a repainted chunk's answer is bounded by the positions
+  ever edited in it, not by its history.
+- `src/session/chunk_store.cpp` includes `<cstdio>` for `std::snprintf`.
+
 ## 0.82.0 ChunkStore v2: nothing blocks the game thread, refused edits are undone, compact storage
 
 The Unreal team's C3-C6, and CrowdyJS 18.30.0's ChunkStore. **Breaking** for code that reads

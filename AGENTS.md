@@ -268,8 +268,9 @@ over the confirmed `base`; `finishEdit()` shows the next optimistic edit or the 
 reports a change only when what the voxel shows differs, so `ingest()` returns false for most
 echoes. An `IAsyncChunkSource` answer reaches the store through `ReplySink` (detached in the
 destructor, so a late answer is dropped) and is parsed in `serviceIo()`. Session tests that fake
-an echo must carry the edit's state. `CONTROL_BOUND_ACK` (46) sets `controlBound_` for the nonce
-it verifies; `doAssign()` clears it with each new nonce.
+an echo must carry the edit's state. `CONTROL_BOUND_ACK` (46) records the nonce it verified in
+`boundNonce_`; legacy 22 and 28 are dropped only while that is the current `controlNonce_`, so a
+reassignment that races an acknowledgement cannot carry it over.
 
 ## Writing tests against `graphql::Json`
 

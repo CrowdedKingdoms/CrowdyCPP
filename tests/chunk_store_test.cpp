@@ -1258,6 +1258,15 @@ void testChangesMergeByServerTime() {
   CHECK(!store.ingest(timedNote(at, kOther, now + 60'000), {3, 3, 3, 5, Bytes()}));
   CHECK(store.ingest(timedNote(at, kOther, now + 6 * 60 * 1000), {3, 3, 3, 6, Bytes()}));
   CHECK_EQ(store.voxelTypeAt(at, 3, 3, 3), 6);
+
+  // A stored copy's times are held the same way.
+  source.stored[0].updatedAtMs = now + 86'400'000;
+  source.stored[0].voxelStates.push_back({7, 7, 7, 2, {}, now + 86'400'000});
+  CHECK_EQ(store.hydrate(at), 1u);
+  CHECK(store.find(at)->storedAtMs <= wallMs() + 5 * 60 * 1000);
+  CHECK(store.confirmedAtMs(at, 7, 7, 7) <= wallMs() + 5 * 60 * 1000);
+  CHECK(store.ingest(timedNote(at, kOther, now + 7 * 60 * 1000), {7, 7, 7, 8, Bytes()}));
+  CHECK_EQ(store.voxelTypeAt(at, 7, 7, 7), 8);
 }
 
 // B2: a change that arrives while a chunk loads survives the chunk's stored copy when it is newer;

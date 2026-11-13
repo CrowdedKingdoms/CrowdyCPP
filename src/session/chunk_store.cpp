@@ -825,7 +825,8 @@ void ChunkStore::applyStored(const StoredChunk& stored, std::int64_t nowMs,
   ChunkData& c = slotFor(stored.coord);
   auto pendingChunk = pending_.find(stored.coord);
   PendingByVoxel* pending = pendingChunk == pending_.end() ? nullptr : &pendingChunk->second;
-  const std::int64_t rowMs = stored.updatedAtMs > 0 ? stored.updatedAtMs : 0;
+  // Every server time is held to Options::maxFutureSkewMs past this machine's clock.
+  const std::int64_t rowMs = clampTime(stored.updatedAtMs);
   auto keyOf = [](const StoredVoxelState& e) {
     return voxelKey(static_cast<std::int16_t>(e.x), static_cast<std::int16_t>(e.y),
                     static_cast<std::int16_t>(e.z));
@@ -840,7 +841,10 @@ void ChunkStore::applyStored(const StoredChunk& stored, std::int64_t nowMs,
   if (merging) {
     entryTimes.reserve(stored.voxelStates.size());
     for (const StoredVoxelState& e : stored.voxelStates) {
-      if (fits(e)) entryTimes.emplace_back(keyOf(e), e.updatedAtMs > 0 ? e.updatedAtMs : rowMs);
+      if (fits(e)) {
+        const std::int64_t entryMs = clampTime(e.updatedAtMs);
+        entryTimes.emplace_back(keyOf(e), entryMs > 0 ? entryMs : rowMs);
+      }
     }
     std::sort(entryTimes.begin(), entryTimes.end());
   }
@@ -901,7 +905,8 @@ void ChunkStore::applyStored(const StoredChunk& stored, std::int64_t nowMs,
     if (!fits(entry)) continue;
     putVoxel(c, entry.x, entry.y, entry.z, entry.voxelType,
              Bytes(entry.state.data(), entry.state.size()));
-    if (entry.updatedAtMs > c.storedAtMs) c.times_.push_back({keyOf(entry), entry.updatedAtMs});
+    const std::int64_t entryMs = clampTime(entry.updatedAtMs);
+    if (entryMs > c.storedAtMs) c.times_.push_back({keyOf(entry), entryMs});
   }
   std::sort(c.times_.begin(), c.times_.end(),
             [](const ChunkData::CellTime& a, const ChunkData::CellTime& b) {
@@ -1289,7 +1294,8 @@ void ChunkStore::ingestChunkChanged(const ChunkCoord& coord, std::int64_t update
   if (!options_.reloadReplacedChunks) return;
   ChunkData* c = slot(coord);
   if (!c) return;
-  if (c->storedAtMs > 0 && updatedAtMs > 0 && c->storedAtMs >= updatedAtMs) return;
+  const std::int64_t at = clampTime(updatedAtMs);
+  if (c->storedAtMs > 0 && at > 0 && c->storedAtMs >= at) return;
   if (c->dirty) {
     // The server's copy is newer than a seed waiting to be written back over it.
     setDirty(*c, false);
@@ -1600,7 +1606,7 @@ bool ChunkStore::adopt(IoResult& result, std::int64_t nowMs,
       bool applied = false;
       if (!result.failed && result.chunk && !reload.evicted) {
         const ChunkData* cached = find(coord);
-        const std::int64_t rowMs = result.chunk->updatedAtMs;
+        const std::int64_t rowMs = clampTime(result.chunk->updatedAtMs);
         if (cached && cached->hydratedAtMs > 0 && rowMs > 0 && cached->storedAtMs > rowMs) {
           // A newer copy came first (a catch-up's): the store already holds this one's news.
           applied = !cached->dirty;
@@ -1682,9 +1688,8 @@ bool ChunkStore::adopt(IoResult& result, std::int64_t nowMs,
       for (const StoredChunk& stored : result.chunks) {
         const ChunkData* c = find(stored.coord);
         if (!c || c->dirty) continue;
-        if (c->hydratedAtMs > 0 && stored.updatedAtMs > 0 && c->storedAtMs >= stored.updatedAtMs) {
-          continue;
-        }
+        const std::int64_t rowMs = clampTime(stored.updatedAtMs);
+        if (c->hydratedAtMs > 0 && rowMs > 0 && c->storedAtMs >= rowMs) continue;
         applyStored(stored, nowMs, readSeq);
       }
       return true;

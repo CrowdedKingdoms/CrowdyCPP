@@ -431,9 +431,10 @@ class Connection {
   /// This assignment's BOUND_CONTROL nonce, drawn in doAssign() and sent with
   /// CLIENT_CAPABILITIES; 0 when no random bytes were available (the bit is not sent).
   std::atomic<std::uint64_t> controlNonce_{0};
-  /// Set by a verified CONTROL_BOUND_ACK for controlNonce_; cleared with each new nonce.
-  /// While set, legacy 22 and 28 are dropped unverified.
-  std::atomic<bool> controlBound_{false};
+  /// The nonce the last verified CONTROL_BOUND_ACK carried (0: none). While it is
+  /// controlNonce_, legacy 22 and 28 are dropped unverified; a new assignment's nonce
+  /// no longer matches it, whatever order the two threads ran in.
+  std::atomic<std::uint64_t> boundNonce_{0};
 
   /// Monotonic ms of the last send that counts as gameplay input (0: none yet).
   std::atomic<std::int64_t> lastGameplayMs_{0};

@@ -121,7 +121,6 @@ Status Connection::doAssign() {
     // A new nonce per assignment, so a control frame bound to an earlier one is refused.
     std::uint64_t nonce = 0;
     if (!crypto_.randomBytes(reinterpret_cast<std::uint8_t*>(&nonce), sizeof(nonce))) nonce = 0;
-    controlBound_.store(false, std::memory_order_release);
     controlNonce_.store(nonce, std::memory_order_release);
   }
   {
@@ -602,10 +601,8 @@ void Connection::handleDatagram(Bytes datagram) {
     if (n == 0) verdict = Errc::Rejected;  // we never asked for bound frames
     if (verdict == Errc::Ok) {
       if (ack) {
-        // The nonce is checked again: a reassignment may have drawn a new one meanwhile.
-        if (controlNonce_.load(std::memory_order_acquire) == n) {
-          controlBound_.store(true, std::memory_order_release);
-        }
+        // Bound to the nonce it verified: after a reassignment it matches nothing.
+        boundNonce_.store(n, std::memory_order_release);
         std::lock_guard lock(statsMutex_);
         ++stats_.boundControlAcks;
       } else if (reconnect) {
@@ -625,11 +622,13 @@ void Connection::handleDatagram(Bytes datagram) {
   // or 28 on it: one that arrives was captured earlier and sent again.
   if (!datagram.empty() &&
       (datagram[0] == static_cast<std::uint8_t>(MessageType::CommandReconnect) ||
-       datagram[0] == static_cast<std::uint8_t>(MessageType::CommandSessionReleased)) &&
-      controlBound_.load(std::memory_order_acquire)) {
-    std::lock_guard lock(statsMutex_);
-    ++stats_.legacyControlDropped;
-    return;
+       datagram[0] == static_cast<std::uint8_t>(MessageType::CommandSessionReleased))) {
+    const std::uint64_t current = controlNonce_.load(std::memory_order_acquire);
+    if (current != 0 && boundNonce_.load(std::memory_order_acquire) == current) {
+      std::lock_guard lock(statsMutex_);
+      ++stats_.legacyControlDropped;
+      return;
+    }
   }
 
   // COMMAND_RECONNECT is always its own datagram; verify before acting.

@@ -6,7 +6,7 @@ The Unreal team's feedback on 0.82.0 (B1 to B10, and A4's follow-up). **Needs ck
 `chunks().get()` and `region()` select each voxel state's `updatedAt`, which an older Game API
 refuses. Realtime servers v0.46.0 send `CONTROL_BOUND_ACK` and date a realtime edit with the moment
 they accepted it; with an older server the store still merges, by the database's write times.
-Pinned to CrowdyJS 18.31.0, which mirrors B1 to B8.
+Pinned to CrowdyJS 18.31.1, which mirrors B1 to B8.
 
 **Breaking** for code that relied on the old merge: another client's edit no longer shows over
 one of this client's unanswered edits of that voxel (it shows if that edit is refused or times

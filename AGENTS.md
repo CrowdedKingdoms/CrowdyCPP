@@ -272,6 +272,21 @@ an echo must carry the edit's state. `CONTROL_BOUND_ACK` (46) records the nonce 
 `boundNonce_`; legacy 22 and 28 are dropped only while that is the current `controlNonce_`, so a
 reassignment that races an acknowledgement cannot carry it over.
 
+## The voxels write and the read limits (0.85.0)
+
+ck-api v2.70.0 supersedes the edits recorded at or before a whole-chunk write and reports it as
+`Chunk.voxelsUpdatedAt`; chunk-state and LOD writes move only `updatedAt` (OI-2026-11-13-003).
+`applyStored()` dates a copy's voxels by `StoredChunk::voxelsUpdatedAtMs` (an `std::optional`: 0 is
+the server's null, no floor; unset is a source that does not say, dated by `updatedAtMs` as before)
+into `storedAtMs`, and keeps the row's time in `rowAtMs`, which the hydration and catch-up
+staleness checks compare. `ingestChunkChanged()` still compares `storedAtMs`: `world.set_chunk`
+sends its voxels write. The parsers (`storedChunkOf`, `chunkPage`, `editsPage`) take a
+`ReadBudget` over `ChunkReadLimits` and check a base64 length before decoding it. The curl
+transport's `BodySink` counts the decompressed body against `HttpRequest::maxResponseBytes`;
+`interpret()` refuses a larger body from any transport (`Errc::ResponseTooLarge`, kind Protocol).
+`limitProtocols()` keeps requests and redirects on http and https (https stays on https).
+`graphql_client_test`'s `LoopbackHttp` serves the over-the-limit bodies; it is POSIX-only.
+
 ## Writing tests against `graphql::Json`
 
 Index arrays with `at(i)`. `json[0]` is now a compile error: `operator[]` takes

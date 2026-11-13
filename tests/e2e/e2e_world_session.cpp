@@ -1,6 +1,11 @@
 // WorldSession end-to-end: two players drive the session layer against a live
 // deployment — A's send loop and B's remote-actor registry see each other,
-// and an optimistic voxel edit from A merges into B's chunk cache.
+// and an optimistic voxel edit from A merges into B's chunk cache with the
+// server's time (0.84.0), and A's echo settles it. With
+// CROWDY_E2E_EXPECT_BOUND_ACK set, the servers must have acknowledged the bound
+// control frames (CONTROL_BOUND_ACK, replication servers v0.46.0).
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 
 #include "e2e_util.hpp"
@@ -78,6 +83,29 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
   E2E_CHECK(voxelMerged);
+
+  // B holds the edit with the server's time, near this machine's clock.
+  const std::int64_t wallNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+  const std::int64_t confirmed = sb->chunks().confirmedAtMs(chunk, 4, 5, 6);
+  std::printf("confirmed at %lld (local clock %lld)\n", static_cast<long long>(confirmed),
+              static_cast<long long>(wallNow));
+  E2E_CHECK(confirmed > wallNow - 120000 && confirmed < wallNow + 120000);
+
+  // A's own echo settles its edit.
+  const auto echoStart = std::chrono::steady_clock::now();
+  while (sa->chunks().editsInFlight() > 0 &&
+         std::chrono::steady_clock::now() - echoStart < std::chrono::seconds(10)) {
+    sa->tick();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  E2E_CHECK(sa->chunks().editsInFlight() == 0);
+  E2E_CHECK(sa->chunks().voxelTypeAt(chunk, 4, 5, 6) == 42);
+
+  const auto acks = a.conn->stats().boundControlAcks;
+  std::printf("bound control acks: %llu\n", static_cast<unsigned long long>(acks));
+  if (std::getenv("CROWDY_E2E_EXPECT_BOUND_ACK")) E2E_CHECK(acks >= 1);
 
   sa->dispose();
   sb->dispose();

@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.84.0 passes the strict portable-parity gate against CrowdyJS
-**18.31.1**. The gate pins CrowdyJS commit
-`e47b9b3df14b242314da9f8e2a354aa079e641b2` (`test/v18.31.1`; `crowdyjsParityTarget` in
+CrowdyCPP 0.85.0 passes the strict portable-parity gate against CrowdyJS
+**18.32.0**. The gate pins CrowdyJS commit
+`e5b4719e884adf4dc055065b334899ecf96f6f9d` (`test/v18.32.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.85.0 mirrors CrowdyJS 18.32.0's floor: a copy's voxels are dated by `Chunk.voxelsUpdatedAt` (`StoredChunk::voxelsUpdatedAtMs` into `storedAtMs`; null means no floor) and copies are ordered by the row's `updatedAt` (`rowAtMs`). Native only: `ClientConfig::maxResponseBytes` with `Errc::ResponseTooLarge`, the curl transport's http/https-only rule, and `ChunkReadLimits`. Needs ck-api v2.70.0.
 
 0.84.0 mirrors CrowdyJS 18.31.1's ChunkStore merge (B1 to B8) as native equivalents: per-voxel server times (`confirmedAtMs`), a copy merged under newer changes, echoes matched by value, a confirmed value under unanswered edits, `catchUp` over every chunk held or known never stored (or boxes), `evict`/`pruneIf`, `hydrateAsync(coord, done)`. Native only: the `SendFn` constructor, `IAsyncChunkSource`, `graphql::interpretResponse`/`requestBody`, and `CONTROL_BOUND_ACK` (46) from realtime servers v0.46.0. Needs ck-api v2.69.0.
 
@@ -88,7 +90,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.84.0 | CrowdyJS 18.31.1 | Required public API generation |
+| Surface | CrowdyCPP 0.85.0 | CrowdyJS 18.32.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

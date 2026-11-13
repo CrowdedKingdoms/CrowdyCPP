@@ -40,6 +40,8 @@ carry the edit's state.
   stays until its write-back ends. A read of a chunk evicted while it was out is not applied.
 - **`hydrateAsync(coord, done)` (B8)** calls `done(applied)` on the game thread once a read asked for
   after the call has ended; a call while a read is out waits for the next one.
+- **`mergeEdits(edits)`** merges recorded edits a caller read over its own transport, by their
+  times, as a catch-up does; a chunk the store does not hold gets a slot (CrowdyPy's facade uses it).
 - **A store without a connection (B9)**: `ChunkStore(SendFn send, source, appId, options)`. Feed it
   notifications, errors and the connection's state yourself.
 - **`IAsyncChunkSource` (B10)** carries the store's requests over an engine's own HTTP client: the

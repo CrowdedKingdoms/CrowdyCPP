@@ -1877,6 +1877,15 @@ bool ChunkStore::catchUp(const std::string& sinceIso, const std::vector<ChunkBox
   return queueCatchUp(sinceIso, std::move(cut));
 }
 
+bool ChunkStore::mergeEdits(const StoredChunkEdits& edits) {
+  bool changed = false;
+  for (const StoredVoxelState& e : edits.edits) {
+    changed |= confirm(edits.coord, e.x, e.y, e.z, e.voxelType,
+                       Bytes(e.state.data(), e.state.size()), e.updatedAtMs, /*create=*/true);
+  }
+  return changed;
+}
+
 ChunkFlushResult ChunkStore::flush() {
   ChunkFlushResult result;
   if (!durable()) return result;

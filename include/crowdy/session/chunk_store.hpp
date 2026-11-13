@@ -552,6 +552,10 @@ class ChunkStore {
   /// catchUp() over `boxes` (each at most 17^3 chunks; a larger one is cut). Edits in a
   /// chunk the store does not hold give it a slot only when the chunk was never stored.
   bool catchUp(const std::string& sinceIso, const std::vector<ChunkBox>& boxes);
+  /// Merge recorded edits a caller read itself (a catch-up it runs over its own transport),
+  /// each at its `updatedAtMs` as a catch-up merges them; a chunk the store does not hold
+  /// gets a slot. Returns whether what the cache shows changed.
+  bool mergeEdits(const StoredChunkEdits& edits);
 
   /// When the server confirmed the value the store holds for a voxel (epoch ms): the last
   /// change it merged there, or the stored row's write. 0 when unknown. An unanswered

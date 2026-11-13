@@ -1410,6 +1410,12 @@ void testACatchUpCoversEveryChunkTheStoreKnows() {
   CHECK_EQ(source.boxes.size(), 3u);  // 41 wide: 17 + 17 + 7
   CHECK(store.find({9, 0, 0}) == nullptr);
   CHECK(!store.catchUp("2026-11-12T00:00:00.000Z", {ChunkBox{{0, 0, 0}, {200, 200, 0}}}));
+
+  // Edits a caller read itself merge the same way, and give an unknown chunk a slot.
+  CHECK(store.mergeEdits({{9, 0, 0}, {{1, 1, 1, 2, {}, 5000}, {1, 1, 1, 3, {}, 4000}}}));
+  CHECK_EQ(store.voxelTypeAt({9, 0, 0}, 1, 1, 1), 2);
+  CHECK(!store.mergeEdits({{0, 0, 0}, {{4, 4, 4, 9, {}, 4000}}}));  // older than the 5000 edit
+  CHECK_EQ(store.voxelTypeAt({0, 0, 0}, 4, 4, 4), 6);
 }
 
 // B7: evict() takes one chunk and pruneIf() the chunks a predicate picks, each reported unloaded;

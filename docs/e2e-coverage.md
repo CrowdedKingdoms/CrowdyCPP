@@ -24,6 +24,19 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.84.0 live validation
+
+On 2026-11-13 the dev deployment (ck-api `v2.69.0`, replication servers `v0.46.0`) passed live
+`e2e_chunk_store_live`, `e2e_world_session` and `e2e_stores_live` against ChunkStore v3 (`dev` at
+`38c38a52`, app `96701660793088`, the tier's org admin as owner and the `harness` provisioning
+token). `e2e_world_session` now checks the merge by server time: B holds A's edit with the server's
+time (39 ms behind this machine's clock), A's echo settles the edit, and with
+`CROWDY_E2E_EXPECT_BOUND_ACK=1` the servers' `CONTROL_BOUND_ACK` (46) arrived (one per
+assignment). `e2e_chunk_store_live` takes a fresh base coordinate each run: the edits a run
+records stay in the chunk's edit log and show over any grid written there later (ck-api applies an
+edit over a voxel the row stores no state for, whatever its age), so the fixed base of earlier
+runs no longer read back byte-identical.
+
 ## 0.82.0 live validation
 
 On 2026-11-12 the dev deployment (ck-api `v2.68.1`, replication servers `v0.45.0`) passed live

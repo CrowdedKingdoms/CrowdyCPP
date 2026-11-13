@@ -35,6 +35,9 @@ int main() try {
   sc.chunks.writeBackIntervalMs = 200;  // fast write-back for the test
   WorldSession session(p.conn, p.game.get(), sc);
 
+  // One base for every run: since ck-api v2.70.0 a whole-chunk write supersedes the edits earlier
+  // runs recorded there, so the chunk reads back exactly as written (0.84.0's e2e had to move to a
+  // fresh base each run).
   const wire::ChunkCoord base{510000, 0, 510000};
 
   E2E_SUBTEST("durable write then ensureAround hydrates byte-identical");
@@ -83,8 +86,28 @@ int main() try {
     E2E_CHECK(seen);
   }
 
+  E2E_SUBTEST("a whole-chunk write supersedes the recorded edit (ck-api v2.70.0)");
+  {
+    graphql::JVal input;
+    input["appId"] = cfg.appId;
+    input["coordinates"] = domains::ChunkRef{base.x, base.y, base.z}.toInput();
+    input["voxels"] = core::base64Encode(Bytes(stored.data(), stored.size()));
+    p.game->chunks().update(input);
+    WorldSessionConfig sc3;
+    sc3.appId = cfg.appId;
+    sc3.hostHeartbeatIntervalMs = 0;
+    WorldSession fresh(p.conn, p.game.get(), sc3);
+    E2E_CHECK(fresh.chunks().ensureAround(base, 0) >= 1);
+    const ChunkData* rewritten = fresh.chunks().find(base);
+    E2E_CHECK(rewritten != nullptr);
+    E2E_CHECK(std::memcmp(rewritten->grid(), stored.data(), stored.size()) == 0);
+    E2E_CHECK(fresh.chunks().voxelTypeAt(base, 3, 4, 5) == stored[3 + 4 * 16 + 5 * 256]);
+    E2E_CHECK(rewritten->storedAtMs > 0);  // the voxels write
+    E2E_CHECK(rewritten->rowAtMs >= rewritten->storedAtMs);
+  }
+
   E2E_SUBTEST("seed() worldgen write-back reaches the durable store");
-  const wire::ChunkCoord genCoord{510005, 0, 510000};
+  const wire::ChunkCoord genCoord{base.x + 5, 0, base.z};
   const auto generated = patternVoxels(2);
   session.chunks().seed(genCoord, generated);
   {
@@ -104,7 +127,7 @@ int main() try {
   }
 
   E2E_SUBTEST("pruneBeyond keeps a dirty chunk until it is written back, then evicts it");
-  const wire::ChunkCoord farCoord{510050, 0, 510000};
+  const wire::ChunkCoord farCoord{base.x + 50, 0, base.z};
   session.chunks().seed(farCoord, patternVoxels(3));  // dirty, far away
   session.chunks().pruneBeyond(base, 10);
   E2E_CHECK(session.chunks().find(farCoord) != nullptr);  // its write-back is queued
@@ -143,7 +166,7 @@ int main() try {
     std::vector<ChunkWriteBackFailure> reported;
     session.chunks().onWriteBackFailed(
         [&](const ChunkWriteBackFailure& failure) { reported.push_back(failure); });
-    const wire::ChunkCoord refusedCoord{510090, 0, 510000};
+    const wire::ChunkCoord refusedCoord{base.x + 90, 0, base.z};
     ChunkFlushResult refused;
     const auto closeStart = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - closeStart < std::chrono::seconds(45)) {

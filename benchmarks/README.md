@@ -24,6 +24,15 @@ the Game API's source answered by an in-process fake, the parse on the store's I
 Before 0.82.0 the first load ran inside one `ensureAround()` call on the game thread (57 ms for the
 same 125 chunks in the team's own test), and every chunk kept a 4 KiB grid.
 
+0.84.0 dates each entry as ck-api v2.69.0 does (`updatedAt` after the row's write), so every edit's
+voxel keeps its time (16 bytes), and a tick checks its budget after every chunk rather than every
+16th. Three runs on the same builder:
+
+| Load | I/O thread | Longest tick | Held |
+| --- | --- | --- | --- |
+| 125 chunks x 256 edits, 64-byte states, dated (6.7 MB JSON) | 28-31 ms read + parse | 1.6-2.1 ms (2 ms budget), 0.56-0.78 ms (500 us) | 3.46 MB, 0.51 MB of it times |
+| Range 8, 4,913 chunks, 4,298 of them air | | 2.1-2.6 ms (2 ms budget) | 3.0 MB |
+
 ## What bench_send is for
 
 `bench_codec` reports encode+sign as a single number, which is enough to see a

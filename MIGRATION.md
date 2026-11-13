@@ -1,5 +1,43 @@
 # CrowdyCPP migration notes
 
+## 0.85.0 A voxel's time is its chunk's whole-chunk write; responses and replies have limits
+
+**Needs ck-api v2.70.0**: `chunks().get()` and `region()` select `Chunk.voxelsUpdatedAt`, which an
+older Game API refuses. Pinned to CrowdyJS 18.32.0, which mirrors the floor.
+
+- **The Game API's whole-chunk write wins (OI-2026-11-13-003).** ck-api v2.70.0 supersedes every
+  voxel edit recorded at or before an `updateChunk` or a mod's `world.set_chunk`, at every voxel, so
+  the chunk reads back as written, and reports the time as `voxelsUpdatedAt`. Chunk-state and LOD
+  writes move only `updatedAt`. A client that writes a grid it read earlier now erases the edits
+  made since that read, as `world.set_chunk` always did.
+- **The ChunkStore floors by the voxels write.** `StoredChunk::voxelsUpdatedAtMs`
+  (`std::optional`) is what the Game API's source fills: the time of every voxel the copy has no
+  entry for, `0` for a chunk not written whole since v2.70.0 (then a copy and later changes are
+  ordered by arrival, as the server shows a recorded edit of any age over such a chunk's grid).
+  `ChunkData::storedAtMs` is that time, so a chunk-state or LOD write no longer drops a newer
+  realtime change. **A source of your own** that leaves it unset keeps dating a copy by
+  `updatedAtMs`, as before; set it when your source knows the voxels write.
+- **`ChunkData::rowAtMs` (new) orders copies**: the row's `updatedAtMs`. A hydration skips a copy
+  older than the one held, and a catch-up reads a chunk again when its row moved, a chunk-state
+  write included.
+- **Responses have a size limit.** `ClientConfig::maxResponseBytes` (and
+  `GraphQLClientConfig::maxResponseBytes`, `HttpRequest::maxResponseBytes`), 128 MiB by default,
+  counted after decompression. The curl transport stops reading past it and refuses a declared
+  `Content-Length` over it; the client refuses a larger body from any transport before parsing it.
+  Either way the outcome is `Errc::ResponseTooLarge` with `GraphQLErrorKind::Protocol`
+  (`CrowdyProtocolError` from the throwing calls). `graphql::interpretResponse()` takes the same
+  limit as an optional third argument. **New enumerator:** a `switch` over `Errc` without a
+  `default` needs `ResponseTooLarge`.
+- **The curl transport takes http and https only**, for requests and redirects; a redirect from
+  https stays on https, and at most 5 are followed.
+- **Stored-chunk replies are held to `ChunkReadLimits`** before anything is decoded: a grid is kept
+  only when it decodes to `kChunkVolume` bytes, at most 65,536 voxel states a chunk and 262,144 a
+  reply (the Game API's own limits; past them the chunk is marked `voxelStatesTruncated`), and a
+  state larger than 64 KiB is dropped with its type kept. `ChunkStore::Options::readLimits` sets
+  them for the store's own Game API source and for `IAsyncChunkSource` replies;
+  `makeGameApiChunkSource()` takes them as a third argument. `Options::maxReplyBytes` (128 MiB)
+  limits an `IAsyncChunkSource` reply body.
+
 ## 0.84.0 ChunkStore v3: merging by the server's time; the bound-control acknowledgement
 
 The Unreal team's feedback on 0.82.0 (B1 to B10, and A4's follow-up). **Needs ck-api v2.69.0**:

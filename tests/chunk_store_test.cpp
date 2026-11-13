@@ -725,7 +725,7 @@ std::string storedChunkJson(std::int64_t x, bool truncated) {
          core::base64Encode(Bytes(grid.data(), grid.size())) +
          R"(","voxelStates":[{"voxelCoord":{"x":1,"y":1,"z":1},"voxelType":3,"state":null}],)" +
          R"("voxelStatesTruncated":)" + (truncated ? "true" : "false") +
-         R"(,"updatedAt":"2026-11-11T20:00:00.000Z"})";
+         R"(,"updatedAt":"2026-11-11T20:00:00.000Z","voxelsUpdatedAt":"2026-11-11T20:00:00.000Z"})";
 }
 
 /// Answers getChunksByDistance from `pages`, keyed by the request's skip, echoing `pageLimit`, and
@@ -1215,7 +1215,7 @@ std::string timedChunkJson(std::int64_t x) {
          core::base64Encode(Bytes(grid.data(), grid.size())) +
          R"(","voxelStates":[{"voxelCoord":{"x":1,"y":1,"z":1},"voxelType":3,"state":null,)" +
          R"("updatedAt":"2026-11-12T01:00:00.000Z"}],"voxelStatesTruncated":false,)" +
-         R"("updatedAt":"2026-11-11T20:00:00.000Z"})";
+         R"("updatedAt":"2026-11-11T20:00:00.000Z","voxelsUpdatedAt":"2026-11-11T20:00:00.000Z"})";
 }
 
 ChunkSourceReply boxPage(const graphql::Json& body) {
@@ -1601,6 +1601,120 @@ void testAnAsyncSourceWithTheIoThread() {
   CHECK_EQ(store.voxelTypeAt({1, 0, 0}, 1, 1, 1), 3);
 }
 
+// 0.85.0: Game API v2.70.0 dates a chunk's voxels by its last whole-chunk write (voxelsUpdatedAt);
+// a chunk-state or LOD write moves only the row's time, which orders copies. A source that does
+// not say dates a copy by its row, as before.
+void testTheFloorIsTheVoxelsWrite() {
+  ScriptedSource source;
+  source.viaBoxes = true;
+  StoredChunk stored = storedAt({0, 0, 0}, 1, 9000);
+  stored.voxelsUpdatedAtMs = 1000;
+  source.stored.push_back(stored);
+  ChunkStore store(unopened(), &source, "42", onThisThread());
+  const ChunkCoord at{0, 0, 0};
+  CHECK_EQ(store.ensureAround(at, 0), 1u);
+  CHECK_EQ(store.find(at)->storedAtMs, 1000);
+  CHECK_EQ(store.find(at)->rowAtMs, 9000);
+  // Older than the row, newer than the voxels write: applied.
+  CHECK(store.ingest(timedNote(at, kOther, 5000), {1, 1, 1, 5, Bytes()}));
+  CHECK(!store.ingest(timedNote(at, kOther, 500), {2, 2, 2, 6, Bytes()}));
+  CHECK_EQ(store.voxelTypeAt(at, 2, 2, 2), 1);
+
+  // A chunk-state write moves the row: a fresh read is applied and keeps the newer change.
+  source.stored[0].updatedAtMs = 12000;
+  CHECK_EQ(store.hydrate(at), 1u);
+  CHECK_EQ(store.find(at)->rowAtMs, 12000);
+  CHECK_EQ(store.find(at)->storedAtMs, 1000);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+
+  // A catch-up reads the chunk again when its row moved, and still keeps that change.
+  source.stored[0].updatedAtMs = 15000;
+  CHECK(store.catchUp("2026-11-12T00:00:00.000Z"));
+  store.runIo();
+  store.tick(0);
+  CHECK_EQ(store.find(at)->rowAtMs, 15000);
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 5);
+
+  // Not written whole since v2.70.0 (the server says null): no floor, as the server shows a
+  // recorded edit of any age over such a chunk's grid.
+  ScriptedSource legacy;
+  legacy.viaBoxes = true;
+  StoredChunk old = storedAt(at, 1, 9000);
+  old.voxelsUpdatedAtMs = 0;
+  legacy.stored.push_back(old);
+  ChunkStore second(unopened(), &legacy, "42", onThisThread());
+  CHECK_EQ(second.ensureAround(at, 0), 1u);
+  CHECK_EQ(second.find(at)->storedAtMs, 0);
+  CHECK(second.ingest(timedNote(at, kOther, 500), {1, 1, 1, 5, Bytes()}));
+  CHECK_EQ(second.voxelTypeAt(at, 1, 1, 1), 5);
+
+  // A source that does not say: dated by its row.
+  ScriptedSource unsaid;
+  unsaid.viaBoxes = true;
+  unsaid.stored.push_back(storedAt(at, 1, 9000));
+  ChunkStore third(unopened(), &unsaid, "42", onThisThread());
+  CHECK_EQ(third.ensureAround(at, 0), 1u);
+  CHECK_EQ(third.find(at)->storedAtMs, 9000);
+  CHECK(!third.ingest(timedNote(at, kOther, 5000), {1, 1, 1, 5, Bytes()}));
+}
+
+std::string limitedChunkJson() {
+  const std::vector<std::uint8_t> big(64, 7);
+  const std::string state = core::base64Encode(Bytes(big.data(), big.size()));
+  auto entry = [&](int x, int type, const std::string& st) {
+    return R"({"voxelCoord":{"x":)" + std::to_string(x) + R"(,"y":1,"z":1},"voxelType":)" +
+           std::to_string(type) + R"(,"state":)" + st + "}";
+  };
+  // A grid of 3 bytes ("AQID"), a state of 64 bytes, and three entries.
+  return R"({"coordinates":{"x":"1","y":"0","z":"0"},"voxels":"AQID","voxelStates":[)" +
+         entry(1, 3, "\"" + state + "\"") + "," + entry(2, 4, "null") + "," + entry(3, 5, "null") +
+         R"(],"voxelStatesTruncated":false,"updatedAt":"2026-11-11T20:00:00.000Z",)" +
+         R"("voxelsUpdatedAt":"2026-11-11T20:00:00.000Z"})";
+}
+
+// 0.85.0: a reply is held to Options::readLimits before anything in it is kept. A grid that does
+// not decode to kChunkVolume bytes is not kept; a state past maxStateBytes is dropped and its type
+// kept; past maxStatesPerChunk the rest are dropped and the chunk is marked truncated.
+void testAReplyIsHeldToTheReadLimits() {
+  auto http = std::make_shared<PagedChunksTransport>();
+  http->pages[0] = "[" + limitedChunkJson() + "]";
+  auto gql = std::make_shared<graphql::GraphQLClient>(
+      graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+      std::make_shared<graphql::AuthState>());
+  domains::ChunksAPI chunksApi{gql};
+  ChunkStore::Options options;
+  options.readLimits.maxStatesPerChunk = 2;
+  options.readLimits.maxStateBytes = 16;
+  ChunkStore store(unopened(), &chunksApi, "42", options);
+  const ChunkCoord at{1, 0, 0};
+  CHECK_EQ(store.ensureAround(at, 0), 1u);
+  CHECK(store.find(at)->voxelStatesTruncated);
+  CHECK_EQ(store.voxelTypeAt(at, 0, 0, 0), 0);  // the 3-byte grid was not kept
+  CHECK_EQ(store.voxelTypeAt(at, 1, 1, 1), 3);
+  const auto dropped = store.voxelStateAt(at, 1, 1, 1);
+  CHECK(!dropped || dropped->state.empty());  // its 64-byte state was dropped
+  CHECK_EQ(store.voxelTypeAt(at, 2, 1, 1), 4);
+  CHECK_EQ(store.voxelTypeAt(at, 3, 1, 1), 0);  // the third entry is past the limit
+}
+
+// 0.85.0: an IAsyncChunkSource reply larger than Options::maxReplyBytes fails its read unparsed.
+void testAnOversizedReplyFailsItsRead() {
+  FakeAsyncSource source;
+  ChunkStore::Options options = onThisThread();
+  options.maxReplyBytes = 64;
+  ChunkStore store(unopened(), &source, "42", options);
+  std::optional<bool> applied;
+  CHECK(store.hydrateAsync({7, 0, 0}, [&](bool a) { applied = a; }));
+  store.runIo();
+  CHECK(source.answerNext([](const graphql::Json&) -> ChunkSourceReply {
+    return {200, R"({"data":{"getChunk":)" + timedChunkJson(7) + "}}"};
+  }));
+  store.runIo();
+  store.tick(0);
+  CHECK(applied.has_value() && !*applied);
+  CHECK(store.find({7, 0, 0}) == nullptr || store.find({7, 0, 0})->hydratedAtMs == 0);
+}
+
 int main() {
   testTickDropsRefusalsAndRetriesTheRest();
   testWideVoxelsGoToTheOverlay();
@@ -1634,6 +1748,9 @@ int main() {
   testAStoreWithoutAConnection();
   testAnAsyncSourceCarriesTheStoresRequests();
   testAnAsyncSourceWithTheIoThread();
+  testTheFloorIsTheVoxelsWrite();
+  testAReplyIsHeldToTheReadLimits();
+  testAnOversizedReplyFailsItsRead();
   std::puts("chunk_store_test OK");
   return 0;
 }

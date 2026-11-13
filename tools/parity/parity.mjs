@@ -648,6 +648,7 @@ const METHOD_ALIASES = {
   'SharedEnvironmentAPI.freeAppQuota': 'orgFreeAppQuota',
   'SharedEnvironmentAPI.paymentMethods': 'orgPaymentMethods',
   'AvatarStateStore.publicState': 'identityState',
+  'ChunkStore.confirmedAt': 'confirmedAtMs',
   'ChunkStore.get': 'find',
   'HostTracker.isHost': 'amIHost',
   'RemoteActorLane.count': 'size',
@@ -1330,7 +1331,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     markers: ['const EDIT_TIMEOUT_MS = 10_000;'],
     classification: classification(
       CATEGORY.NATIVE,
-      'ChunkStore::setVoxel records each edit (uuid, sequence, voxel) until it is echoed, refused or times out (Options::editTimeoutMs) and ingest() skips its echo (Buddy v0.37.0 echoes every accepted edit to its sender), applying it only when another client\'s edit of that voxel arrived in between and no newer local edit is pending (0.60.0)',
+      'ChunkStore::setVoxel records each edit (uuid, sequence, voxel, type, state) until it is echoed, refused or times out (Options::editTimeoutMs) and ingest() matches its echo by all of them (Buddy v0.37.0 echoes every accepted edit to its sender); since 0.84.0 another client\'s edit in between becomes the voxel\'s confirmed value under the unanswered one (0.60.0, 0.84.0)',
     ),
   },
   // CrowdyJS 18.30.0 and CrowdyCPP 0.82.0: the ChunkStore rework (the Unreal team's C3-C5).
@@ -1349,11 +1350,20 @@ const CROSS_CUTTING_BEHAVIORS = {
     path: 'src/stores/chunks.ts',
     markers: [
       'function coverWithBoxes(coords: readonly ChunkCoord[]): ChunkBox[] {',
-      'async catchUp(since: Date): Promise<void> {',
+      'function tileBoxes(coords: readonly ChunkCoord[]): ChunkBox[] {',
     ],
     classification: classification(
       CATEGORY.NATIVE,
-      'ChunkStore::ensureAroundAsync reads only the chunks the store does not hold, as boxes cut the same way, paged by the limit the server applied, on the store\'s I/O thread, and tick() applies them within adoptBudgetUs; catchUp(sinceIso) after a reconnect (connectionState) and ingestChunkChanged re-read what changed (0.82.0)',
+      'ChunkStore::ensureAroundAsync reads only the chunks the store does not hold, as boxes cut the same way, paged by the limit the server applied, on the store\'s I/O thread, and tick() applies them within adoptBudgetUs; catchUp(sinceIso) over every chunk held or known never stored, in boxes of at most 17^3 (or catchUp(sinceIso, boxes)), after a reconnect (connectionState), and ingestChunkChanged re-read what changed (0.82.0, 0.84.0)',
+    ),
+  },
+  // CrowdyJS 18.31.0 and CrowdyCPP 0.84.0: merging by the server's time (the Unreal team's B1-B8).
+  'chunk-store-merge': {
+    path: 'src/stores/chunks.ts',
+    markers: ['const MAX_FUTURE_SKEW_MS = 5 * 60_000;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'ChunkStore keeps each voxel\'s confirmed value with the server\'s time (ChunkData::times_, confirmedAtMs; Options::maxFutureSkewMs clamps a time past this machine\'s clock), drops an older change, merges a stored copy under newer changes made during its read, keeps a confirmed value under unanswered edits (PendingCell), and hydrateAsync(coord, done) reports a fresh read; evict and pruneIf mirror CrowdyJS by name (0.84.0)',
     ),
   },
   'voxel-edit-limits': {

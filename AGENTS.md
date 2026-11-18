@@ -289,7 +289,7 @@ transport's `BodySink` counts the decompressed body against `HttpRequest::maxRes
 `limitProtocols()` keeps requests and redirects on http and https (https stays on https).
 `graphql_client_test`'s `LoopbackHttp` serves the over-the-limit bodies; it is POSIX-only.
 
-## The native Studio dock calls (0.86.0)
+## The native Studio dock calls (0.86.0, 0.87.0)
 
 The Unreal SDK docks Agentic Crowdy Studio in its games, so this SDK carries what that dock calls on
 the app-token client. `crowdyStudioAgent().liveModding` wraps `crowdyStudioLiveModding` (the parity
@@ -319,6 +319,17 @@ generated and untouched.
 exactly the match of the pattern written above them, lazy `.+?` groups giving back a leading space
 included, and they stay linear: `LineScan` finds the next `]` once and the trailing spaces once.
 `crowdy_studio_state_test` reads hostile 16 KiB lines against a time bound.
+
+0.87.0 (ck-api v2.73.0, CrowdyJS 18.33.0) adds the platform's half. Every build the runner, the
+controller and `CrowdyStudioModRuntime` queue sends `ExecStudioSource` (the project and the
+`revision.id` its files are), never the rider mod built from the mod starter. A new project's
+CLIENT target is the platform's starter (`exec().modClientStarter`, through
+`ICrowdyStudioRuntime::clientStarter` or the async helper), and `crowdyStudioClientStarterFiles`
+is the fallback for a host that answers 503: keep it byte for byte the platform's
+`compute-toolchain/client-starters/client-half` (cks-game-api), whose copy CrowdyJS also carries.
+`crowdyStudio().links()` is `crowdyStudioLinks`; `studioOriginFor` stays the offline derivation.
+`tools/parity/repin.mjs` restamps the fixtures even when the pin does not move: a promotion merges
+in fixtures stamped for the source tier.
 
 ## Writing tests against `graphql::Json`
 

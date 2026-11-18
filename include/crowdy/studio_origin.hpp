@@ -12,6 +12,15 @@ namespace crowdy {
 /// (`AGENT_FUNDS_NEEDED`): the wallet, under the Studio origin.
 inline constexpr std::string_view kStudioWalletPath = "/account/wallet";
 
+/// This tier's Crowdy Studio as the platform names it (`crowdyStudioLinks`, Game API v2.73.0;
+/// `crowdyStudio().links()`): `origin` is the only origin a Studio dock opens a popup to,
+/// `walletUrl` where it sends a player when the model needs funds. Prefer it to
+/// `studioOriginFor`, which derives the same from a host-name convention without asking.
+struct CrowdyStudioLinks {
+  std::string origin;
+  std::string walletUrl;
+};
+
 /// The Crowdy Studio of the tier an API origin (or endpoint) belongs to. The API answers
 /// on `ck.<root>`, and per datacenter or instance on `ck-<label>.<root>` (the game API URL
 /// a token is minted with), and Studio on `studio.<root>`: the convention CrowdyJS's

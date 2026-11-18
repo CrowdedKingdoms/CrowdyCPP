@@ -344,10 +344,12 @@ class Run : public std::enable_shared_from_this<Run> {
                  done.finish(Outcome::CompileFailed, failed.message);
                });
     });
+    // The saved revision these files are, so the mod and CLIENT half report it.
+    const domains::ExecStudioSource studio{project_.projectId, project_.revision.id};
     if (which == CrowdyStudioTarget::Client) {
-      impl->exec->modClientBuildAsync(request_.scope.appId, crate, std::move(queued));
+      impl->exec->modClientBuildAsync(request_.scope.appId, crate, studio, std::move(queued));
     } else {
-      impl->exec->modBuildAsync(request_.scope.appId, crate, std::move(queued));
+      impl->exec->modBuildAsync(request_.scope.appId, crate, studio, std::move(queued));
     }
   }
 

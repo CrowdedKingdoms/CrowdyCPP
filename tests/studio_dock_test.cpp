@@ -416,15 +416,23 @@ std::string createdProject(std::string_view name) {
          R"(","description":null,"serverModuleName":"turret-server","clientModuleName":"turret-client","pairingPreference":"INDEPENDENT","sdkVersion":"0.1.8","abiVersion":0,"revision":"1","archived":false,"archivedAt":null,"fileCount":4,"totalBytes":"10","createdAt":"t","updatedAt":"t","files":[]}}})";
 }
 
-// The async create: the mod starter first for a SERVER target, then the project, both answered
-// from the dispatcher.
+constexpr const char* kClientStarterAnswer =
+    R"({"data":{"execModClientStarter":{"crate":"client-half","nodeType":"client","description":"d","files":[{"path":"Cargo.toml","content":"[package]\nname = \"client-half\"\n"},{"path":"src/lib.rs","content":"fn platform() {}\n"}]}}})";
+
+constexpr const char* kUnavailable =
+    R"({"errors":[{"message":"no starter","extensions":{"code":"INTERNAL_SERVER_ERROR","httpStatus":503}}],"data":null})";
+
+// The async create: the mod starter for a SERVER target and the CLIENT half starter for a
+// CLIENT one, then the project, every answer from the dispatcher.
 void testStarterProjectAsync() {
   Harness h;
   domains::ExecAPI exec(h.gql, nullptr);
   domains::CrowdyStudioAPI projects(h.gql);
-  h.http->answer = [](const Sent& sent) {
+  std::string clientStarter = kClientStarterAnswer;
+  h.http->answer = [&clientStarter](const Sent& sent) {
     const std::string op = sent.body["operationName"].asString();
     if (op == "ExecModStarter") return ok(kModStarterAnswer);
+    if (op == "ExecModClientStarter") return ok(clientStarter);
     if (op == "CrowdyStudioProjectCreate") return ok(createdProject("Turret"));
     return ok(R"({"data":{}})");
   };
@@ -435,48 +443,123 @@ void testStarterProjectAsync() {
   options.kind = studio::CrowdyStudioProjectKind::FullStack;
   std::optional<graphql::GraphQLOutcome> outcome;
   studio::CrowdyStudioProject created;
-  studio::createCrowdyStudioStarterProjectAsync(
-      exec, projects, options,
-      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject project) {
-        outcome = std::move(out);
-        created = std::move(project);
-      });
-  CHECK(!outcome);
-  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  const auto create = [&] {
+    outcome.reset();
+    studio::createCrowdyStudioStarterProjectAsync(
+        exec, projects, options, [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject project) {
+          outcome = std::move(out);
+          created = std::move(project);
+        });
+    CHECK(!outcome);
+    for (int i = 0; i < 6 && !outcome; ++i) h.dispatcher->drain();
+  };
+  const auto sentInput = [&] { return h.http->sent.back().body["variables"]["input"]; };
+
+  create();
   CHECK(outcome && outcome->ok());
   CHECK_EQ(created.projectId, std::string("p9"));
-  CHECK_EQ(h.http->sent.size(), 2u);
+  CHECK_EQ(h.http->sent.size(), 3u);
   CHECK_EQ(h.http->sent.at(0).body["operationName"].asString(), std::string("ExecModStarter"));
-  const graphql::Json input = h.http->sent.at(1).body["variables"]["input"];
+  CHECK_EQ(h.http->sent.at(1).body["operationName"].asString(), std::string("ExecModClientStarter"));
+  graphql::Json input = sentInput();
   CHECK_EQ(input["serverModuleName"].asString(), std::string("turret-server"));
   CHECK_EQ(input["clientModuleName"].asString(), std::string("turret-client"));
   CHECK_EQ(input["sdkVersion"].asString(), std::string("0.1.8"));
   CHECK_EQ(input["initialFiles"].size(), 4u);
   CHECK(input["initialFiles"].at(0)["content"].asString().find("name = \"turret-server\"") != std::string::npos);
+  // The platform's CLIENT half starter, its package renamed to the CLIENT module.
   CHECK_EQ(input["initialFiles"].at(2)["target"].asString(), std::string("CLIENT"));
+  CHECK_EQ(input["initialFiles"].at(2)["content"].asString(), std::string("[package]\nname = \"turret-client\"\n"));
+  CHECK_EQ(input["initialFiles"].at(3)["content"].asString(), std::string("fn platform() {}\n"));
 
-  // A CLIENT-only project skips the mod starter; a refused fetch is the callback's outcome.
+  // An API host whose toolchain predates the starter (503): the SDK's copy, the same crate.
+  clientStarter = kUnavailable;
   options.kind = studio::CrowdyStudioProjectKind::Client;
-  outcome.reset();
-  studio::createCrowdyStudioStarterProjectAsync(
-      exec, projects, options,
-      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject) { outcome = std::move(out); });
-  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  create();
   CHECK(outcome && outcome->ok());
-  CHECK_EQ(h.http->sent.back().body["operationName"].asString(), std::string("CrowdyStudioProjectCreate"));
-  CHECK_EQ(h.http->sent.size(), 3u);
-  h.http->answer = [](const Sent&) {
-    return ok(R"({"errors":[{"message":"no mod starter","extensions":{"code":"INTERNAL_SERVER_ERROR","httpStatus":503}}],"data":null})");
-  };
+  CHECK_EQ(h.http->sent.size(), 5u);
+  CHECK_EQ(h.http->sent.at(3).body["operationName"].asString(), std::string("ExecModClientStarter"));
+  input = sentInput();
+  CHECK_EQ(input["initialFiles"].size(), 2u);
+  CHECK_EQ(input["initialFiles"].at(0)["content"].asString(),
+           studio::crowdyStudioClientStarterFiles("turret-client").at(0).content);
+
+  // Any other refusal of the CLIENT half starter is the callback's outcome.
+  clientStarter = R"({"errors":[{"message":"no access","extensions":{"code":"FORBIDDEN"}}],"data":null})";
+  create();
+  CHECK(outcome && outcome->kind == graphql::GraphQLErrorKind::GraphQL);
+  CHECK_EQ(outcome->errors.at(0).code, std::string("FORBIDDEN"));
+  CHECK_EQ(h.http->sent.size(), 6u);
+
+  // A starter passed in is not fetched; a refused mod starter is the callback's outcome.
+  options.clientStarter = studio::CrowdyStudioModStarter{};
+  options.clientStarter->files = {{"Cargo.toml", "[package]\nname = \"x\"\n"}, {"src/lib.rs", "fn x() {}\n"}};
+  create();
+  CHECK(outcome && outcome->ok());
+  CHECK_EQ(h.http->sent.size(), 7u);
+  h.http->answer = [](const Sent&) { return ok(kUnavailable); };
   options.kind = studio::CrowdyStudioProjectKind::Server;
-  outcome.reset();
-  studio::createCrowdyStudioStarterProjectAsync(
-      exec, projects, options,
-      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject) { outcome = std::move(out); });
-  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  create();
   CHECK(outcome && outcome->kind == graphql::GraphQLErrorKind::GraphQL);
   CHECK_EQ(outcome->errors.at(0).httpStatus, 503);
-  CHECK_EQ(h.http->sent.size(), 4u);
+  CHECK_EQ(h.http->sent.size(), 8u);
+}
+
+// Game API v2.73.0: a build's Studio source, the CLIENT half starter, and the Studio links.
+void testPlatformCalls() {
+  Harness h;
+  domains::ExecAPI exec(h.gql, nullptr);
+  domains::CrowdyStudioAPI projects(h.gql);
+  std::string links =
+      R"({"data":{"crowdyStudioLinks":{"origin":"https://studio.prod.crowdedkingdoms.com","walletUrl":"https://studio.prod.crowdedkingdoms.com/account/wallet"}}})";
+  h.http->answer = [&links](const Sent& sent) {
+    const std::string op = sent.body["operationName"].asString();
+    const std::string build =
+        R"({"buildId":"b1","status":"queued","kind":"exec","log":null,"sdkVersion":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[],"studioProjectId":"p1","studioRevision":"3"})";
+    if (op == "ExecModBuild") return ok(R"({"data":{"execModBuild":)" + build + "}}");
+    if (op == "ExecModClientBuild") return ok(R"({"data":{"execModClientBuild":)" + build + "}}");
+    if (op == "ExecModClientStarter") return ok(kClientStarterAnswer);
+    if (op == "CrowdyStudioLinks") return ok(links);
+    return ok(R"({"data":{}})");
+  };
+  const domains::ExecCrate crate{"turret", {{"Cargo.toml", "c"}, {"src/lib.rs", "l"}}};
+  const domains::ExecStudioSource source{"p1", "3"};
+
+  const graphql::Json built = exec.modBuild("77", crate, source);
+  CHECK_EQ(built["studioProjectId"].asString(), std::string("p1"));
+  CHECK_EQ(built["studioRevision"].asString(), std::string("3"));
+  graphql::Json studio = h.http->sent.back().body["variables"]["studio"];
+  CHECK_EQ(studio["projectId"].asString(), std::string("p1"));
+  CHECK_EQ(studio["revision"].asString(), std::string("3"));
+  (void)exec.modBuild("77", crate);
+  CHECK(h.http->sent.back().body["variables"]["studio"].isNull());
+
+  std::optional<graphql::GraphQLOutcome> outcome;
+  exec.modClientBuildAsync("77", crate, source, [&](graphql::GraphQLOutcome out) { outcome = std::move(out); });
+  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  CHECK(outcome && outcome->ok());
+  CHECK_EQ(h.http->sent.back().body["operationName"].asString(), std::string("ExecModClientBuild"));
+  CHECK_EQ(h.http->sent.back().body["variables"]["studio"]["revision"].asString(), std::string("3"));
+
+  const graphql::Json starter = exec.modClientStarter("77");
+  CHECK_EQ(starter["crate"].asString(), std::string("client-half"));
+  CHECK_EQ(studio::crowdyStudioModStarterOf(starter).files.size(), 2u);
+
+  const CrowdyStudioLinks platform = projects.links();
+  CHECK_EQ(platform.origin, std::string("https://studio.prod.crowdedkingdoms.com"));
+  CHECK_EQ(platform.walletUrl, std::string("https://studio.prod.crowdedkingdoms.com/account/wallet"));
+  CHECK_EQ(h.http->sent.back().body["operationName"].asString(), std::string("CrowdyStudioLinks"));
+  // An answer without an origin is malformed, not an empty link.
+  links = R"({"data":{"crowdyStudioLinks":{"origin":"","walletUrl":""}}})";
+  outcome.reset();
+  CrowdyStudioLinks empty;
+  projects.linksAsync([&](graphql::GraphQLOutcome out, CrowdyStudioLinks got) {
+    outcome = std::move(out);
+    empty = std::move(got);
+  });
+  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  CHECK(outcome && !outcome->ok() && outcome->status.code == Errc::Malformed);
+  CHECK(empty.origin.empty());
 }
 
 graphql::HttpResponse refusalOf(std::string_view code, int httpStatus = 0) {
@@ -666,6 +749,12 @@ void testRunFullStack() {
   const graphql::Json serverCrate = r.first("ExecModBuild").body["variables"]["crate"];
   CHECK_EQ(serverCrate["name"].asString(), std::string("turret-server"));
   CHECK_EQ(serverCrate["files"].size(), 2u);
+  // Both builds name the project and the revision they are, which what is deployed reports.
+  for (const char* build : {"ExecModClientBuild", "ExecModBuild"}) {
+    const graphql::Json studio = r.first(build).body["variables"]["studio"];
+    CHECK_EQ(studio["projectId"].asString(), std::string("p1"));
+    CHECK_EQ(studio["revision"].asString(), std::string("7"));
+  }
   CHECK_EQ(r.first("ExecModDeploy").body["variables"]["buildId"].asString(), std::string("sb1"));
   CHECK(r.first("ExecModSetEnabled").body["variables"]["enabled"].asBool());
   const graphql::Json attach = r.first("ExecModClientDeploy").body["variables"];
@@ -831,6 +920,8 @@ void testRunClientOnly() {
                            "ExecModBuildStatus", "ExecModDeploy", "ExecModSetEnabled", "ExecModClientDeploy",
                            "ExecConsentClientMod"});
   CHECK_EQ(fresh.first("ExecModBuild").body["variables"]["crate"]["name"].asString(), std::string("hud-client"));
+  // The rider mod is the mod starter, not the project's code: it names no Studio source.
+  CHECK(fresh.first("ExecModBuild").body["variables"]["studio"].isNull());
   CHECK_EQ(fresh.first("ExecModDeploy").body["variables"]["name"].asString(), std::string("hud-client"));
   CHECK_EQ(fresh.first("ExecModClientDeploy").body["variables"]["name"].asString(), std::string("hud-client"));
   CHECK_EQ(result->targets.size(), 1u);
@@ -884,6 +975,7 @@ int main() {
 #ifndef CROWDY_NO_EXCEPTIONS
   testStarterFixture();
   testStarterProjectAsync();
+  testPlatformCalls();
   testRunFullStack();
   testRunCompileFailed();
   testRunRevisionPin();

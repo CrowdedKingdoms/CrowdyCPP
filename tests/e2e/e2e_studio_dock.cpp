@@ -223,6 +223,21 @@ int body(Session& session) {
               studioOrigin.empty() ? "(no convention for this host)" : studioOrigin.c_str());
   LIVE_CHECK(studioOrigin.empty() || studioOrigin.rfind("https://studio.", 0) == 0 ||
              studioOrigin.rfind("http://localhost:", 0) == 0 || studioOrigin.rfind("http://127.0.0.1:", 0) == 0);
+  // The platform's answer (ck-api v2.73.0) agrees with the derivation.
+  const CrowdyStudioLinks links = game.crowdyStudio().links();
+  std::printf("  crowdyStudioLinks: %s, %s\n", links.origin.c_str(), links.walletUrl.c_str());
+  LIVE_CHECK(studioOrigin.empty() || links.origin == studioOrigin);
+  LIVE_CHECK(links.walletUrl == studioWalletUrl(links.origin));
+
+  E2E_SUBTEST("the platform's CLIENT half starter");
+  const studio::CrowdyStudioModStarter clientStarter =
+      studio::crowdyStudioModStarterOf(game.exec().modClientStarter(appId));
+  LIVE_CHECK(clientStarter.files.size() == 2);
+  std::string platformLibrary;
+  for (const auto& file : clientStarter.files) {
+    if (file.path == "src/lib.rs") platformLibrary = file.content;
+  }
+  LIVE_CHECK(platformLibrary.find("crowdy::register_module!") != std::string::npos);
 
   auto runner = game.createCrowdyStudioModRunner();
   const std::string base = std::string(kPrefix) + e2e::runSuffix();
@@ -233,6 +248,13 @@ int body(Session& session) {
   LIVE_CHECK(full.metadata.clientModuleName == std::optional<std::string>(base + "-client"));
   LIVE_CHECK(full.files.size() >= 4);
   LIVE_CHECK(full.sdkVersion == "0.1.8");
+  bool platformClient = false;
+  for (const auto& file : full.files) {
+    if (file.target == studio::CrowdyStudioTarget::Client && file.path == "src/lib.rs") {
+      platformClient = file.content == platformLibrary;
+    }
+  }
+  LIVE_CHECK(platformClient);
   session.mods.push_back(base + "-server");
 
   E2E_SUBTEST("a draft test that pins a revision the project is not at is refused");
@@ -258,6 +280,16 @@ int body(Session& session) {
   LIVE_CHECK(isHexDigest(client.digest) && client.version >= 1 && isHexDigest(client.capabilityHash));
   LIVE_CHECK(!server.digest.empty() && server.version >= 1);
   LIVE_CHECK(client.phase == studio::CrowdyStudioRunStep::Done && server.phase == studio::CrowdyStudioRunStep::Done);
+  // The mod reports the project and the revision the draft built (ck-api v2.73.0).
+  bool sourced = false;
+  game.exec().mods(appId, session.gridId).forEach([&](graphql::Json m) {
+    if (m["name"].asString() != base + "-server") return;
+    std::printf("  %s v%lld: Studio %s at revision %s\n", m["name"].asString().c_str(),
+                static_cast<long long>(m["version"].asInt64()), m["studioProjectId"].asString().c_str(),
+                m["studioRevision"].asString().c_str());
+    sourced = m["studioProjectId"].asString() == full.projectId && m["studioRevision"].asString() == full.revision.id;
+  });
+  LIVE_CHECK(sourced);
   bool served = false;
   game.exec().gridClientMods(appId, session.gridId).forEach([&](graphql::Json m) {
     if (m["name"].asString() == base + "-server" && m["digest"].asString() == client.digest) {

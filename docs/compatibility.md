@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.85.0 passes the strict portable-parity gate against CrowdyJS
+CrowdyCPP 0.86.0 passes the strict portable-parity gate against CrowdyJS
 **18.32.0**. The gate pins CrowdyJS commit
 `9620a8fbe4871403ca2433fa3234f8c2f53eea1f` (`prod/v18.32.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.86.0 adds what a game's Studio dock calls, at the same CrowdyJS pin. `crowdyStudioAgent().liveModding` wraps `crowdyStudioLiveModding`, which CrowdyJS leaves to its dock's host (`authorizeLiveModding`); the parity matrix lists it covered. `models()` is the native counterpart of CrowdyJS's dock transport `models()` (`GET /v1/model/models`). `createCrowdyStudioStarterProject` and the CLIENT starter are CrowdyJS's byte for byte (`tools/parity/fixtures/crowdy-studio-starter.v1.json`, recorded from CrowdyJS and checked against it), and `CrowdyStudioController::createProject(options)` takes CrowdyJS's shape. Native only: `CrowdyStudioModRunner` (CrowdyJS's controller is already asynchronous), `GraphQLClient::getOutcome` / `getAsync`, and `crowdy/studio_origin.hpp`. `parseRustcDiagnostics` reads lines without `std::regex` and still answers every recorded CrowdyJS case. Works with every Game API on dev, test and prod.
 
 0.85.0 mirrors CrowdyJS 18.32.0's floor: a copy's voxels are dated by `Chunk.voxelsUpdatedAt` (`StoredChunk::voxelsUpdatedAtMs` into `storedAtMs`; null means no floor) and copies are ordered by the row's `updatedAt` (`rowAtMs`). Native only: `ClientConfig::maxResponseBytes` with `Errc::ResponseTooLarge`, the curl transport's http/https-only rule, and `ChunkReadLimits`. Needs ck-api v2.70.0.
 
@@ -90,7 +92,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.85.0 | CrowdyJS 18.32.0 | Required public API generation |
+| Surface | CrowdyCPP 0.86.0 | CrowdyJS 18.32.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

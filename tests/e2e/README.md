@@ -27,7 +27,8 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_MULTI_SERVER=1` | no | deployment runs 2+ replication servers (cross-server suite) |
 | `CROWDY_E2E_CLAIM_CHUNK_X/Y/Z` | no | free decimal-string chunk coordinate for the marketplace claim suite; the app must use `SELF_CLAIM` |
 | `CROWDY_E2E_STUDIO_GRID_ID` | no | owner-controlled grid used for Studio CRUD/patch/draft submission |
-| `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app |
+| `CROWDY_E2E_EXEC_MOD_GRID_ID` | no | a grid that the `CROWDY_E2E_OWNER_EMAIL` account owns in a ck-exec app (`CROWDY_E2E_APP_ID`), with SERVER and CLIENT code permissions there: `e2e_exec_client_halves` builds, attaches and removes a mod and its CLIENT half on it. That account need not administer the app; `e2e_studio_dock` runs its draft tests there |
+| `CROWDY_E2E_AGENT_ENABLED=1` | no | `e2e_studio_dock`: the app's agent policy is on and the owner account holds `use_studio_agent`, so the live-modding check must pass and the model list must name a model. Unset, a documented refusal of either is reported and accepted |
 | `CROWDY_E2E_EXEC_GATEWAY` / `CROWDY_E2E_EXEC_TOKEN` | no | a ck-exec gateway running the demo app and a connect token for it (`e2e_exec_gateway`) |
 | `CROWDY_E2E_PLAYER_FILE` | no | a JSON file `{"email", "password"}` of an existing player, which `e2e_chunk_recorded_edits` signs in with `login`; read by the suite, never printed |
 | `CROWDY_E2E_HUB_EDIT_APP_ID` / `CROWDY_E2E_HUB_EDIT_CHUNK` | no | an app running a Blocks with Friends player hub, and `x,y,z` of a stored chunk there where that player holds dirt and may build: `e2e_chunk_recorded_edits` places one block through the hub (the node API writes it), loads the chunk with a fresh `ChunkStore`, and mines the block back |
@@ -94,7 +95,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
+| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway`, `e2e_studio_dock` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid (two suites) / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
 
 ## Notes for reruns
 
@@ -120,6 +121,13 @@ Run a single suite directly for its per-subtest output:
   because the API serves a CLIENT half's module, and lets a player trust its
   author, only while one of that player's actors is in the grid. It retries
   `PLATFORM_BUSY`, which means the work never started.
+- `e2e_studio_dock` (0.86.0) checks the live-modding check (an unknown action is
+  `AGENT_SCOPE_DENIED`), the model list, the tier's Studio origin, a starter
+  project created without blocking, and `CrowdyStudioModRunner`'s draft tests of a
+  full-stack and a CLIENT-only project, every callback from `poll()`. Its mods and
+  projects are named `e2e-dock-<run>`; it deletes the mods and archives the projects
+  however the run ends, and deletes such mods a killed run left. It waits through
+  `RATE_LIMITED` and a full build queue.
 - `e2e_agentic_studio` never reads a provider key. `CROWDY_E2E_AGENT_RUN=1`
   asks the configured server-side provider to run. The suite uses the
   production controller factory for create/attach/replay/heartbeat and binds a

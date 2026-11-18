@@ -168,6 +168,10 @@ void testModels() {
   CHECK(second.contextWindow == std::optional<std::int64_t>(131072));
   CHECK(second.inputModalities == (std::vector<std::string>{"text", "image"}));
 
+  // An origin has no userinfo.
+  CHECK(h.gql->setEndpoint("https://user:secret@ck-va.example.com:8443/graphql"));
+  CHECK_EQ(h.gql->origin(), std::string("https://ck-va.example.com:8443"));
+
   // The origin moves with the endpoint (a datacenter move), and the bearer is the one held
   // when the request is sent.
   CHECK(h.gql->setEndpoint("https://ck-va.example.com:8443/graphql"));
@@ -221,6 +225,15 @@ void testModels() {
   h.http->answer = [](const Sent&) { return ok(R"({"object":"list"})"); };
   list = agent.models("77");
   CHECK(list.status.code == Errc::Malformed);
+  // A list keeps at most kCrowdyStudioModelListMax models.
+  h.http->answer = [](const Sent&) {
+    std::string many = R"({"object":"list","data":[)";
+    for (int i = 0; i < 1100; ++i) many += (i ? "," : "") + std::string(R"({"id":"m)") + std::to_string(i) + "\"}";
+    return ok(many + "]}");
+  };
+  list = agent.models("77");
+  CHECK(list.ok());
+  CHECK_EQ(list.models.size(), kCrowdyStudioModelListMax);
 
   // Cancelled before it is sent: nothing goes out, sync or async.
   graphql::CancelToken cancel;

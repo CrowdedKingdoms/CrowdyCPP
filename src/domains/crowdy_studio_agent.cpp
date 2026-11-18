@@ -76,6 +76,7 @@ CrowdyStudioModelList crowdyStudioModelListFrom(const graphql::HttpOutcome& http
     return list;
   }
   data.forEach([&](const graphql::Json& entry) {
+    if (list.models.size() >= kCrowdyStudioModelListMax) return;
     std::string id = entry["id"].asString();
     if (!id.empty()) list.models.push_back(modelOf(entry, std::move(id)));
   });

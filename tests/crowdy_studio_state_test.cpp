@@ -180,7 +180,8 @@ void testParserBoundsAndMalformedInputs() {
   // an arrow path of colons. The parser reads them in one pass and never throws.
   const std::size_t width = kCrowdyStudioDiagnosticMaxLineBytes;
   std::string hostile;
-  for (int round = 0; round < 12; ++round) {
+  // Eight rounds of seven lines stay inside the 1 MiB input bound.
+  for (int round = 0; round < 8; ++round) {
     std::string colons;
     while (colons.size() + 6 <= width) colons += "x:1:1:";
     std::string unclosed = "src/lib.rs:1:1: error[";
@@ -190,8 +191,15 @@ void testParserBoundsAndMalformedInputs() {
     std::string arrow = "  --> ";
     while (arrow.size() + 12 <= width) arrow += "a:1:";
     arrow += "b.rs:9:9";
+    // Every colon a candidate that reaches the severity: one nearly a keyword,
+    // one opening a code that never closes.
+    std::string nearly;
+    while (nearly.size() + 12 <= width) nearly += "a:1:1:errors";
+    std::string codes;
+    while (codes.size() + 12 <= width) codes += "a:1:1:error[";
     hostile += colons + "\n" + unclosed + "\n" + spaced + "\n" +
-               "  --> src/lib.rs:9:9\n" + "warning: deep\n" + arrow + "\n";
+               "  --> src/lib.rs:9:9\n" + "warning: deep\n" + arrow + "\n" +
+               nearly + "\n" + codes + "\n";
   }
   const auto started = std::chrono::steady_clock::now();
   const auto hostileDiagnostics =

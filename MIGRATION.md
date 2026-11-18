@@ -22,12 +22,15 @@ Nothing is removed. Works with every Game API on dev, test and prod; pinned to C
   (unset for null), `inputModalities` and `pricingMicrousdPerMillion`; on a refusal the HTTP status
   and the body's `code`, `message`, `type` and `retryable` (when the body has none, true only for a
   5xx); otherwise the transport's `Errc`. `crowdyStudioModelListFrom(HttpOutcome)` reads an answer
-  your own HTTP stack fetched. The list refuses only with the policy's 403s and a 503; the 400, 402
-  and 429 codes are the chat endpoint's.
+  your own HTTP stack fetched. It keeps at most `kCrowdyStudioModelListMax` (1,024) models. The
+  list refuses only with the policy's 403s and a 503; the 400, 402 and 429 codes are the chat
+  endpoint's.
 - **`GraphQLClient::getOutcome(pathAndQuery)` / `getAsync(...)` and `origin()` (new).** A GET to a
   REST route beside the GraphQL endpoint (the scheme and host of `endpoint()`, which follows a
-  datacenter move), with the bearer `AuthState` holds when it is sent. There is no automatic token
-  refresh here or on GraphQL calls: refresh the app token as before.
+  datacenter move; `origin()` drops any `user:password@` the endpoint carries), with the bearer
+  `AuthState` holds when it is sent. `pathAndQuery` is a path on that origin, starting with `/`:
+  build it from constants, not from input. There is no automatic token refresh here or on GraphQL
+  calls: refresh the app token as before.
 - **Starter projects (`crowdy/studio/starter_projects.hpp`).** `crowdyStudioClientStarterFiles(name)`
   is CrowdyJS's CLIENT half starter byte for byte (`crowdy-client-sdk = "0.1.0"`,
   `[package.metadata.crowdy] tick_interval_ms`, `serde_json`, and its tick and HUD example);

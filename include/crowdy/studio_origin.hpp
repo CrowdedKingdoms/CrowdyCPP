@@ -18,7 +18,9 @@ inline constexpr std::string_view kStudioWalletPath = "/account/wallet";
 /// `defaultHostedSignInUrl` leans on for `ck.` hosts. So `https://ck.dev.crowdedkingdoms.com`
 /// and `https://ck-va.dev.crowdedkingdoms.com` give `https://studio.dev.crowdedkingdoms.com`;
 /// a local API (`localhost`, `127.0.0.1`) gives Studio on port 3001. Any other host follows
-/// no convention: nullopt.
+/// no convention: nullopt. The answer is only as trustworthy as `apiOrigin`: pass the
+/// endpoint the game was configured with (CrowdyClient::studioOrigin() does), never a URL a
+/// player or a page supplied.
 inline std::optional<std::string> studioOriginFor(std::string_view apiOrigin) {
   const auto lower = [](std::string_view text) {
     std::string out(text);

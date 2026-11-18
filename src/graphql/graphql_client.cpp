@@ -423,7 +423,12 @@ std::string GraphQLClient::origin() const {
   const std::size_t scheme = url.find("://");
   const std::size_t authority = scheme == std::string::npos ? 0 : scheme + 3;
   const std::size_t path = url.find_first_of("/?#", authority);
-  return path == std::string::npos ? url : url.substr(0, path);
+  std::string_view host = std::string_view(url).substr(
+      authority, path == std::string::npos ? std::string::npos : path - authority);
+  // Userinfo is not part of an origin, and a parser would take what follows it as the host.
+  const std::size_t at = host.rfind('@');
+  if (at != std::string_view::npos) host.remove_prefix(at + 1);
+  return url.substr(0, authority) + std::string(host);
 }
 
 HttpRequest GraphQLClient::buildGetRequest(std::string_view pathAndQuery,

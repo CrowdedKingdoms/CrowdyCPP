@@ -67,6 +67,9 @@ struct CrowdyStudioModelList {
   bool ok() const { return status.ok(); }
 };
 
+/// The most models a list keeps; an app's allowlist is far shorter.
+inline constexpr std::size_t kCrowdyStudioModelListMax = 1024;
+
 /// Read a `GET /v1/model/models` answer, for an engine that sends it on its own stack.
 CrowdyStudioModelList crowdyStudioModelListFrom(const graphql::HttpOutcome& http);
 

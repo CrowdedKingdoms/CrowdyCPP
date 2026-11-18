@@ -128,11 +128,12 @@ class GraphQLClient {
                     std::string_view operationName, const RequestOptions& options,
                     GraphQLCallback cb);
 
-  /// GET `{origin()}{pathAndQuery}` (`/v1/model/models?appId=1`), one of the REST routes
-  /// beside the GraphQL endpoint, over this client's transports: the bearer the shared
-  /// AuthState holds when it is sent, `Accept: application/json`, the client's timeout and
-  /// response limit, the caller's CancelToken. Blocking and never throws; a body over the
-  /// limit is `Errc::ResponseTooLarge` from any transport.
+  /// GET `{origin()}{pathAndQuery}` (`/v1/model/models?appId=1`; a path the SDK builds,
+  /// starting with `/`), one of the REST routes beside the GraphQL endpoint, over this
+  /// client's transports: the bearer the shared AuthState holds when it is sent,
+  /// `Accept: application/json`, the client's timeout and response limit, the caller's
+  /// CancelToken. Blocking and never throws; a body over the limit is
+  /// `Errc::ResponseTooLarge` from any transport.
   HttpOutcome getOutcome(std::string_view pathAndQuery,
                          const RequestOptions& options = {});
   /// getOutcome() without blocking: `cb` runs once, from Dispatcher::drain() when a
@@ -179,9 +180,9 @@ class GraphQLClient {
     return endpoint_;
   }
 
-  /// The scheme and authority of endpoint(), where the REST routes are:
+  /// The scheme, host and port of endpoint(), where the REST routes are:
   /// `https://ck.dev.crowdedkingdoms.com` for `https://ck.dev.crowdedkingdoms.com/graphql`.
-  /// It moves with the endpoint.
+  /// Userinfo is dropped. It moves with the endpoint.
   std::string origin() const;
 
   /// Point this client at a different origin. Requests already in flight keep

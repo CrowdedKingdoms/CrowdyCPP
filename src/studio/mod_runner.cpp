@@ -576,8 +576,7 @@ class Run : public std::enable_shared_from_this<Run> {
 
   void finish(Outcome outcome, std::string message,
               std::optional<graphql::GraphQLErrorDetail> error = std::nullopt) {
-    if (finished_) return;
-    finished_ = true;
+    if (finished_.exchange(true)) return;
     result_.outcome = outcome;
     result_.message = std::move(message);
     result_.error = std::move(error);
@@ -629,7 +628,7 @@ class Run : public std::enable_shared_from_this<Run> {
   std::string serverName_;
   std::string clientName_;
   std::string modName_;
-  bool finished_ = false;
+  std::atomic<bool> finished_{false};
 };
 
 }  // namespace mod_runner_detail

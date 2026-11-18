@@ -65,15 +65,19 @@ onDone, onProgress)`. It reads the project and refuses one past the expected
 revision, builds that read's files (CLIENT half first), deploys and switches on
 the SERVER half (or the mod a CLIENT-only project rides), attaches the CLIENT
 half and consents to it as its author, and reports each target's build log,
-diagnostics, digest and version. Every callback arrives from `client.poll()`.
+diagnostics, digest and version. Each build names the project and the revision
+it read (ck-api v2.73.0), so the mod and its CLIENT half report which saved
+revision a grid runs (`studioProjectId`, `studioRevision`). Every callback
+arrives from `client.poll()`.
 It does not start the CLIENT half in an engine runtime: the attached half is
 served to its author like any other, through `exec().gridClientMods` and
 `modClientArtifactBytes`. See the README's "A Studio dock in a game".
 
 `crowdy::studio::createCrowdyStudioStarterProjectAsync` creates a new project
-with CrowdyJS's starter files without blocking, and
-`CrowdyStudioController::createProject(CrowdyStudioNewProjectOptions)` does the
-same from the maintenance lane through the runtime's mod starter.
+from the platform's starters (the mod starter and, from ck-api v2.73.0, the
+CLIENT half starter, with the SDK's copy when a host predates it) without
+blocking, and `CrowdyStudioController::createProject(CrowdyStudioNewProjectOptions)`
+does the same from the maintenance lane through the runtime.
 
 ```cpp
 crowdy::studio::CrowdyStudioIntegrationOptions options;

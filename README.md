@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.86.0: a Studio dock's platform calls.** For a game that docks Agentic Crowdy Studio: `crowdyStudioAgent().liveModding(appId, action)` (the app's Allow Live Modding, which only this call checks) and `models(appId)` (`GET /v1/model/models`, typed, on the client's transports), CrowdyJS's starter projects (`crowdy/studio/starter_projects.hpp`: the CLIENT half's starter byte for byte, and an async create), `CrowdyStudioModRunner` (`crowdy/studio/mod_runner.hpp`: a draft test or live deploy that never blocks the game thread, with per-target build logs, diagnostics, digests and versions) and the tier's Studio and wallet page (`crowdy/studio_origin.hpp`, `CrowdyClient::studioOrigin()`). The Rust diagnostics parser no longer uses `std::regex`, which overflowed small stacks on long lines. Works with every Game API on dev, test and prod. See [MIGRATION.md](MIGRATION.md).
+
 **v0.85.0: a voxel's time is its chunk's whole-chunk write, and responses have limits.** The ChunkStore dates the voxels of a copy by `Chunk.voxelsUpdatedAt` (ck-api v2.70.0, which lets an `updateChunk` or `world.set_chunk` supersede older edits), so a chunk-state or LOD write no longer drops a newer change; `rowAtMs` orders copies. GraphQL responses are limited to `ClientConfig::maxResponseBytes` (128 MiB, decompressed; `Errc::ResponseTooLarge`), the curl transport takes http and https only, and stored-chunk replies are held to `ChunkReadLimits`. Needs ck-api v2.70.0. See [MIGRATION.md](MIGRATION.md).
 
 v0.84.0: ChunkStore v3, and the realtime servers' acknowledgement of bound control frames. The store merges by the server's time: each voxel keeps the value the server confirmed last and when (`confirmedAtMs()`), a change older than it is dropped, a change that arrives while its chunk loads survives the copy, an echo matches by value, and a confirmed change under one of your unanswered edits shows when that edit is refused. `catchUp()` covers every chunk the store holds or knows was never stored (or the boxes you pass), `evict()` and `pruneIf()` prune any view, `hydrateAsync(coord, done)` calls back after a fresh read, a store can run without a `replication::Connection` (`SendFn`), and `IAsyncChunkSource` lets an engine's own HTTP client carry the store's requests. After a server acknowledges the bound forms (`CONTROL_BOUND_ACK`, realtime servers v0.46.0), legacy reconnects and releases are dropped. Needs ck-api v2.69.0 (`VoxelState.updatedAt`). See [MIGRATION.md](MIGRATION.md).
@@ -696,7 +698,7 @@ app-scoped token):
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `getFiles` / `putFile` / `commitFiles` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
 | `client.gameApps()` | App grids, first-class ownership (`ownership` / `assignOwnership` / `transferOwnership`), and grid runtime-permission administration. |
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
-| `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent and metered model usage. The agent itself runs in the player's browser (CrowdyJS 16 `dsh`) against the REST `/v1/model` endpoint; see [native agent API](docs/native-agent-api.md). |
+| `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage, the live-modding check (`liveModding`) and the model list (`models`, `GET /v1/model/models`). The agent itself runs in a Studio dock, CrowdyJS's `dsh` in a browser or a game's own, against the REST `/v1/model` endpoint; see [A Studio dock in a game](#a-studio-dock-in-a-game) and [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: typed clients for the ck-exec starter hubs (`world()`, `matchmaking()`, `sessions()`, `npcs()`, `topology()`), the client conventions (`spectate()`, `emotes()`, `shards()`) and `social()` (parties, guilds and chat over teams and channels); `crowdy/kit/wire.hpp`, `realtime.hpp` and `actions.hpp` stand alone — see [Game Kit](#game-kit-the-starter-hubs-social-helpers-and-wire-codecs). |
@@ -786,6 +788,55 @@ CrowdyJS runtime projection while retaining native content-hash, module, and
 pairing bindings. See [MIGRATION.md](MIGRATION.md) for source-behavior and
 runtime-ownership notes.
 
+## A Studio dock in a game
+
+A game that docks Agentic Crowdy Studio (the in-browser harness, hosted in the
+game) makes the dock's platform calls on its app-token client. Every callback
+below arrives from `game.poll()`; nothing blocks the game thread.
+
+```cpp
+// Before the agent's draft test or live deploy: the app's Allow Live Modding,
+// which the build, deploy and switch-on calls do not check.
+game.crowdyStudioAgent().liveModdingAsync(
+    appId, crowdy::domains::CrowdyStudioLiveModdingAction::DraftTest,
+    [](crowdy::graphql::GraphQLOutcome out) { /* out.data is the Boolean; else errors[0].code */ });
+
+// The models the app allows, for the harness's boot material.
+game.crowdyStudioAgent().modelsAsync(appId, [](crowdy::domains::CrowdyStudioModelList list) {
+  if (!list.ok() && list.error) { /* list.httpStatus, error->code, error->retryable */ }
+});
+
+// A new project with both halves: the mod starter for SERVER, CrowdyJS's CLIENT starter.
+crowdy::studio::createCrowdyStudioStarterProjectAsync(
+    game.exec(), game.crowdyStudio(),
+    {.appId = appId, .gridId = gridId, .name = "Weather HUD",
+     .kind = crowdy::studio::CrowdyStudioProjectKind::FullStack},
+    [](crowdy::graphql::GraphQLOutcome out, crowdy::studio::CrowdyStudioProject project) {});
+
+// A draft test of exactly the revision the player saved.
+auto runner = game.createCrowdyStudioModRunner();
+auto run = runner->run(
+    {.scope = {appId, gridId}, .projectId = projectId, .expectedRevisionId = revision},
+    [](crowdy::studio::CrowdyStudioRunResult result) {
+      // result.outcome: Running, CompileFailed (targets[i].buildLog / diagnostics),
+      // RevisionConflict, RateLimited, QueueFull, Refused (result.error->code), ...
+    },
+    [](const crowdy::studio::CrowdyStudioRunProgress& step) { /* Building, Deploying, ... */ });
+
+// The only origin the dock opens a popup to, and where it sends a player for funds.
+const std::string studio = game.studioOrigin();
+const std::string wallet = crowdy::studioWalletUrl(studio);
+```
+
+A run reads the project and refuses one that moved past the expected revision
+(a bound project can pin `expectedGithubSha`), builds that read's files with the
+CLIENT half first so a failed compile publishes nothing, deploys and switches on
+the SERVER half (a CLIENT-only project rides a mod of its CLIENT module's name,
+deployed from the mod starter), then attaches the CLIENT half and consents to it
+as its author. `checkLiveModding` makes the run ask the live-modding check first.
+`handle.cancel()` stops it at its next step; destroying the runner ends its runs
+without calling back.
+
 ## Native player-host observation
 
 `crowdy/player_host/` is the typed observation contract a game can implement
@@ -794,8 +845,9 @@ so tooling can read the controlled player and their surroundings:
 the closed preemption vocabulary. Since 0.34.0 it is observation only. The
 lease manager, control gate, native tool dispatchers and Studio host adapter
 that executed commands for the Crowdy Agent orchestrator went with that
-orchestrator: the Studio agent now runs in the player's browser, only
-observes, and has no native counterpart.
+orchestrator: the Studio agent now runs in a dock and drives Studio through
+the public calls in [A Studio dock in a game](#a-studio-dock-in-a-game), never
+through the player host.
 
 `CrowdyStudioIntegration` owns the headless controller, layout controller and
 editor bridge. Integration `poll()` is a nonblocking platform pump; autosave,

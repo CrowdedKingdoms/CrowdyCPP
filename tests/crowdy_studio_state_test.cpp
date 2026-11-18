@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <deque>
@@ -171,6 +172,38 @@ void testParserBoundsAndMalformedInputs() {
   oversized += "\nsrc/lib.rs:1:1: error: outside input bound";
   CHECK(parseRustcDiagnostics(
             oversized, CrowdyStudioTarget::Server)
+            .empty());
+
+  // Lines at the 16 KiB bound shaped to make a backtracking matcher work
+  // hardest (MSVC's std::regex threw error_stack on such lines): colons and
+  // digits with no severity, a code that never closes, spaces before a header,
+  // an arrow path of colons. The parser reads them in one pass and never throws.
+  const std::size_t width = kCrowdyStudioDiagnosticMaxLineBytes;
+  std::string hostile;
+  for (int round = 0; round < 12; ++round) {
+    std::string colons;
+    while (colons.size() + 6 <= width) colons += "x:1:1:";
+    std::string unclosed = "src/lib.rs:1:1: error[";
+    unclosed.append(width - unclosed.size(), 'a');
+    std::string spaced(width - 32, ' ');
+    spaced += "warning: spaced";
+    std::string arrow = "  --> ";
+    while (arrow.size() + 12 <= width) arrow += "a:1:";
+    arrow += "b.rs:9:9";
+    hostile += colons + "\n" + unclosed + "\n" + spaced + "\n" +
+               "  --> src/lib.rs:9:9\n" + "warning: deep\n" + arrow + "\n";
+  }
+  const auto started = std::chrono::steady_clock::now();
+  const auto hostileDiagnostics =
+      parseRustcDiagnostics(hostile, CrowdyStudioTarget::Server);
+  CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(2));
+  CHECK_EQ(hostileDiagnostics.size(), std::size_t{1});
+  CHECK(hostileDiagnostics[0].message == "spaced");
+  CHECK(hostileDiagnostics[0].line == 9);
+
+  // A path of nothing but the space the leading run gave back is no path.
+  CHECK(parseRustcDiagnostics("   :5:6: error: odd",
+                              CrowdyStudioTarget::Server)
             .empty());
 }
 

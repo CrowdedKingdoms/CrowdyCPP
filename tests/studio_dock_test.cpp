@@ -1,0 +1,883 @@
+// A Studio dock's platform calls (0.86.0): the live-modding check, the model list, the
+// Studio origin, the starter projects and the async draft test / deploy runner.
+#include <cstdint>
+#include <cstdio>
+#include <fstream>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "crowdy/client.hpp"
+#include "crowdy/domains/crowdy_studio_agent.hpp"
+#include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/dispatcher.hpp"
+#include "crowdy/graphql/errors.hpp"
+#include "crowdy/graphql/graphql_client.hpp"
+#include "crowdy/graphql/http.hpp"
+#include "crowdy/graphql/json.hpp"
+#include "crowdy/studio_origin.hpp"
+#ifndef CROWDY_NO_EXCEPTIONS
+#include <chrono>
+#include <map>
+#include <thread>
+
+#include "crowdy/domains/crowdy_studio.hpp"
+#include "crowdy/domains/exec.hpp"
+#include "crowdy/studio/mod_runner.hpp"
+#include "crowdy/studio/starter_projects.hpp"
+#endif
+#include "test_util.hpp"
+
+using namespace crowdy;
+using namespace crowdy::domains;
+
+namespace {
+
+struct Sent {
+  std::string method;
+  std::string url;
+  std::string authorization;
+  std::string accept;
+  graphql::Json body;
+};
+
+/// Records each request and answers it with `answer` (`{"data":{}}` when unset).
+class ScriptedHttp final : public graphql::IHttpTransport {
+ public:
+  std::vector<Sent> sent;
+  std::function<graphql::HttpResponse(const Sent&)> answer;
+
+  graphql::HttpResponse send(const graphql::HttpRequest& r) override {
+    Sent s;
+    s.method = r.method;
+    s.url = r.url;
+    for (const auto& [name, value] : r.headers) {
+      if (name == "Authorization") s.authorization = value;
+      if (name == "Accept") s.accept = value;
+    }
+    s.body = graphql::Json::parse(r.body);
+    sent.push_back(s);
+    return answer ? answer(sent.back()) : graphql::HttpResponse{200, R"({"data":{}})"};
+  }
+};
+
+graphql::HttpResponse ok(std::string body) { return {200, std::move(body)}; }
+
+/// A client on the scripted transport: async requests complete inline and their callbacks
+/// wait in the dispatcher, as a game's do until it polls.
+struct Harness {
+  std::shared_ptr<ScriptedHttp> http = std::make_shared<ScriptedHttp>();
+  std::shared_ptr<graphql::AuthState> auth = std::make_shared<graphql::AuthState>();
+  std::shared_ptr<graphql::Dispatcher> dispatcher = std::make_shared<graphql::Dispatcher>();
+  std::shared_ptr<graphql::GraphQLClient> gql;
+
+  explicit Harness(std::size_t maxBytes = graphql::kDefaultMaxResponseBytes) {
+    graphql::GraphQLClientConfig config{"http://test/graphql", 1000, maxBytes};
+    gql = std::make_shared<graphql::GraphQLClient>(config, http, auth);
+    gql->setDispatcher(dispatcher);
+    gql->setAsyncTransport(graphql::makeInlineAsyncTransport(http));
+    auth->setToken("tok");
+  }
+};
+
+void testLiveModding() {
+  CHECK_EQ(toString(CrowdyStudioLiveModdingAction::DraftTest), std::string_view("draft_test"));
+  CHECK_EQ(toString(CrowdyStudioLiveModdingAction::DeployLive), std::string_view("deploy_live"));
+
+  Harness h;
+  CrowdyStudioAgentAPI agent(h.gql, h.dispatcher);
+  h.http->answer = [](const Sent&) { return ok(R"({"data":{"crowdyStudioLiveModding":true}})"); };
+  CHECK(agent.liveModding("77", CrowdyStudioLiveModdingAction::DraftTest));
+  const Sent& sent = h.http->sent.back();
+  CHECK_EQ(sent.method, std::string("POST"));
+  CHECK_EQ(sent.authorization, std::string("Bearer tok"));
+  CHECK_EQ(sent.body["operationName"].asString(), std::string("CrowdyStudioLiveModding"));
+  CHECK_EQ(sent.body["variables"]["appId"].asString(), std::string("77"));
+  CHECK_EQ(sent.body["variables"]["action"].asString(), std::string("draft_test"));
+  CHECK(sent.body["query"].asString().find(
+            "crowdyStudioLiveModding(appId: $appId, action: $action)") != std::string::npos);
+
+  // Async: the outcome's data is the Boolean, delivered when the game drains its dispatcher.
+  std::optional<graphql::GraphQLOutcome> got;
+  agent.liveModdingAsync("77", CrowdyStudioLiveModdingAction::DeployLive,
+                         [&](graphql::GraphQLOutcome outcome) { got = std::move(outcome); });
+  CHECK(!got);
+  h.dispatcher->drain();
+  CHECK(got && got->ok());
+  CHECK(got->data.isBool() && got->data.asBool());
+  CHECK_EQ(h.http->sent.back().body["variables"]["action"].asString(), std::string("deploy_live"));
+
+  // A refusal is a GraphQL error carrying its code.
+  h.http->answer = [](const Sent&) {
+    return ok(R"({"errors":[{"message":"Agentic Crowdy Studio is disabled by Management policy.","extensions":{"code":"AGENT_DISABLED","retryable":false}}],"data":null})");
+  };
+  got.reset();
+  agent.liveModdingAsync("77", "draft_test", [&](graphql::GraphQLOutcome outcome) { got = std::move(outcome); });
+  h.dispatcher->drain();
+  CHECK(got && got->kind == graphql::GraphQLErrorKind::GraphQL);
+  CHECK_EQ(got->errors.at(0).code, std::string("AGENT_DISABLED"));
+  CHECK(!got->errors.at(0).retryable);
+#ifndef CROWDY_NO_EXCEPTIONS
+  bool threw = false;
+  try {
+    (void)agent.liveModding("77", CrowdyStudioLiveModdingAction::DraftTest);
+  } catch (const graphql::CrowdyGraphQLError& error) {
+    threw = error.code() == "AGENT_DISABLED";
+  }
+  CHECK(threw);
+#else
+  CHECK(!agent.liveModding("77", CrowdyStudioLiveModdingAction::DraftTest));
+#endif
+}
+
+constexpr const char* kModelList =
+    R"({"object":"list","data":[)"
+    R"({"id":"openai/gpt-oss-120b","object":"model","owned_by":"crowded-kingdoms","name":"openai/gpt-oss-120b","context_window":null,"input_modalities":["text"],"pricing_microusd_per_million":{"input":195000,"output":780000,"reasoning":780000,"cached_input":97500}},)"
+    R"({"id":"x/vision","object":"model","owned_by":"crowded-kingdoms","name":"Vision","context_window":131072,"input_modalities":["text","image"],"pricing_microusd_per_million":{"input":1,"output":2,"reasoning":3,"cached_input":4}},)"
+    R"({"object":"model","name":"no id"}]})";
+
+void testModels() {
+  Harness h;
+  CrowdyStudioAgentAPI agent(h.gql, h.dispatcher);
+  h.http->answer = [](const Sent&) { return ok(kModelList); };
+  CrowdyStudioModelList list = agent.models("77");
+  CHECK(list.ok());
+  CHECK_EQ(list.httpStatus, 200);
+  const Sent& sent = h.http->sent.back();
+  CHECK_EQ(sent.method, std::string("GET"));
+  CHECK_EQ(sent.url, std::string("http://test/v1/model/models?appId=77"));
+  CHECK_EQ(sent.authorization, std::string("Bearer tok"));
+  CHECK_EQ(sent.accept, std::string("application/json"));
+  // An entry without an id is not a model.
+  CHECK_EQ(list.models.size(), 2u);
+  const CrowdyStudioModel& first = list.models.at(0);
+  CHECK_EQ(first.id, std::string("openai/gpt-oss-120b"));
+  CHECK_EQ(first.name, first.id);
+  CHECK(!first.contextWindow);
+  CHECK(first.inputModalities == std::vector<std::string>{"text"});
+  CHECK_EQ(first.pricingMicrousdPerMillion.input, 195000);
+  CHECK_EQ(first.pricingMicrousdPerMillion.output, 780000);
+  CHECK_EQ(first.pricingMicrousdPerMillion.reasoning, 780000);
+  CHECK_EQ(first.pricingMicrousdPerMillion.cachedInput, 97500);
+  const CrowdyStudioModel& second = list.models.at(1);
+  CHECK_EQ(second.name, std::string("Vision"));
+  CHECK(second.contextWindow == std::optional<std::int64_t>(131072));
+  CHECK(second.inputModalities == (std::vector<std::string>{"text", "image"}));
+
+  // The origin moves with the endpoint (a datacenter move), and the bearer is the one held
+  // when the request is sent.
+  CHECK(h.gql->setEndpoint("https://ck-va.example.com:8443/graphql"));
+  CHECK_EQ(h.gql->origin(), std::string("https://ck-va.example.com:8443"));
+  h.auth->setToken("tok2");
+  std::optional<CrowdyStudioModelList> got;
+  agent.modelsAsync("7 7", [&](CrowdyStudioModelList answer) { got = std::move(answer); });
+  CHECK(!got);
+  h.dispatcher->drain();
+  CHECK(got && got->ok());
+  CHECK_EQ(h.http->sent.back().url,
+           std::string("https://ck-va.example.com:8443/v1/model/models?appId=7%207"));
+  CHECK_EQ(h.http->sent.back().authorization, std::string("Bearer tok2"));
+
+  // The endpoint's refusals carry the status, code, message, type and retryable flag.
+  h.http->answer = [](const Sent&) {
+    return graphql::HttpResponse{
+        403,
+        R"({"error":{"message":"Agentic Crowdy Studio is disabled by Management policy.","type":"crowded_kingdoms_error","code":"AGENT_DISABLED","retryable":false}})"};
+  };
+  list = agent.models("77");
+  CHECK(list.status.code == Errc::Rejected);
+  CHECK_EQ(list.httpStatus, 403);
+  CHECK(list.error && list.error->code == "AGENT_DISABLED");
+  CHECK_EQ(list.error->type, std::string("crowded_kingdoms_error"));
+  CHECK_EQ(list.error->message, std::string("Agentic Crowdy Studio is disabled by Management policy."));
+  CHECK(!list.error->retryable);
+  CHECK(list.models.empty());
+  // The body's flag wins over the status.
+  h.http->answer = [](const Sent&) {
+    return graphql::HttpResponse{
+        503,
+        R"({"error":{"message":"stale","type":"crowded_kingdoms_error","code":"AGENT_PROVIDER_POLICY_UNSATISFIED","retryable":false}})"};
+  };
+  list = agent.models("77");
+  CHECK(list.error && list.error->code == "AGENT_PROVIDER_POLICY_UNSATISFIED" && !list.error->retryable);
+  // A body that is not the envelope: a guard's default, or a gateway's page.
+  h.http->answer = [](const Sent&) {
+    return graphql::HttpResponse{401, R"({"statusCode":401,"message":"Unauthorized"})"};
+  };
+  list = agent.models("77");
+  CHECK(list.error && list.error->message == "Unauthorized");
+  CHECK(list.error->code.empty() && !list.error->retryable);
+  h.http->answer = [](const Sent&) {
+    return graphql::HttpResponse{502, "<html>" + std::string(2000, 'x')};
+  };
+  list = agent.models("77");
+  CHECK(list.error && list.error->retryable);
+  CHECK_EQ(list.error->message.size(), 512u);
+  // A 200 that is not a list.
+  h.http->answer = [](const Sent&) { return ok(R"({"object":"list"})"); };
+  list = agent.models("77");
+  CHECK(list.status.code == Errc::Malformed);
+
+  // Cancelled before it is sent: nothing goes out, sync or async.
+  graphql::CancelToken cancel;
+  cancel.cancel();
+  const std::size_t before = h.http->sent.size();
+  list = agent.models("77", graphql::RequestOptions{cancel});
+  CHECK(list.status.code == Errc::Cancelled);
+  got.reset();
+  agent.modelsAsync("77", graphql::RequestOptions{cancel},
+                    [&](CrowdyStudioModelList answer) { got = std::move(answer); });
+  h.dispatcher->drain();
+  CHECK(got && got->status.code == Errc::Cancelled);
+  CHECK_EQ(h.http->sent.size(), before);
+
+  // A body over the client's limit is refused unparsed.
+  Harness small(64);
+  CrowdyStudioAgentAPI limited(small.gql, small.dispatcher);
+  small.http->answer = [](const Sent&) { return ok(kModelList); };
+  list = limited.models("77");
+  CHECK(list.status.code == Errc::ResponseTooLarge);
+  CHECK(list.models.empty());
+
+  // A transport failure is the transport's.
+  graphql::HttpOutcome timedOut;
+  timedOut.status = Errc::Timeout;
+  timedOut.errorMessage = "timed out";
+  list = crowdyStudioModelListFrom(timedOut);
+  CHECK(list.status.code == Errc::Timeout);
+  CHECK_EQ(list.errorMessage, std::string("timed out"));
+}
+
+// The tier's Studio from the API in use: `ck.<root>` serves `studio.<root>` (CrowdyJS's
+// defaultHostedSignInUrl), a local API's Studio is on :3001, anything else has no convention.
+void testStudioOrigin() {
+  using Origin = std::optional<std::string>;
+  CHECK(studioOriginFor("https://ck.dev.crowdedkingdoms.com") == Origin("https://studio.dev.crowdedkingdoms.com"));
+  CHECK(studioOriginFor("https://ck.prod.crowdedkingdoms.com/graphql") ==
+        Origin("https://studio.prod.crowdedkingdoms.com"));
+  CHECK(studioOriginFor("HTTPS://CK.Test.CrowdedKingdoms.com:443/graphql?x=1") ==
+        Origin("https://studio.test.crowdedkingdoms.com"));
+  // A datacenter's or an instance's host, as a token's game API URL names one.
+  CHECK(studioOriginFor("https://ck-va.dev.crowdedkingdoms.com") == Origin("https://studio.dev.crowdedkingdoms.com"));
+  CHECK(studioOriginFor("https://ck-api-va-1.prod.crowdedkingdoms.com/graphql") ==
+        Origin("https://studio.prod.crowdedkingdoms.com"));
+  CHECK(studioOriginFor("http://localhost:3000/graphql") == Origin("http://localhost:3001"));
+  CHECK(studioOriginFor("http://127.0.0.1:3000") == Origin("http://127.0.0.1:3001"));
+  CHECK(!studioOriginFor("https://game.example.com/graphql"));
+  CHECK(!studioOriginFor("https://cka.example.com/graphql"));
+  CHECK(!studioOriginFor("https://ck."));
+  CHECK(!studioOriginFor("https://ck"));
+  CHECK(!studioOriginFor(""));
+  CHECK(defaultStudioOrigin() == studioOriginFor(kDefaultHttpOrigin).value_or(""));
+  CHECK_EQ(defaultStudioOrigin().rfind("https://studio.", 0), 0u);
+  CHECK_EQ(studioWalletUrl("https://studio.dev.crowdedkingdoms.com/"),
+           std::string("https://studio.dev.crowdedkingdoms.com/account/wallet"));
+  CHECK_EQ(kStudioWalletPath, std::string_view("/account/wallet"));
+
+  // The client's follows its endpoint, a move included.
+  ClientConfig config;
+  config.httpUrl = "https://ck.test.crowdedkingdoms.com";
+  config.transport = std::make_shared<ScriptedHttp>();
+  CrowdyClient client(std::move(config));
+  CHECK_EQ(client.studioOrigin(), std::string("https://studio.test.crowdedkingdoms.com"));
+  CHECK(client.graphqlClient().setEndpoint("http://localhost:3000/graphql"));
+  CHECK_EQ(client.studioOrigin(), std::string("http://localhost:3001"));
+  CHECK(client.graphqlClient().setEndpoint("https://game.example.com/graphql"));
+  CHECK(client.studioOrigin().empty());
+}
+
+#ifndef CROWDY_NO_EXCEPTIONS
+graphql::Json readFixture(const std::string& name) {
+  std::ifstream in(std::string(CROWDY_PARITY_FIXTURE_DIR) + "/" + name, std::ios::binary);
+  std::stringstream text;
+  text << in.rdbuf();
+  return graphql::Json::parse(text.str());
+}
+
+studio::CrowdyStudioProjectKind kindOf(std::string_view kind) {
+  if (kind == "SERVER") return studio::CrowdyStudioProjectKind::Server;
+  if (kind == "CLIENT") return studio::CrowdyStudioProjectKind::Client;
+  return studio::CrowdyStudioProjectKind::FullStack;
+}
+
+void expectSame(const std::string& fixtureCase, const char* field, const std::string& got,
+                const std::string& want) {
+  if (got == want) return;
+  std::fprintf(stderr, "starter case %s: %s is\n%s\nnot\n%s\n", fixtureCase.c_str(), field,
+               got.c_str(), want.c_str());
+  CHECK(false);
+}
+
+std::string optionalText(const std::optional<std::string>& value) {
+  return value ? "=" + *value : "(none)";
+}
+
+std::string optionalText(const graphql::Json& value) {
+  return value.isString() ? "=" + value.asString() : "(none)";
+}
+
+// CrowdyJS's createCrowdyStudioStarterProject, replayed case by case from the shared fixture.
+void testStarterFixture() {
+  const graphql::Json fixture = readFixture("crowdy-studio-starter.v1.json");
+  CHECK(fixture.ok());
+  CHECK_EQ(fixture["contractVersion"].asString(), std::string("crowdy.studio-starter/1"));
+  std::size_t cases = 0;
+  fixture["cases"].forEach([&](const graphql::Json& fixtureCase) {
+    const std::string name = fixtureCase["name"].asString();
+    const graphql::Json given = fixtureCase["options"];
+    studio::CrowdyStudioNewProjectOptions options;
+    options.appId = given["appId"].asString();
+    options.gridId = given["gridId"].asString();
+    options.name = given["name"].asString();
+    options.kind = kindOf(given["kind"].asStringView());
+    if (given["description"].isString()) options.description = given["description"].asString();
+    if (given["modStarter"].isString()) {
+      options.modStarter =
+          studio::crowdyStudioModStarterOf(fixture["modStarters"][given["modStarter"].asStringView()]);
+    }
+    const studio::CreateCrowdyStudioProjectInput input = studio::createCrowdyStudioStarterProject(options);
+    const graphql::Json want = fixtureCase["expected"];
+    const graphql::Json metadata = want["metadata"];
+    expectSame(name, "appId", input.appId, want["appId"].asString());
+    expectSame(name, "gridId", optionalText(input.gridId), optionalText(want["gridId"]));
+    expectSame(name, "kind", input.kind == studio::CrowdyStudioProjectKind::Server ? "SERVER"
+                             : input.kind == studio::CrowdyStudioProjectKind::Client ? "CLIENT"
+                                                                                      : "FULL_STACK",
+               want["kind"].asString());
+    expectSame(name, "name", input.metadata.name, metadata["name"].asString());
+    expectSame(name, "description", optionalText(input.metadata.description),
+               optionalText(metadata["description"]));
+    expectSame(name, "serverModuleName", optionalText(input.metadata.serverModuleName),
+               optionalText(metadata["serverModuleName"]));
+    expectSame(name, "clientModuleName", optionalText(input.metadata.clientModuleName),
+               optionalText(metadata["clientModuleName"]));
+    expectSame(name, "pairingPreference", std::string(studio::toString(input.metadata.pairingPreference)),
+               metadata["pairingPreference"].asString());
+    CHECK_EQ(input.files.size(), want["files"].size());
+    std::size_t index = 0;
+    want["files"].forEach([&](const graphql::Json& file) {
+      const studio::CrowdyStudioProjectFile& made = input.files.at(index++);
+      expectSame(name, "file target", std::string(studio::toString(made.target)), file["target"].asString());
+      expectSame(name, "file path", made.path, file["path"].asString());
+      expectSame(name, "file content", made.content, file["content"].asString());
+    });
+    ++cases;
+  });
+  CHECK_EQ(cases, 10u);
+
+  // The CLIENT starter on its own, and the two refusals CrowdyJS makes.
+  const auto client = studio::crowdyStudioClientStarterFiles("x-client");
+  CHECK_EQ(client.size(), 2u);
+  CHECK(client.at(0).content.find("name = \"x-client\"") != std::string::npos);
+  CHECK(client.at(0).content.find("crowdy-client-sdk = \"0.1.0\"") != std::string::npos);
+  studio::CrowdyStudioNewProjectOptions server;
+  server.name = "s";
+  server.kind = studio::CrowdyStudioProjectKind::Server;
+  std::string refused;
+  try {
+    (void)studio::createCrowdyStudioStarterProject(server);
+  } catch (const std::invalid_argument& error) {
+    refused = error.what();
+  }
+  CHECK_EQ(refused, std::string("A SERVER target starts from the mod starter (client.exec().modStarter)"));
+  server.modStarter = studio::crowdyStudioModStarterOf(fixture["modStarters"]["no-library"]);
+  refused.clear();
+  try {
+    (void)studio::createCrowdyStudioStarterProject(server);
+  } catch (const std::invalid_argument& error) {
+    refused = error.what();
+  }
+  CHECK_EQ(refused, std::string("The mod starter has no Cargo.toml or src/lib.rs"));
+}
+
+constexpr const char* kModStarterAnswer =
+    R"({"data":{"execModStarter":{"crate":"grid-mod","nodeType":"mod:grid-mod","description":"d","files":[{"path":"Cargo.toml","content":"[package]\nname = \"grid-mod\"\n"},{"path":"src/lib.rs","content":"fn grid() {}\n"}]}}})";
+
+std::string createdProject(std::string_view name) {
+  return R"({"data":{"crowdyStudioProjectCreate":{"projectId":"p9","appId":"77","ownerUserId":"42","gridId":"5","name":")" +
+         std::string(name) +
+         R"(","description":null,"serverModuleName":"turret-server","clientModuleName":"turret-client","pairingPreference":"INDEPENDENT","sdkVersion":"0.1.8","abiVersion":0,"revision":"1","archived":false,"archivedAt":null,"fileCount":4,"totalBytes":"10","createdAt":"t","updatedAt":"t","files":[]}}})";
+}
+
+// The async create: the mod starter first for a SERVER target, then the project, both answered
+// from the dispatcher.
+void testStarterProjectAsync() {
+  Harness h;
+  domains::ExecAPI exec(h.gql, nullptr);
+  domains::CrowdyStudioAPI projects(h.gql);
+  h.http->answer = [](const Sent& sent) {
+    const std::string op = sent.body["operationName"].asString();
+    if (op == "ExecModStarter") return ok(kModStarterAnswer);
+    if (op == "CrowdyStudioProjectCreate") return ok(createdProject("Turret"));
+    return ok(R"({"data":{}})");
+  };
+  studio::CrowdyStudioNewProjectOptions options;
+  options.appId = "77";
+  options.gridId = "5";
+  options.name = "Turret";
+  options.kind = studio::CrowdyStudioProjectKind::FullStack;
+  std::optional<graphql::GraphQLOutcome> outcome;
+  studio::CrowdyStudioProject created;
+  studio::createCrowdyStudioStarterProjectAsync(
+      exec, projects, options,
+      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject project) {
+        outcome = std::move(out);
+        created = std::move(project);
+      });
+  CHECK(!outcome);
+  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  CHECK(outcome && outcome->ok());
+  CHECK_EQ(created.projectId, std::string("p9"));
+  CHECK_EQ(h.http->sent.size(), 2u);
+  CHECK_EQ(h.http->sent.at(0).body["operationName"].asString(), std::string("ExecModStarter"));
+  const graphql::Json input = h.http->sent.at(1).body["variables"]["input"];
+  CHECK_EQ(input["serverModuleName"].asString(), std::string("turret-server"));
+  CHECK_EQ(input["clientModuleName"].asString(), std::string("turret-client"));
+  CHECK_EQ(input["sdkVersion"].asString(), std::string("0.1.8"));
+  CHECK_EQ(input["initialFiles"].size(), 4u);
+  CHECK(input["initialFiles"].at(0)["content"].asString().find("name = \"turret-server\"") != std::string::npos);
+  CHECK_EQ(input["initialFiles"].at(2)["target"].asString(), std::string("CLIENT"));
+
+  // A CLIENT-only project skips the mod starter; a refused fetch is the callback's outcome.
+  options.kind = studio::CrowdyStudioProjectKind::Client;
+  outcome.reset();
+  studio::createCrowdyStudioStarterProjectAsync(
+      exec, projects, options,
+      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject) { outcome = std::move(out); });
+  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  CHECK(outcome && outcome->ok());
+  CHECK_EQ(h.http->sent.back().body["operationName"].asString(), std::string("CrowdyStudioProjectCreate"));
+  CHECK_EQ(h.http->sent.size(), 3u);
+  h.http->answer = [](const Sent&) {
+    return ok(R"({"errors":[{"message":"no mod starter","extensions":{"code":"INTERNAL_SERVER_ERROR","httpStatus":503}}],"data":null})");
+  };
+  options.kind = studio::CrowdyStudioProjectKind::Server;
+  outcome.reset();
+  studio::createCrowdyStudioStarterProjectAsync(
+      exec, projects, options,
+      [&](graphql::GraphQLOutcome out, studio::CrowdyStudioProject) { outcome = std::move(out); });
+  for (int i = 0; i < 4 && !outcome; ++i) h.dispatcher->drain();
+  CHECK(outcome && outcome->kind == graphql::GraphQLErrorKind::GraphQL);
+  CHECK_EQ(outcome->errors.at(0).httpStatus, 503);
+  CHECK_EQ(h.http->sent.size(), 4u);
+}
+
+graphql::HttpResponse refusalOf(std::string_view code, int httpStatus = 0) {
+  std::string extensions = R"("code":")" + std::string(code) + "\"";
+  if (httpStatus) extensions += R"(,"httpStatus":)" + std::to_string(httpStatus);
+  return ok(R"({"errors":[{"message":"refused )" + std::string(code) + R"(","extensions":{)" + extensions +
+            R"(}}],"data":null})");
+}
+
+/// The Game API a run talks to: one project, its builds (building, then succeeded unless told
+/// otherwise), the player's mods and the CLIENT half's attachment.
+struct Backend {
+  std::string kind = "FULL_STACK";
+  std::string revision = "7";
+  std::optional<std::string> githubSha;
+  bool legacyClient = false;
+  std::map<std::string, std::string> buildEnds{{"cb1", "succeeded"}, {"sb1", "succeeded"}, {"rb1", "succeeded"}};
+  std::map<std::string, int> statusCalls;
+  std::map<std::string, graphql::HttpResponse> refuse;
+  std::string riderMods = "[]";
+  bool liveModdingAllowed = true;
+
+  std::string project() const {
+    const bool server = kind != "CLIENT";
+    const bool client = kind != "SERVER";
+    std::string files;
+    const auto add = [&](const char* target, const char* path, const std::string& content) {
+      if (!files.empty()) files += ",";
+      files += R"({"target":")" + std::string(target) + R"(","path":")" + path + R"(","content":)" +
+               graphql::JVal(content).dump() + R"(,"revision":"1","provenance":"AUTHORED"})";
+    };
+    if (server) {
+      add("SERVER", "Cargo.toml", "[package]\nname = \"turret-server\"\n[dependencies]\nckx-sdk = \"0.14.1\"\n");
+      add("SERVER", "src/lib.rs", "fn server() {}\n");
+      add("SERVER", "notes.txt", "not part of the crate");
+    }
+    if (client) {
+      add("CLIENT", "Cargo.toml",
+          legacyClient ? "[dependencies]\ncrowdy-compute-sdk = \"0.2\"\n"
+                       : "[package]\nname = \"turret-client\"\n[dependencies]\ncrowdy-client-sdk = \"0.1.0\"\n");
+      add("CLIENT", "src/lib.rs", "fn client() {}\n");
+    }
+    const std::string pairing = kind == "SERVER" ? "SERVER_ONLY" : kind == "CLIENT" ? "CLIENT_ONLY" : "INDEPENDENT";
+    std::string github;
+    if (githubSha) {
+      github = R"(,"source":"GITHUB","githubOwner":"o","githubRepo":"r","githubBranch":"main","githubSha":")" +
+               *githubSha + "\"";
+    }
+    return R"({"data":{"crowdyStudioProject":{"projectId":"p1","appId":"77","ownerUserId":"42","gridId":"5","name":"Turret","description":null,"serverModuleName":)" +
+           std::string(server ? R"("turret-server")" : "null") + R"(,"clientModuleName":)" +
+           (client ? (kind == "CLIENT" ? R"("hud-client")" : R"("turret-client")") : "null") +
+           R"(,"pairingPreference":")" + pairing + R"(","sdkVersion":"0.1.8","abiVersion":0,"revision":")" + revision +
+           R"(","archived":false,"archivedAt":null,"fileCount":5,"totalBytes":"100","createdAt":"t","updatedAt":"t")" +
+           github + R"(,"files":[)" + files + "]}}}";
+  }
+
+  static std::string build(const std::string& id, const std::string& status, const std::string& log) {
+    return R"({"buildId":")" + id + R"(","status":")" + status + R"(","kind":"exec","log":)" +
+           (log.empty() ? std::string("null") : graphql::JVal(log).dump()) +
+           R"(,"sdkVersion":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[]})";
+  }
+
+  graphql::HttpResponse answer(const Sent& sent) {
+    const std::string op = sent.body["operationName"].asString();
+    const auto refused = refuse.find(op);
+    if (refused != refuse.end()) return refused->second;
+    const graphql::Json vars = sent.body["variables"];
+    if (op == "CrowdyStudioProject") return ok(project());
+    if (op == "CrowdyStudioLiveModding") {
+      return liveModdingAllowed ? ok(R"({"data":{"crowdyStudioLiveModding":true}})")
+                                : refusalOf("AGENT_DISABLED");
+    }
+    if (op == "ExecModClientBuild") return ok(R"({"data":{"execModClientBuild":)" + build("cb1", "queued", "") + "}}");
+    if (op == "ExecModBuild") {
+      const bool rider = vars["crate"]["name"].asString() == "hud-client";
+      return ok(R"({"data":{"execModBuild":)" + build(rider ? "rb1" : "sb1", "queued", "") + "}}");
+    }
+    if (op == "ExecModBuildStatus") {
+      const std::string id = vars["buildId"].asString();
+      const bool finished = ++statusCalls[id] >= 2;
+      const std::string end = buildEnds[id];
+      const std::string log = end == "failed" ? "error[E0308]: mismatched types\n --> src/lib.rs:3:5\n"
+                                              : "warning: unused variable: `x`\n --> src/lib.rs:2:9\n";
+      return ok(R"({"data":{"execModBuildStatus":)" + build(id, finished ? end : "building", finished ? log : "") +
+                "}}");
+    }
+    const std::string mod = R"({"modId":"900","gridId":"5","name":")" + vars["name"].asString() +
+                            R"(","ownerId":"42","version":3,"digest":"sd1","enabled":true,"listingId":null,"blocked":null,"running":true,"updatedAt":"t"})";
+    if (op == "ExecModDeploy") return ok(R"({"data":{"execModDeploy":)" + mod + "}}");
+    if (op == "ExecModSetEnabled") return ok(R"({"data":{"execModSetEnabled":)" + mod + "}}");
+    if (op == "ExecMyMods") return ok(R"({"data":{"execMyMods":)" + riderMods + "}}");
+    if (op == "ExecModStarter") return ok(kModStarterAnswer);
+    if (op == "ExecModClientDeploy") {
+      return ok(R"({"data":{"execModClientDeploy":{"modId":"900","gridId":"5","name":")" + vars["name"].asString() +
+                R"(","ownerId":"42","clientVersion":2,"digest":"cd1","sizeBytes":8,"capabilitySummaryJson":"{}","capabilityHash":"h1","tickIntervalMs":1000,"updatedAt":"t"}}})");
+    }
+    if (op == "ExecConsentClientMod") return ok(R"({"data":{"execConsentClientMod":true}})");
+    return ok(R"({"data":{}})");
+  }
+};
+
+/// A runner over the scripted API; runs advance as the dispatcher is drained.
+struct RunnerHarness {
+  Harness h;
+  Backend backend;
+  std::unique_ptr<studio::CrowdyStudioModRunner> runner;
+  std::vector<std::string> steps;
+
+  RunnerHarness() {
+    h.http->answer = [this](const Sent& sent) { return backend.answer(sent); };
+    runner = std::make_unique<studio::CrowdyStudioModRunner>(
+        std::make_shared<domains::ExecAPI>(h.gql, nullptr), std::make_shared<domains::CrowdyStudioAPI>(h.gql),
+        std::make_shared<CrowdyStudioAgentAPI>(h.gql, h.dispatcher), h.dispatcher);
+  }
+
+  static studio::CrowdyStudioRunRequest request() {
+    studio::CrowdyStudioRunRequest request;
+    request.scope = {"77", "5"};
+    request.projectId = "p1";
+    request.expectedRevisionId = "7";
+    request.pollIntervalMs = 0;
+    return request;
+  }
+
+  studio::CrowdyStudioRunHandle start(studio::CrowdyStudioRunRequest request,
+                                      std::optional<studio::CrowdyStudioRunResult>& result) {
+    return runner->run(
+        std::move(request), [&result](studio::CrowdyStudioRunResult done) { result = std::move(done); },
+        [this](const studio::CrowdyStudioRunProgress& progress) {
+          std::string step(studio::toString(progress.step));
+          if (progress.target) step += ":" + std::string(studio::toString(*progress.target));
+          steps.push_back(step);
+        });
+  }
+
+  /// Drain until `done` holds or two seconds pass.
+  template <typename Predicate>
+  void drainUntil(Predicate done) {
+    const auto giveUp = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!done() && std::chrono::steady_clock::now() < giveUp) {
+      if (h.dispatcher->drain() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+
+  std::vector<std::string> operations() const {
+    std::vector<std::string> names;
+    for (const auto& sent : h.http->sent) names.push_back(sent.body["operationName"].asString());
+    return names;
+  }
+
+  const Sent& first(std::string_view operation) const {
+    for (const auto& sent : h.http->sent) {
+      if (sent.body["operationName"].asString() == operation) return sent;
+    }
+    std::fprintf(stderr, "no %s was sent\n", std::string(operation).c_str());
+    std::exit(1);
+  }
+};
+
+void expectOperations(const RunnerHarness& r, const std::vector<std::string>& want) {
+  const auto got = r.operations();
+  if (got == want) return;
+  std::fprintf(stderr, "operations:\n");
+  for (const auto& name : got) std::fprintf(stderr, "  %s\n", name.c_str());
+  CHECK(false);
+}
+
+// The full sequence: the CLIENT half built first, then the SERVER half built, deployed and
+// switched on, then the CLIENT half attached and consented to as its author.
+void testRunFullStack() {
+  RunnerHarness r;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  auto handle = r.start(RunnerHarness::request(), result);
+  CHECK(handle && !handle.done());
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  CHECK(handle.done());
+  CHECK_EQ(result->message, std::string("Draft test is running"));
+  CHECK_EQ(result->projectRevisionId, std::string("7"));
+  expectOperations(r, {"CrowdyStudioProject", "ExecModClientBuild", "ExecModBuildStatus", "ExecModBuildStatus",
+                       "ExecModBuild", "ExecModBuildStatus", "ExecModBuildStatus", "ExecModDeploy",
+                       "ExecModSetEnabled", "ExecModClientDeploy", "ExecConsentClientMod"});
+  // Each build takes only its target's crate files.
+  const graphql::Json clientCrate = r.first("ExecModClientBuild").body["variables"]["crate"];
+  CHECK_EQ(clientCrate["name"].asString(), std::string("turret-client"));
+  CHECK_EQ(clientCrate["files"].size(), 2u);
+  const graphql::Json serverCrate = r.first("ExecModBuild").body["variables"]["crate"];
+  CHECK_EQ(serverCrate["name"].asString(), std::string("turret-server"));
+  CHECK_EQ(serverCrate["files"].size(), 2u);
+  CHECK_EQ(r.first("ExecModDeploy").body["variables"]["buildId"].asString(), std::string("sb1"));
+  CHECK(r.first("ExecModSetEnabled").body["variables"]["enabled"].asBool());
+  const graphql::Json attach = r.first("ExecModClientDeploy").body["variables"];
+  CHECK_EQ(attach["name"].asString(), std::string("turret-server"));
+  CHECK_EQ(attach["buildId"].asString(), std::string("cb1"));
+  CHECK_EQ(r.first("ExecConsentClientMod").body["variables"]["capabilityHash"].asString(), std::string("h1"));
+
+  CHECK_EQ(result->targets.size(), 2u);
+  const studio::CrowdyStudioRunTarget& client = result->targets.at(0);
+  CHECK(client.target == studio::CrowdyStudioTarget::Client);
+  CHECK(client.phase == studio::CrowdyStudioRunStep::Done);
+  CHECK_EQ(client.moduleName, std::string("turret-client"));
+  CHECK_EQ(client.modName, std::string("turret-server"));
+  CHECK_EQ(client.buildId, std::string("cb1"));
+  CHECK_EQ(client.compileStatus, std::string("succeeded"));
+  CHECK_EQ(client.digest, std::string("cd1"));
+  CHECK_EQ(client.version, 2);
+  CHECK_EQ(client.capabilityHash, std::string("h1"));
+  CHECK_EQ(client.diagnostics.size(), 1u);
+  CHECK(client.buildLog.find("unused variable") != std::string::npos);
+  const studio::CrowdyStudioRunTarget& server = result->targets.at(1);
+  CHECK(server.target == studio::CrowdyStudioTarget::Server);
+  CHECK_EQ(server.buildId, std::string("sb1"));
+  CHECK_EQ(server.digest, std::string("sd1"));
+  CHECK_EQ(server.version, 3);
+  CHECK(r.steps == (std::vector<std::string>{"ReadingProject", "Building:CLIENT", "Building:SERVER",
+                                             "Deploying:SERVER", "Enabling:SERVER", "Attaching:CLIENT",
+                                             "Consenting:CLIENT", "Done"}));
+}
+
+// A failed compile is a result, and a failed CLIENT build publishes nothing.
+void testRunCompileFailed() {
+  RunnerHarness r;
+  r.backend.buildEnds["cb1"] = "failed";
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(RunnerHarness::request(), result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::CompileFailed);
+  expectOperations(r, {"CrowdyStudioProject", "ExecModClientBuild", "ExecModBuildStatus", "ExecModBuildStatus"});
+  const studio::CrowdyStudioRunTarget& client = result->targets.at(0);
+  CHECK_EQ(client.compileStatus, std::string("failed"));
+  CHECK_EQ(client.message, std::string("turret-client failed to compile"));
+  CHECK_EQ(client.diagnostics.size(), 1u);
+  CHECK(client.diagnostics.at(0).severity == studio::CrowdyStudioDiagnosticSeverity::Error);
+  CHECK(result->targets.at(1).buildId.empty());
+
+  // A crate on legacy player compute fails before anything is built.
+  RunnerHarness legacy;
+  legacy.backend.legacyClient = true;
+  result.reset();
+  legacy.start(RunnerHarness::request(), result);
+  legacy.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::CompileFailed);
+  CHECK_EQ(result->targets.at(0).buildLog, std::string(studio::kCrowdyStudioLegacyClientCrate));
+  expectOperations(legacy, {"CrowdyStudioProject"});
+}
+
+// The pin: a project that moved since the caller read it is refused before anything is built.
+void testRunRevisionPin() {
+  RunnerHarness r;
+  r.backend.revision = "8";
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(RunnerHarness::request(), result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::RevisionConflict);
+  CHECK_EQ(result->projectRevisionId, std::string("8"));
+  expectOperations(r, {"CrowdyStudioProject"});
+
+  // A GitHub-bound project pins by its mirror commit.
+  RunnerHarness bound;
+  bound.backend.revision = "9";
+  bound.backend.githubSha = "def";
+  auto request = RunnerHarness::request();
+  request.expectedRevisionId.clear();
+  request.expectedGithubSha = "abc";
+  result.reset();
+  bound.start(request, result);
+  bound.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::RevisionConflict);
+  request.expectedGithubSha = "def";
+  result.reset();
+  bound.start(request, result);
+  bound.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  CHECK(result->githubSha == std::optional<std::string>("def"));
+
+  // A request without a pin is refused at once.
+  request.expectedGithubSha.reset();
+  bool refused = false;
+  try {
+    bound.start(request, result);
+  } catch (const std::invalid_argument&) {
+    refused = true;
+  }
+  CHECK(refused);
+}
+
+// RATE_LIMITED and a full build queue are their own outcomes; other refusals carry their code.
+void testRunRefusals() {
+  RunnerHarness limited;
+  limited.backend.refuse["ExecModClientBuild"] = refusalOf("RATE_LIMITED", 429);
+  std::optional<studio::CrowdyStudioRunResult> result;
+  limited.start(RunnerHarness::request(), result);
+  limited.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::RateLimited);
+  CHECK(result->error && result->error->code == "RATE_LIMITED");
+
+  RunnerHarness full;
+  full.backend.refuse["ExecModBuild"] = refusalOf("INTERNAL_SERVER_ERROR", 503);
+  result.reset();
+  full.start(RunnerHarness::request(), result);
+  full.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::QueueFull);
+  CHECK(result->error && result->error->httpStatus == 503);
+  // The CLIENT half built, but nothing was published.
+  CHECK_EQ(result->targets.at(0).compileStatus, std::string("succeeded"));
+  CHECK(result->targets.at(0).digest.empty());
+
+  RunnerHarness forbidden;
+  forbidden.backend.refuse["ExecModDeploy"] = refusalOf("FORBIDDEN", 403);
+  result.reset();
+  forbidden.start(RunnerHarness::request(), result);
+  forbidden.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Refused);
+  CHECK(result->error && result->error->code == "FORBIDDEN");
+
+  // The live-modding check, when asked, comes first and its refusal stops the run.
+  RunnerHarness dock;
+  dock.backend.liveModdingAllowed = false;
+  auto request = RunnerHarness::request();
+  request.checkLiveModding = true;
+  request.deployment = studio::CrowdyStudioDeployment::Live;
+  result.reset();
+  dock.start(request, result);
+  dock.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Refused);
+  CHECK(result->error && result->error->code == "AGENT_DISABLED");
+  expectOperations(dock, {"CrowdyStudioProject", "CrowdyStudioLiveModding"});
+  CHECK_EQ(dock.first("CrowdyStudioLiveModding").body["variables"]["action"].asString(), std::string("deploy_live"));
+
+  // A build that never finishes within the poll limit fails.
+  RunnerHarness slow;
+  slow.backend.buildEnds["cb1"] = "building";
+  request = RunnerHarness::request();
+  request.pollLimit = 3;
+  result.reset();
+  slow.start(request, result);
+  slow.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Failed);
+  CHECK_EQ(result->message, std::string("Build cb1 did not finish within 3 polls"));
+}
+
+// A CLIENT-only project's CLIENT half rides the mod named for its CLIENT module.
+void testRunClientOnly() {
+  RunnerHarness fresh;
+  fresh.backend.kind = "CLIENT";
+  std::optional<studio::CrowdyStudioRunResult> result;
+  fresh.start(RunnerHarness::request(), result);
+  fresh.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  expectOperations(fresh, {"CrowdyStudioProject", "ExecModClientBuild", "ExecModBuildStatus", "ExecModBuildStatus",
+                           "ExecMyMods", "ExecModStarter", "ExecModBuild", "ExecModBuildStatus",
+                           "ExecModBuildStatus", "ExecModDeploy", "ExecModSetEnabled", "ExecModClientDeploy",
+                           "ExecConsentClientMod"});
+  CHECK_EQ(fresh.first("ExecModBuild").body["variables"]["crate"]["name"].asString(), std::string("hud-client"));
+  CHECK_EQ(fresh.first("ExecModDeploy").body["variables"]["name"].asString(), std::string("hud-client"));
+  CHECK_EQ(fresh.first("ExecModClientDeploy").body["variables"]["name"].asString(), std::string("hud-client"));
+  CHECK_EQ(result->targets.size(), 1u);
+  CHECK_EQ(result->targets.at(0).modName, std::string("hud-client"));
+
+  // A rider already switched on is used as it is.
+  RunnerHarness running;
+  running.backend.kind = "CLIENT";
+  running.backend.riderMods = R"([{"modId":"901","gridId":"5","name":"hud-client","enabled":true}])";
+  result.reset();
+  running.start(RunnerHarness::request(), result);
+  running.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  expectOperations(running, {"CrowdyStudioProject", "ExecModClientBuild", "ExecModBuildStatus",
+                             "ExecModBuildStatus", "ExecMyMods", "ExecModClientDeploy", "ExecConsentClientMod"});
+}
+
+// Cancelling stops at the next step; destroying the runner ends its runs without calling back.
+void testRunCancelAndDestroy() {
+  RunnerHarness r;
+  auto request = RunnerHarness::request();
+  request.pollIntervalMs = 30;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  auto handle = r.start(request, result);
+  r.drainUntil([&] { return r.h.http->sent.size() >= 2; });
+  handle.cancel();
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Cancelled);
+  CHECK(handle.done());
+  for (const auto& name : r.operations()) CHECK(name != "ExecModBuild" && name != "ExecModDeploy");
+
+  RunnerHarness gone;
+  bool called = false;
+  gone.runner->run(RunnerHarness::request(), [&](studio::CrowdyStudioRunResult) { called = true; });
+  gone.h.dispatcher->drain();
+  gone.runner.reset();
+  for (int i = 0; i < 20; ++i) {
+    gone.h.dispatcher->drain();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  CHECK(!called);
+}
+#endif
+
+}  // namespace
+
+int main() {
+  testLiveModding();
+  testModels();
+  testStudioOrigin();
+#ifndef CROWDY_NO_EXCEPTIONS
+  testStarterFixture();
+  testStarterProjectAsync();
+  testRunFullStack();
+  testRunCompileFailed();
+  testRunRevisionPin();
+  testRunRefusals();
+  testRunClientOnly();
+  testRunCancelAndDestroy();
+#endif
+  std::printf("studio_dock_test: OK\n");
+  return 0;
+}

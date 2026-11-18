@@ -346,6 +346,20 @@ class CrowdyStudioController {
     return project;
   }
 
+  /// CrowdyJS's createProject(options): a starter project in this controller's
+  /// scope (an empty app or grid id means this controller's), whose SERVER
+  /// target starts from the runtime's mod starter unless `options` carries one.
+  CrowdyStudioProject createProject(CrowdyStudioNewProjectOptions options) {
+    ensureAlive();
+    if (options.appId.empty()) options.appId = options_.appId;
+    if (options.gridId.empty()) options.gridId = options_.gridId;
+    if (!options.modStarter &&
+        containsTarget(projectTargets(options.kind), CrowdyStudioTarget::Server)) {
+      options.modStarter = runtime_.modStarter(scope());
+    }
+    return createProject(createCrowdyStudioStarterProject(options));
+  }
+
   void switchProject(std::string_view projectId) {
     ensureAlive();
     if (state_.project && state_.project->projectId == projectId) return;

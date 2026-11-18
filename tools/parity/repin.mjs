@@ -78,53 +78,61 @@ if (options.check) {
   process.exit(1);
 }
 
-pkg.crowdyjsParityTarget = { version, commit };
-writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+// A promotion merges in fixtures stamped for the source tier while the pin is already the
+// destination's, so everything after the pin itself runs even when the pin does not move.
+const moved = previous.version !== version || previous.commit !== commit;
+if (moved) movePin();
+else console.log('pin is already current; restamping the fixtures and the matrix');
 
-// The gate test asserts the pin as a LITERAL, deliberately, so a move is a
-// reviewed edit rather than something that follows package.json silently. That
-// makes it a second place holding the same fact, and this tool wrote only the
-// first -- so every repin left the suite failing on a value the tool had just
-// changed. Update both, or the literal is not a review gate, it is a chore.
-const gateTestPath = join(root, 'tests/parity/parity-gate.test.mjs');
-const gateTest = readFileSync(gateTestPath, 'utf8');
-const updatedGateTest = gateTest
-  .replace(
-    new RegExp(`version: '${escapeRegExp(previous.version)}'`),
-    `version: '${version}'`,
-  )
-  .replace(
-    new RegExp(`commit: '${escapeRegExp(previous.commit)}'`),
-    `commit: '${commit}'`,
-  );
-if (updatedGateTest === gateTest) {
-  throw new Error(
-    `could not update the pinned target in ${gateTestPath}: it did not contain ` +
-      `${previous.version}@${previous.commit.slice(0, 10)}. Update it by hand, ` +
-      `then rerun -- a pin recorded in one place and asserted in another is drift.`,
-  );
-}
-writeFileSync(gateTestPath, updatedGateTest);
+function movePin() {
+  pkg.crowdyjsParityTarget = { version, commit };
+  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 
-// And the C++ suites, which assert the fixture's recorded CrowdyJS version.
-// This makes FIVE places holding one fact. Each was a reasonable local decision
-// -- a literal so a move is visible in review -- and together they meant a
-// repin left CI red in a way the tool could not see, because it only ever wrote
-// package.json. Anything that records the pin has to be written by the thing
-// that moves it.
-let cppUpdated = 0;
-for (const file of cppSuites) {
-  const body = readFileSync(file, 'utf8');
-  // Version AND commit: the suites assert both, and updating one leaves a
-  // failure that looks like a different problem than the repin.
-  if (!body.includes(previous.version) && !body.includes(previous.commit)) continue;
-  writeFileSync(
-    file,
-    body.replaceAll(previous.version, version).replaceAll(previous.commit, commit),
-  );
-  cppUpdated += 1;
+  // The gate test asserts the pin as a LITERAL, deliberately, so a move is a
+  // reviewed edit rather than something that follows package.json silently. That
+  // makes it a second place holding the same fact, and this tool wrote only the
+  // first -- so every repin left the suite failing on a value the tool had just
+  // changed. Update both, or the literal is not a review gate, it is a chore.
+  const gateTestPath = join(root, 'tests/parity/parity-gate.test.mjs');
+  const gateTest = readFileSync(gateTestPath, 'utf8');
+  const updatedGateTest = gateTest
+    .replace(
+      new RegExp(`version: '${escapeRegExp(previous.version)}'`),
+      `version: '${version}'`,
+    )
+    .replace(
+      new RegExp(`commit: '${escapeRegExp(previous.commit)}'`),
+      `commit: '${commit}'`,
+    );
+  if (updatedGateTest === gateTest) {
+    throw new Error(
+      `could not update the pinned target in ${gateTestPath}: it did not contain ` +
+        `${previous.version}@${previous.commit.slice(0, 10)}. Update it by hand, ` +
+        `then rerun -- a pin recorded in one place and asserted in another is drift.`,
+    );
+  }
+  writeFileSync(gateTestPath, updatedGateTest);
+
+  // And the C++ suites, which assert the fixture's recorded CrowdyJS version.
+  // This makes FIVE places holding one fact. Each was a reasonable local decision
+  // -- a literal so a move is visible in review -- and together they meant a
+  // repin left CI red in a way the tool could not see, because it only ever wrote
+  // package.json. Anything that records the pin has to be written by the thing
+  // that moves it.
+  let cppUpdated = 0;
+  for (const file of cppSuites) {
+    const body = readFileSync(file, 'utf8');
+    // Version AND commit: the suites assert both, and updating one leaves a
+    // failure that looks like a different problem than the repin.
+    if (!body.includes(previous.version) && !body.includes(previous.commit)) continue;
+    writeFileSync(
+      file,
+      body.replaceAll(previous.version, version).replaceAll(previous.commit, commit),
+    );
+    cppUpdated += 1;
+  }
+  console.log(`updated ${cppUpdated} C++ suite(s) asserting the pinned version`);
 }
-console.log(`updated ${cppUpdated} C++ suite(s) asserting the pinned version`);
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -174,6 +182,11 @@ run([
   '--write',
   'docs/parity-matrix.md',
 ]);
+
+if (!moved) {
+  console.log('\nrestamped at the current pin. Run npm run check:release.');
+  process.exit(0);
+}
 
 console.log(
   '\nre-pinned. Remaining steps this cannot do for you:\n' +

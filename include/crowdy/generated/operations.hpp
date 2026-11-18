@@ -3,7 +3,7 @@
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
 // SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
 // schema.gql sha256: fdf29005c18a010747bbc82fc6a552aa1f25005aedb71bba93ef6942006829d8
-// operations sha256: f22fdab74d48b737bc930e881af91ac667f87633dd3d9f8887c0c48ee838cf0e
+// operations sha256: 1974ad79c89adef121253432df8faaefe54ede289db1c090b3ed68ed916da5a5
 
 #pragma once
 
@@ -4826,8 +4826,14 @@ inline constexpr std::string_view kCrowdyStudioAgentSetPolicyOperationName = "Cr
 /// crowdyStudioAgent/CrowdyStudioModel.graphql
 inline constexpr std::string_view kCrowdyStudioModelDocument = R"gql(# The metered model endpoint's GraphQL companions. The endpoint itself is
 # REST (`GET /v1/model/models`, `POST /v1/model/chat/completions`, bearer =
-# app token) and is what the in-browser Studio agent spends tokens through;
-# these operations read what it recorded and gate whether it may run.
+# app token) and is what the Studio agent spends tokens through; these
+# operations read what it recorded and gate whether it may run.
+
+# A Studio dock asks this before the agent's draft_test or deploy_live: the mod
+# build, deploy and switch-on calls do not check the app's Allow Live Modding.
+query CrowdyStudioLiveModding($appId: BigInt!, $action: String!) {
+  crowdyStudioLiveModding(appId: $appId, action: $action)
+}
 
 query CrowdyStudioProviderConsent($appId: BigInt!) {
   crowdyStudioProviderConsent(appId: $appId) {
@@ -4867,6 +4873,10 @@ query CrowdyStudioModelUsage($appId: BigInt!, $limit: Int) {
     }
   }
 })gql";
+inline constexpr std::string_view kCrowdyStudioLiveModdingIsolatedDocument = R"gql(query CrowdyStudioLiveModding($appId: BigInt!, $action: String!) {
+  crowdyStudioLiveModding(appId: $appId, action: $action)
+})gql";
+inline constexpr std::string_view kCrowdyStudioLiveModdingOperationName = "CrowdyStudioLiveModding";
 inline constexpr std::string_view kCrowdyStudioProviderConsentIsolatedDocument = R"gql(query CrowdyStudioProviderConsent($appId: BigInt!) {
   crowdyStudioProviderConsent(appId: $appId) {
     appId
@@ -4912,6 +4922,7 @@ inline constexpr std::string_view documentFor(std::string_view operationName) {
   if (operationName == "CrowdyStudioAgentEffectivePolicy") return kCrowdyStudioAgentEffectivePolicyIsolatedDocument;
   if (operationName == "CrowdyStudioAgentUsage") return kCrowdyStudioAgentUsageIsolatedDocument;
   if (operationName == "CrowdyStudioAgentSetPolicy") return kCrowdyStudioAgentSetPolicyIsolatedDocument;
+  if (operationName == "CrowdyStudioLiveModding") return kCrowdyStudioLiveModdingIsolatedDocument;
   if (operationName == "CrowdyStudioProviderConsent") return kCrowdyStudioProviderConsentIsolatedDocument;
   if (operationName == "CrowdyStudioSetProviderConsent") return kCrowdyStudioSetProviderConsentIsolatedDocument;
   if (operationName == "CrowdyStudioModelUsage") return kCrowdyStudioModelUsageIsolatedDocument;

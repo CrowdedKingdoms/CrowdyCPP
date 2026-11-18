@@ -18,6 +18,7 @@
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/json.hpp"
 #include "crowdy/studio/models.hpp"
+#include "crowdy/studio/starter_projects.hpp"
 
 namespace crowdy::studio {
 
@@ -146,6 +147,12 @@ class ICrowdyStudioRuntime {
       const CrowdyStudioProjectScope&, std::string_view) {
     return {};
   }
+
+  /// ck-exec's mod starter, which a new project's SERVER target starts from
+  /// (CrowdyStudioController::createProject with CrowdyStudioNewProjectOptions).
+  virtual CrowdyStudioModStarter modStarter(const CrowdyStudioProjectScope&) {
+    throw std::runtime_error("This Crowdy Studio runtime has no mod starter");
+  }
 };
 
 /// What a CLIENT target that still builds on legacy player compute is told.
@@ -178,6 +185,33 @@ inline bool crowdyStudioIsLegacyClientCrate(std::string_view cargoToml) {
     at = end + 1;
   }
   return false;
+}
+
+/// As ck-exec's mod names: 1-48 lowercase letters, digits, - or _.
+inline bool crowdyStudioIsModName(std::string_view name) {
+  if (name.empty() || name.size() > 48) return false;
+  for (const char c : name) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+    if (!ok) return false;
+  }
+  return true;
+}
+
+/// The crate a build of module `name` takes: Cargo.toml, README.md and Rust under src/,
+/// named `mod-<name>` when the name does not start with a letter.
+inline domains::ExecCrate crowdyStudioModCrate(const std::string& name,
+                                               const std::vector<CrowdyStudioProjectFile>& files) {
+  domains::ExecCrate crate;
+  crate.name = !name.empty() && name.front() >= 'a' && name.front() <= 'z' ? name : "mod-" + name;
+  for (const auto& file : files) {
+    const std::string& path = file.path;
+    const bool rust = path.rfind("src/", 0) == 0 && path.size() > 3 &&
+                      path.compare(path.size() - 3, 3, ".rs") == 0;
+    if (path == "Cargo.toml" || path == "README.md" || rust) {
+      crate.files.emplace_back(path, file.content);
+    }
+  }
+  return crate;
 }
 
 struct CrowdyStudioLiveApprovalRequest {
@@ -428,6 +462,10 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
     return lines;
   }
 
+  CrowdyStudioModStarter modStarter(const CrowdyStudioProjectScope& scope) override {
+    return crowdyStudioModStarterOf(exec_.modStarter(scope.appId));
+  }
+
  private:
   struct ModBuild {
     std::string buildId;
@@ -474,25 +512,13 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
     return {buildId};
   }
 
-  /// The crate a build takes: Cargo.toml, README.md and Rust under src/, named
-  /// `mod-<name>` when the name does not start with a letter.
   static domains::ExecCrate crateOf(const std::string& name,
                                     const std::vector<CrowdyStudioProjectFile>& files) {
-    domains::ExecCrate crate;
-    crate.name = crateName(name);
-    for (const auto& file : files) {
-      const std::string& path = file.path;
-      const bool rust = path.rfind("src/", 0) == 0 && path.size() > 3 &&
-                        path.compare(path.size() - 3, 3, ".rs") == 0;
-      if (path == "Cargo.toml" || path == "README.md" || rust) {
-        crate.files.emplace_back(path, file.content);
-      }
-    }
-    return crate;
+    return crowdyStudioModCrate(name, files);
   }
 
   static std::string crateName(const std::string& name) {
-    return !name.empty() && name.front() >= 'a' && name.front() <= 'z' ? name : "mod-" + name;
+    return crowdyStudioModCrate(name, {}).name;
   }
 
   std::string queueBuild(const std::string& appId, const domains::ExecCrate& crate, bool client) {
@@ -566,15 +592,7 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
     return connection;
   }
 
-  /// As ck-exec's mod names: 1-48 lowercase letters, digits, - or _.
-  static bool isModName(std::string_view name) {
-    if (name.empty() || name.size() > 48) return false;
-    for (const char c : name) {
-      const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
-      if (!ok) return false;
-    }
-    return true;
-  }
+  static bool isModName(std::string_view name) { return crowdyStudioIsModName(name); }
 
   template <typename T>
   static T& require(const std::shared_ptr<T>& value, const char* what) {

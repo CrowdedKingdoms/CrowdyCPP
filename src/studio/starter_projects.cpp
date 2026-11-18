@@ -211,8 +211,8 @@ std::string renamePackage(std::string_view manifest, std::string_view name) {
   return out;
 }
 
-std::vector<CrowdyStudioProjectFile> modStarterFiles(const CrowdyStudioModStarter& starter,
-                                                     std::string_view name) {
+std::vector<CrowdyStudioProjectFile> starterFiles(const CrowdyStudioModStarter& starter,
+                                                  std::string_view name, CrowdyStudioTarget target) {
   bool manifest = false;
   bool library = false;
   for (const auto& file : starter.files) {
@@ -220,13 +220,15 @@ std::vector<CrowdyStudioProjectFile> modStarterFiles(const CrowdyStudioModStarte
     library = library || file.path == "src/lib.rs";
   }
   if (!manifest || !library) {
-    throw std::invalid_argument("The mod starter has no Cargo.toml or src/lib.rs");
+    throw std::invalid_argument(target == CrowdyStudioTarget::Server
+                                    ? "The mod starter has no Cargo.toml or src/lib.rs"
+                                    : "The CLIENT half starter has no Cargo.toml or src/lib.rs");
   }
   std::vector<CrowdyStudioProjectFile> files;
   files.reserve(starter.files.size());
   for (const auto& source : starter.files) {
     CrowdyStudioProjectFile file;
-    file.target = CrowdyStudioTarget::Server;
+    file.target = target;
     file.path = source.path;
     file.content = source.path == "Cargo.toml" ? renamePackage(source.content, name)
                                                : source.content;
@@ -248,6 +250,59 @@ graphql::GraphQLOutcome refusal(std::string message) {
   out.kind = graphql::GraphQLErrorKind::Protocol;
   out.errorMessage = std::move(message);
   return out;
+}
+
+/// An API host whose toolchain predates the CLIENT half starter answers it with 503.
+bool starterUnavailable(const graphql::GraphQLOutcome& outcome) {
+  return outcome.kind == graphql::GraphQLErrorKind::GraphQL && !outcome.errors.empty() &&
+         outcome.errors.front().httpStatus == 503;
+}
+
+/// Fetches what `options` lacks, one starter at a time, then creates the project. `fetched`:
+/// a starter came from the platform, so one it cannot start from is an outcome, not a throw.
+/// `sdkClient`: the CLIENT half starter is unavailable, so the SDK's copy stands.
+void createStarterProject(domains::ExecAPI& exec, domains::CrowdyStudioAPI& projects,
+                          CrowdyStudioNewProjectOptions options, CrowdyStudioCreatedCallback done,
+                          bool fetched, bool sdkClient) {
+  if (hasTarget(options.kind, CrowdyStudioTarget::Server) && !options.modStarter) {
+    const std::string appId = options.appId;
+    exec.modStarterAsync(appId, [&exec, &projects, options = std::move(options), done = std::move(done),
+                                 sdkClient](graphql::GraphQLOutcome outcome) mutable {
+      if (!outcome.ok()) {
+        done(std::move(outcome), {});
+        return;
+      }
+      options.modStarter = crowdyStudioModStarterOf(outcome.data);
+      createStarterProject(exec, projects, std::move(options), std::move(done), true, sdkClient);
+    });
+    return;
+  }
+  if (hasTarget(options.kind, CrowdyStudioTarget::Client) && !options.clientStarter && !sdkClient) {
+    const std::string appId = options.appId;
+    exec.modClientStarterAsync(appId, [&exec, &projects, options = std::move(options),
+                                       done = std::move(done)](graphql::GraphQLOutcome outcome) mutable {
+      if (outcome.ok()) {
+        options.clientStarter = crowdyStudioModStarterOf(outcome.data);
+      } else if (!starterUnavailable(outcome)) {
+        done(std::move(outcome), {});
+        return;
+      }
+      createStarterProject(exec, projects, std::move(options), std::move(done), true, !outcome.ok());
+    });
+    return;
+  }
+  if (!fetched) {
+    projects.createProjectAsync(createCrowdyStudioStarterProject(options), std::move(done));
+    return;
+  }
+  CreateCrowdyStudioProjectInput input;
+  try {
+    input = createCrowdyStudioStarterProject(options);
+  } catch (const std::invalid_argument& error) {
+    done(refusal(error.what()), {});
+    return;
+  }
+  projects.createProjectAsync(input, std::move(done));
 }
 
 }  // namespace
@@ -309,7 +364,9 @@ CreateCrowdyStudioProjectInput createCrowdyStudioStarterProject(
   input.metadata.pairingPreference = CrowdyStudioPairingPreference::None;
   for (const auto target : projectTargets(options.kind)) {
     auto files = target == CrowdyStudioTarget::Server
-                     ? modStarterFiles(*options.modStarter, *input.metadata.serverModuleName)
+                     ? starterFiles(*options.modStarter, *input.metadata.serverModuleName, target)
+                 : options.clientStarter
+                     ? starterFiles(*options.clientStarter, *input.metadata.clientModuleName, target)
                      : crowdyStudioClientStarterFiles(*input.metadata.clientModuleName);
     for (auto& file : files) input.files.push_back(std::move(file));
   }
@@ -320,28 +377,7 @@ void createCrowdyStudioStarterProjectAsync(domains::ExecAPI& exec,
                                            domains::CrowdyStudioAPI& projects,
                                            CrowdyStudioNewProjectOptions options,
                                            CrowdyStudioCreatedCallback done) {
-  if (!hasTarget(options.kind, CrowdyStudioTarget::Server) || options.modStarter) {
-    projects.createProjectAsync(createCrowdyStudioStarterProject(options), std::move(done));
-    return;
-  }
-  const std::string appId = options.appId;
-  exec.modStarterAsync(
-      appId, [&projects, options = std::move(options),
-              done = std::move(done)](graphql::GraphQLOutcome outcome) mutable {
-        if (!outcome.ok()) {
-          done(std::move(outcome), {});
-          return;
-        }
-        options.modStarter = crowdyStudioModStarterOf(outcome.data);
-        CreateCrowdyStudioProjectInput input;
-        try {
-          input = createCrowdyStudioStarterProject(options);
-        } catch (const std::invalid_argument& error) {
-          done(refusal(error.what()), {});
-          return;
-        }
-        projects.createProjectAsync(input, std::move(done));
-      });
+  createStarterProject(exec, projects, std::move(options), std::move(done), false, false);
 }
 
 }  // namespace crowdy::studio

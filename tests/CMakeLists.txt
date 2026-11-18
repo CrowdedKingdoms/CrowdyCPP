@@ -142,6 +142,14 @@ add_executable(teen_safety_test teen_safety_test.cpp)
 target_link_libraries(teen_safety_test PRIVATE crowdy)
 add_test(NAME teen_safety_test COMMAND teen_safety_test)
 
+# A Studio dock's calls (0.86.0): the live-modding check, the model list and the Studio
+# origin in every build; the starter and the async runner where the Studio layer is built.
+add_executable(studio_dock_test studio_dock_test.cpp)
+target_link_libraries(studio_dock_test PRIVATE crowdy Threads::Threads)
+target_compile_definitions(studio_dock_test PRIVATE
+  CROWDY_PARITY_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tools/parity/fixtures")
+add_test(NAME studio_dock_test COMMAND studio_dock_test)
+
 add_executable(chunk_store_test chunk_store_test.cpp)
 target_link_libraries(chunk_store_test PRIVATE crowdy)
 target_compile_definitions(chunk_store_test PRIVATE

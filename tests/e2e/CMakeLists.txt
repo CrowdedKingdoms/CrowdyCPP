@@ -19,9 +19,10 @@ set(E2E_OPTIONAL_SUITES
   e2e_exec_gateway
   e2e_marketplace_claims
   e2e_open_grid_exec_gateway
+  e2e_studio_dock
 )
-# Waits on two platform builds (a mod and its CLIENT half).
-set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves)
+# Waits on platform builds (a mod and its CLIENT half; e2e_studio_dock four of them).
+set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves e2e_studio_dock)
 
 foreach(src ${E2E_SOURCES})
   get_filename_component(name ${src} NAME_WE)

@@ -20,7 +20,7 @@ const crowdyjs = resolveCrowdyJsPath(repo);
 test('pinned strict parity target and generated matrix pass', () => {
   assert.deepEqual(assertCrowdyJsParityTarget(repo, crowdyjs), {
     version: '18.33.0',
-    commit: '2a12346b548d8fa020a4502c95c4c89fda6bf3fa',
+    commit: '732c895443a3c2e55b0166972ba384a3e80998ce',
   });
   const result = runParity(
     '--check',

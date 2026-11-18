@@ -1,5 +1,78 @@
 # CrowdyCPP migration notes
 
+## 0.86.0 A Studio dock's platform calls
+
+The Unreal SDK's asks for its in-game Studio dock (the agentic Crowdy Studio inside a game).
+Nothing is removed. Works with every Game API on dev, test and prod; pinned to CrowdyJS 18.32.0, as
+0.85.0 was. CrowdyPy needs no change and re-vendors at its next release.
+
+- **The live-modding check.** `crowdyStudioAgent().liveModding(appId, action)` and
+  `liveModdingAsync(appId, action, cb)` (`CrowdyStudioLiveModdingAction::DraftTest` /
+  `DeployLive`, serialised `draft_test` / `deploy_live`, or a string) ask `crowdyStudioLiveModding`:
+  the app's Allow Live Modding, which the mod build, deploy and switch-on calls do not check, so a
+  dock asks it before the agent's draft test or live deploy. True when the player may; a refusal is
+  a GraphQL error whose code says why: `AGENT_SCOPE_DENIED` (another action, or a token for another
+  app), `AGENT_PERMISSION_DENIED`, `AGENT_DISABLED` (an app's kill included),
+  `AGENT_OPERATOR_KILLED`, `AGENT_PROVIDER_POLICY_UNSATISFIED`. Without exceptions the sync call
+  returns false on any failure.
+- **The model list.** `crowdyStudioAgent().models(appId)` and `modelsAsync(appId, cb)` (with an
+  optional `RequestOptions` for a `CancelToken`) send `GET {origin}/v1/model/models?appId=<id>` with
+  the client's bearer on its own transports (an injected async transport included), timeout and
+  response limit. `CrowdyStudioModelList` carries each model's `id`, `name`, `contextWindow`
+  (unset for null), `inputModalities` and `pricingMicrousdPerMillion`; on a refusal the HTTP status
+  and the body's `code`, `message`, `type` and `retryable` (when the body has none, true only for a
+  5xx); otherwise the transport's `Errc`. `crowdyStudioModelListFrom(HttpOutcome)` reads an answer
+  your own HTTP stack fetched. It keeps at most `kCrowdyStudioModelListMax` (1,024) models. The
+  list refuses only with the policy's 403s and a 503; the 400, 402 and 429 codes are the chat
+  endpoint's.
+- **`GraphQLClient::getOutcome(pathAndQuery)` / `getAsync(...)` and `origin()` (new).** A GET to a
+  REST route beside the GraphQL endpoint (the scheme and host of `endpoint()`, which follows a
+  datacenter move; `origin()` drops any `user:password@` the endpoint carries), with the bearer
+  `AuthState` holds when it is sent. `pathAndQuery` is a path on that origin, starting with `/`:
+  build it from constants, not from input. There is no automatic token refresh here or on GraphQL
+  calls: refresh the app token as before.
+- **Starter projects (`crowdy/studio/starter_projects.hpp`).** `crowdyStudioClientStarterFiles(name)`
+  is CrowdyJS's CLIENT half starter byte for byte (`crowdy-client-sdk = "0.1.0"`,
+  `[package.metadata.crowdy] tick_interval_ms`, `serde_json`, and its tick and HUD example);
+  `createCrowdyStudioStarterProject(options)` is CrowdyJS's helper (module names `<base>-server` /
+  `<base>-client` from a slug of the name, pairing `NONE`, the SERVER target from the mod starter
+  with its package renamed); `createCrowdyStudioStarterProjectAsync(exec, projects, options, done)`
+  fetches the mod starter for a SERVER target and creates the project without blocking.
+  `crowdyStudioModStarterOf(json)` reads `exec().modStarter()`'s answer.
+  `CrowdyStudioController::createProject(CrowdyStudioNewProjectOptions)` takes CrowdyJS's shape,
+  fetching the mod starter through `ICrowdyStudioRuntime::modStarter(scope)`: a new virtual with a
+  default that throws, so existing runtimes compile; `CrowdyStudioModRuntime` implements it.
+- **`sdkVersion` defaults to `"0.1.8"`** in `CreateCrowdyStudioProjectInput` and
+  `SaveCrowdyStudioProjectInput` (it was `"0.1.5"`): the schema's default and what CrowdyJS sends.
+  It is the retired crowdy-compute-sdk pin a project still records; no build reads it.
+- **`CrowdyStudioModRunner` (`crowdy/studio/mod_runner.hpp`, new).** The draft test and live deploy
+  of `CrowdyStudioModRuntime` and the controller, for a game thread:
+  `CrowdyClient::createCrowdyStudioModRunner()`, then
+  `run(CrowdyStudioRunRequest, onDone, onProgress)`, which returns a `CrowdyStudioRunHandle`
+  (`cancel()`, `done()`). A run reads the project and refuses with `RevisionConflict` when it is not
+  at `expectedRevisionId` (or a bound project's commit, `expectedGithubSha`), builds exactly that
+  read's files (CLIENT half first, so a failed compile publishes nothing), builds, deploys and
+  switches on the SERVER half (a CLIENT-only project rides a mod of its CLIENT module's name,
+  deployed from the mod starter), attaches the CLIENT half and consents to it as its author.
+  `CrowdyStudioRunResult` has one `CrowdyStudioRunTarget` per target: phase, module, mod, build id,
+  compile status, build log (its last 64 KiB), `parseRustcDiagnostics`, digest, version, capability
+  hash. Outcomes: `Running`, `CompileFailed`, `RevisionConflict`, `RateLimited`, `QueueFull`
+  (`INTERNAL_SERVER_ERROR` with HTTP 503 on a build), `Refused` (`error->code`), `Cancelled`,
+  `Failed`. `checkLiveModding` asks the live-modding check first. Callbacks arrive from `poll()`;
+  build polls wait on one timer thread of the runner's.
+- **The tier's Studio (`crowdy/studio_origin.hpp`, new).** `studioOriginFor(apiOrigin)` (`ck.<root>`
+  and `ck-<label>.<root>` are served by `studio.<root>`; a local API by Studio on :3001),
+  `defaultStudioOrigin()`, `kStudioWalletPath` (`/account/wallet`), `studioWalletUrl(origin)`, and
+  `CrowdyClient::studioOrigin()` from the endpoint in use.
+- **`parseRustcDiagnostics` without `std::regex`.** The four patterns are linear scanners with the
+  same matches (every recorded CrowdyJS case still passes, three new ones included). MSVC's
+  `std::regex` threw `error_stack` on long lines, and libstdc++'s overflows a 1 MiB stack on an
+  8 KiB line; the scanners never recurse.
+- **Unchanged:** CrowdyCPP still has no per-operation token plane. Every call on a client goes with
+  that client's one bearer; `exec()`'s mod and CLIENT-half calls take the app token.
+- **Shared crate rules.** `crowdyStudioIsModName(name)` and `crowdyStudioModCrate(name, files)` in
+  `runtime.hpp` are what `CrowdyStudioModRuntime` and the runner build with.
+
 ## 0.85.0 A voxel's time is its chunk's whole-chunk write; responses and replies have limits
 
 **Needs ck-api v2.70.0**: `chunks().get()` and `region()` select `Chunk.voxelsUpdatedAt`, which an

@@ -1,7 +1,13 @@
 # The metered model endpoint's GraphQL companions. The endpoint itself is
 # REST (`GET /v1/model/models`, `POST /v1/model/chat/completions`, bearer =
-# app token) and is what the in-browser Studio agent spends tokens through;
-# these operations read what it recorded and gate whether it may run.
+# app token) and is what the Studio agent spends tokens through; these
+# operations read what it recorded and gate whether it may run.
+
+# A Studio dock asks this before the agent's draft_test or deploy_live: the mod
+# build, deploy and switch-on calls do not check the app's Allow Live Modding.
+query CrowdyStudioLiveModding($appId: BigInt!, $action: String!) {
+  crowdyStudioLiveModding(appId: $appId, action: $action)
+}
 
 query CrowdyStudioProviderConsent($appId: BigInt!) {
   crowdyStudioProviderConsent(appId: $appId) {

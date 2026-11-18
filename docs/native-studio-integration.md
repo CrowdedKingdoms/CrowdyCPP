@@ -50,10 +50,30 @@ as its author and handed to `clientRuntime` as the module
 `exec().modClientArtifactBytes` checked against its digest. An Invoke waits
 for its reply (up to 30 s) while draining the client's dispatcher, so call it
 from the maintenance phase, like the other blocking runtime work. Since 0.34.0 there is no agent
-in this assembly: the Studio agent is the in-browser DeepSeek Harness that
-CrowdyJS docks beside the web editor, and a native engine has nowhere to dock
-it. Its policy, consent and usage stay reachable through
-`client.crowdyStudioAgent()` (see [native agent API](native-agent-api.md)).
+in this assembly: the Studio agent is the in-browser DeepSeek Harness, which
+CrowdyJS docks beside the web editor and a game can host in a dock of its own
+(the Unreal SDK does). Its policy, consent, usage, live-modding check and model
+list are on `client.crowdyStudioAgent()` (see [native agent API](native-agent-api.md)).
+
+## A draft test from the game thread (0.86.0)
+
+The assembly's runtime blocks, so it runs from the maintenance lane. A game
+that runs a draft test or a live deploy from its game thread, as a Studio dock
+does, uses `CrowdyStudioModRunner` instead: `client.createCrowdyStudioModRunner()`,
+then `run({.scope = {appId, gridId}, .projectId = id, .expectedRevisionId = revision},
+onDone, onProgress)`. It reads the project and refuses one past the expected
+revision, builds that read's files (CLIENT half first), deploys and switches on
+the SERVER half (or the mod a CLIENT-only project rides), attaches the CLIENT
+half and consents to it as its author, and reports each target's build log,
+diagnostics, digest and version. Every callback arrives from `client.poll()`.
+It does not start the CLIENT half in an engine runtime: the attached half is
+served to its author like any other, through `exec().gridClientMods` and
+`modClientArtifactBytes`. See the README's "A Studio dock in a game".
+
+`crowdy::studio::createCrowdyStudioStarterProjectAsync` creates a new project
+with CrowdyJS's starter files without blocking, and
+`CrowdyStudioController::createProject(CrowdyStudioNewProjectOptions)` does the
+same from the maintenance lane through the runtime's mod starter.
 
 ```cpp
 crowdy::studio::CrowdyStudioIntegrationOptions options;

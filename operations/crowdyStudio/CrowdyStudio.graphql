@@ -204,3 +204,10 @@ mutation CrowdyStudioCommonPublish(
     ...CrowdyStudioCommonFileFields
   }
 }
+
+query CrowdyStudioLinks {
+  crowdyStudioLinks {
+    origin
+    walletUrl
+  }
+}

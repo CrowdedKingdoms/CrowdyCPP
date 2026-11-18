@@ -45,6 +45,10 @@ struct CrowdyStudioDeployTargetInput {
   /// runtime's to deploy (from the mod starter) and switch on.
   bool clientOnly = false;
   std::string projectId;
+  /// The saved revision `files` are (`project.revision.id`). With `projectId`
+  /// it is the build's Studio source, which the mod version and CLIENT half
+  /// deployed from it report (Game API v2.73.0); empty sends none.
+  std::string projectRevisionId;
   /// The bound project's mirror commit (`project.github->sha`); empty for a
   /// Studio project.
   std::optional<std::string> commitSha;
@@ -152,6 +156,12 @@ class ICrowdyStudioRuntime {
   /// (CrowdyStudioController::createProject with CrowdyStudioNewProjectOptions).
   virtual CrowdyStudioModStarter modStarter(const CrowdyStudioProjectScope&) {
     throw std::runtime_error("This Crowdy Studio runtime has no mod starter");
+  }
+
+  /// The platform's CLIENT half starter, which a new project's CLIENT target starts from;
+  /// none (the default) means crowdyStudioClientStarterFiles, the same crate.
+  virtual std::optional<CrowdyStudioModStarter> clientStarter(const CrowdyStudioProjectScope&) {
+    return std::nullopt;
   }
 };
 
@@ -466,6 +476,16 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
     return crowdyStudioModStarterOf(exec_.modStarter(scope.appId));
   }
 
+  /// `exec().modClientStarter`, or none from an API host whose toolchain predates it (503).
+  std::optional<CrowdyStudioModStarter> clientStarter(const CrowdyStudioProjectScope& scope) override {
+    try {
+      return crowdyStudioModStarterOf(exec_.modClientStarter(scope.appId));
+    } catch (const graphql::CrowdyGraphQLError& error) {
+      if (!error.errors().empty() && error.errors().front().httpStatus == 503) return std::nullopt;
+      throw;
+    }
+  }
+
  private:
   struct ModBuild {
     std::string buildId;
@@ -485,7 +505,8 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
           "The server module name '" + name +
           "' must be 1-48 lowercase letters, digits, - or _ to run as a mod");
     }
-    const std::string buildId = queueBuild(input.scope.appId, crateOf(name, input.files), false);
+    const std::string buildId = queueBuild(input.scope.appId, crateOf(name, input.files), false,
+                                           studioSourceOf(input));
     modBuilds_[name] = {buildId, false};
     return {buildId};
   }
@@ -507,7 +528,8 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
         throw std::invalid_argument(std::string(kCrowdyStudioLegacyClientCrate));
       }
     }
-    const std::string buildId = queueBuild(input.scope.appId, crateOf(name, input.files), true);
+    const std::string buildId = queueBuild(input.scope.appId, crateOf(name, input.files), true,
+                                           studioSourceOf(input));
     clientBuilds_[name] = {buildId, mod, input.clientOnly};
     return {buildId};
   }
@@ -521,8 +543,15 @@ class CrowdyStudioModRuntime final : public ICrowdyStudioRuntime {
     return crowdyStudioModCrate(name, {}).name;
   }
 
-  std::string queueBuild(const std::string& appId, const domains::ExecCrate& crate, bool client) {
-    const graphql::Json queued = client ? exec_.modClientBuild(appId, crate) : exec_.modBuild(appId, crate);
+  static std::optional<domains::ExecStudioSource> studioSourceOf(const CrowdyStudioDeployTargetInput& input) {
+    if (input.projectId.empty() || input.projectRevisionId.empty()) return std::nullopt;
+    return domains::ExecStudioSource{input.projectId, input.projectRevisionId};
+  }
+
+  std::string queueBuild(const std::string& appId, const domains::ExecCrate& crate, bool client,
+                         const std::optional<domains::ExecStudioSource>& studio = std::nullopt) {
+    const graphql::Json queued =
+        client ? exec_.modClientBuild(appId, crate, studio) : exec_.modBuild(appId, crate, studio);
     const std::string buildId = queued["buildId"].asString();
     if (buildId.empty()) {
       throw std::runtime_error(std::string(client ? "execModClientBuild" : "execModBuild") +

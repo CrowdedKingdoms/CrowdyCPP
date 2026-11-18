@@ -417,8 +417,12 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
  public:
   std::vector<std::string> calls;
 
+  /// Each deploy's Studio source, `projectId@projectRevisionId`.
+  std::vector<std::string> sources;
+
   CrowdyStudioDeploySubmission deploy(
       const CrowdyStudioDeployTargetInput& input) override {
+    sources.push_back(input.projectId + "@" + input.projectRevisionId);
     calls.push_back("deploy:" + std::string(toString(input.target)) + ":" +
                     (input.deployment == CrowdyStudioDeployment::Draft
                          ? "DRAFT"
@@ -459,6 +463,13 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
     calls.push_back("invoke:" + std::string(moduleName) + ":" +
                     std::string(exportName));
     return {R"({"ok":true})", 2};
+  }
+
+  int clientStarters = 0;
+  std::optional<CrowdyStudioModStarter> platformClientStarter;
+  std::optional<CrowdyStudioModStarter> clientStarter(const CrowdyStudioProjectScope&) override {
+    ++clientStarters;
+    return platformClientStarter;
   }
 
   int modStarters = 0;
@@ -808,6 +819,10 @@ void testDeploymentBindingsAndRuntimeState() {
             "enabled:weather-server:true",
             "start:weather-client:client-v1",
         }));
+  // Both builds name the project and the revision they are.
+  const std::string source = controller.getState().project->projectId + "@" +
+                             controller.getState().project->revision.id;
+  CHECK(runtime.sources == std::vector<std::string>({source, source}));
   CHECK(controller.getState().runtimeSync.state ==
         CrowdyStudioRuntimeSyncState::RunningSaved);
   CHECK(controller.getState().runtimeSync.deployment ==
@@ -894,6 +909,19 @@ void testCreateStarterProject() {
   CHECK(runtime.modStarters == 1);
   CHECK(hud.files.size() == 2);
   CHECK(hud.metadata.clientModuleName == std::optional<std::string>("weather-hud-client"));
+  // Both asked for the platform's CLIENT half starter; this runtime has none, so the SDK's.
+  CHECK(runtime.clientStarters == 2);
+  CHECK(hud.files[0].content.find("crowdy-client-sdk = \"0.1.0\"") != std::string::npos);
+
+  // With one, the CLIENT target is that crate, its package renamed to the CLIENT module.
+  runtime.platformClientStarter = CrowdyStudioModStarter{
+      {{"Cargo.toml", "[package]\nname = \"client-half\"\n"}, {"src/lib.rs", "fn platform() {}\n"}}};
+  options.name = "Radar";
+  const CrowdyStudioProject radar = controller.createProject(options);
+  CHECK(radar.files.size() == 2);
+  CHECK(radar.files[0].content == "[package]\nname = \"radar-client\"\n");
+  CHECK(radar.files[1].content == "fn platform() {}\n");
+  runtime.platformClientStarter.reset();
 
   // Another app is refused before anything is created.
   options.appId = "43";
@@ -904,7 +932,7 @@ void testCreateStarterProject() {
     crossed = true;
   }
   CHECK(crossed);
-  CHECK(provider.projects.size() == 4);
+  CHECK(provider.projects.size() == 5);
 }
 
 }  // namespace

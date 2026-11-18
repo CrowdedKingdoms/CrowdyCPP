@@ -1,5 +1,37 @@
 # CrowdyCPP migration notes
 
+## 0.87.0 A mod knows the Studio revision it runs
+
+The platform half of the Unreal SDK's asks, with Game API v2.73.0; pinned to CrowdyJS 18.33.0.
+**Needs ck-api v2.73.0**: every mod build, mod and CLIENT half read selects `studioProjectId` and
+`studioRevision`, which an older Game API refuses. Nothing is removed.
+
+- **A build names its Studio source.** `exec().modBuild(appId, crate, studio)` and
+  `modClientBuild(appId, crate, studio)` take an optional `domains::ExecStudioSource`
+  (`{ projectId, revision }`, the project's saved `revision.id`); `modBuildAsync` and
+  `modClientBuildAsync` have an overload that takes one. It must be a Studio project of yours in
+  the app, at a revision it has reached: another player's project is `NOT_FOUND`, a revision past
+  the project's `BAD_REQUEST`. The build, and the mod version (`modDeploy`, `mods`, `myMods`,
+  `modSetEnabled`, `appMods`) and CLIENT half (`modClientDeploy`) deployed from it, report
+  `studioProjectId` and `studioRevision`; an install, a build that named none and a version
+  deployed before v2.73.0 report null.
+- **The runners send it.** `CrowdyStudioModRunner` sends the project and the revision it read;
+  `CrowdyStudioController` fills `CrowdyStudioDeployTargetInput::projectRevisionId` (new) and
+  `CrowdyStudioModRuntime` sends it with `projectId`. A runtime of your own reads the new field.
+  The rider mod a CLIENT-only project deploys from the mod starter names none.
+- **The CLIENT half starter comes from the platform.** `exec().modClientStarter(appId)` /
+  `modClientStarterAsync` return the `client-half` crate `crowdyStudioClientStarterFiles` holds.
+  `CrowdyStudioNewProjectOptions::clientStarter` (new) takes it, renamed to the CLIENT module as
+  the mod starter is; without it the CLIENT target is the SDK's copy.
+  `createCrowdyStudioStarterProjectAsync` fetches it for a CLIENT target, and
+  `CrowdyStudioController::createProject` asks `ICrowdyStudioRuntime::clientStarter(scope)` (new,
+  default none; `CrowdyStudioModRuntime` asks the platform). An API host that answers it with HTTP
+  status 503 (its toolchain predates it) leaves the SDK's copy; any other refusal is the call's.
+- **Studio's address from the platform.** `crowdyStudio().links()` / `linksAsync(cb)` answer
+  `crowdyStudioLinks` (public) as `crowdy::CrowdyStudioLinks { origin, walletUrl }`. Prefer it to
+  `CrowdyClient::studioOrigin()`, which derives the same from the host name and asks nothing; an
+  older API answers `GRAPHQL_VALIDATION_FAILED`.
+
 ## 0.86.0 A Studio dock's platform calls
 
 The Unreal SDK's asks for its in-game Studio dock (the agentic Crowdy Studio inside a game).

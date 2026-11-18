@@ -348,14 +348,18 @@ class CrowdyStudioController {
 
   /// CrowdyJS's createProject(options): a starter project in this controller's
   /// scope (an empty app or grid id means this controller's), whose SERVER
-  /// target starts from the runtime's mod starter unless `options` carries one.
+  /// target starts from the runtime's mod starter and CLIENT target from its
+  /// CLIENT half starter, unless `options` carries them.
   CrowdyStudioProject createProject(CrowdyStudioNewProjectOptions options) {
     ensureAlive();
     if (options.appId.empty()) options.appId = options_.appId;
     if (options.gridId.empty()) options.gridId = options_.gridId;
-    if (!options.modStarter &&
-        containsTarget(projectTargets(options.kind), CrowdyStudioTarget::Server)) {
+    const auto targets = projectTargets(options.kind);
+    if (!options.modStarter && containsTarget(targets, CrowdyStudioTarget::Server)) {
       options.modStarter = runtime_.modStarter(scope());
+    }
+    if (!options.clientStarter && containsTarget(targets, CrowdyStudioTarget::Client)) {
+      options.clientStarter = runtime_.clientStarter(scope());
     }
     return createProject(createCrowdyStudioStarterProject(options));
   }
@@ -1362,6 +1366,7 @@ class CrowdyStudioController {
     submission.clientOnly = !containsTarget(projectTargets(project.kind),
                                             CrowdyStudioTarget::Server);
     submission.projectId = project.projectId;
+    submission.projectRevisionId = project.revision.id;
     submission.files = files;
     if (project.github && project.github->sha) {
       submission.commitSha = project.github->sha;

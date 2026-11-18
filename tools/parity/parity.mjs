@@ -396,12 +396,6 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
-  // ck-api v2.59.x (CrowdyJS 18.23.0): the in-browser Studio dock asks it before the agent's
-  // draft_test or deploy_live, and CrowdyJS sends it nowhere; the agent runs in the browser.
-  'Query.crowdyStudioLiveModding': classification(
-    CATEGORY.BROWSER,
-    "the in-browser Studio dock's check before the browser agent's draft_test or deploy_live; CrowdyJS sends it nowhere and this SDK does not drive the agent",
-  ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
   // directly — but CrowdyCPP subscribes to it for real since 0.20.0, selecting
@@ -1014,7 +1008,7 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'CrowdyStudioProviderConsent',
     ],
     CATEGORY.BROWSER,
-    'pane-side reads of consent, catalog and usage; the same GraphQL roots are on CrowdyStudioAgentAPI natively',
+    'pane-side reads of consent, catalog and usage; natively they are CrowdyStudioAgentAPI::providerConsent, modelUsage and, since 0.86.0, models (the catalog)',
   ),
   'src/crowdy-studio/embed/panel.ts': exportModule(
     [

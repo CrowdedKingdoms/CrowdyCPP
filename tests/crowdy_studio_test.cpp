@@ -460,6 +460,14 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
                     std::string(exportName));
     return {R"({"ok":true})", 2};
   }
+
+  int modStarters = 0;
+  CrowdyStudioModStarter modStarter(const CrowdyStudioProjectScope& scope) override {
+    CHECK(scope.appId == "42");
+    ++modStarters;
+    return {{{"Cargo.toml", "[package]\nname = \"grid-mod\"\nversion = \"0.1.0\"\n"},
+             {"src/lib.rs", "fn grid() {}\n"}}};
+  }
 };
 
 class FakeClock final : public core::IClock {
@@ -853,6 +861,52 @@ void testProjectScopeMismatchFailsClosed() {
   CHECK(controller.getState().project->projectId == "project-1");
 }
 
+// CrowdyJS's createProject(options): a starter project in the controller's scope, its SERVER
+// target from the runtime's mod starter and its CLIENT target from the CLIENT starter.
+void testCreateStarterProject() {
+  FakeProjectProvider provider;
+  FakeRuntime runtime;
+  FakeClock clock;
+  auto controller = makeController(provider, runtime, clock);
+  controller.initialize();
+
+  CrowdyStudioNewProjectOptions options;
+  options.name = "Turret Defense";
+  options.kind = CrowdyStudioProjectKind::FullStack;
+  const CrowdyStudioProject created = controller.createProject(options);
+  CHECK(runtime.modStarters == 1);
+  CHECK(created.projectId == "project-created");
+  CHECK(created.metadata.serverModuleName == std::optional<std::string>("turret-defense-server"));
+  CHECK(created.metadata.clientModuleName == std::optional<std::string>("turret-defense-client"));
+  CHECK(created.metadata.pairingPreference == CrowdyStudioPairingPreference::None);
+  CHECK(created.files.size() == 4);
+  CHECK(created.files[0].target == CrowdyStudioTarget::Server);
+  CHECK(created.files[0].content.find("name = \"turret-defense-server\"") != std::string::npos);
+  CHECK(created.files[2].target == CrowdyStudioTarget::Client);
+  CHECK(created.files[2].path == "Cargo.toml");
+  CHECK(created.files[2].content.find("crowdy-client-sdk = \"0.1.0\"") != std::string::npos);
+  CHECK(controller.getState().project->projectId == "project-created");
+
+  // A CLIENT-only project needs no mod starter.
+  options.name = "Weather HUD";
+  options.kind = CrowdyStudioProjectKind::Client;
+  const CrowdyStudioProject hud = controller.createProject(options);
+  CHECK(runtime.modStarters == 1);
+  CHECK(hud.files.size() == 2);
+  CHECK(hud.metadata.clientModuleName == std::optional<std::string>("weather-hud-client"));
+
+  // Another app is refused before anything is created.
+  options.appId = "43";
+  bool crossed = false;
+  try {
+    (void)controller.createProject(options);
+  } catch (const std::invalid_argument&) {
+    crossed = true;
+  }
+  CHECK(crossed);
+  CHECK(provider.projects.size() == 4);
+}
+
 }  // namespace
 
 int main() {
@@ -861,6 +915,7 @@ int main() {
   testAtomicPatchAndRestoreApproval();
   testDeploymentBindingsAndRuntimeState();
   testProjectScopeMismatchFailsClosed();
+  testCreateStarterProject();
   std::printf("crowdy_studio_test passed\n");
   return 0;
 }

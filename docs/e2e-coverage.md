@@ -24,6 +24,18 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.86.0 live validation
+
+On 2026-11-18 the dev deployment (ck-api `v2.72.0`) passed live `e2e_studio_dock` as the tier's smoke
+player on its starters app's mod grid. The live-modding check and the model list answered
+`AGENT_PERMISSION_DENIED` (the player holds no `use_studio_agent`), each read with its code, and an
+unknown action answered `AGENT_SCOPE_DENIED`. The token's game API URL (an instance host,
+`ck-api-va-2.<root>`) gave the tier's Studio. A full-stack starter project was created without
+blocking. A run pinned to a revision the project was not at was refused, and `CrowdyStudioModRunner`'s
+draft test built the CLIENT half, then the SERVER half, deployed and switched the mod on, attached
+the CLIENT half and consented to it (the grid served it to its author). A CLIENT-only project rode a
+mod of its CLIENT module's name, deployed from the mod starter. 96 s in all.
+
 ## 0.84.0 live validation
 
 On 2026-11-13 the dev deployment (ck-api `v2.69.0`, replication servers `v0.46.0`) passed live
@@ -142,6 +154,7 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds; the published schema's only subscription root now is `udpNotifications`, which CrowdyCPP replaces natively |
 | ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |
 | mods, CLIENT halves + grid ownership | `player_runtime_surface_test` (grid ownership) + `exec_test` (the Studio mod runtime, both targets) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) + `e2e_exec_client_halves` | typed surface and the Studio runtime in default CI; SERVER and CLIENT round trips optional live on an owned grid |
+| a Studio dock's calls (0.86.0) | `studio_dock_test` (live-modding check, model list, Studio origin, starter projects replayed from CrowdyJS, `CrowdyStudioModRunner` sequences, refusals, cancel and destroy) + `e2e_studio_dock` | default CI offline; the draft tests, the starter and the refusal paths optional live on an owned mod grid; the enabled agent path with `CROWDY_E2E_AGENT_ENABLED=1` |
 | player chunk claim/release | `player_runtime_surface_test` + `e2e_marketplace_claims` | exact documents/output mapping in default CI; app-token round trip optional live |
 | udp-proxy (`connect`/`send*`/`udpNotifications`) | — | excluded: browser proxy path; CrowdyCPP replicates natively over UDP (see the parity matrix) |
 

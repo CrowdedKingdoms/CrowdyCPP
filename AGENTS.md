@@ -73,8 +73,10 @@ When the unified GraphQL surface changes:
 6. If portable Studio layout changed, build CrowdyJS and run
    `node tools/parity/layout-fixtures.mjs --crowdyjs <path>`. Use `--write`
    only for an intentional coordinated fixture update.
-7. If Studio diagnostics parsing changed, run `studio-state-fixtures.mjs` the
-   same way. (The agent, control-gate and Studio-host fixtures went with the
+7. If Studio diagnostics parsing or CrowdyJS's starter projects changed, run
+   `studio-state-fixtures.mjs` the same way; `--record` rewrites every case's
+   expected answer from CrowdyJS (after adding a case, or when CrowdyJS changed
+   on purpose). (The agent, control-gate and Studio-host fixtures went with the
    Crowdy Agent orchestrator in 0.34.0; the agent runs in the browser now and
    this SDK only reads its policy, consent and usage.) Bound-project saves
    are portable as of 0.38.0 (`saveProject` commits through
@@ -286,6 +288,37 @@ transport's `BodySink` counts the decompressed body against `HttpRequest::maxRes
 `interpret()` refuses a larger body from any transport (`Errc::ResponseTooLarge`, kind Protocol).
 `limitProtocols()` keeps requests and redirects on http and https (https stays on https).
 `graphql_client_test`'s `LoopbackHttp` serves the over-the-limit bodies; it is POSIX-only.
+
+## The native Studio dock calls (0.86.0)
+
+The Unreal SDK docks Agentic Crowdy Studio in its games, so this SDK carries what that dock calls on
+the app-token client. `crowdyStudioAgent().liveModding` wraps `crowdyStudioLiveModding` (the parity
+matrix lists it covered; CrowdyJS leaves it to its dock's host). `models()` is `GET
+/v1/model/models` over `GraphQLClient::getOutcome` / `getAsync`, the one REST seam: the origin of
+`endpoint()`, the bearer `AuthState` holds at send time, the client's transports, timeout,
+response limit, dispatcher and `AsyncScope`. Add another REST route there, never a second HTTP path.
+
+`crowdy/studio/starter_projects.hpp` is CrowdyJS's `createCrowdyStudioStarterProject` byte for
+byte, JavaScript's `trim()` and the two non-ASCII letters `toLowerCase()` turns into ASCII (U+0130,
+U+212A) included. `tools/parity/fixtures/crowdy-studio-starter.v1.json` holds its cases, recorded
+from CrowdyJS (`studio-state-fixtures.mjs --record`) and replayed by `studio_dock_test`; a CrowdyJS
+starter change lands there first. The en dash in the CLIENT `Cargo.toml` is a `\xE2\x80\x93` escape,
+as `runtime.hpp` writes its curly apostrophes: MSVC reads a source's bytes by its code page.
+
+`CrowdyStudioModRunner` (`crowdy/studio/mod_runner.hpp`) is the controller's draft test and live
+deploy over the `...Async` calls: one `Run` per call, every callback holding it weakly and checking
+`cancel()`, build polls on one timer thread that posts to the client's dispatcher (KitRuntime's
+pattern), and `finish()` called once. It needs a dispatcher; `createCrowdyStudioModRunner()` gives
+it the client's. `crowdyStudioIsModName` and `crowdyStudioModCrate` in `runtime.hpp` are the crate
+rules it shares with `CrowdyStudioModRuntime`. `crowdy/studio_origin.hpp` derives Studio from the
+endpoint (`ck.<root>` or `ck-<label>.<root>` to `studio.<root>`); `default_origin.hpp` stays
+generated and untouched.
+
+`parseRustcDiagnostics` uses no `std::regex`, and nothing here may again: MSVC's throws
+`error_stack` and libstdc++'s overflows a 1 MiB stack on an 8 KiB line. Its four scanners each give
+exactly the match of the pattern written above them, lazy `.+?` groups giving back a leading space
+included, and they stay linear: `LineScan` finds the next `]` once and the trailing spaces once.
+`crowdy_studio_state_test` reads hostile 16 KiB lines against a time bound.
 
 ## Writing tests against `graphql::Json`
 

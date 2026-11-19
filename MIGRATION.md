@@ -1,5 +1,24 @@
 # CrowdyCPP migration notes
 
+## 0.88.0 Voice and video reach 1 chunk by default
+
+With Game API v2.77.0; pinned to CrowdyJS 18.34.0. Works with every Game API on dev, test and prod.
+
+- **A voice or video send that leaves the distance unset reaches 1 chunk, not 8.** `SpatialSend::distance` now
+  defaults to `replication::kTypeDefaultDistance`, which `sendAudio` and `sendVideo` read as 1 and every other send
+  (`sendActorUpdate`, `sendText`, `sendGenericSpatial`) as 8, as CrowdyJS and CrowdyPy do. A game that relied on
+  voice or video carrying 8 chunks sets `distance = 8` on those sends; one that already sets a distance sees no
+  change. Fewer chunks means fewer listeners receive each frame, and the bytes they would have received are not
+  delivered or billed (cks-biz BIZ-031). Code that reads `SpatialSend{}.distance` expecting 8 now reads
+  `kTypeDefaultDistance` (0xFF), which no send puts on the wire.
+- **A channel or team cap now refuses.** Game API v2.77.0 enforces `maxMembers` and `maxGroupsPerUser`
+  (`channelPolicy` / `teamPolicy`): a join, an add (including approving a request) or a creation past either fails
+  with `GROUP_LIMIT_REACHED` (HTTP 409). `graphql::groupLimitReachedOf(errors)` returns the cap (`limit`:
+  `maxMembers` or `maxGroupsPerUser`) and its value (`cap`); `GraphQLErrorDetail` carries them as `limit` and
+  `limitValue`.
+- **`payment_method_required`** on `APP_PAUSED` means the app's organization has no saved card and no exemption;
+  from Game API v2.77.0 wallet funds do not count. Nothing a game does changes.
+
 ## 0.87.0 A mod knows the Studio revision it runs
 
 The platform half of the Unreal SDK's asks, with Game API v2.73.0; pinned to CrowdyJS 18.33.0.

@@ -1818,10 +1818,14 @@ appeared to be before:
 2. **Not a data allowance.** The monthly fee buys capacity, not volume, and is
    charged *in addition to* metered usage. Reserving 5 MB/s does not make the
    first 5 MB/s free.
-3. **Not the way to lift the free-tier cap.** Unfunded free apps are shaped at
-   roughly 1 MB/s; funding the org wallet or enabling auto-billing lifts that.
-   Until 2026-09-01 a reservation did double duty as the bypass, which is why the
-   old schema description said "bypasses the ~1 MB/s rate limit".
+3. **Not the way to lift the free-tier cap.** When this release shipped,
+   unfunded free apps were shaped at roughly 1 MB/s, and funding the org wallet
+   or enabling auto-billing lifted that. Until 2026-09-01 a reservation did double
+   duty as the bypass, which is why the old schema description said "bypasses
+   the ~1 MB/s rate limit". Since 2026-11-09 CK shapes no app. Instead, it denies
+   an unfunded app that uses more of a meter than its organization's free
+   allowance has left (`insufficient_funds`), within about a minute; see
+   [What "access denied" means](https://docs.crowdedkingdoms.com/management-api/shared-environment#what-access-denied-means).
 
 ### `Connection::Stats` byte counters are not your bill
 

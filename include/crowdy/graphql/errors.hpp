@@ -243,8 +243,11 @@ inline std::optional<AccessRefusal> accessRefusalOf(const std::vector<GraphQLErr
   return std::nullopt;
 }
 
-/// An APP_PAUSED refusal; `reason` is extensions.reason (empty when none). Show the
-/// player that the world is paused instead of retrying in a loop.
+/// An APP_PAUSED refusal; `reason` is extensions.reason (empty when none):
+/// insufficient_funds, spend_cap, subscription_lapsed or payment_method_required (ck-api
+/// v2.76.0: the environment asks for a saved card before the free allowance and the app's
+/// organization has none, no funds and no exemption), an open set. Show the player that the
+/// world is paused instead of retrying in a loop.
 struct AppPaused {
   std::string reason;
 };

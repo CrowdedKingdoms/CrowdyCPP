@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.88.0 passes the strict portable-parity gate against CrowdyJS
-**18.34.0**. The gate pins CrowdyJS commit
-`35d54570e48f4c1b677ddd36375612107d527d62` (`test/v18.34.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.89.0 passes the strict portable-parity gate against CrowdyJS
+**18.35.0**. The gate pins CrowdyJS commit
+`a7bd0c18b248c9cb7ec801000f3316a846a8237a` (`dev/v18.35.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.89.0 mirrors CrowdyJS 18.35.0 (ck-api v2.80.0): `graphql::appLimitReachedOf` reads `APP_LIMIT_REACHED` (`createApp`, or restoring an archived app, past the 10 apps an organization without a funded wallet or auto-billing may have; `limit` and `cap`), and `exec().status` returns `orgMaxInstances`, `orgMaxReservedMb`, `orgInstances` and `orgReservedMb`, the ceiling an unfunded organization's apps share (ck-exec 0.22), so it needs v2.80.0. The schema is CrowdyJS's at the pin; its new roots (free data tiers, the CRM sync, the app cap, the player trial) are Studio and operator surfaces, unwrapped in both SDKs.
 
 0.88.0 mirrors CrowdyJS 18.34.0 (ck-api v2.77.0): `graphql::groupLimitReachedOf` reads `GROUP_LIMIT_REACHED` (a join, an add or a creation past a channel or team cap; `limit` and `cap`), and `APP_PAUSED`'s `payment_method_required` no longer counts wallet funds. A voice or video send (`sendAudio`, `sendVideo`) that leaves `SpatialSend::distance` unset now reaches 1 chunk, as CrowdyJS's and CrowdyPy's do; other sends keep 8. The schema is CrowdyJS's at the pin; its billing roots (the allowance pool, the smallest top-ups, the card requirement) are classified as Studio and operator surfaces, unwrapped in both SDKs. Works with every Game API on dev, test and prod; the refusal arrives from v2.77.0.
 
@@ -96,7 +98,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.88.0 | CrowdyJS 18.34.0 | Required public API generation |
+| Surface | CrowdyCPP 0.89.0 | CrowdyJS 18.35.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

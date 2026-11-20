@@ -453,6 +453,51 @@ int sockOpt(const UdpSocket& sock, int option) {
   return value;
 }
 
+// SpatialSend::distance left unset is the message type's default (0.88.0): 1 chunk for voice
+// and video, 8 for the rest, as CrowdyJS and CrowdyPy. An explicit value goes out as given.
+void runSpatialDistanceDefaults() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+
+  const std::uint8_t body[] = {1, 2, 3, 4};
+  SpatialSend send;
+  send.chunk = {1, 2, 3};
+  send.uuid = uuid('a');
+  send.payload = Bytes(body, sizeof(body));
+  const auto distanceOnWire = [&]() {
+    auto got = server.recvOne();
+    auto parsed = wire::parseLongSpatial(Bytes(got.data(), got.size()));
+    CHECK(parsed.ok());
+    return parsed->distance;
+  };
+  CHECK(conn.sendAudio(send).ok());
+  CHECK_EQ(distanceOnWire(), 1u);
+  CHECK(conn.sendVideo(send).ok());
+  CHECK_EQ(distanceOnWire(), 1u);
+  CHECK(conn.sendActorUpdate(send).ok());
+  CHECK_EQ(distanceOnWire(), 8u);
+  CHECK(conn.sendText(send).ok());
+  CHECK_EQ(distanceOnWire(), 8u);
+  CHECK(conn.sendGenericSpatial(send).ok());
+  CHECK_EQ(distanceOnWire(), 8u);
+  send.distance = 5;
+  CHECK(conn.sendAudio(send).ok());
+  CHECK_EQ(distanceOnWire(), 5u);
+  send.distance = 8;
+  CHECK(conn.sendAudio(send).ok());
+  CHECK_EQ(distanceOnWire(), 8u);
+  conn.disconnect();
+}
+
 void runSendPath() {
   const std::uint8_t datagram[64] = {};
   const Bytes payload(datagram, sizeof(datagram));
@@ -1693,6 +1738,7 @@ int main() {
   runEventsReadyHook();
   runBundling();
   runBundlingNetThread();
+  runSpatialDistanceDefaults();
   runSendPath();
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);

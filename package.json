@@ -25,7 +25,7 @@
   "license": "MIT",
   "devDependencies": {
     "@graphql-tools/merge": "^9.2.8",
-    "graphql": "^16.14.2"
+    "graphql": "^16.15.0"
   },
   "publishedSchemaSnapshot": {
     "url": "https://docs.crowdedkingdoms.com/schema/game-api.graphql",

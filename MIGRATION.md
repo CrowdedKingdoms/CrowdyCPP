@@ -1,5 +1,15 @@
 # CrowdyCPP migration notes
 
+## 0.89.0 An organization's cap of apps
+
+With Game API v2.80.0; pinned to CrowdyJS 18.35.0.
+
+- **An organization without a funded wallet or auto-billing may have 10 apps.** `createApp`, or restoring an archived
+  app, past 10 apps that are not archived fails with `APP_LIMIT_REACHED` (HTTP 409). `graphql::appLimitReachedOf(errors)`
+  returns the cap (`limit`: `apps`) and its value (`cap`). New apps are created `UNLISTED`.
+- **`exec().status` returns the organization's shared ceiling** (`orgMaxInstances`, `orgMaxReservedMb`, `orgInstances`,
+  `orgReservedMb`; null without one) and needs Game API v2.80.0.
+
 ## 0.88.0 Voice and video reach 1 chunk by default
 
 With Game API v2.77.0; pinned to CrowdyJS 18.34.0. Works with every Game API on dev, test and prod.

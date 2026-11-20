@@ -303,6 +303,14 @@ void testBlockAndBanReaders() {
         !groupLimitReachedOf(unsaid)->cap.has_value());
   CHECK(!groupLimitReachedOf(banned).has_value());
 
+  auto apps = errorsFor(
+      R"({"errors":[{"message":"cap","extensions":{"code":"APP_LIMIT_REACHED","limit":"apps","max":10}}]})");
+  CHECK(appLimitReachedOf(apps).has_value());
+  CHECK(appLimitReachedOf(apps)->limit == "apps");
+  CHECK(appLimitReachedOf(apps)->cap == std::optional<std::int64_t>(10));
+  CHECK(!groupLimitReachedOf(apps).has_value());
+  CHECK(!appLimitReachedOf(full).has_value());
+
 #ifndef CROWDY_NO_EXCEPTIONS
   // A blocking call's error carries the same errors.
   auto sync = std::make_shared<FakeSyncTransport>();

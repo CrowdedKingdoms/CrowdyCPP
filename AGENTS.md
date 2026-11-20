@@ -66,7 +66,11 @@ When the unified GraphQL surface changes:
    offline and checks the snapshot against that record, so committing the
    snapshot without the record — or either without the regenerated headers —
    is refused on the branch rather than discovered later.
-4. Run `node scripts/codegen.mjs --check`.
+4. Run `node scripts/codegen.mjs --check`. An enum value spelled like a C++ keyword or like a
+   macro `<math.h>` defines on MSVC and macOS (`DOMAIN`, `OVERFLOW` and the other SVID codes;
+   `PLATFORM_MACROS` in the generator) gets a trailing underscore (`FreeTierLevel::DOMAIN_`); its
+   wire spelling is unchanged. Linux compiles either, so only the Windows and macOS jobs catch a
+   new one (0.89.0).
 5. Compare the reviewed CrowdyJS checkout with
    `node tools/parity/parity.mjs --crowdyjs <path> --write
    docs/parity-matrix.md`, then run the same command with `--check`.
@@ -299,7 +303,8 @@ wire; `replication_test`'s `runSpatialDistanceDefaults` reads each type's byte o
 new message type that should not reach 8 chunks by default goes into that resolution too.
 `graphql::groupLimitReachedOf` reads ck-api v2.77.0's `GROUP_LIMIT_REACHED` from
 `GraphQLErrorDetail::limit` and `limitValue` (extensions `limit` and `max`; not `max`, which
-`<windows.h>` defines as a macro).
+`<windows.h>` defines as a macro), and since 0.89.0 `graphql::appLimitReachedOf` reads
+ck-api v2.80.0's `APP_LIMIT_REACHED` from the same two fields.
 
 ## The native Studio dock calls (0.86.0, 0.87.0)
 

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.89.0: an organization's cap of apps.** `graphql::appLimitReachedOf` reads Game API v2.80.0's `APP_LIMIT_REACHED` (an organization without a funded wallet or auto-billing past 10 apps), and `exec().status` reports the compute ceiling an unfunded organization's apps share. Pinned to CrowdyJS 18.35.0.
+
 **v0.88.0: voice and video reach 1 chunk by default; a full channel says so.** A `sendAudio` or `sendVideo` that leaves `SpatialSend::distance` unset now reaches 1 chunk, as in CrowdyJS and CrowdyPy (other sends keep 8). `graphql::groupLimitReachedOf` reads ck-api v2.77.0's `GROUP_LIMIT_REACHED`, a join, an add or a creation past a channel or team cap. Pinned to CrowdyJS 18.34.0. See [MIGRATION.md](MIGRATION.md).
 
 **v0.87.0: a mod knows the Studio revision it runs.** `exec().modBuild` / `modClientBuild` take the Studio project and saved revision a crate is (`ExecStudioSource`), and the build, the mod version and the CLIENT half deployed from it report them; `CrowdyStudioModRunner`, the controller and `CrowdyStudioModRuntime` send them. `exec().modClientStarter` is the platform's CLIENT half starter, which the starter helpers now use (the SDK's copy when a host answers 503), and `crowdyStudio().links()` is the tier's Studio origin and wallet page. Needs ck-api v2.73.0 (CrowdyJS 18.33.0). See [MIGRATION.md](MIGRATION.md).

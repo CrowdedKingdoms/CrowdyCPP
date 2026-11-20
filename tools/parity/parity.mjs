@@ -146,6 +146,31 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     "billing policy and an organization's billing standing, read by Studio; not a game-client surface",
   ),
+  // Free data tiers, the CRM sync, the app cap and the player trial pool (ck-api v2.78.0 to
+  // v2.80.0, picked up when the pin moved to CrowdyJS 18.35.0). The setters and the CRM roots are
+  // operator-only; the reads are an organization's standing (its free tier, profile and app cap)
+  // and pricing facts (the tier levels, the trial) that Studio shows. CrowdyJS wraps none of them.
+  ...classifyNames(
+    'Mutation',
+    [
+      'runCrmBackfill',
+      'runFreeTierCheck',
+      'setCrmSync',
+      'setFreeTierLevels',
+      'setOrgFreeTierAgreement',
+      'setOrgOwnDomain',
+      'setOrgProjectProfile',
+      'setPlayerTrialPool',
+    ],
+    CATEGORY.BROWSER,
+    "operator-only billing and CRM control, or an organization admin's own free-tier profile in Studio; not a game-client surface",
+  ),
+  ...classifyNames(
+    'Query',
+    ['crmBackfillPreview', 'crmSyncStatus', 'freeTierLevels', 'orgAppLimit', 'orgFreeTier', 'orgProjectProfile', 'playerTrialPool'],
+    CATEGORY.BROWSER,
+    "an organization's free tier, profile and app cap, the tier levels and the player trial, read by Studio, or the operator's CRM reads; not a game-client surface",
+  ),
   // The lossless billing ledger's read-back surface (ck-api v1.100.x, picked up
   // when the pin moved to CrowdyJS 16.1.0). `billingCharges` / `billingWriteOffs`
   // require `view_billing` on the org -- a studio dashboard read for the org's

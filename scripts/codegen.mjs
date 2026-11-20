@@ -238,7 +238,11 @@ const enums = [];
 // C++ keyword-safe identifier for an enum value.
 const CPP_KEYWORDS = new Set(['default', 'delete', 'new', 'private', 'public', 'protected',
   'register', 'template', 'this', 'true', 'false', 'nullptr', 'operator', 'export', 'import']);
-const cppId = (v) => (CPP_KEYWORDS.has(v) || /^\d/.test(v) ? `${v}_` : v);
+// Object-like macros <math.h> defines on MSVC and macOS (the SVID error codes): an enum value
+// spelled like one does not compile there (FreeTierLevel::DOMAIN, ck-api v2.78.0).
+const PLATFORM_MACROS = new Set(['DOMAIN', 'SING', 'OVERFLOW', 'UNDERFLOW', 'TLOSS', 'PLOSS']);
+const cppId = (v) =>
+  CPP_KEYWORDS.has(v) || PLATFORM_MACROS.has(v) || /^\d/.test(v) ? `${v}_` : v;
 
 let enumsHpp = `${HEADER}
 #pragma once

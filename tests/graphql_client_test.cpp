@@ -293,6 +293,16 @@ void testBlockAndBanReaders() {
   CHECK(!accountBlockedOf(banned).has_value());
   CHECK(!groupMemberBannedOf(errorsFor(R"({"errors":[{"message":"s","extensions":{"code":"ACCESS_SUSPENDED"}}]})")));
 
+  auto full = errorsFor(
+      R"({"errors":[{"message":"full","extensions":{"code":"GROUP_LIMIT_REACHED","limit":"maxMembers","max":50}}]})");
+  CHECK(groupLimitReachedOf(full).has_value());
+  CHECK(groupLimitReachedOf(full)->limit == "maxMembers");
+  CHECK(groupLimitReachedOf(full)->cap == std::optional<std::int64_t>(50));
+  auto unsaid = errorsFor(R"({"errors":[{"message":"full","extensions":{"code":"GROUP_LIMIT_REACHED"}}]})");
+  CHECK(groupLimitReachedOf(unsaid).has_value() && groupLimitReachedOf(unsaid)->limit.empty() &&
+        !groupLimitReachedOf(unsaid)->cap.has_value());
+  CHECK(!groupLimitReachedOf(banned).has_value());
+
 #ifndef CROWDY_NO_EXCEPTIONS
   // A blocking call's error carries the same errors.
   auto sync = std::make_shared<FakeSyncTransport>();

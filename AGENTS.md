@@ -299,7 +299,8 @@ wire; `replication_test`'s `runSpatialDistanceDefaults` reads each type's byte o
 new message type that should not reach 8 chunks by default goes into that resolution too.
 `graphql::groupLimitReachedOf` reads ck-api v2.77.0's `GROUP_LIMIT_REACHED` from
 `GraphQLErrorDetail::limit` and `limitValue` (extensions `limit` and `max`; not `max`, which
-`<windows.h>` defines as a macro).
+`<windows.h>` defines as a macro), and since 0.89.0 `graphql::appLimitReachedOf` reads
+ck-api v2.80.0's `APP_LIMIT_REACHED` from the same two fields.
 
 ## The native Studio dock calls (0.86.0, 0.87.0)
 

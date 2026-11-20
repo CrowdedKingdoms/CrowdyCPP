@@ -976,7 +976,7 @@ inline std::optional<ExecModScope> execModScopeFromString(std::string_view s) {
 
 enum class FreeTierLevel {
   BASE,
-  DOMAIN,
+  DOMAIN_,
   PROFILE,
   MEASURED,
   AGREEMENT,
@@ -985,7 +985,7 @@ enum class FreeTierLevel {
 inline constexpr std::string_view toString(FreeTierLevel v) {
   switch (v) {
     case FreeTierLevel::BASE: return "BASE";
-    case FreeTierLevel::DOMAIN: return "DOMAIN";
+    case FreeTierLevel::DOMAIN_: return "DOMAIN";
     case FreeTierLevel::PROFILE: return "PROFILE";
     case FreeTierLevel::MEASURED: return "MEASURED";
     case FreeTierLevel::AGREEMENT: return "AGREEMENT";
@@ -995,7 +995,7 @@ inline constexpr std::string_view toString(FreeTierLevel v) {
 
 inline std::optional<FreeTierLevel> freeTierLevelFromString(std::string_view s) {
   if (s == "BASE") return FreeTierLevel::BASE;
-  if (s == "DOMAIN") return FreeTierLevel::DOMAIN;
+  if (s == "DOMAIN") return FreeTierLevel::DOMAIN_;
   if (s == "PROFILE") return FreeTierLevel::PROFILE;
   if (s == "MEASURED") return FreeTierLevel::MEASURED;
   if (s == "AGREEMENT") return FreeTierLevel::AGREEMENT;

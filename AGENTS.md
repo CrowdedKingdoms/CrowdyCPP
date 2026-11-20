@@ -289,6 +289,18 @@ transport's `BodySink` counts the decompressed body against `HttpRequest::maxRes
 `limitProtocols()` keeps requests and redirects on http and https (https stays on https).
 `graphql_client_test`'s `LoopbackHttp` serves the over-the-limit bodies; it is POSIX-only.
 
+## Spatial distance by message type; group caps (0.88.0)
+
+`SpatialSend::distance` defaults to `replication::kTypeDefaultDistance` (0xFF), which
+`Connection::sendLongSpatial` resolves before encoding: 1 chunk for `ClientAudioPacket` and
+`ClientVideoPacket`, 8 for every other type, as CrowdyJS's `binary-wire.ts` and CrowdyPy's
+`replication.py` default them (operator, 2026-11-19, cks-biz BIZ-031 Q1). Nothing puts 0xFF on the
+wire; `replication_test`'s `runSpatialDistanceDefaults` reads each type's byte off the socket. A
+new message type that should not reach 8 chunks by default goes into that resolution too.
+`graphql::groupLimitReachedOf` reads ck-api v2.77.0's `GROUP_LIMIT_REACHED` from
+`GraphQLErrorDetail::limit` and `limitValue` (extensions `limit` and `max`; not `max`, which
+`<windows.h>` defines as a macro).
+
 ## The native Studio dock calls (0.86.0, 0.87.0)
 
 The Unreal SDK docks Agentic Crowdy Studio in its games, so this SDK carries what that dock calls on

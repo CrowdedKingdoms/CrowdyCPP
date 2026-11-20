@@ -130,6 +130,22 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'operator-only billing reads; not a game-client surface',
   ),
+  // The organization allowance pool, the smallest top-ups and the free-tier card requirement
+  // (ck-api v2.74.0 to v2.77.0, picked up when the pin moved to CrowdyJS 18.34.0). The setters
+  // are operator-only; the reads are pricing facts and an organization's billing standing that
+  // Studio shows (orgCardRequirement needs the org's view_billing). CrowdyJS wraps none of them.
+  ...classifyNames(
+    'Mutation',
+    ['setAllowancePool', 'setFreeTierCardRequirement', 'setOrgCardRequirementExempt'],
+    CATEGORY.BROWSER,
+    'operator-only billing control; not a game-client surface',
+  ),
+  ...classifyNames(
+    'Query',
+    ['allowancePool', 'cardRequirementExemptions', 'freeTierCardRequirement', 'orgCardRequirement', 'walletTopUpMinimums'],
+    CATEGORY.BROWSER,
+    "billing policy and an organization's billing standing, read by Studio; not a game-client surface",
+  ),
   // The lossless billing ledger's read-back surface (ck-api v1.100.x, picked up
   // when the pin moved to CrowdyJS 16.1.0). `billingCharges` / `billingWriteOffs`
   // require `view_billing` on the org -- a studio dashboard read for the org's

@@ -1695,6 +1695,14 @@ void runOwnMediaEchoAdvertised() {
   expectCapabilities(server, 0x07);
   CHECK(conn.sendCapabilities().ok());
   expectCapabilities(server, 0x07);
+
+  // On a live session: each change is advertised at once; the same value sends nothing.
+  conn.setOwnMediaEcho(false);
+  CHECK(!conn.ownMediaEcho());
+  expectCapabilities(server, 0x03);
+  conn.setOwnMediaEcho(false);
+  conn.setOwnMediaEcho(true);
+  expectCapabilities(server, 0x07);  // not 0x03: the repeat sent nothing
 }
 
 // 0.84.0 (Buddy v0.46.0): once the server acknowledges the bound forms with this assignment's

@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.90.0: a speaker's own voice and video stop coming back.** From Buddy v0.48.0 a session is not sent its own spatial voice and video; `Config::ownMediaEcho` asks for the copy (`ClientCapability::kOwnMediaEcho`), for a game that confirms capture by playing back what came round. The same Buddy counts keepalives as data in. See [MIGRATION.md](MIGRATION.md).
+**v0.90.0: a speaker's own voice and video stop coming back.** From Buddy v0.48.0 a session is not sent its own spatial voice and video; `Connection::setOwnMediaEcho(true)` asks for the copy (`ClientCapability::kOwnMediaEcho`) and `false` stops it, for a game that confirms capture by playing back what came round (`Config::ownMediaEcho` is the starting value). The same Buddy counts keepalives as data in. See [MIGRATION.md](MIGRATION.md).
 
 **v0.89.0: an organization's cap of apps.** `graphql::appLimitReachedOf` reads Game API v2.80.0's `APP_LIMIT_REACHED` (an organization without a funded wallet or auto-billing past 10 apps), and `exec().status` reports the compute ceiling an unfunded organization's apps share. Pinned to CrowdyJS 18.35.0.
 

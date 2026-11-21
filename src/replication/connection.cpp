@@ -542,9 +542,10 @@ Result<std::uint8_t> Connection::sendCapabilities() {
   // [u32 flags][8B nonce]: the nonce follows the flags whenever kBoundControl is set.
   std::uint8_t payload[4 + wire::kControlNonceSize];
   const std::uint64_t nonce = controlNonce_.load(std::memory_order_acquire);
-  const std::uint32_t flags =
+  std::uint32_t flags =
       nonce != 0 ? wire::ClientCapability::kAll
                  : (wire::ClientCapability::kAll & ~wire::ClientCapability::kBoundControl);
+  if (config_.ownMediaEcho) flags |= wire::ClientCapability::kOwnMediaEcho;
   le::writeU32(payload, flags);
   std::memcpy(payload + 4, &nonce, wire::kControlNonceSize);
   SpatialSend p;

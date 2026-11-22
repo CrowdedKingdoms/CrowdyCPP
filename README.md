@@ -24,12 +24,14 @@ CrowdyCPP is designed from first principles to be:
 CrowdyCPP mirrors the [CrowdyJS](https://github.com/CrowdedKingdoms/CrowdyJS)
 API surface (same domains, same two-token model, same error codes) so the
 [platform docs](https://docs.crowdedkingdoms.com) and examples translate
-directly. Where CrowdyJS routes realtime traffic through the Game API's
+directly. Where CrowdyJS routes realtime traffic through the Application API's
 GraphQL UDP proxy (a browser constraint), CrowdyCPP opens a raw UDP socket and
 implements the
 [wire formats](https://docs.crowdedkingdoms.com/replication-api/wire-formats)
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
+
+**v0.92.0: the Game API is now the Application API.** The structs that carried its URLs (`AppTokenResponse`, `AppEndpoint`, `GraphQLErrorDetail`, `DatacenterMove`) gain `applicationApiUrl` / `applicationApiWsUrl` beside the `gameApiUrl` / `gameApiWsUrl` members, which hold the same values and are removed on January 1, 2027. The operations select the new fields (needs Application API v2.85.0). See [MIGRATION.md](MIGRATION.md).
 
 **v0.91.0: choose whose voice and video each player receives.** From Buddy v0.49.0, `Connection::setSpeakers(voice, video)` names the actors a session receives spatial voice and webcam video from (`SpeakerList::only`, `everyone`, `keep`); streams a list leaves out are neither sent nor billed. See [MIGRATION.md](MIGRATION.md).
 
@@ -184,7 +186,7 @@ each over the grid, so a block a hub placed is there after a reload; before, it 
 `gameApps().setOpenPermissions` / `openPermissions` open a grid to every player with access
 (cks-game-api #436): a zone everyone may build in must grant `update_voxel_data` itself now.
 `exec().connect` and `connectAsDeveloper` dial only a gateway `execGatewayRefusal` passes (`wss:`
-under an `https:` Game API, on the platform's estate; loopback for a loopback Game API), and a
+under an `https:` Application API, on the platform's estate; loopback for a loopback Application API), and a
 gateway's refusal of the connect token (`HTTP 401`, ck-exec 0.10.0+) is `Denied` again, with its
 reason where the transport can read it; `ExecConnection::lastFailure()` says why an attempt
 failed. Also carries #134's `<windows.h>` `far` / `near` fix. See [MIGRATION.md](MIGRATION.md).
@@ -269,7 +271,7 @@ the build's id with types naming their `crate`. Parity pinned to CrowdyJS 17.11.
 switch). Parity pinned to CrowdyJS 17.10.0.
 
 **v0.44.0: ck-exec (dev-tier preview).** `client.exec().connect(appId, {.nodeType, .key})`
-asks the Game API for an execution host and opens a WebSocket to its gateway; the
+asks the Application API for an execution host and opens a WebSocket to its gateway; the
 `ExecConnection` it returns calls hubs and spokes (`call`, `callRaw`), subscribes to their
 topics, pings, and reconnects with subscriptions renewed when the host goes away or a call
 is answered `Moved`. Payloads are MessagePack: `graphql::Json::toMsgpack` /

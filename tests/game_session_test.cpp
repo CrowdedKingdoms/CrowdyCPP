@@ -51,8 +51,8 @@ domains::AppTokenResponse appToken() {
   token.gameTokenId = "9007199254740993";  // past a double's integers: never narrowed
   token.appId = "107209219611648";
   token.expiresAt = "2030-01-01T00:00:00.000Z";
-  token.gameApiUrl = "https://ck-or-1.game.invalid";
-  token.gameApiWsUrl = "wss://ck-or-1.game.invalid";
+  token.applicationApiUrl = "https://ck-or-1.game.invalid";
+  token.applicationApiWsUrl = "wss://ck-or-1.game.invalid";
   token.discoveryUrl = "https://ck.game.invalid";
   return token;
 }
@@ -103,8 +103,8 @@ void testGameClientConfig() {
   // A token without its own origins (an older API, a local stack) goes to the fallback, then
   // to what the base had.
   domains::AppTokenResponse bare = appToken();
-  bare.gameApiUrl = std::nullopt;
-  bare.gameApiWsUrl = std::nullopt;
+  bare.applicationApiUrl = std::nullopt;
+  bare.applicationApiWsUrl = std::nullopt;
   bare.discoveryUrl = std::nullopt;
   const ClientConfig fallback = gameClientConfig(bare, base, "https://fallback.invalid");
   CHECK_EQ(fallback.httpUrl, std::string("https://fallback.invalid"));
@@ -112,6 +112,20 @@ void testGameClientConfig() {
   CHECK(fallback.wsUrl.empty());
   const ClientConfig own = gameClientConfig(bare, base);
   CHECK_EQ(own.httpUrl, std::string("https://identity.invalid"));
+}
+
+// A token built by hand with only the deprecated gameApi* members still routes (until they go on
+// January 1, 2027).
+void testATokenWithOnlyTheGameApiNamesStillRoutes() {
+  domains::AppTokenResponse token = appToken();
+  token.applicationApiUrl = std::nullopt;
+  token.applicationApiWsUrl = std::nullopt;
+  token.gameApiUrl = "https://ck-va-1.game.invalid";
+  token.gameApiWsUrl = "wss://ck-va-1.game.invalid";
+  ClientConfig base;
+  const ClientConfig game = gameClientConfig(token, base, "");
+  CHECK_EQ(game.httpUrl, std::string("https://ck-va-1.game.invalid"));
+  CHECK_EQ(game.wsUrl, std::string("wss://ck-va-1.game.invalid"));
 }
 
 void testStartsFromTheToken() {
@@ -227,6 +241,7 @@ void testAssignmentRetriesAndFailures() {
 int main() {
   testReplicationTokenOf();
   testGameClientConfig();
+  testATokenWithOnlyTheGameApiNamesStillRoutes();
   testStartsFromTheToken();
   testRefusesWhatIsNotAnAppToken();
   testAssignmentRetriesAndFailures();

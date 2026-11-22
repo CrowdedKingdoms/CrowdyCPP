@@ -34,12 +34,16 @@ struct DatacenterMove {
 inline std::optional<DatacenterMove> moveFromError(
     const GraphQLErrorDetail& error) {
   if (error.code != kWrongDatacenterCode) return std::nullopt;
-  if (error.applicationApiUrl.empty()) return std::nullopt;
+  // A detail built by hand may still set only the deprecated gameApi* members.
+  const std::string& url = !error.applicationApiUrl.empty() ? error.applicationApiUrl : error.gameApiUrl;
+  const std::string& wsUrl =
+      !error.applicationApiWsUrl.empty() ? error.applicationApiWsUrl : error.gameApiWsUrl;
+  if (url.empty()) return std::nullopt;
   DatacenterMove move;
-  move.applicationApiUrl = error.applicationApiUrl;
-  move.applicationApiWsUrl = error.applicationApiWsUrl;
-  move.gameApiUrl = error.applicationApiUrl;
-  move.gameApiWsUrl = error.applicationApiWsUrl;
+  move.applicationApiUrl = url;
+  move.applicationApiWsUrl = wsUrl;
+  move.gameApiUrl = url;
+  move.gameApiWsUrl = wsUrl;
   move.appId = error.appId;
   move.appDatacenter = error.appDatacenter;
   return move;

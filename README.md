@@ -1238,13 +1238,13 @@ never need network access or sibling repos:
 npm ci
 
 # Maintainers: refresh the unified published SDL
-node scripts/schema-sync.mjs            # writes schema.gql from game-api.graphql
+node scripts/schema-sync.mjs            # writes schema.gql from application-api.graphql
 node scripts/codegen.mjs                # regenerates include/crowdy/generated/
 # commit schema.gql and include/crowdy/generated/ together
 ```
 
 `scripts/schema-sync.mjs` downloads the published unified SDL
-(`https://docs.crowdedkingdoms.com/schema/game-api.graphql`); `--game <path|url>`
+(`https://docs.crowdedkingdoms.com/schema/application-api.graphql`); `--game <path|url>`
 overrides the source. There is one schema because there is one origin: the
 published management SDL is a **derived** subset for the docs tab, not a second
 endpoint. A sync also records where the snapshot came from, in

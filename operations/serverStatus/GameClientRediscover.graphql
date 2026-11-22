@@ -5,8 +5,10 @@
 # have nothing to do with the question being asked here.
 query GameClientRediscover($appId: BigInt!) {
   gameClientBootstrap(appId: $appId) {
-    gameApiUrl
-    gameApiWsUrl
+    applicationApiUrl
+    gameApiUrl: applicationApiUrl
+    applicationApiWsUrl
+    gameApiWsUrl: applicationApiWsUrl
     discoveryUrl
   }
 }

@@ -23,8 +23,10 @@ const portalHpp = readFileSync(
  * string. A client that cannot see discoveryUrl cannot re-discover, and the only
  * symptom is that it fails to recover from something it should have survived.
  */
+// Since 0.92.0 the URLs are the Application API names, with the deprecated gameApi* keys as
+// GraphQL aliases of them (`gameApiUrl: applicationApiUrl`) until January 1, 2027.
 const FIELD_LIST =
-  /token gameTokenId appId expiresAt gameApiUrl gameApiWsUrl(?: \w+)* launchUrl/gu;
+  /token gameTokenId appId expiresAt applicationApiUrl applicationApiWsUrl(?: [\w:]+)* launchUrl/gu;
 
 function selections(source) {
   return [...source.matchAll(FIELD_LIST)].map((match) =>

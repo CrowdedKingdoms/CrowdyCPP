@@ -29,9 +29,16 @@ int main() {
 
   std::vector<crowdy::graphql::GraphQLErrorDetail> errors(1);
   errors[0].code = std::string(crowdy::graphql::kWrongDatacenterCode);
-  errors[0].gameApiUrl = "https://ck-or.prod.example.test";
+  errors[0].applicationApiUrl = "https://ck-or.prod.example.test";
   const auto move = crowdy::graphql::moveFromErrors(errors);
-  if (!move || move->gameApiUrl != "https://ck-or.prod.example.test") return 1;
+  if (!move || move->applicationApiUrl != "https://ck-or.prod.example.test") return 1;
+
+  // A detail built with only the deprecated member still moves (until January 1, 2027).
+  std::vector<crowdy::graphql::GraphQLErrorDetail> old(1);
+  old[0].code = std::string(crowdy::graphql::kWrongDatacenterCode);
+  old[0].gameApiUrl = "https://ck-va.prod.example.test";
+  const auto oldMove = crowdy::graphql::moveFromErrors(old);
+  if (!oldMove || oldMove->applicationApiUrl != "https://ck-va.prod.example.test") return 1;
 
   crowdy::graphql::RediscoverCoordinator coordinator;
   if (coordinator.hasCallback()) return 1;

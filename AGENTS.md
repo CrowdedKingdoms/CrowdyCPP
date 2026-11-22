@@ -57,7 +57,7 @@ When the unified GraphQL surface changes:
 
 1. Run `npm ci` for maintainer-only schema tooling.
 2. Refresh `schema.gql` with `scripts/schema-sync.mjs` from the published
-   unified SDL (`/schema/game-api.graphql`). The management docs SDL is
+   unified SDL (`/schema/application-api.graphql`; `/schema/game-api.graphql` until January 1, 2027). The management docs SDL is
    derived from that schema; do not sync a second endpoint.
 3. Run `node scripts/codegen.mjs`; commit `schema.gql`, `package.json` (the sync
    rewrites its `publishedSchemaSnapshot` provenance record in the same act),

@@ -96,6 +96,19 @@ void testMoveFromErrorsReadsTheEndpoint() {
   CHECK_EQ(move->appDatacenter, "or");
 }
 
+// Application API v2.85.0 names the move under applicationApi* (and the deprecated gameApi* beside it).
+void testMoveFromErrorsReadsTheApplicationApiKeys() {
+  const std::string body =
+      R"({"errors":[{"message":"wrong dc","extensions":{"code":"WRONG_DATACENTER","appId":"42",)"
+      R"("appDatacenter":"va","applicationApiUrl":"https://ck-va.prod.crowdedkingdoms.com",)"
+      R"("applicationApiWsUrl":"wss://ck-va.prod.crowdedkingdoms.com"}}]})";
+  const auto move = moveFromErrors(errorsFrom(body));
+  CHECK(move.has_value());
+  CHECK_EQ(move->applicationApiUrl, "https://ck-va.prod.crowdedkingdoms.com");
+  CHECK_EQ(move->applicationApiWsUrl, "wss://ck-va.prod.crowdedkingdoms.com");
+  CHECK_EQ(move->gameApiUrl, move->applicationApiUrl);
+}
+
 void testMoveFromErrorsScansPastALeadingUnrelatedError() {
   // A partially resolved query reports whatever failed first, so the routing
   // error is not guaranteed to lead. Reading only errors[0] would miss it.
@@ -496,6 +509,7 @@ void testAsyncPathMovesAndRetriesOnce() {
 
 int main() {
   testMoveFromErrorsReadsTheEndpoint();
+  testMoveFromErrorsReadsTheApplicationApiKeys();
   testMoveFromErrorsScansPastALeadingUnrelatedError();
   testMoveFromErrorsRefusesOnAppUnavailable();
   testMoveFromErrorsRefusesWrongDatacenterWithNoEndpoint();

@@ -1,5 +1,17 @@
 # CrowdyCPP migration notes
 
+## 0.91.0 Choose whose voice and video each player receives
+
+For Buddy v0.49.0 and Game API v2.83.0; pinned to CrowdyJS 18.38.0. Nothing changes until you call it.
+
+- **`Connection::setSpeakers(voice, video)`** names the actors whose spatial voice and webcam video this session
+  receives: `SpeakerList::only(actors)` (only those; none when empty), `SpeakerList::everyone()` (everyone in range
+  again) or `SpeakerList::keep()` (leave that kind as it is). Streams a list leaves out are neither sent nor billed. A
+  changed kind is sent at once; every list goes again with each capabilities advertisement, since the server forgets
+  them with the session. Over `wire::kMaxSpeakers` (32) names returns `InvalidArgument`; the app's own numbers are
+  `gameClientBootstrap.maxVoiceSpeakers` / `maxVideoSpeakers`, and the server refuses a longer list `INVALID_REQUEST`.
+- `wire::MessageType::ClientMediaSpeakers` (47) and `wire::SpeakerMode` are the wire form.
+
 ## 0.90.0 A speaker's own voice and video stop coming back
 
 For Buddy v0.48.0; pinned to CrowdyJS 18.37.0. Works with every Game API on dev, test and prod.

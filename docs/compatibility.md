@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.91.0 passes the strict portable-parity gate against CrowdyJS
-**18.38.0**. The gate pins CrowdyJS commit
-`d36622b3eef15d388849404099e9957e04292beb` (`test/v18.38.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.92.0 passes the strict portable-parity gate against CrowdyJS
+**18.39.0**. The gate pins CrowdyJS commit
+`090bc649f048b2144d137cfff0df58cfdefaf1d6` (`test/v18.39.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.92.0 mirrors CrowdyJS 18.39.0 (Application API v2.85.0): the structs that carry the Application API's URLs gain `applicationApiUrl` / `applicationApiWsUrl` beside the deprecated `gameApiUrl` / `gameApiWsUrl` members, the selections alias the old keys onto the new fields as CrowdyJS's do, and `WRONG_DATACENTER` is read from either key set. The old members go on January 1, 2027.
 
 0.91.0 mirrors CrowdyJS 18.38.0 (Buddy v0.49.0, ck-api v2.83.0): `Connection::setSpeakers` sends `ClientMediaSpeakers` (47) as `udp.setSpeakers` does, one kind a message, and the connection re-sends the lists with each capabilities advertisement; `schema.gql` carries the app's `maxVoiceSpeakers` / `maxVideoSpeakers` and their bootstrap reads.
 
@@ -102,7 +104,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.91.0 | CrowdyJS 18.38.0 | Required public API generation |
+| Surface | CrowdyCPP 0.92.0 | CrowdyJS 18.39.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

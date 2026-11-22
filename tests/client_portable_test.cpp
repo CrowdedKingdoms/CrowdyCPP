@@ -49,7 +49,7 @@ class PortableTransport final : public graphql::IHttpTransport {
                     target + R"("}}]})"};
       }
       return {200,
-              R"({"data":{"appDiscovery":[{"appId":"42","datacenterCode":"or","gameApiUrl":"https://ck-or.game.invalid","gameApiWsUrl":"wss://ck-or.game.invalid"}]}})"};
+              R"({"data":{"appDiscovery":[{"appId":"42","datacenterCode":"or","applicationApiUrl":"https://ck-or.game.invalid","applicationApiWsUrl":"wss://ck-or.game.invalid","gameApiUrl":"https://ck-or.game.invalid","gameApiWsUrl":"wss://ck-or.game.invalid"}]}})"};
     }
     if (request.body.find("RefreshAppToken") != std::string::npos) {
       ++refreshCalls;
@@ -530,6 +530,7 @@ void testAMovedClientIsFullyUsable() {
   {
     const auto placements = client.discovery().apps({"42"});
     CHECK_EQ(placements.size(), std::size_t{1});
+    CHECK_EQ(placements.front().applicationApiUrl, "https://ck-or.game.invalid");
     CHECK_EQ(placements.front().gameApiUrl, "https://ck-or.game.invalid");
     CHECK(placements.front().placed());
   }

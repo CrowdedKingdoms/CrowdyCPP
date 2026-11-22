@@ -4,8 +4,10 @@ query PlaceableDatacenters {
     servedBy
     datacenters {
       code
-      gameApiUrl
-      gameApiWsUrl
+      applicationApiUrl
+      gameApiUrl: applicationApiUrl
+      applicationApiWsUrl
+      gameApiWsUrl: applicationApiWsUrl
       placeable
       appShardCount
       serving

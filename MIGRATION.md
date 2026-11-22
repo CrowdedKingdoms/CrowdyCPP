@@ -1,5 +1,19 @@
 # CrowdyCPP migration notes
 
+## 0.90.0 A speaker's own voice and video stop coming back
+
+For Buddy v0.48.0; pinned to CrowdyJS 18.37.0. Works with every Game API on dev, test and prod.
+
+- **From Buddy v0.48.0 a session is not sent its own `ClientAudioPacket2` or `ClientVideoPacket2`.** Nobody listening
+  needed the copy, and it was billed as data out. Channel audio never came back to its speaker. If your game confirms
+  capture by playing back what the server returns, call `Connection::setOwnMediaEcho(true)` for the check and
+  `setOwnMediaEcho(false)` after it: each change adds or removes `ClientCapability::kOwnMediaEcho` (bit 2) and is
+  advertised at once (it needs `advertiseCapabilities`, on by default). `Config::ownMediaEcho` is the starting value.
+  An older Buddy ignores the bit and keeps sending the copy.
+- **Keepalives count as data in** on the same Buddy (`CLIENT_ACTOR_HEARTBEAT`, `CLIENT_CAPABILITIES`), as the Billing
+  Basis says. Nothing to change in a client.
+- `schema.gql` carries the rate card's `allowancePerOrganization` (Game API v2.81.0).
+
 ## 0.89.0 An organization's cap of apps
 
 With Game API v2.80.0; pinned to CrowdyJS 18.35.0.

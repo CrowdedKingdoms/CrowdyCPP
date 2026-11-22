@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.89.0 passes the strict portable-parity gate against CrowdyJS
-**18.35.0**. The gate pins CrowdyJS commit
-`85e32f586a4b1bb8fe833b519e952295f027c493` (`test/v18.35.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.90.0 passes the strict portable-parity gate against CrowdyJS
+**18.37.0**. The gate pins CrowdyJS commit
+`b3f849e25bdf47b4e9046f87236c8e9afe33af8b` (`dev/v18.37.0`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.90.0 mirrors CrowdyJS 18.36.0 and 18.37.0 (Buddy v0.48.0): `Config::ownMediaEcho` adds `ClientCapability::kOwnMediaEcho` (bit 2) to the capabilities advertisement, as CrowdyJS's `realtime.ownMediaEcho` does, so the server sends the session its own spatial voice and video, which from v0.48.0 it otherwise does not; `Connection::setOwnMediaEcho` changes it on a live session and advertises at once, as `udp.setOwnMediaEcho` does. `schema.gql` carries ck-api v2.81.0's `allowancePerOrganization`.
 
 0.89.0 mirrors CrowdyJS 18.35.0 (ck-api v2.80.0): `graphql::appLimitReachedOf` reads `APP_LIMIT_REACHED` (`createApp`, or restoring an archived app, past the 10 apps an organization without a funded wallet or auto-billing may have; `limit` and `cap`), and `exec().status` returns `orgMaxInstances`, `orgMaxReservedMb`, `orgInstances` and `orgReservedMb`, the ceiling an unfunded organization's apps share (ck-exec 0.22), so it needs v2.80.0. The schema is CrowdyJS's at the pin; its new roots (free data tiers, the CRM sync, the app cap, the player trial) are Studio and operator surfaces, unwrapped in both SDKs.
 
@@ -98,7 +100,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.89.0 | CrowdyJS 18.35.0 | Required public API generation |
+| Surface | CrowdyCPP 0.90.0 | CrowdyJS 18.37.0 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |
@@ -128,6 +130,7 @@ the pin exists to prevent. Moving the version is a separate, deliberate act; see
 | The SDK a build compiled against | `sdkVersion` in the JSON of `exec().build`, `buildStatus`, `waitForBuild`, `modBuild`, `modClientBuild`, `modBuildStatus` (0.61.0) | `ExecBuild.sdkVersion` through the same calls (18.8.0) | ck-api v2.40.2 (`ExecBuild.sdkVersion`; an older API refuses the build documents) |
 | Wide voxel types and other addresses | `ChunkData::overlay` (`OverlayVoxel`, `voxelKey`); `voxelTypeAt` returns `std::int16_t` (0.60.0) | `CachedChunk.overlay` (`ChunkOverlayVoxel`, `voxelKey`); `createGridHostCalls({ voxelBounds })` for a CLIENT half (18.7.0) | Voxel positions and types are the app's signed 16-bit values |
 | Bundled uplink sends | `Config::bundleSends` / `bundleWindowMs`, `Connection::flushSends`, `Stats::bundlesSent` / `messagesDropped` | `realtime.bundleSends` / `bundleWindowMs`, `udp.flushSends`, `realtime.binaryRelayStats` (binary relay only) | Buddy v0.27.0 (client `MESSAGE_BUNDLE`) |
+| A speaker's own voice and video | `Config::ownMediaEcho`, `Connection::setOwnMediaEcho`, `ClientCapability::kOwnMediaEcho` (0.90.0) | `realtime.ownMediaEcho`, `udp.setOwnMediaEcho`, `ClientCapability.OWN_MEDIA_ECHO` (binary relay only) | Buddy v0.48.0 (without it a speaker is not sent its own `CLIENT_AUDIO_PACKET_2` / `CLIENT_VIDEO_PACKET_2`) |
 | Wrapper seams | `Config::onEventsReady` (wake an event loop when notifications are waiting), `IChunkSource` for `ChunkStore` and `IHostElection` + `WorldSessionServices` for `WorldSession` (durable services without a `CrowdyClient`), `WorldSessionConfig::onText` (0.54.0) | No counterpart: the browser SDK has no native core to wrap | None; native-only API |
 | Recorded voxel edits on chunk loads | `ChunkStore::ensureAround`'s one `getChunksByDistance` selects `voxelStates` and puts each entry over the stored grid (type at its voxel, its state; an entry without one clears the cached state); `IChunkSource` reports them in `StoredChunk::voxelStates` (0.56.0) | `ChunkStore.hydrate` reads `getChunk`'s `voxelStates` per loaded chunk, which `ensureAround` runs only with a `voxelStateCodec` or `hydrateVoxelStates: true` | ck-api `dev/v2.33.0` (cks-game-api #445): both chunk reads return every recorded edit (a hub's or mod's `world.set_voxels`, `updateVoxel`, realtime voxel updates) as an entry, `getChunksByDistance` only when `voxelStates` is selected; a chunk with edits but no stored row is returned by neither |
 | Chunk write-back failures | `ChunkStore` sends a refused write-back once and drops it, retries one that can clear up to 5 attempts (waits 0.7/1.4/2.8/5.6 s) and drops it, and reports both through `onWriteBackFailed`; `flush()` returns a `ChunkFlushResult` (0.53.0) | `ChunkStore` does the same; `onWriteBackFailed`, and `flush()` returns the failures (18.0.4) | `extensions.code` / `retryable` / `httpStatus` on Game API errors; a closed wilderness (`App.wildernessWritesOpen`, ck-api `dev/v2.30.0`) refuses with FORBIDDEN |

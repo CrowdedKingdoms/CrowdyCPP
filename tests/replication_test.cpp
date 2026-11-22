@@ -86,15 +86,16 @@ wire::Token64 token64() { return *wire::Token64::fromString(kToken); }
 
 // CLIENT_CAPABILITIES (29) leaves once housekeeping sees Connected. 0.42.0
 // encoded nothing, so these reads used to see the next application datagram.
-// The CLIENT_CAPABILITIES a connection sends: both bits, and this assignment's nonce after the
-// flags. Returns the nonce.
-std::array<std::uint8_t, wire::kControlNonceSize> expectCapabilities(FakeServer& server) {
+// The CLIENT_CAPABILITIES a connection sends: both bits (and kOwnMediaEcho when asked), and this
+// assignment's nonce after the flags. Returns the nonce.
+std::array<std::uint8_t, wire::kControlNonceSize> expectCapabilities(FakeServer& server,
+                                                                     std::uint8_t flags = 0x03) {
   auto got = server.recvOne();
   CHECK_EQ(got[0], static_cast<std::uint8_t>(wire::MessageType::ClientCapabilities));
   auto parsed = wire::parseLongSpatial(Bytes(got.data(), got.size()));
   CHECK(parsed.ok());
   CHECK_EQ(parsed->payload.size(), 4u + wire::kControlNonceSize);
-  CHECK_EQ(parsed->payload[0], 0x03);
+  CHECK_EQ(parsed->payload[0], flags);
   CHECK_EQ(parsed->payload[1], 0x00);
   CHECK_EQ(parsed->payload[2], 0x00);
   CHECK_EQ(parsed->payload[3], 0x00);
@@ -1676,6 +1677,34 @@ void runBoundControlFrames() {
   CHECK_EQ(provider->assignCalls, 2);
 }
 
+// 0.90.0 (Buddy v0.48.0): a speaker is not sent its own spatial voice and video unless it asks
+// with kOwnMediaEcho, which ownMediaEcho adds to every advertisement, the first and the repeats.
+void runOwnMediaEchoAdvertised() {
+  CHECK_EQ(wire::ClientCapability::kOwnMediaEcho, 4u);
+  CHECK_EQ(wire::ClientCapability::kAll & wire::ClientCapability::kOwnMediaEcho, 0u);
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg = idleTestConfig();
+  cfg.advertiseCapabilities = true;
+  cfg.ownMediaEcho = true;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  expectCapabilities(server, 0x07);
+  CHECK(conn.sendCapabilities().ok());
+  expectCapabilities(server, 0x07);
+
+  // On a live session: each change is advertised at once; the same value sends nothing.
+  conn.setOwnMediaEcho(false);
+  CHECK(!conn.ownMediaEcho());
+  expectCapabilities(server, 0x03);
+  conn.setOwnMediaEcho(false);
+  conn.setOwnMediaEcho(true);
+  expectCapabilities(server, 0x07);  // not 0x03: the repeat sent nothing
+}
+
 // 0.84.0 (Buddy v0.46.0): once the server acknowledges the bound forms with this assignment's
 // nonce, a legacy 22 or 28 on the assignment can only be a captured frame sent again, and is
 // dropped. An acknowledgement bound to another assignment changes nothing.
@@ -1749,6 +1778,7 @@ int main() {
   runLegacyReconnectIsPaced();
   runReassignmentDoesNotOutliveIdleRelease();
   runBoundControlFrames();
+  runOwnMediaEchoAdvertised();
   runBoundAckDropsLegacyControl();
   std::puts("replication_test OK");
   return 0;

@@ -1,5 +1,19 @@
 # CrowdyCPP migration notes
 
+## 0.92.0 The Game API is now the Application API
+
+For Application API v2.85.0; pinned to CrowdyJS 18.39.0. Rename as you go; nothing breaks before January 1, 2027.
+
+| Was (deprecated) | Now |
+|---|---|
+| `AppTokenResponse::gameApiUrl`, `gameApiWsUrl` | `applicationApiUrl`, `applicationApiWsUrl` |
+| `AppEndpoint::gameApiUrl`, `gameApiWsUrl` (`discovery().apps`) | `applicationApiUrl`, `applicationApiWsUrl` |
+| `GraphQLErrorDetail::gameApiUrl`, `gameApiWsUrl`; `DatacenterMove` likewise | `applicationApiUrl`, `applicationApiWsUrl` |
+
+The old members hold the same values. A token you build yourself with only the old members still routes. The
+operations select the new GraphQL fields, so this release needs Application API v2.85.0 or later; a
+`WRONG_DATACENTER` from an older API still moves, through its `gameApiUrl`.
+
 ## 0.91.0 Choose whose voice and video each player receives
 
 For Buddy v0.49.0 and Game API v2.83.0; pinned to CrowdyJS 18.38.0. Nothing changes until you call it.

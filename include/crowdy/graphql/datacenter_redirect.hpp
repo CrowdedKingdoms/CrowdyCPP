@@ -18,24 +18,28 @@ namespace crowdy::graphql {
 
 /// Where a WRONG_DATACENTER error says to go.
 struct DatacenterMove {
-  std::string gameApiUrl;    ///< never empty in a valid move
-  std::string gameApiWsUrl;  ///< may be empty; derive from gameApiUrl
+  std::string applicationApiUrl;    ///< never empty in a valid move
+  std::string applicationApiWsUrl;  ///< may be empty; derive from applicationApiUrl
+  std::string gameApiUrl;    ///< Deprecated: use applicationApiUrl (the Game API is now the Application API); removed on January 1, 2027.
+  std::string gameApiWsUrl;  ///< Deprecated: use applicationApiWsUrl (the Game API is now the Application API); removed on January 1, 2027.
   std::string appId;
   std::string appDatacenter;
 };
 
 /// A move from ONE error, or nullopt.
 ///
-/// Requires a non-empty gameApiUrl as well as the code. A WRONG_DATACENTER
+/// Requires a non-empty applicationApiUrl as well as the code. A WRONG_DATACENTER
 /// without a target is not a move — it is a refusal the caller must surface,
 /// and treating it as a move would silently "succeed" by staying put.
 inline std::optional<DatacenterMove> moveFromError(
     const GraphQLErrorDetail& error) {
   if (error.code != kWrongDatacenterCode) return std::nullopt;
-  if (error.gameApiUrl.empty()) return std::nullopt;
+  if (error.applicationApiUrl.empty()) return std::nullopt;
   DatacenterMove move;
-  move.gameApiUrl = error.gameApiUrl;
-  move.gameApiWsUrl = error.gameApiWsUrl;
+  move.applicationApiUrl = error.applicationApiUrl;
+  move.applicationApiWsUrl = error.applicationApiWsUrl;
+  move.gameApiUrl = error.applicationApiUrl;
+  move.gameApiWsUrl = error.applicationApiWsUrl;
   move.appId = error.appId;
   move.appDatacenter = error.appDatacenter;
   return move;

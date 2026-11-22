@@ -11,8 +11,10 @@ mutation SignInWithMinecraft($input: SignInWithMinecraftInput!) {
     gameTokenId
     appId
     expiresAt
-    gameApiUrl
-    gameApiWsUrl
+    applicationApiUrl
+    gameApiUrl: applicationApiUrl
+    applicationApiWsUrl
+    gameApiWsUrl: applicationApiWsUrl
     discoveryUrl
     launchUrl
     runtimeGate {

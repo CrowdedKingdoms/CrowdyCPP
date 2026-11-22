@@ -1705,6 +1705,69 @@ void runOwnMediaEchoAdvertised() {
   expectCapabilities(server, 0x07);  // not 0x03: the repeat sent nothing
 }
 
+// The app payload of the next ClientMediaSpeakers the server receives, skipping anything else.
+std::vector<std::uint8_t> nextSpeakerList(FakeServer& server) {
+  for (int i = 0; i < 20; ++i) {
+    auto got = server.recvOne();
+    if (got.empty() || got[0] != static_cast<std::uint8_t>(wire::MessageType::ClientMediaSpeakers))
+      continue;
+    auto parsed = wire::parseLongSpatial(Bytes(got.data(), got.size()));
+    CHECK(parsed.ok());
+    if (!parsed.ok()) return {};
+    return std::vector<std::uint8_t>(parsed->payload.begin(), parsed->payload.end());
+  }
+  CHECK(false);
+  return {};
+}
+
+// 0.91.0 (Buddy v0.49.0): the speakers each player receives. One kind a message, sent at once
+// and again with each capabilities advertisement; over 32 names is refused before sending.
+void runSpeakerLists() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<StubProvider>(server.port);
+  Config cfg = idleTestConfig();
+  cfg.advertiseCapabilities = true;
+  cfg.advertiseIntervalMs = 300;
+  Connection conn(cfg, provider, core::opensslCrypto());
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  expectCapabilities(server);
+  const core::ActorUuid a = uuid('a');
+  const core::ActorUuid b = uuid('b');
+
+  CHECK(conn.setSpeakers(SpeakerList::only({a, b}), SpeakerList::keep()).ok());
+  auto body = nextSpeakerList(server);
+  CHECK_EQ(body.size(), 4u + 2 * sizeof(core::ActorUuid));
+  if (body.size() == 4u + 2 * sizeof(core::ActorUuid)) {
+    CHECK_EQ(body[0], 1);
+    CHECK_EQ(body[1], 2);
+    CHECK_EQ(body[2], 0);
+    CHECK_EQ(body[3], 0);
+    CHECK(std::memcmp(body.data() + 4, a.data(), a.size()) == 0);
+    CHECK(std::memcmp(body.data() + 4 + a.size(), b.data(), b.size()) == 0);
+  }
+
+  CHECK(conn.setSpeakers(SpeakerList::keep(), SpeakerList::only({})).ok());
+  body = nextSpeakerList(server);
+  CHECK(body == std::vector<std::uint8_t>({0, 0, 1, 0}));
+
+  CHECK(conn.setSpeakers(SpeakerList::everyone(), SpeakerList::keep()).ok());
+  body = nextSpeakerList(server);
+  CHECK(body == std::vector<std::uint8_t>({2, 0, 0, 0}));
+
+  std::vector<core::ActorUuid> tooMany(wire::kMaxSpeakers + 1, a);
+  CHECK_EQ(conn.setSpeakers(SpeakerList::keep(), SpeakerList::only(tooMany)).code,
+           Errc::InvalidArgument);
+
+  // The next advertisement carries the list still set (video: none), not the dropped voice one.
+  std::this_thread::sleep_for(std::chrono::milliseconds(cfg.advertiseIntervalMs + 20));
+  conn.pump(0);
+  expectCapabilities(server);
+  body = nextSpeakerList(server);
+  CHECK(body == std::vector<std::uint8_t>({0, 0, 1, 0}));
+}
+
 // 0.84.0 (Buddy v0.46.0): once the server acknowledges the bound forms with this assignment's
 // nonce, a legacy 22 or 28 on the assignment can only be a captured frame sent again, and is
 // dropped. An acknowledgement bound to another assignment changes nothing.
@@ -1779,6 +1842,7 @@ int main() {
   runReassignmentDoesNotOutliveIdleRelease();
   runBoundControlFrames();
   runOwnMediaEchoAdvertised();
+  runSpeakerLists();
   runBoundAckDropsLegacyControl();
   std::puts("replication_test OK");
   return 0;

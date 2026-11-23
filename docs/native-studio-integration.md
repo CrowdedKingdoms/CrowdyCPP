@@ -73,6 +73,21 @@ It does not start the CLIENT half in an engine runtime: the attached half is
 served to its author like any other, through `exec().gridClientMods` and
 `modClientArtifactBytes`. See the README's "A Studio dock in a game".
 
+From 0.93.0 a dropped read (no answer, an HTTP 5xx or 429 that is not the API's
+answer, or `PLATFORM_BUSY`) does not end a run: the run polls a build's status
+again, counting toward `pollLimit`, and gives its project, live-modding,
+mod-listing, and mod-starter reads one more try. The assembly's runtime and
+`exec().waitForModBuild` follow the same rule. Each target's `state` says what the
+platform holds when the run ends, with the mod's `modId`, `enabled`, `running`,
+and `blocked`; a blocked mod ends the run `Blocked`, after the attach and consent.
+`expectedServerModuleName` / `expectedClientModuleName` pin the module names the
+player saw. An engine that installs a management or an app token on one shared
+client before each call makes the runner with
+`client.createCrowdyStudioModRunner(appToken)`: an API client of its own carries
+that token, follows a `WRONG_DATACENTER` move on its own, and takes a rotated
+token through `runner->setAppToken`. Every run reaches `onDone` once, as `Failed`
+when something inside it throws.
+
 `crowdy::studio::createCrowdyStudioStarterProjectAsync` creates a new project
 from the platform's starters (the mod starter and, from ck-api v2.73.0, the
 CLIENT half starter, with the SDK's copy when a host predates it) without

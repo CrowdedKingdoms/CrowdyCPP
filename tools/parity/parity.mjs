@@ -146,6 +146,14 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     "billing policy and an organization's billing standing, read by Studio; not a game-client surface",
   ),
+  // Application API v2.86.0's hosted sign-in check, in CrowdyJS's schema from the tiers whose
+  // promotion synced it from their API (test and prod, 2026-11-23); CrowdyJS wraps it nowhere.
+  ...classifyNames(
+    'Query',
+    ['portalReturnAllowed'],
+    CATEGORY.BROWSER,
+    "Studio's hosted sign-in Cancel asks whether a return address is the app's; a native client signs in with auth().login and never runs that page",
+  ),
   // Free data tiers, the CRM sync, the app cap and the player trial pool (ck-api v2.78.0 to
   // v2.80.0, picked up when the pin moved to CrowdyJS 18.35.0). The setters and the CRM roots are
   // operator-only; the reads are an organization's standing (its free tier, profile and app cap)

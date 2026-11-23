@@ -431,14 +431,24 @@ class FakeRuntime final : public ICrowdyStudioRuntime {
                                                        : "server-v1"};
   }
 
+  /// Polls whose status read drops before the builds succeed.
+  int droppedPolls = 0;
+
   std::vector<CrowdyStudioRuntimeVersion> versions(
       const CrowdyStudioProjectScope&,
       std::string_view moduleName) override {
     calls.push_back("poll:" + std::string(moduleName));
-    return {{moduleName.find("client") != std::string_view::npos
-                 ? "client-v1"
-                 : "server-v1",
-             "succeeded", std::nullopt}};
+    CrowdyStudioRuntimeVersion version;
+    version.versionId = moduleName.find("client") != std::string_view::npos
+                            ? "client-v1"
+                            : "server-v1";
+    if (droppedPolls > 0) {
+      --droppedPolls;
+      version.readFailure = "connection reset by peer";
+    } else {
+      version.compileStatus = "succeeded";
+    }
+    return {version};
   }
 
   void setEnabled(const CrowdyStudioProjectScope&,
@@ -935,6 +945,28 @@ void testCreateStarterProject() {
   CHECK(provider.projects.size() == 5);
 }
 
+// A poll whose status read dropped is a missed poll: the deploy goes on after it, and a limit
+// reached after one names the last.
+void testDroppedStatusReadIsAMissedPoll() {
+  FakeProjectProvider provider;
+  FakeRuntime runtime;
+  FakeClock clock;
+  auto controller = makeController(provider, runtime, clock);
+  controller.initialize();
+  runtime.calls.clear();
+  runtime.droppedPolls = 2;
+  const CrowdyStudioDeployResult drafted = controller.testDraft();
+  CHECK(drafted.status == CrowdyStudioDeployResult::Status::Running);
+  CHECK(std::count(runtime.calls.begin(), runtime.calls.end(), "poll:weather-client") == 3);
+  CHECK(std::count(runtime.calls.begin(), runtime.calls.end(), "deploy:SERVER:DRAFT") == 1);
+
+  runtime.droppedPolls = 1'000;
+  const CrowdyStudioDeployResult timedOut = controller.testDraft();
+  CHECK(timedOut.status == CrowdyStudioDeployResult::Status::CompileFailed);
+  CHECK(timedOut.message ==
+        "Compilation timed out after 60 polls; the last status read that failed: connection reset by peer");
+}
+
 }  // namespace
 
 int main() {
@@ -944,6 +976,7 @@ int main() {
   testDeploymentBindingsAndRuntimeState();
   testProjectScopeMismatchFailsClosed();
   testCreateStarterProject();
+  testDroppedStatusReadIsAMissedPoll();
   std::printf("crowdy_studio_test passed\n");
   return 0;
 }

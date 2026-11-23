@@ -1,5 +1,41 @@
 # CrowdyCPP migration notes
 
+## 0.93.0 A Studio run survives a dropped read and says what each target holds
+
+For any Application API on dev, test and prod; pinned to CrowdyJS 18.39.1. Your code needs no change unless you
+switch over `CrowdyStudioRunOutcome`, which gains `Blocked`.
+
+- **A dropped read no longer ends a run.** Until this release, one failed read of a build's status ended a
+  `CrowdyStudioModRunner` run. A dropped read is one with no answer (a network failure or a timeout), an answer
+  that is not the API's (an HTTP 5xx or 429 without GraphQL errors, or a body that does not parse), or
+  `PLATFORM_BUSY`. A dropped status read is now a missed poll: it counts toward `pollLimit`, the next poll waits at
+  least the API's `retryAfterMs`, and a run that reaches the limit names the last failure. The project,
+  live-modding, mod-listing and mod-starter reads are read once more after `pollIntervalMs`. A refusal still ends
+  the run at once, and the build, deploy, switch-on, attach and consent calls are never repeated. The blocking
+  paths follow the same rule: `CrowdyStudioController`'s build wait (through `CrowdyStudioModRuntime`, whose
+  `CrowdyStudioRuntimeVersion::readFailure` marks a missed poll) and `exec().waitForModBuild`, which reads again
+  until its deadline.
+- **What each target holds.** `CrowdyStudioRunTarget::state` (`CrowdyStudioRunTargetState`: `NotStarted`,
+  `Building`, `BuildFailed`, `Built`, `Deployed`, `SwitchedOn`, `Attached`, `Consented`) is what the platform holds
+  for the target when the run ends, whatever the outcome. `modId`, `enabled`, `running` and `blocked` are the facts
+  about the mod the target is (SERVER) or rides (CLIENT), from the switch-on answer, or from the listing for a
+  CLIENT-only project's mod that was already on.
+- **`CrowdyStudioRunOutcome::Blocked`.** When the switch-on answer says the mod is blocked (a kill-ladder switch,
+  the app's own switch, its budget, or the owner's access), the run still attaches and consents, then ends
+  `Blocked` with the reason in `message` and in the target's `blocked`. Nothing runs until that clears, and then
+  both halves are this run's. `ok()` is still true only for `Running`.
+- **Module-name pins.** `CrowdyStudioRunRequest::expectedServerModuleName` and `expectedClientModuleName` refuse,
+  as a `RevisionConflict`, a project whose module is named otherwise now.
+- **A runner on its own app token.** `CrowdyClient::createCrowdyStudioModRunner(appToken)` builds the runner over
+  an API client of its own that carries only that token, for an engine that switches the shared client between
+  a management and an app token. It starts at the client's endpoint, shares its transports and dispatcher,
+  follows a `WRONG_DATACENTER` move within the client's estate on its own, and keeps the token in memory.
+  `CrowdyStudioModRunner::setAppToken` rotates it; on a runner without its own token it throws
+  `std::logic_error`.
+- **Every run reaches `onDone`.** An exception thrown inside a run, by its own steps or by your `onProgress`, ends
+  it `Failed` with the exception's message; what `onDone` throws is dropped. `run()` throws only for a malformed
+  request, before anything is sent.
+
 ## 0.92.0 The Game API is now the Application API
 
 For Application API v2.85.0; pinned to CrowdyJS 18.39.0. Rename as you go; nothing breaks before January 1, 2027.

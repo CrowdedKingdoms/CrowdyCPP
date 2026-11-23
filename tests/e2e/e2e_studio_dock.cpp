@@ -3,7 +3,9 @@
 // tier's Studio origin, a starter project created without blocking, and CrowdyStudioModRunner's
 // draft tests: a full-stack project (CLIENT half built first, SERVER half deployed and switched
 // on, CLIENT half attached and consented to) and a CLIENT-only project, which rides a mod of its
-// CLIENT module's name. Every callback arrives through poll().
+// CLIENT module's name. Every callback arrives through poll(). From 0.93.0 it also checks each
+// target's settled state and mod facts, a module-name pin, and a runner over its own app token
+// (rotated with setAppToken) while the shared client holds a token the API refuses.
 //
 //   CROWDY_E2E_API_URL, CROWDY_E2E_EMAIL, CROWDY_E2E_APP_ID (an app on ck-exec)
 //   CROWDY_E2E_OWNER_EMAIL / CROWDY_E2E_OWNER_PASSWORD  the grid's owner
@@ -152,14 +154,26 @@ struct Session {
   }
 };
 
+std::string flag(const std::optional<bool>& value) { return value ? (*value ? "yes" : "no") : "-"; }
+
 void printTargets(const studio::CrowdyStudioRunResult& result) {
   for (const auto& target : result.targets) {
-    std::printf("  %s %s: build %s %s, digest %s, version %lld\n", std::string(studio::toString(target.target)).c_str(),
-                target.moduleName.c_str(), target.buildId.c_str(), target.compileStatus.c_str(),
-                target.digest.c_str(), static_cast<long long>(target.version));
+    std::printf("  %s %s: build %s %s, digest %s, version %lld, %s; mod %s on %s running %s blocked %s\n",
+                std::string(studio::toString(target.target)).c_str(), target.moduleName.c_str(),
+                target.buildId.c_str(), target.compileStatus.c_str(), target.digest.c_str(),
+                static_cast<long long>(target.version), std::string(studio::toString(target.state)).c_str(),
+                target.modId.c_str(), flag(target.enabled).c_str(), flag(target.running).c_str(),
+                target.blocked ? target.blocked->c_str() : "-");
     if (target.compileStatus == "failed") std::fprintf(stderr, "%s\n", target.buildLog.c_str());
   }
 }
+
+/// Puts the shared client's token back however the scope ends.
+struct RestoreToken {
+  CrowdyClient& client;
+  std::string token;
+  ~RestoreToken() { client.setToken(token); }
+};
 
 int body(Session& session) {
   const std::string& appId = session.cfg.appId;
@@ -267,6 +281,19 @@ int body(Session& session) {
   LIVE_CHECK(session.pollUntil([&] { return refused.has_value(); }, 30));
   LIVE_CHECK(refused->outcome == studio::CrowdyStudioRunOutcome::RevisionConflict);
 
+  E2E_SUBTEST("a draft test that pins a module name the project does not have is refused");
+  studio::CrowdyStudioRunRequest renamed;
+  renamed.scope = {appId, session.gridId};
+  renamed.projectId = full.projectId;
+  renamed.expectedRevisionId = full.revision.id;
+  renamed.expectedServerModuleName = base + "-renamed";
+  refused.reset();
+  runner->run(renamed, [&](studio::CrowdyStudioRunResult done) { refused = std::move(done); });
+  LIVE_CHECK(session.pollUntil([&] { return refused.has_value(); }, 30));
+  std::printf("  %s\n", refused->message.c_str());
+  LIVE_CHECK(refused->outcome == studio::CrowdyStudioRunOutcome::RevisionConflict);
+  LIVE_CHECK(refused->targets.empty());
+
   E2E_SUBTEST("an async draft test of both halves");
   const studio::CrowdyStudioRunResult ran = session.draft(*runner, full);
   printTargets(ran);
@@ -280,6 +307,12 @@ int body(Session& session) {
   LIVE_CHECK(isHexDigest(client.digest) && client.version >= 1 && isHexDigest(client.capabilityHash));
   LIVE_CHECK(!server.digest.empty() && server.version >= 1);
   LIVE_CHECK(client.phase == studio::CrowdyStudioRunStep::Done && server.phase == studio::CrowdyStudioRunStep::Done);
+  // What each target holds at the end, and the mod it is (SERVER) or rides (CLIENT).
+  LIVE_CHECK(client.state == studio::CrowdyStudioRunTargetState::Consented);
+  LIVE_CHECK(server.state == studio::CrowdyStudioRunTargetState::SwitchedOn);
+  LIVE_CHECK(!server.modId.empty() && client.modId == server.modId);
+  LIVE_CHECK(server.enabled == std::optional<bool>(true) && server.running.has_value());
+  LIVE_CHECK(!server.blocked && !client.blocked);
   // The mod reports the project and the revision the draft built (ck-api v2.73.0).
   bool sourced = false;
   game.exec().mods(appId, session.gridId).forEach([&](graphql::Json m) {
@@ -312,6 +345,26 @@ int body(Session& session) {
     if (m["name"].asString() == hudName + "-client") riding = m["enabled"].asBool();
   });
   LIVE_CHECK(riding);
+  LIVE_CHECK(rode.targets.at(0).state == studio::CrowdyStudioRunTargetState::Consented);
+  LIVE_CHECK(!rode.targets.at(0).modId.empty() && rode.targets.at(0).enabled == std::optional<bool>(true));
+
+  E2E_SUBTEST("a runner over its own app token, while the shared client holds another");
+  {
+    auto own = game.createCrowdyStudioModRunner(game.getToken());
+    // The app token rotates: the runner's requests carry the new one from here on.
+    const domains::AppTokenResponse rotated = e2e::owner(session.cfg).portal().mintAppToken(appId);
+    own->setAppToken(rotated.token);
+    RestoreToken restore{game, game.getToken()};
+    game.setToken("not-an-app-token");
+    const studio::CrowdyStudioRunResult again = session.draft(*own, hud);
+    printTargets(again);
+    if (!again.ok()) {
+      std::fprintf(stderr, "  %s: %s\n", std::string(studio::toString(again.outcome)).c_str(), again.message.c_str());
+    }
+    LIVE_CHECK(again.ok());
+    LIVE_CHECK(again.targets.at(0).state == studio::CrowdyStudioRunTargetState::Consented);
+    LIVE_CHECK(game.getToken() == "not-an-app-token");
+  }
 
   std::puts("e2e_studio_dock OK");
   return 0;

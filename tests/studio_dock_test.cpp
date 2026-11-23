@@ -1,5 +1,6 @@
 // A Studio dock's platform calls (0.86.0): the live-modding check, the model list, the
 // Studio origin, the starter projects and the async draft test / deploy runner.
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -569,6 +570,22 @@ graphql::HttpResponse refusalOf(std::string_view code, int httpStatus = 0) {
             R"(}}],"data":null})");
 }
 
+/// A read that drops: nothing comes back, or a gateway's page, or the API says it is busy.
+std::function<graphql::HttpResponse()> networkDrop() {
+  return []() -> graphql::HttpResponse { throw graphql::CrowdyNetworkError("connection reset by peer"); };
+}
+std::function<graphql::HttpResponse()> timeoutDrop() {
+  return []() -> graphql::HttpResponse { throw graphql::CrowdyTimeoutError("timed out after 1000 ms"); };
+}
+std::function<graphql::HttpResponse()> answerDrop(graphql::HttpResponse response) {
+  return [response] { return response; };
+}
+graphql::HttpResponse busyRefusal(int retryAfterMs = 0) {
+  return ok(R"({"errors":[{"message":"the platform is busy; retry shortly","extensions":{"code":"PLATFORM_BUSY","blame":"PLATFORM","retryable":true)" +
+            (retryAfterMs ? R"(,"retryAfterMs":)" + std::to_string(retryAfterMs) : std::string()) +
+            R"(}}],"data":null})");
+}
+
 /// The Game API a run talks to: one project, its builds (building, then succeeded unless told
 /// otherwise), the player's mods and the CLIENT half's attachment.
 struct Backend {
@@ -579,8 +596,14 @@ struct Backend {
   std::map<std::string, std::string> buildEnds{{"cb1", "succeeded"}, {"sb1", "succeeded"}, {"rb1", "succeeded"}};
   std::map<std::string, int> statusCalls;
   std::map<std::string, graphql::HttpResponse> refuse;
+  /// What an operation answers first, in turn, before answering normally: each throws (no
+  /// answer comes back) or returns a response.
+  std::map<std::string, std::vector<std::function<graphql::HttpResponse()>>> drops;
   std::string riderMods = "[]";
   bool liveModdingAllowed = true;
+  /// The deployed and switched-on mod's `blocked` and `running`.
+  std::optional<std::string> blocked;
+  bool running = true;
 
   std::string project() const {
     const bool server = kind != "CLIENT";
@@ -624,6 +647,12 @@ struct Backend {
 
   graphql::HttpResponse answer(const Sent& sent) {
     const std::string op = sent.body["operationName"].asString();
+    const auto dropped = drops.find(op);
+    if (dropped != drops.end() && !dropped->second.empty()) {
+      auto next = std::move(dropped->second.front());
+      dropped->second.erase(dropped->second.begin());
+      return next();
+    }
     const auto refused = refuse.find(op);
     if (refused != refuse.end()) return refused->second;
     const graphql::Json vars = sent.body["variables"];
@@ -647,7 +676,9 @@ struct Backend {
                 "}}");
     }
     const std::string mod = R"({"modId":"900","gridId":"5","name":")" + vars["name"].asString() +
-                            R"(","ownerId":"42","version":3,"digest":"sd1","enabled":true,"listingId":null,"blocked":null,"running":true,"updatedAt":"t"})";
+                            R"(","ownerId":"42","version":3,"digest":"sd1","enabled":true,"listingId":null,"blocked":)" +
+                            (blocked ? graphql::JVal(*blocked).dump() : std::string("null")) + R"(,"running":)" +
+                            (running ? "true" : "false") + R"(,"updatedAt":"t"})";
     if (op == "ExecModDeploy") return ok(R"({"data":{"execModDeploy":)" + mod + "}}");
     if (op == "ExecModSetEnabled") return ok(R"({"data":{"execModSetEnabled":)" + mod + "}}");
     if (op == "ExecMyMods") return ok(R"({"data":{"execMyMods":)" + riderMods + "}}");
@@ -964,6 +995,363 @@ void testRunCancelAndDestroy() {
   }
   CHECK(!called);
 }
+
+std::size_t countOf(const RunnerHarness& r, std::string_view operation) {
+  const auto names = r.operations();
+  return static_cast<std::size_t>(std::count(names.begin(), names.end(), operation));
+}
+
+// A dropped status read (no answer, a gateway's 5xx, a body that does not parse, PLATFORM_BUSY)
+// is a missed poll; a refusal still ends the run, and a limit reached after misses names the
+// last one.
+void testRunDroppedStatusReads() {
+  RunnerHarness r;
+  r.backend.drops["ExecModBuildStatus"] = {networkDrop(), timeoutDrop(), answerDrop({502, "<html>Bad Gateway</html>"}),
+                                           answerDrop(ok("not json")), answerDrop(busyRefusal(1))};
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(RunnerHarness::request(), result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  // Five misses, then the two reads each build takes.
+  CHECK_EQ(countOf(r, "ExecModBuildStatus"), 9u);
+  CHECK_EQ(countOf(r, "ExecModDeploy"), 1u);
+
+  // A refusal is an answer.
+  RunnerHarness refused;
+  refused.backend.refuse["ExecModBuildStatus"] = refusalOf("NOT_FOUND", 404);
+  result.reset();
+  refused.start(RunnerHarness::request(), result);
+  refused.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Refused);
+  CHECK(result->error && result->error->code == "NOT_FOUND");
+  CHECK_EQ(countOf(refused, "ExecModBuildStatus"), 1u);
+
+  // So is a 4xx without a GraphQL body, and a busy answer that is not the platform's.
+  for (graphql::HttpResponse answer :
+       {graphql::HttpResponse{401, "Unauthorized"},
+        ok(R"({"errors":[{"message":"too slow","extensions":{"code":"USER_CODE_TOO_SLOW","blame":"AUTHOR","retryable":false}}],"data":null})")}) {
+    RunnerHarness once;
+    once.backend.refuse["ExecModBuildStatus"] = answer;
+    result.reset();
+    once.start(RunnerHarness::request(), result);
+    once.drainUntil([&] { return result.has_value(); });
+    CHECK(result && !result->ok());
+    CHECK_EQ(countOf(once, "ExecModBuildStatus"), 1u);
+  }
+
+  RunnerHarness down;
+  for (int i = 0; i < 3; ++i) down.backend.drops["ExecModBuildStatus"].push_back(networkDrop());
+  auto request = RunnerHarness::request();
+  request.pollLimit = 3;
+  result.reset();
+  down.start(request, result);
+  down.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Failed);
+  CHECK_EQ(result->message,
+           std::string("Build cb1 did not finish within 3 polls; the last status read that failed: "
+                       "connection reset by peer"));
+  CHECK(result->targets.at(0).state == studio::CrowdyStudioRunTargetState::Building);
+}
+
+// The project, live-modding, mod-listing and mod-starter reads are read once more after a
+// dropped read; a second drop ends the run, and a mutation is never repeated.
+void testRunReadsOnceMore() {
+  RunnerHarness r;
+  r.backend.drops["CrowdyStudioProject"] = {networkDrop()};
+  r.backend.drops["CrowdyStudioLiveModding"] = {answerDrop(busyRefusal())};
+  auto request = RunnerHarness::request();
+  request.checkLiveModding = true;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(request, result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  CHECK_EQ(countOf(r, "CrowdyStudioProject"), 2u);
+  CHECK_EQ(countOf(r, "CrowdyStudioLiveModding"), 2u);
+
+  RunnerHarness twice;
+  twice.backend.drops["CrowdyStudioProject"] = {networkDrop(), answerDrop({503, "Service Unavailable"})};
+  result.reset();
+  twice.start(RunnerHarness::request(), result);
+  twice.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Failed);
+  CHECK_EQ(result->message, std::string("Reading the project failed: HTTP 503"));
+  expectOperations(twice, {"CrowdyStudioProject", "CrowdyStudioProject"});
+
+  RunnerHarness rider;
+  rider.backend.kind = "CLIENT";
+  rider.backend.drops["ExecMyMods"] = {timeoutDrop()};
+  rider.backend.drops["ExecModStarter"] = {answerDrop({504, "Gateway Timeout"})};
+  result.reset();
+  rider.start(RunnerHarness::request(), result);
+  rider.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  CHECK_EQ(countOf(rider, "ExecMyMods"), 2u);
+  CHECK_EQ(countOf(rider, "ExecModStarter"), 2u);
+
+  RunnerHarness deploy;
+  deploy.backend.drops["ExecModDeploy"] = {networkDrop()};
+  result.reset();
+  deploy.start(RunnerHarness::request(), result);
+  deploy.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Failed);
+  CHECK_EQ(countOf(deploy, "ExecModDeploy"), 1u);
+  CHECK(result->targets.at(1).state == studio::CrowdyStudioRunTargetState::Built);
+}
+
+// Each target reports what the platform holds at the end, and the mod it is or rides.
+void testRunTargetStates() {
+  using State = studio::CrowdyStudioRunTargetState;
+  RunnerHarness r;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(RunnerHarness::request(), result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  const studio::CrowdyStudioRunTarget& client = result->targets.at(0);
+  const studio::CrowdyStudioRunTarget& server = result->targets.at(1);
+  CHECK(client.state == State::Consented);
+  CHECK(server.state == State::SwitchedOn);
+  for (const auto* entry : {&client, &server}) {
+    CHECK_EQ(entry->modId, std::string("900"));
+    CHECK(entry->enabled == std::optional<bool>(true));
+    CHECK(entry->running == std::optional<bool>(true));
+    CHECK(!entry->blocked);
+  }
+  CHECK_EQ(studio::toString(State::Consented), std::string_view("Consented"));
+
+  // A refusal settles each target where the platform left it.
+  const auto settled = [](const std::string& refusedOp) {
+    RunnerHarness one;
+    one.backend.refuse[refusedOp] = refusalOf("FORBIDDEN", 403);
+    std::optional<studio::CrowdyStudioRunResult> done;
+    one.start(RunnerHarness::request(), done);
+    one.drainUntil([&] { return done.has_value(); });
+    CHECK(done && done->outcome == studio::CrowdyStudioRunOutcome::Refused);
+    return std::make_pair(done->targets.at(0).state, done->targets.at(1).state);
+  };
+  CHECK(settled("ExecModClientBuild") == std::make_pair(State::NotStarted, State::NotStarted));
+  CHECK(settled("ExecModBuild") == std::make_pair(State::Built, State::NotStarted));
+  CHECK(settled("ExecModDeploy") == std::make_pair(State::Built, State::Built));
+  CHECK(settled("ExecModSetEnabled") == std::make_pair(State::Built, State::Deployed));
+  CHECK(settled("ExecModClientDeploy") == std::make_pair(State::Built, State::SwitchedOn));
+  CHECK(settled("ExecConsentClientMod") == std::make_pair(State::Attached, State::SwitchedOn));
+
+  RunnerHarness failed;
+  failed.backend.buildEnds["cb1"] = "failed";
+  result.reset();
+  failed.start(RunnerHarness::request(), result);
+  failed.drainUntil([&] { return result.has_value(); });
+  CHECK(result->targets.at(0).state == State::BuildFailed);
+  CHECK(result->targets.at(1).state == State::NotStarted);
+
+  // A CLIENT-only project's CLIENT target carries the rider mod's facts.
+  RunnerHarness rider;
+  rider.backend.kind = "CLIENT";
+  rider.backend.riderMods = R"([{"modId":"901","gridId":"5","name":"hud-client","enabled":true,"running":false,"blocked":null}])";
+  result.reset();
+  rider.start(RunnerHarness::request(), result);
+  rider.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->ok());
+  CHECK_EQ(result->targets.at(0).modId, std::string("900"));  // the attach answer names it
+  CHECK(result->targets.at(0).running == std::optional<bool>(false));
+  CHECK(result->targets.at(0).state == State::Consented);
+}
+
+// A switch-on answer that says the mod is blocked: the run still attaches and consents, then
+// ends Blocked with the reason.
+void testRunBlocked() {
+  RunnerHarness r;
+  r.backend.blocked = "app 77 is switched off";
+  r.backend.running = false;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  r.start(RunnerHarness::request(), result);
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Blocked);
+  CHECK(!result->ok());
+  CHECK_EQ(result->message, std::string("Mod 'turret-server' is switched on but blocked: app 77 is switched off"));
+  CHECK_EQ(countOf(r, "ExecModClientDeploy"), 1u);
+  CHECK_EQ(countOf(r, "ExecConsentClientMod"), 1u);
+  const studio::CrowdyStudioRunTarget& server = result->targets.at(1);
+  CHECK(server.blocked == std::optional<std::string>("app 77 is switched off"));
+  CHECK(server.running == std::optional<bool>(false));
+  CHECK(server.enabled == std::optional<bool>(true));
+  CHECK_EQ(server.message, result->message);
+  CHECK(result->targets.at(0).blocked == server.blocked);
+  CHECK(result->targets.at(0).state == studio::CrowdyStudioRunTargetState::Consented);
+  CHECK_EQ(studio::toString(studio::CrowdyStudioRunOutcome::Blocked), std::string_view("Blocked"));
+
+  // A CLIENT-only project's rider that is on already, but blocked.
+  RunnerHarness rider;
+  rider.backend.kind = "CLIENT";
+  rider.backend.riderMods =
+      R"([{"modId":"901","gridId":"5","name":"hud-client","enabled":true,"running":false,"blocked":"mods are switched off for grid 5"}])";
+  result.reset();
+  rider.start(RunnerHarness::request(), result);
+  rider.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Blocked);
+  CHECK(result->targets.at(0).blocked == std::optional<std::string>("mods are switched off for grid 5"));
+}
+
+// The module names the player saw pin the run as the revision does.
+void testRunModulePins() {
+  const auto outcomeOf = [](const std::string& kind, std::optional<std::string> server,
+                            std::optional<std::string> client, std::string* message = nullptr) {
+    RunnerHarness r;
+    r.backend.kind = kind;
+    auto request = RunnerHarness::request();
+    request.expectedServerModuleName = std::move(server);
+    request.expectedClientModuleName = std::move(client);
+    std::optional<studio::CrowdyStudioRunResult> result;
+    r.start(request, result);
+    r.drainUntil([&] { return result.has_value(); });
+    if (message) *message = result->message;
+    return result->outcome;
+  };
+  using Outcome = studio::CrowdyStudioRunOutcome;
+  CHECK(outcomeOf("FULL_STACK", "turret-server", "turret-client") == Outcome::Running);
+  std::string message;
+  CHECK(outcomeOf("FULL_STACK", "turret", std::nullopt, &message) == Outcome::RevisionConflict);
+  CHECK_EQ(message, std::string("The project's SERVER module is 'turret-server', not 'turret'"));
+  CHECK(outcomeOf("FULL_STACK", std::nullopt, "hud", &message) == Outcome::RevisionConflict);
+  CHECK_EQ(message, std::string("The project's CLIENT module is 'turret-client', not 'hud'"));
+  CHECK(outcomeOf("SERVER", "turret-server", "turret-client", &message) == Outcome::RevisionConflict);
+  CHECK_EQ(message, std::string("The project has no CLIENT module, not 'turret-client'"));
+}
+
+// Whatever throws inside a run ends it Failed through onDone, never out of poll().
+void testRunExceptions() {
+  RunnerHarness r;
+  std::optional<studio::CrowdyStudioRunResult> result;
+  int called = 0;
+  r.runner->run(
+      RunnerHarness::request(),
+      [&](studio::CrowdyStudioRunResult done) {
+        ++called;
+        result = std::move(done);
+      },
+      [](const studio::CrowdyStudioRunProgress& progress) {
+        if (progress.step == studio::CrowdyStudioRunStep::Deploying) throw std::runtime_error("the HUD is gone");
+      });
+  r.drainUntil([&] { return result.has_value(); });
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Failed);
+  CHECK_EQ(result->message, std::string("The run stopped: the HUD is gone"));
+  CHECK_EQ(result->targets.at(1).state, studio::CrowdyStudioRunTargetState::Built);
+
+  // A throw at the first step, inside run() itself, ends the run the same way.
+  RunnerHarness first;
+  result.reset();
+  bool threw = false;
+  try {
+    first.runner->run(
+        RunnerHarness::request(), [&](studio::CrowdyStudioRunResult done) { result = std::move(done); },
+        [](const studio::CrowdyStudioRunProgress&) { throw 42; });
+  } catch (...) {
+    threw = true;
+  }
+  CHECK(!threw);
+  CHECK(result && result->message == "The run stopped on an exception");
+
+  // What onDone throws stays inside the run.
+  RunnerHarness loud;
+  bool done = false;
+  loud.runner->run(RunnerHarness::request(), [&](studio::CrowdyStudioRunResult) {
+    done = true;
+    throw std::runtime_error("the game's own bug");
+  });
+  loud.drainUntil([&] { return done; });
+  CHECK(done);
+  for (int i = 0; i < 5; ++i) loud.h.dispatcher->drain();
+}
+
+// A runner over a client of its own: its requests carry the app token it was given whatever the
+// shared client holds, it follows WRONG_DATACENTER within the estate on its own, and
+// setAppToken rotates the token.
+void testRunAppTokenRunner() {
+  auto http = std::make_shared<ScriptedHttp>();
+  Backend backend;
+  std::string moveTo = "https://ck-va2.dev.crowdedkingdoms.com";
+  int redirects = 1;
+  http->answer = [&](const Sent& sent) {
+    if (redirects > 0 && sent.body["operationName"].asString() == "CrowdyStudioProject") {
+      --redirects;
+      return ok(R"({"errors":[{"message":"App 77 is served elsewhere","extensions":{"code":"WRONG_DATACENTER","appId":"77","appDatacenter":"va2","applicationApiUrl":")" +
+                moveTo + R"("}}],"data":null})");
+    }
+    return backend.answer(sent);
+  };
+  ClientConfig config;
+  config.httpUrl = "https://ck-va.dev.crowdedkingdoms.com";
+  config.transport = http;
+  config.asyncTransport = graphql::makeInlineAsyncTransport(http);
+  CrowdyClient client(std::move(config));
+  client.setToken("management-session");
+
+  auto runner = client.createCrowdyStudioModRunner("app-token-1");
+  std::optional<studio::CrowdyStudioRunResult> result;
+  const auto drain = [&] {
+    const auto giveUp = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!result && std::chrono::steady_clock::now() < giveUp) {
+      client.poll();
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+  bool rotated = false;
+  runner->run(
+      RunnerHarness::request(), [&](studio::CrowdyStudioRunResult done) { result = std::move(done); },
+      [&](const studio::CrowdyStudioRunProgress& progress) {
+        // The engine switches the shared client to another plane mid-run, and the app token rotates.
+        if (progress.step == studio::CrowdyStudioRunStep::Deploying && !rotated) {
+          rotated = true;
+          client.setToken("someone-else");
+          runner->setAppToken("app-token-2");
+        }
+      });
+  drain();
+  CHECK(result && result->ok());
+  CHECK(rotated);
+  bool sawSecond = false;
+  for (const auto& sent : http->sent) {
+    CHECK(sent.authorization == "Bearer app-token-1" || sent.authorization == "Bearer app-token-2");
+    if (sent.authorization == "Bearer app-token-2") sawSecond = true;
+  }
+  CHECK(sawSecond);
+  CHECK_EQ(http->sent.back().authorization, std::string("Bearer app-token-2"));
+  // The redirect moved the runner's client, and the retry went to the new endpoint; the shared
+  // client stayed where it was.
+  CHECK_EQ(http->sent.at(0).url, std::string("https://ck-va.dev.crowdedkingdoms.com/graphql"));
+  CHECK_EQ(http->sent.at(1).url, std::string("https://ck-va2.dev.crowdedkingdoms.com/graphql"));
+  CHECK_EQ(http->sent.back().url, std::string("https://ck-va2.dev.crowdedkingdoms.com/graphql"));
+  CHECK_EQ(client.graphqlClient().endpoint(), std::string("https://ck-va.dev.crowdedkingdoms.com/graphql"));
+  CHECK_EQ(client.getToken(), std::string("someone-else"));
+
+  // A move out of the estate is refused, and the run sees the server's refusal.
+  moveTo = "https://ck.elsewhere.example";
+  redirects = 1;
+  http->sent.clear();
+  auto stranger = client.createCrowdyStudioModRunner("app-token-3");
+  result.reset();
+  stranger->run(RunnerHarness::request(), [&](studio::CrowdyStudioRunResult done) { result = std::move(done); });
+  drain();
+  CHECK(result && result->outcome == studio::CrowdyStudioRunOutcome::Refused);
+  CHECK(result->error && result->error->code == "WRONG_DATACENTER");
+  CHECK_EQ(http->sent.size(), 1u);
+
+  // A runner on the client's own session has no token of its own to set.
+  auto shared = client.createCrowdyStudioModRunner();
+  bool refused = false;
+  try {
+    shared->setAppToken("app-token-4");
+  } catch (const std::logic_error&) {
+    refused = true;
+  }
+  CHECK(refused);
+  bool empty = false;
+  try {
+    (void)client.createCrowdyStudioModRunner(std::string());
+  } catch (const std::invalid_argument&) {
+    empty = true;
+  }
+  CHECK(empty);
+}
 #endif
 
 }  // namespace
@@ -982,6 +1370,13 @@ int main() {
   testRunRefusals();
   testRunClientOnly();
   testRunCancelAndDestroy();
+  testRunDroppedStatusReads();
+  testRunReadsOnceMore();
+  testRunTargetStates();
+  testRunBlocked();
+  testRunModulePins();
+  testRunExceptions();
+  testRunAppTokenRunner();
 #endif
   std::printf("studio_dock_test: OK\n");
   return 0;

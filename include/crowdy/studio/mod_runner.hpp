@@ -250,7 +250,8 @@ class CrowdyStudioModRunner {
   /// The app token this runner's requests carry from now on, for a runner made with a
   /// token of its own (CrowdyClient::createCrowdyStudioModRunner(appToken)): call it when
   /// the app token rotates. A request already sent keeps the token it went with. Safe from
-  /// any thread. Throws std::logic_error on a runner that shares its client's session.
+  /// any thread. Throws std::logic_error on a runner that shares its client's session, and
+  /// std::invalid_argument for an empty token.
   void setAppToken(std::string token);
 
   struct Impl;

@@ -31,7 +31,7 @@ switch over `CrowdyStudioRunOutcome`, which gains `Blocked`.
   a management and an app token. It starts at the client's endpoint, shares its transports and dispatcher,
   follows a `WRONG_DATACENTER` move within the client's estate on its own, and keeps the token in memory.
   `CrowdyStudioModRunner::setAppToken` rotates it; on a runner without its own token it throws
-  `std::logic_error`.
+  `std::logic_error`, and an empty token `std::invalid_argument`.
 - **Every run reaches `onDone`.** An exception thrown inside a run, by its own steps or by your `onProgress`, ends
   it `Failed` with the exception's message; what `onDone` throws is dropped. `run()` throws only for a malformed
   request, before anything is sent.

@@ -849,6 +849,7 @@ void CrowdyStudioModRunner::setAppToken(std::string token) {
         "This CrowdyStudioModRunner shares its client's session: set the token on the client, or make the "
         "runner with CrowdyClient::createCrowdyStudioModRunner(appToken)");
   }
+  if (token.empty()) throw std::invalid_argument("setAppToken needs an app token");
   impl_->appTokenAuth->setToken(token);
 }
 

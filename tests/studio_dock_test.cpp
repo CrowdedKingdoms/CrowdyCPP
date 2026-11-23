@@ -1351,6 +1351,13 @@ void testRunAppTokenRunner() {
     empty = true;
   }
   CHECK(empty);
+  bool cleared = false;
+  try {
+    runner->setAppToken(std::string());
+  } catch (const std::invalid_argument&) {
+    cleared = true;
+  }
+  CHECK(cleared);
 }
 #endif
 

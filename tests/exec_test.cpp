@@ -2,6 +2,8 @@
 #include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <functional>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -430,6 +432,12 @@ class RecordingHttp final : public graphql::IHttpTransport {
     auto body = graphql::Json::parse(r.body);
     requests.push_back(body);
     const auto op = body["operationName"].asString();
+    const auto dropped = drops.find(op);
+    if (dropped != drops.end() && !dropped->second.empty()) {
+      auto next = std::move(dropped->second.front());
+      dropped->second.erase(dropped->second.begin());
+      return next();
+    }
     const std::string status = R"({"activeVersion":2,"disabled":false,"disabledTypes":["bare"],"budgetPaused":false})";
     if (op == "ExecLogs")
       return {200, R"({"data":{"execLogs":[{"id":"9","nodeType":"arena","key":"m1","level":2,"host":"h","at":"2026-09-25T00:00:00.000Z","text":"hi","flow":"0123456789abcdef0123456789abcdef"}]}})"};
@@ -496,6 +504,9 @@ class RecordingHttp final : public graphql::IHttpTransport {
 
   int statusCalls = 0;
   int modStatusCalls = 0;
+  /// What an operation answers first, in turn, before answering normally: each throws (no
+  /// answer comes back) or returns a response.
+  std::map<std::string, std::vector<std::function<graphql::HttpResponse()>>> drops;
   /// The gateway `execConnect` names: on the test Game API's own host by default.
   std::string gatewayUrl = "wss://test";
   /// What `execModClientArtifact` answers, as JSON.
@@ -1166,6 +1177,105 @@ void testStudioModRuntime() {
   CHECK(appError);
   CHECK_EQ(transport->count(), 1u);
 }
+
+std::function<graphql::HttpResponse()> networkDrop() {
+  return []() -> graphql::HttpResponse { throw graphql::CrowdyNetworkError("connection reset by peer"); };
+}
+std::function<graphql::HttpResponse()> answerDrop(graphql::HttpResponse response) {
+  return [response] { return response; };
+}
+const graphql::HttpResponse kBusy{
+    200, R"({"errors":[{"message":"the platform is busy; retry shortly","extensions":{"code":"PLATFORM_BUSY","blame":"PLATFORM","retryable":true}}],"data":null})"};
+
+// A dropped status read (no answer, a gateway's 5xx, PLATFORM_BUSY) is read again: by
+// waitForModBuild until its deadline, by the Studio runtime as a missed poll; a refusal is not.
+void testModBuildDroppedReads() {
+  auto http = std::make_shared<RecordingHttp>();
+  ExecAPI exec(clientOver(http), std::make_shared<FakeTransport>());
+  http->drops["ExecModBuildStatus"] = {networkDrop(), answerDrop({502, "<html>Bad Gateway</html>"}), answerDrop(kBusy)};
+  auto done = exec.waitForModBuild("77", "b1", 1, 10000);
+  CHECK_EQ(done["status"].asString(), std::string("succeeded"));
+  CHECK_EQ(countOp(*http, "ExecModBuildStatus"), 5u);
+
+  http->drops["ExecModBuildStatus"] = {
+      answerDrop({200, R"({"errors":[{"message":"no build b9 of yours","extensions":{"code":"NOT_FOUND"}}],"data":null})"})};
+  bool refused = false;
+  try {
+    (void)exec.waitForModBuild("77", "b9", 1, 10000);
+  } catch (const graphql::CrowdyGraphQLError& error) {
+    refused = error.code() == "NOT_FOUND";
+  }
+  CHECK(refused);
+
+  // Past the deadline the last dropped read is thrown.
+  for (int i = 0; i < 100; ++i) http->drops["ExecModBuildStatus"].push_back(networkDrop());
+  bool gaveUp = false;
+  try {
+    (void)exec.waitForModBuild("77", "b1", 5, 20);
+  } catch (const graphql::CrowdyNetworkError&) {
+    gaveUp = true;
+  }
+  CHECK(gaveUp);
+  http->drops.clear();
+
+  // The Studio runtime: a dropped poll is a readFailure, with no status and no deploy.
+  auto statusHttp = std::make_shared<RecordingHttp>();
+  ExecAPI statusExec(clientOver(statusHttp), std::make_shared<FakeTransport>());
+  studio::CrowdyStudioModRuntime runtime(statusExec);
+  const studio::CrowdyStudioProjectScope scope{"77", "5"};
+  studio::CrowdyStudioDeployTargetInput server;
+  server.scope = scope;
+  server.target = studio::CrowdyStudioTarget::Server;
+  server.moduleName = "turret";
+  studio::CrowdyStudioProjectFile cargo;
+  cargo.target = studio::CrowdyStudioTarget::Server;
+  cargo.path = "Cargo.toml";
+  cargo.content = "x";
+  server.files.push_back(cargo);
+  CHECK_EQ(runtime.deploy(server).versionId, std::string("b1"));
+  statusHttp->drops["ExecModBuildStatus"] = {answerDrop({503, "Service Unavailable"})};
+  const auto missed = runtime.versions(scope, "turret").at(0);
+  CHECK(missed.readFailure == std::optional<std::string>("GraphQL endpoint returned HTTP 503"));
+  CHECK(missed.compileStatus.empty());
+  CHECK_EQ(runtime.versions(scope, "turret").at(0).compileStatus, std::string("building"));
+  CHECK_EQ(runtime.versions(scope, "turret").at(0).compileStatus, std::string("succeeded"));
+  CHECK_EQ(countOp(*statusHttp, "ExecModDeploy"), 1u);
+  // A refused status read is the caller's to see.
+  statusHttp->drops["ExecModBuildStatus"] = {
+      answerDrop({200, R"({"errors":[{"message":"no","extensions":{"code":"FORBIDDEN"}}],"data":null})"})};
+  bool forbidden = false;
+  try {
+    (void)runtime.versions(scope, "turret");
+  } catch (const graphql::CrowdyGraphQLError&) {
+    forbidden = true;
+  }
+  CHECK(forbidden);
+
+  // A CLIENT-only project's mod listing and mod starter are read once more after a drop.
+  studio::CrowdyStudioDeployTargetInput hud;
+  hud.scope = scope;
+  hud.target = studio::CrowdyStudioTarget::Client;
+  hud.moduleName = "hud";
+  hud.modName = "hud";
+  hud.clientOnly = true;
+  studio::CrowdyStudioProjectFile clientCargo;
+  clientCargo.target = studio::CrowdyStudioTarget::Client;
+  clientCargo.path = "Cargo.toml";
+  clientCargo.content = "[dependencies]\ncrowdy-client-sdk = \"0.1.0\"\n";
+  hud.files.push_back(clientCargo);
+  RecordingClientRuntime engine;
+  studio::CrowdyStudioModRuntime clientRuntime(statusExec, &engine);
+  CHECK_EQ(clientRuntime.deploy(hud).versionId, std::string("cb1"));
+  statusHttp->drops["ExecMyMods"] = {networkDrop()};
+  statusHttp->drops["ExecModStarter"] = {answerDrop(kBusy)};
+  const std::string wasm("\0asm\1\0\0\0", 8);
+  statusHttp->clientDigest = execSha256Hex(wasm);
+  statusHttp->clientArtifact = servedArtifact(wasm, statusHttp->clientDigest);
+  clientRuntime.startClient(scope, "hud", "cb1");
+  CHECK_EQ(countOp(*statusHttp, "ExecMyMods"), 2u);
+  CHECK_EQ(countOp(*statusHttp, "ExecModStarter"), 2u);
+  CHECK_EQ(engine.started.size(), 1u);
+}
 #endif
 
 // ---- where a connect token may go, and what a gateway's refusal says ----
@@ -1421,6 +1531,7 @@ int main() {
   testMods();
 #ifndef CROWDY_NO_EXCEPTIONS
   testStudioModRuntime();
+  testModBuildDroppedReads();
 #endif
   testClientHalves();
   testCapabilitySummary();

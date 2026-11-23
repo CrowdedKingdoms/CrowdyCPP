@@ -21,7 +21,7 @@
  *
  *   WHO PUBLISHED IT   -- resolved, not guessed. The bytes served are hashed as a git blob
  *                         and looked up in `cks-docs`' own history for
- *                         `static/schema/game-api.graphql`, which names the exact commit,
+ *                         `static/schema/application-api.graphql`, which names the exact commit,
  *                         its author and its subject line. Both repos are public, so this
  *                         needs no credential beyond the default token.
  *   WHAT CHANGED       -- type and field names, added and removed, not a line count.
@@ -46,7 +46,7 @@ const snapshot = readFileSync(resolve(root, 'schema.gql'), 'utf8');
 const provenance = pkg.publishedSchemaSnapshot;
 
 const DOCS_REPO = 'CrowdedKingdoms/cks-docs';
-const DOCS_PATH = 'static/schema/game-api.graphql';
+const DOCS_PATH = 'static/schema/application-api.graphql';
 const SELF = process.env.GITHUB_REPOSITORY || 'CrowdedKingdoms/CrowdyCPP';
 const ISSUE_MARKER = '<!-- schema-drift -->';
 
@@ -152,7 +152,7 @@ async function loadSource(src) {
 async function main() {
   const i = process.argv.indexOf('--source');
   const url = i === -1
-    ? provenance?.url ?? 'https://docs.crowdedkingdoms.com/schema/game-api.graphql'
+    ? provenance?.url ?? 'https://docs.crowdedkingdoms.com/schema/application-api.graphql'
     : process.argv[i + 1];
   const { text: served, lastModified } = await loadSource(url);
   const servedBlob = gitBlob(served);

@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.93.0: a Studio run survives a dropped read and says what each target holds.** A dropped build-status read (no answer, an HTTP 5xx or 429 that is not the API's answer, or `PLATFORM_BUSY`) is a missed poll in `CrowdyStudioModRunner`, the controller's build wait and `exec().waitForModBuild`, and a run's other reads are read once more. Each run target reports `state` (what the platform holds when the run ends), `modId`, `enabled`, `running` and `blocked`; a blocked mod ends the run `Blocked`. `expectedServerModuleName` / `expectedClientModuleName` pin the module names, `createCrowdyStudioModRunner(appToken)` makes a runner on its own app token (`setAppToken` rotates it), and every run reaches `onDone`. See [MIGRATION.md](MIGRATION.md).
+**v0.93.0: a Studio run survives a dropped read and says what each target holds.** A dropped build-status read (no answer, an HTTP 5xx or 429 that is not the API's answer, or `PLATFORM_BUSY`) is a missed poll in `CrowdyStudioModRunner`, the controller's build wait, and `exec().waitForModBuild`; a run's other reads get one more try. Each run target reports `state` (what the platform holds when the run ends), `modId`, `enabled`, `running`, and `blocked`; a blocked mod ends the run `Blocked`. `expectedServerModuleName` / `expectedClientModuleName` pin the module names, `createCrowdyStudioModRunner(appToken)` makes a runner on its own app token (`setAppToken` rotates it), and every run reaches `onDone`. See [MIGRATION.md](MIGRATION.md).
 
 **v0.92.0: the Game API is now the Application API.** The structs that carried its URLs (`AppTokenResponse`, `AppEndpoint`, `GraphQLErrorDetail`, `DatacenterMove`) gain `applicationApiUrl` / `applicationApiWsUrl` beside the `gameApiUrl` / `gameApiWsUrl` members, which hold the same values and are removed on January 1, 2027. The operations select the new fields (needs Application API v2.85.0). See [MIGRATION.md](MIGRATION.md).
 
@@ -857,11 +857,11 @@ as its author. `checkLiveModding` makes the run ask the live-modding check first
 without calling back.
 
 A dropped read (no answer, an HTTP 5xx or 429 that is not the API's answer, or
-`PLATFORM_BUSY`) does not end a run: a build's status is polled again, counting
-toward `pollLimit`, and the other reads are read once more; the build, deploy,
-switch-on, attach and consent calls are never repeated. Whatever the outcome,
+`PLATFORM_BUSY`) does not end a run: the run polls a build's status again,
+counting toward `pollLimit`, and gives each other read one more try; it never
+repeats a build, deploy, switch-on, attach, or consent call. Whatever the outcome,
 each target's `state` is what the platform holds for it (`Built` but not attached,
-`SwitchedOn`, `NotStarted`, ...), with the mod's `modId`, `enabled`, `running` and
+`SwitchedOn`, `NotStarted`, ...), with the mod's `modId`, `enabled`, `running`, and
 `blocked`. A mod the switch-on answer reports blocked ends the run `Blocked` after
 the attach and consent, so both halves are current once the block clears. Every
 run reaches `onDone` once, as `Failed` if something inside it throws.

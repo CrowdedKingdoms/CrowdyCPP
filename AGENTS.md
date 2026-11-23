@@ -306,7 +306,7 @@ new message type that should not reach 8 chunks by default goes into that resolu
 `<windows.h>` defines as a macro), and since 0.89.0 `graphql::appLimitReachedOf` reads
 ck-api v2.80.0's `APP_LIMIT_REACHED` from the same two fields.
 
-## The native Studio dock calls (0.86.0, 0.87.0)
+## The native Studio dock calls (0.86.0, 0.87.0, 0.93.0)
 
 The Unreal SDK docks Agentic Crowdy Studio in its games, so this SDK carries what that dock calls on
 the app-token client. `crowdyStudioAgent().liveModding` wraps `crowdyStudioLiveModding` (the parity
@@ -347,6 +347,37 @@ is the fallback for a host that answers 503: keep it byte for byte the platform'
 `crowdyStudio().links()` is `crowdyStudioLinks`; `studioOriginFor` stays the offline derivation.
 `tools/parity/repin.mjs` restamps the fixtures even when the pin does not move: a promotion merges
 in fixtures stamped for the source tier.
+
+0.93.0 (CrowdyJS 18.39.1, the Unreal SDK's follow-up asks) makes a run survive a dropped read.
+`crowdy/graphql/dropped_read.hpp` (`graphql::detail`, not API) is the one rule, shared with
+CrowdyJS's `src/dropped-read.ts` and CrowdyPy's `_dropped_read.py`; change the three together. A
+dropped read is Network, Timeout, Protocol other than `Errc::ResponseTooLarge`, an Http 5xx or 429
+without GraphQL errors, or a GraphQL error with `retryable && blame == "PLATFORM"` (`retryable`
+alone defaults true; that pair is `PLATFORM_BUSY`). `isDroppedReadException()` is the same verdict
+for what `GraphQLClient::request` throws, called inside a catch block; it rethrows to classify, so
+it needs no RTTI. The runner's `poll()` counts a dropped status read as a missed poll (toward
+`pollLimit`, waiting at least `retryAfterMs`, the limit's message naming the last miss) and
+`later()` reads the project, live-modding, listing and starter reads once more; mutations are never
+repeated. `CrowdyStudioModRuntime::buildStatus` reports a dropped read as
+`CrowdyStudioRuntimeVersion::readFailure`, outside the deploy that follows a success, and the
+controller counts it as a missed poll; `ensureClientOnlyMod` reads its two reads once more and
+`ExecAPI::waitForModBuild` reads again until its deadline (exceptions build only).
+`readFailure = std::nullopt` keeps a runtime's three-member brace init free of
+`-Wmissing-field-initializers`.
+
+Each `CrowdyStudioRunTarget` settles: `state` moves as a step completes (Building once a build is
+queued, Built or BuildFailed, Deployed, SwitchedOn, Attached, Consented), and `recordModState`
+copies `modId`, `enabled`, `running` and `blocked` from the deploy, switch-on and listing answers;
+a `blocked` of null clears it, a missing key leaves it (`Json::isNull` is true for a missing member,
+so it checks `ok()`). The CLIENT target carries the mod it rides. A switch-on answer with `blocked`
+still attaches and consents (the API attaches to a blocked mod and filters at serve time), then
+`succeed()` ends `Blocked`. `guard()` and `start()` catch everything a step or `onProgress`
+throws and finish `Failed`; `finish()` drops what `onDone` throws.
+`createCrowdyStudioModRunner(appToken)` builds a `GraphQLClient` with its own `AuthState` over
+the client's sync and async transports and dispatcher, at `gql_->endpoint()`; its
+`WRONG_DATACENTER` handler holds the client weakly (never `this`, which a `CrowdyClient` move
+leaves dangling), checks `isSameEstate` and moves only itself. The runner keeps that `AuthState`
+for `setAppToken`.
 
 ## Writing tests against `graphql::Json`
 

@@ -1,11 +1,13 @@
 # SDK and Game API compatibility
 
-CrowdyCPP 0.92.0 passes the strict portable-parity gate against CrowdyJS
-**18.39.0**. The gate pins CrowdyJS commit
-`edb837a77e3bdccebda8874acf5ec97acfc92da2` (`dev/v18.39.0`; `crowdyjsParityTarget` in
+CrowdyCPP 0.93.0 passes the strict portable-parity gate against CrowdyJS
+**18.39.1**. The gate pins CrowdyJS commit
+`0c5bd0bf976b164bdf2d956e7cee8feac9470cd0` (`dev/v18.39.1`; `crowdyjsParityTarget` in
 `package.json`); see [`parity-matrix.md`](parity-matrix.md) for the generated
 method-by-method evidence. Native equivalents and browser exclusions remain
 intentional, so this does not claim identical transports or browser behavior.
+
+0.93.0 mirrors CrowdyJS 18.39.1: a dropped build-status read (no answer, an HTTP 5xx or 429 without GraphQL errors, a body that does not parse unless it was over the response limit, or `PLATFORM_BUSY`) is a missed poll in the Studio controller's build wait and in `exec().waitForModBuild`, and the CLIENT-only rider's mod listing and mod starter are read once more, as CrowdyJS's controller and `waitForModBuild` do (`crowdy/graphql/dropped_read.hpp` and CrowdyJS's `src/dropped-read.ts` are one rule). Native only: the same rule in `CrowdyStudioModRunner`, which also reads its project and live-modding check once more; each run target's `state`, `modId`, `enabled`, `running`, and `blocked`; `CrowdyStudioRunOutcome::Blocked`; the module-name pins; `CrowdyClient::createCrowdyStudioModRunner(appToken)` and `setAppToken`; and a run that reaches `onDone` whatever throws inside it. Works with every Application API on dev, test, and prod.
 
 0.92.0 mirrors CrowdyJS 18.39.0 (Application API v2.85.0): the structs that carry the Application API's URLs gain `applicationApiUrl` / `applicationApiWsUrl` beside the deprecated `gameApiUrl` / `gameApiWsUrl` members, the selections alias the old keys onto the new fields as CrowdyJS's do, and `WRONG_DATACENTER` is read from either key set. The old members go on January 1, 2027.
 
@@ -104,7 +106,7 @@ fixtures reproducible, whereas a moving head is the "same-version moving branch"
 the pin exists to prevent. Moving the version is a separate, deliberate act; see
 [`release-checklist.md`](release-checklist.md).
 
-| Surface | CrowdyCPP 0.92.0 | CrowdyJS 18.39.0 | Required public API generation |
+| Surface | CrowdyCPP 0.93.0 | CrowdyJS 18.39.1 | Required public API generation |
 |---|---|---|---|
 | Core Management and Game GraphQL | Supported for players, developers and org-admins; nothing only a super-admin or an operator can call (0.51.0) | The same audience (18.0.1) | Current published Management + Game SDL |
 | Org-managed players | `portal().adoptAppToken` (refuses a `cko_` org token) and `exchangeManagedPlayerAssertion`; `admin().managedPlayers()` (`list`, `get`, `provision`, `update`, `endSessions`, `remove`, `settings`, `signingKeys`, `registerSigningKey`, `revokeSigningKey`, `appModsEnabled`, `setAppMods`); `admin().organizations().revokeToken(id, endSessions)`; `graphql::assertionRejectedOf`, `managedPlayerNotAllowedOf` (0.68.0); `graphql::orgLegalAcceptanceRequiredOf` and the addendum fields on `settings` (0.69.0). No org-token mint and no addendum acceptance | The same, with `client.managedPlayers`, `organizations.revokeToken(id, { endSessions })` (18.16.0) and `orgLegalAcceptanceRequiredOf` (18.17.0) | ck-api `v2.52.0` (dev); dev, test and prod since `v2.53.0`, after the organization's admin accepts the Org-Managed Players Addendum in Studio |

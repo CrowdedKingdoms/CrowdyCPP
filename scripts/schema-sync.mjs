@@ -63,7 +63,7 @@ const SNAPSHOT = resolve(root, 'schema.gql');
 const PACKAGE = resolve(root, 'package.json');
 
 const DEFAULTS = {
-  game: 'https://docs.crowdedkingdoms.com/schema/game-api.graphql',
+  game: 'https://docs.crowdedkingdoms.com/schema/application-api.graphql',
 };
 
 function parseArgs(argv) {
@@ -95,7 +95,7 @@ const normalise = (sdl) => print(mergeTypeDefs([sdl])) + '\n';
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 // The git blob id of the bytes as SERVED, which is what makes attribution possible: the
-// same id appears in cks-docs' tree for `static/schema/game-api.graphql`, so the drift job
+// same id appears in cks-docs' tree for `static/schema/application-api.graphql`, so the drift job
 // can name the exact commit that published what is live instead of reporting that two
 // files differ. Hashing the served bytes rather than our normalised copy is the point --
 // normalisation is lossy with respect to formatting, and a blob id has to match theirs.

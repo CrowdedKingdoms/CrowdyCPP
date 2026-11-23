@@ -51,7 +51,7 @@ const operationsDigest = digest(
 const HEADER = `// GENERATED FILE — do not edit by hand.
 // Regenerate with: node scripts/codegen.mjs
 // Inputs: operations/**/*.graphql and schema.gql (synced from the published
-// SDL at https://docs.crowdedkingdoms.com/schema/game-api.graphql).
+// SDL at https://docs.crowdedkingdoms.com/schema/application-api.graphql).
 // schema.gql sha256: ${schemaDigest}
 // operations sha256: ${operationsDigest}
 `;

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.93.0: a Studio run survives a dropped read and says what each target holds.** A dropped build-status read (no answer, an HTTP 5xx or 429 that is not the API's answer, or `PLATFORM_BUSY`) is a missed poll in `CrowdyStudioModRunner`, the controller's build wait, and `exec().waitForModBuild`; a run's other reads get one more try. Each run target reports `state` (what the platform holds when the run ends), `modId`, `enabled`, `running`, and `blocked`; a blocked mod ends the run `Blocked`. `expectedServerModuleName` / `expectedClientModuleName` pin the module names, `createCrowdyStudioModRunner(appToken)` makes a runner on its own app token (`setAppToken` rotates it), and every run reaches `onDone`. See [MIGRATION.md](MIGRATION.md).
+
 **v0.92.0: the Game API is now the Application API.** The structs that carried its URLs (`AppTokenResponse`, `AppEndpoint`, `GraphQLErrorDetail`, `DatacenterMove`) gain `applicationApiUrl` / `applicationApiWsUrl` beside the `gameApiUrl` / `gameApiWsUrl` members, which hold the same values and are removed on January 1, 2027. The operations select the new fields (needs Application API v2.85.0). See [MIGRATION.md](MIGRATION.md).
 
 **v0.91.0: choose whose voice and video each player receives.** From Buddy v0.49.0, `Connection::setSpeakers(voice, video)` names the actors a session receives spatial voice and webcam video from (`SpeakerList::only`, `everyone`, `keep`); streams a list leaves out are neither sent nor billed. See [MIGRATION.md](MIGRATION.md).
@@ -825,15 +827,20 @@ crowdy::studio::createCrowdyStudioStarterProjectAsync(
      .kind = crowdy::studio::CrowdyStudioProjectKind::FullStack},
     [](crowdy::graphql::GraphQLOutcome out, crowdy::studio::CrowdyStudioProject project) {});
 
-// A draft test of exactly the revision the player saved.
-auto runner = game.createCrowdyStudioModRunner();
+// A draft test of exactly the revision the player saved. The runner carries the
+// app token itself, so the engine may install another token on `game` meanwhile.
+auto runner = game.createCrowdyStudioModRunner(appToken);
 auto run = runner->run(
-    {.scope = {appId, gridId}, .projectId = projectId, .expectedRevisionId = revision},
+    {.scope = {appId, gridId}, .projectId = projectId, .expectedRevisionId = revision,
+     .expectedServerModuleName = serverModule, .expectedClientModuleName = clientModule},
     [](crowdy::studio::CrowdyStudioRunResult result) {
-      // result.outcome: Running, CompileFailed (targets[i].buildLog / diagnostics),
-      // RevisionConflict, RateLimited, QueueFull, Refused (result.error->code), ...
+      // result.outcome: Running, Blocked (targets[i].blocked), CompileFailed
+      // (targets[i].buildLog / diagnostics), RevisionConflict, RateLimited, QueueFull,
+      // Refused (result.error->code), ...; targets[i].state is what the platform holds.
     },
     [](const crowdy::studio::CrowdyStudioRunProgress& step) { /* Building, Deploying, ... */ });
+// When the app token rotates:
+runner->setAppToken(newAppToken);
 
 // The only origin the dock opens a popup to, and where it sends a player for funds.
 const std::string studio = game.studioOrigin();
@@ -848,6 +855,18 @@ deployed from the mod starter), then attaches the CLIENT half and consents to it
 as its author. `checkLiveModding` makes the run ask the live-modding check first.
 `handle.cancel()` stops it at its next step; destroying the runner ends its runs
 without calling back.
+
+A dropped read (no answer, an HTTP 5xx or 429 that is not the API's answer, or
+`PLATFORM_BUSY`) does not end a run: the run polls a build's status again,
+counting toward `pollLimit`, and gives each other read one more try; it never
+repeats a build, deploy, switch-on, attach, or consent call. Whatever the outcome,
+each target's `state` is what the platform holds for it (`Built` but not attached,
+`SwitchedOn`, `NotStarted`, ...), with the mod's `modId`, `enabled`, `running`, and
+`blocked`. A mod the switch-on answer reports blocked ends the run `Blocked` after
+the attach and consent, so both halves are current once the block clears. Every
+run reaches `onDone` once, as `Failed` if something inside it throws.
+`createCrowdyStudioModRunner()` without a token makes a runner on `game`'s own
+session instead; its `setAppToken` throws.
 
 ## Native player-host observation
 
@@ -1238,13 +1257,13 @@ never need network access or sibling repos:
 npm ci
 
 # Maintainers: refresh the unified published SDL
-node scripts/schema-sync.mjs            # writes schema.gql from game-api.graphql
+node scripts/schema-sync.mjs            # writes schema.gql from application-api.graphql
 node scripts/codegen.mjs                # regenerates include/crowdy/generated/
 # commit schema.gql and include/crowdy/generated/ together
 ```
 
 `scripts/schema-sync.mjs` downloads the published unified SDL
-(`https://docs.crowdedkingdoms.com/schema/game-api.graphql`); `--game <path|url>`
+(`https://docs.crowdedkingdoms.com/schema/application-api.graphql`); `--game <path|url>`
 overrides the source. There is one schema because there is one origin: the
 published management SDL is a **derived** subset for the docs tab, not a second
 endpoint. A sync also records where the snapshot came from, in

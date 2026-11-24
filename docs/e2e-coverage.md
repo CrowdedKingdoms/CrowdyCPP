@@ -26,8 +26,8 @@ labels.
 
 ## 0.93.0 live validation
 
-On 2026-11-23 `e2e_studio_dock` passed live on dev (Application API `v2.86.0`) as the tier's smoke player on
-its starters app's mod grid, in 69 s. Beyond 0.87.0's run: a run pinning a SERVER module name the project
+On 2026-11-23 `e2e_studio_dock` passed live on dev and on test (Application API `v2.86.0` on both) as each
+tier's smoke player on its starters app's mod grid, in 69 s each. Beyond 0.87.0's run: a run pinning a SERVER module name the project
 does not have was refused as a `RevisionConflict` before anything was built; after the full-stack draft test
 the CLIENT target was `Consented` and the SERVER target `SwitchedOn`, both naming the same mod id, switched on
 and unblocked (the mod reported not yet running); the CLIENT-only project's target named its rider mod; and a

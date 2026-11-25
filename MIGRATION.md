@@ -1,5 +1,47 @@
 # CrowdyCPP migration notes
 
+## Unreleased: fleet sessions for an organization's game servers
+
+Not in a release yet; the release that carries it takes this section's place in the order. A dev-tier preview:
+it needs Application API v2.89.0, realtime servers that carry fleet sessions, and ck-exec 0.25.0. Native first:
+CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
+`exec_wire::ClientFrame::Kind` without a `default`.
+
+- **`replication::FleetSession`** (`crowdy/replication/fleet_session.hpp`) is one realtime session that an
+  organization's game server opens for itself and uses for every player on that server. It is for an
+  organization's own servers: the fleet token signs for every player the session carries and never reaches a
+  player's device. `FleetConfig` holds the fleet token (64 characters), its `gameTokenId`, the app, and the realtime
+  server, all from the Application API's `openFleetSession`. `setToken` takes a refreshed token and `setServer` a
+  new realtime server.
+- **Carrying.** `carry({token, gameTokenId}, callback)` sends `FLEET_CARRY` (49) every 250 ms until
+  `FLEET_CARRY_RESULT` (51) arrives, for at most 5 seconds. The result is a `FleetCarryStatus`: `Carried` (with the
+  user id), `NoLiveToken`, `OtherOrganizationOrApp`, `ProofFailed`, `SessionFull`, or `TimedOut`.
+  `release(gameTokenId)` sends `FLEET_RELEASE` (50). `FleetHandlers::released` reports `FLEET_RELEASED` (52) with
+  `CarriedElsewhere`, `SignInEnded`, or `Idle`.
+- **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
+  player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
+  send, with the HMAC keyed by the fleet token.
+- **Receiving.** `FleetHandlers` are `Connection`'s `Handlers` with a `FleetRecipients` argument last (a span of
+  `gameTokenId`s). State arrives once with no recipients. A communication arrives inside `FLEET_DELIVERY` (53) with
+  the carried players who may receive it, at most 32.
+- **`ClientCapability::kFleetOwnState`** (bit 3, value 8) asks for the state a session's own carried players sent.
+  `FleetSession::setFleetOwnState` sets it; it is off by default.
+- **`wire::MessageType`** gains `FleetCarry` (49), `FleetRelease` (50), `FleetCarryResult` (51), `FleetReleased`
+  (52), and `FleetDelivery` (53). `isLongSpatialLayout` is true for 49 and 50. `crowdy/wire/codec.hpp` gains
+  `fleetCarryProof`, `encodeFleetCarryPayload`, `encodeFleetReleasePayload`, `parseFleetCarryResult`,
+  `parseFleetReleased`, and `parseFleetDelivery`. A `Connection` ignores all five types, as it did before they
+  had names.
+- **`ExecConnection::openAsServer` and `connectAsServer`** open a hub connection for a game server from an
+  `execConnectAsServer` result. On it, `callAs(player, type, key, method, args)` and `callAsRaw` send client frame
+  0x05 for one of the organization's players, and plain calls are the server's own. On any other connection
+  `callAs` sends nothing and answers `Denied`.
+- **New enumerators.** A `switch` over `Errc` without a `default` needs `NotCarried` (a `FleetSession` send that
+  named a player the session does not carry). A `switch` over `exec_wire::ClientFrame::Kind` needs `CallAs`, and
+  `ClientFrame` gains `player` as its last member.
+- **`Connection` is unchanged** in its public API and its behaviour. CrowdyPy binds nothing that changed.
+- **Not wrapped yet:** `openFleetSession`, `refreshFleetSession`, `closeFleetSession`, and `execConnectAsServer`.
+  Call them with the organization's org token and pass their answers in.
+
 ## 0.93.0 A Studio run survives a dropped read and says what each target holds
 
 For any Application API on dev, test, and prod; pinned to CrowdyJS 18.39.1. Your code needs no change unless you

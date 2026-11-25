@@ -379,6 +379,48 @@ the client's sync and async transports and dispatcher, at `gql_->endpoint()`; it
 leaves dangling), checks `isSameEstate` and moves only itself. The runner keeps that `AuthState`
 for `setAppToken`.
 
+## Fleet sessions (unreleased; dev only until Michael says otherwise)
+
+`replication::FleetSession` (`crowdy/replication/fleet_session.hpp`) is one realtime session of an
+organization's game server that carries its players
+(`cks-project-root/project-root-docs/DESIGN-2026-11-fleet-session.md`, step F3). An organization's
+own server is an audience this SDK serves, beside players, developers and org-admins: it holds the
+org token, and nothing here is for a platform operator.
+
+It owns a `Connection` and adds to it through three private seams, all inert on any other
+connection: `Connection::FleetHooks` (`fleet_`: the three server messages queued as
+`Event::Kind::Fleet`, a `tick` at the end of every housekeeping pass, an `advertised` call after
+each capabilities advertisement, extra capability bits), the `Sender` argument of the private send
+workers (whose `gameTokenId` the tail carries; the HMAC is always the connection's token), and
+`src/replication/dispatch.hpp` (the typed dispatch both `poll()`s use). Keep `Connection`'s public
+API and its behaviour without `fleet_` as they are; a new `Connection` send needs its `...As`
+worker and a `FleetSession` form.
+
+The carried table changes on two threads under `playersMutex_`: `carry()`, `release()` and the
+sends from any thread, the resends from the network thread's `tick`, and results, releases and
+deadlines from `poll()`, which is also the only thread a callback fires on (after the lock is
+dropped). A new session epoch (a reassignment, `setServer`, `open()` again) carries every player
+again, and so does `setToken` with another token or id, because a proof names the fleet session's
+`gameTokenId`. A carry that is refused or times out removes its row.
+
+The golden bytes in `wire_test` and `fleet_session_test` (FLEET_CARRY, FLEET_RELEASE, a carried
+player's actor update) were computed independently in Python and are what the realtime servers'
+tests are checked against: a layout change edits both sides. None of 51, 52 and 53 carries an HMAC
+of its own; `FleetConfig::requireSignedControl` takes them only from a verified signed bundle and
+is off until the realtime servers confirm they always send them in one.
+
+`ExecConnection::openAsServer` / `connectAsServer` mark a connection as a server's
+(`Impl::server_`), which is what lets `callAs` send client frame 0x05; the role is how the
+connection was made, never read from the connect token. The three call-as cases in
+`tools/parity/fixtures/exec-client-frames.json` were written here before ck-exec's copy had them:
+when ck-exec 0.25.0's `client-frames.json` carries its own, copy that file over this one.
+
+Still to do: wrappers for `openFleetSession`, `refreshFleetSession`, `closeFleetSession` and
+`execConnectAsServer` once the schema is published (an `ISessionProvider`-shaped seam already
+exists as `FleetConfig::reassign`), the version bump and release, and the CrowdyJS and CrowdyPy
+mirrors. `NATIVE_FIRST_SURFACES` in `tools/parity/parity.mjs` lists both surfaces in the matrix and
+goes stale, on purpose, when CrowdyJS carries either.
+
 ## Writing tests against `graphql::Json`
 
 Index arrays with `at(i)`. `json[0]` is now a compile error: `operator[]` takes

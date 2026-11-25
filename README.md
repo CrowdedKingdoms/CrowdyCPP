@@ -714,6 +714,7 @@ app-scoped token):
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage, the live-modding check (`liveModding`) and the model list (`models`, `GET /v1/model/models`). The agent itself runs in a Studio dock, CrowdyJS's `dsh` in a browser or a game's own, against the REST `/v1/model` endpoint; see [A Studio dock in a game](#a-studio-dock-in-a-game) and [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
+| `crowdy::replication::FleetSession` | For an organization's own game servers (dev-tier preview): one realtime session that carries the server's players, with every `Connection` send for a carried player and the players who may receive each communication. See [Game servers: fleet sessions](#game-servers-fleet-sessions). |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: typed clients for the ck-exec starter hubs (`world()`, `matchmaking()`, `sessions()`, `npcs()`, `topology()`), the client conventions (`spectate()`, `emotes()`, `shards()`) and `social()` (parties, guilds and chat over teams and channels); `crowdy/kit/wire.hpp`, `realtime.hpp` and `actions.hpp` stand alone — see [Game Kit](#game-kit-the-starter-hubs-social-helpers-and-wire-codecs). |
 
@@ -946,6 +947,116 @@ counts them separately (`stats().sendsDeferred` vs `stats().sendsFailed`), and
 `ReplicationConfig::socketSendBufferBytes` (default 1 MiB) sizes the buffer
 that absorbs the burst — raise it for clients replicating many entities per
 frame.
+
+## Game servers: fleet sessions
+
+A fleet session is one realtime session that an organization's game server opens for
+itself and uses for every player on that server. It is for an organization's own servers.
+A fleet token signs for every player the session carries, so it stays on the servers that
+hold the organization's org token and never reaches a player's device. A game that runs on
+a player's device uses `Connection` with that player's own token.
+
+Fleet sessions are a dev-tier preview and are not in a release of this SDK yet. They need
+Application API v2.89.0 and realtime servers that carry fleet sessions, and an operator
+switches them on for an organization.
+
+The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet
+session with the Application API's `openFleetSession`, which answers a 64-character fleet
+token, its `gameTokenId`, and a realtime server. Carrying a player is then one UDP message.
+When the player moves to another of the organization's servers, that server carries them
+and this one is told `CarriedElsewhere`. Neither step calls the Application API.
+
+```cpp
+#include "crowdy/replication/fleet_session.hpp"
+
+using namespace crowdy::replication;
+
+FleetConfig config;
+config.appId = appId;
+config.token = TokenInfo{fleetToken, fleetGameTokenId, fleetExpiresAtMs};  // openFleetSession
+config.server = Assignment{ip4, ip6, clientPort};                          // openFleetSession
+
+FleetSession fleet(config, crowdy::core::opensslCrypto());
+
+FleetHandlers handlers;
+handlers.actorUpdate = [&](const SpatialNotification& n, FleetRecipients) {
+  world.apply(n);  // state arrives once, however many carried players are in range
+};
+handlers.text = [&](const SpatialNotification& n, FleetRecipients recipients) {
+  for (std::int64_t player : recipients) chat.deliver(player, n);  // only these players
+};
+handlers.released = [&](const FleetReleased& r) { players.remove(r.playerGameTokenId); };
+fleet.setHandlers(std::move(handlers));
+fleet.open();
+
+// A player joined this server. The token and its id are the player's app token's.
+fleet.carry({playerToken, playerGameTokenId}, [&](const FleetCarryResult& r) {
+  if (r.carried()) players.add(r.playerGameTokenId, r.userId);
+});
+
+// Every tick:
+fleet.poll();                                      // handlers and carry results fire here
+fleet.sendActorUpdate(playerGameTokenId, update);  // Connection's sends, the player first
+
+// The player left the game:
+fleet.release(playerGameTokenId);
+```
+
+- **Carrying.** `carry` sends `FLEET_CARRY` (49) with a proof that the server holds the
+  player's token: an HMAC keyed with that token over the fleet session's `gameTokenId`, the
+  player's `gameTokenId`, and the time. The message is sent again every 250 ms until its
+  result arrives, and the carry ends `TimedOut` after 5 seconds
+  (`FleetConfig::carryResendMs`, `carryTimeoutMs`). The result is `Carried` with the
+  player's user id, or one of four refusals: `NoLiveToken`, `OtherOrganizationOrApp`,
+  `ProofFailed` (a clock more than 30 seconds from the server's fails too), and
+  `SessionFull`. After you refresh a player's token, call `carry` with the new one. Once
+  that carry is confirmed it replaces the entry the same user had.
+- **Sending.** Each of `Connection`'s sends takes the carried player's `gameTokenId`
+  first: actor updates, voxel edits, voice, video, text, events, generic spatial messages,
+  direct messages, channel messages, channel audio, ranged channel messages, actor
+  heartbeats, and `setSpeakers`. The message is the one that player's own session would
+  send, signed with the fleet token. A send for a player the session does not carry returns
+  `Errc::NotCarried` and puts nothing on the wire. The platform applies each carried
+  player's own permissions, blocks, age rules, speaker lists, and idle timeout.
+- **Receiving.** State (actor updates and departures, voxel edits, events, generic spatial
+  messages, chunk changes) arrives once, with no recipients. Communications (spatial voice,
+  text and video, direct messages, channel messages, channel audio) arrive with the carried
+  players who may receive them, at most 32 in one message. Deliver each to those players
+  only. `handlers.released` reports a carry that the platform ended: `CarriedElsewhere`,
+  `SignInEnded`, or `Idle`.
+- **Your own players' state.** A fleet session is not sent the state its own carried
+  players sent. `fleet.setFleetOwnState(true)` (or `FleetConfig::fleetOwnState`) asks for
+  it.
+- **The session's token and server.** A fleet token lasts 24 hours. Renew it with
+  `refreshFleetSession` and pass the answer to `setToken`. If the answer names another
+  realtime server, `setServer` moves the session there and carries its players again.
+  `FleetConfig::reassign` is called when the realtime server asks the session to move.
+- **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
+  and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
+
+This SDK does not wrap `openFleetSession`, `refreshFleetSession`, or `closeFleetSession`
+yet. Call them with the organization's org token and pass their answers in.
+
+### Hub calls from a game server
+
+A game server opens one hub connection for itself in the same way. The Application API's
+`execConnectAsServer` answers a gateway, a connect token, and a host, and
+`ExecConnection::openAsServer` opens the connection from them. `connectAsServer` takes a
+dialer instead and reconnects with a fresh connect token. Both need ck-exec 0.25.0.
+
+```cpp
+using crowdy::domains::ExecConnection;
+
+auto hub = ExecConnection::openAsServer(transport, dispatcher, {gatewayUrl, connectToken, host});
+hub->call("world", "", "tick", args, onReply);                      // the server's own call
+hub->callAs(playerUserId, "player", key, "report", args, onReply);  // a call for one player
+```
+
+A hub sees the first call as `Caller::Org { player: None }` and the second as
+`Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the
+app's organization. It does not check which player a call names: the organization vouches
+for its own players. `callAs` on a player's or a developer's connection sends nothing and
+answers `Denied`.
 
 ## The session layer: data structures that do the bookkeeping
 
@@ -1334,7 +1445,8 @@ None of these maintainer gates run during a normal external CMake build.
 
 - `ctest` — offline unit tests (wire codec golden vectors, HMAC vectors,
   GraphQL-WebSocket handshake/reconnect/frame/cancellation behavior, bundle
-  parsing, malformed-input fuzz, codec round-trips, and the CrowdyJS cases the
+  parsing, malformed-input fuzz, codec round-trips, the fleet session against a
+  loopback server, and the CrowdyJS cases the
   native code replays: the exec gateway and voice payload fixtures). A build
   configured with `CROWDY_WITH_OPUS=ON` adds `opus_test`.
 - A build configured with `CROWDY_NO_EXCEPTIONS=ON` compiles with

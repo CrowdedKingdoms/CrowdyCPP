@@ -1429,6 +1429,59 @@ const CROSS_CUTTING_BEHAVIORS = {
 
 const STRICT_NATIVE_SURFACE_GAPS = [];
 
+// Surfaces CrowdyCPP carries before CrowdyJS does. The matrix reads from CrowdyJS toward
+// this SDK, so nothing else would list them. Each entry names markers in this repository (a
+// surface that is removed or renamed fails the gate) and markers CrowdyJS must not hold
+// yet: once CrowdyJS carries the surface the entry is stale, the gate says so, and the
+// entry is deleted so the class scan and CROSS_CUTTING_BEHAVIORS take over.
+const NATIVE_FIRST_SURFACES = {
+  'fleet-session': {
+    native: [
+      {
+        path: 'include/crowdy/replication/fleet_session.hpp',
+        markers: [
+          'class FleetSession',
+          'Status carry(const PlayerToken& player',
+          'Status release(std::int64_t playerGameTokenId)',
+          'void setFleetOwnState(bool on)',
+          'struct FleetHandlers',
+        ],
+      },
+      {
+        path: 'include/crowdy/wire/protocol.hpp',
+        markers: [
+          'FleetCarry = 49',
+          'FleetRelease = 50',
+          'FleetCarryResult = 51',
+          'FleetReleased = 52',
+          'FleetDelivery = 53',
+          'kFleetOwnState = 1u << 3',
+        ],
+      },
+    ],
+    crowdyjs: { path: 'src/binary-wire.ts', absent: ['FLEET_CARRY', 'FleetCarry'] },
+    note:
+      'replication::FleetSession: one realtime session of an organization\'s game server that carries its players (FLEET_CARRY 49, FLEET_RELEASE 50, FLEET_CARRY_RESULT 51, FLEET_RELEASED 52, FLEET_DELIVERY 53, capability bit 3 FLEET_OWN_STATE), with every Connection send for a carried player. It is for an organization\'s own servers; a fleet token stays off players\' devices. CrowdyJS and CrowdyPy to follow (fleet session design, step F7); openFleetSession, refreshFleetSession and closeFleetSession are not wrapped yet',
+  },
+  'exec-server-connection': {
+    native: [
+      {
+        path: 'include/crowdy/domains/exec.hpp',
+        markers: [
+          'openAsServer(',
+          'connectAsServer(',
+          'void callAs(',
+          'void callAsRaw(',
+          'enum class Kind { Call, Subscribe, Unsubscribe, Ping, CallAs }',
+        ],
+      },
+    ],
+    crowdyjs: { path: 'src/domains/exec.ts', absent: ['callAs(', 'connectAsServer(', 'openAsServer('] },
+    note:
+      'ExecConnection::openAsServer / connectAsServer and callAs / callAsRaw: a game server\'s own hub connection and its calls for a player (client frame 0x05, ck-exec 0.25.0). CrowdyJS and CrowdyPy to follow (fleet session design, step F7); execConnectAsServer is not wrapped yet',
+  },
+};
+
 if (!existsSync(join(crowdyjsPath, 'schema.gql'))) {
   fail(
     `CrowdyJS checkout is required at ${crowdyjsPath}; pass --crowdyjs <path>.`,
@@ -1474,6 +1527,7 @@ const state = {
   endpointPlanesChecked: endpointPlaneParity.checked,
   crossCuttingExportsChecked: crossCuttingSurfaces.exports.length,
   crossCuttingBehaviorsChecked: crossCuttingSurfaces.behaviors.length,
+  nativeFirstChecked: 0,
 };
 for (const contract of endpointOperationContracts) {
   if (!contract.valid) {
@@ -1680,6 +1734,27 @@ for (const gap of STRICT_NATIVE_SURFACE_GAPS) {
 }
 report += '\n';
 
+report += '## CrowdyCPP surfaces CrowdyJS does not carry yet\n\n';
+for (const [id, surface] of Object.entries(NATIVE_FIRST_SURFACES).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const { path, markers } of surface.native) {
+    const file = join(root, ...path.split('/'));
+    const source = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    for (const marker of markers) {
+      if (source === null || !source.includes(marker)) {
+        state.unclassified.push(`native-first:${id} (missing ${marker} in ${path})`);
+      }
+    }
+  }
+  const theirs = join(crowdyjsPath, ...surface.crowdyjs.path.split('/'));
+  const theirSource = existsSync(theirs) ? readFileSync(theirs, 'utf8') : '';
+  if (surface.crowdyjs.absent.some((marker) => theirSource.includes(marker))) {
+    state.stale.push(`native-first:${id} (CrowdyJS ${surface.crowdyjs.path} carries it now)`);
+  }
+  state.nativeFirstChecked += 1;
+  report += `- \`${escapeInlineCode(id)}\`: native first: ${surface.note}\n`;
+}
+report += '\n';
+
 checkStaleClassifications(state);
 
 report += '## Summary\n\n';
@@ -1704,6 +1779,7 @@ report +=
   `- Cross-cutting behaviors checked: ${state.crossCuttingBehaviorsChecked}\n`;
 report += `- Reviewed method aliases checked: ${state.usedMethodAliases.size}\n`;
 report += `- Reviewed class maps checked: ${state.usedClassMaps.size}\n`;
+report += `- Native-first surfaces checked: ${state.nativeFirstChecked}\n`;
 report += `- Portable gap entries: ${state.portable.length}\n`;
 report += `- Native-equivalent waivers: ${state.native.length}\n`;
 report += `- Browser-only waivers: ${state.browser.length}\n`;

@@ -37,6 +37,8 @@
 /// the game thread. Callbacks always fire on the poll() caller.
 namespace crowdy::replication {
 
+class FleetSession;
+
 class Connection {
  public:
   Connection(Config config, std::shared_ptr<ISessionProvider> provider,
@@ -351,7 +353,9 @@ class Connection {
   // One parsed inbound message, copied off the receive buffer for the ring.
   // Assignment copies only the used bytes, not the whole buffer.
   struct Event {
-    enum class Kind : std::uint8_t { Spatial, Channel, Error, Status } kind = Kind::Spatial;
+    /// Fleet: a FLEET_CARRY_RESULT, FLEET_RELEASED or FLEET_DELIVERY, queued only for the
+    /// connection inside a FleetSession.
+    enum class Kind : std::uint8_t { Spatial, Channel, Error, Status, Fleet } kind = Kind::Spatial;
     ConnState statusValue = ConnState::Idle;
     std::uint16_t len = 0;
     // Raw wire bytes of a single (unbundled) message.
@@ -379,9 +383,58 @@ class Connection {
   };
   Credentials credentials() const;
 
-  Result<std::uint8_t> sendLongSpatial(wire::MessageType type, const SpatialSend& p);
+  // ----- What a FleetSession adds (crowdy/replication/fleet_session.hpp) -----
+  //
+  // A fleet session is this connection opened with a fleet token, sending for the players
+  // it carries. Every other connection leaves `fleet_` null and each `Sender` null, and
+  // behaves exactly as it did before these existed.
+  friend class FleetSession;
+  /// Whose gameTokenId a send's tail carries. Null is the session's own; a FleetSession
+  /// passes the carried player the message is for. The HMAC is keyed with this
+  /// connection's token either way.
+  using Sender = const std::int64_t*;
+  struct FleetHooks {
+    /// poll(): one FLEET_CARRY_RESULT, FLEET_RELEASED or FLEET_DELIVERY that parsed (and,
+    /// for a delivery, whose notification verified) on the receive path.
+    std::function<void(Bytes message)> message;
+    /// The net thread or pump(), at the end of every housekeeping pass.
+    std::function<void()> tick;
+    /// The net thread or pump(), after each capabilities advertisement.
+    std::function<void()> advertised;
+    /// Flags added to every CLIENT_CAPABILITIES (ClientCapability::kFleetOwnState).
+    std::atomic<std::uint32_t> capabilities{0};
+    /// Take the three fleet messages only from inside a verified MESSAGE_BUNDLE_SIGNED.
+    bool requireSignedBundle = false;
+  };
+  std::unique_ptr<FleetHooks> fleet_;
+
+  Result<std::uint8_t> sendLongSpatial(wire::MessageType type, const SpatialSend& p,
+                                       Sender as = nullptr);
   Result<std::uint8_t> sendChannelRequest(wire::MessageType type, std::int64_t channelId,
-                                          const core::ActorUuid& uuid, Bytes payload);
+                                          const core::ActorUuid& uuid, Bytes payload,
+                                          Sender as = nullptr);
+  // The public sends of the same names call these with a null Sender.
+  Result<std::uint8_t> sendVoxelUpdateAs(Sender as, const wire::ChunkCoord& chunk,
+                                         const core::ActorUuid& uuid, std::int16_t x,
+                                         std::int16_t y, std::int16_t z, std::int16_t voxelType,
+                                         Bytes voxelState, std::uint8_t distance,
+                                         wire::DecayRate decay);
+  Result<std::size_t> sendVideoFrameAs(Sender as, const wire::ChunkCoord& chunk,
+                                       const core::ActorUuid& uuid, Bytes frame,
+                                       std::uint16_t frameId, std::uint8_t codec,
+                                       std::uint8_t distance, wire::DecayRate decay);
+  Result<std::uint8_t> sendClientEventAs(Sender as, const wire::ChunkCoord& chunk,
+                                         const core::ActorUuid& uuid, std::uint16_t eventType,
+                                         Bytes state, std::uint8_t distance,
+                                         wire::DecayRate decay);
+  Result<std::uint8_t> sendSingleActorMessageAs(Sender as, const wire::ChunkCoord& targetChunk,
+                                                const core::ActorUuid& targetUuid, Bytes payload);
+  Result<std::uint8_t> sendRangedChannelMessageAs(Sender as, std::int64_t channelId,
+                                                  const core::ActorUuid& uuid, Bytes payload,
+                                                  const wire::ChunkCoord& origin,
+                                                  std::uint32_t maxDistance);
+  Result<std::uint8_t> sendHeartbeatAs(Sender as, const wire::ChunkCoord& chunk,
+                                       const core::ActorUuid& uuid);
   /// Hand one encoded message to the send path: straight to the socket when
   /// Config::bundleSends is off, otherwise into the pending bundle (flushing
   /// first when it is full or its window has passed).
@@ -458,7 +511,8 @@ class Connection {
   mutable std::mutex speakersMutex_;
   std::optional<std::vector<core::ActorUuid>> voiceSpeakers_;
   std::optional<std::vector<core::ActorUuid>> videoSpeakers_;
-  Result<std::uint8_t> sendSpeakerLists(const SpeakerList& voice, const SpeakerList& video);
+  Result<std::uint8_t> sendSpeakerLists(const SpeakerList& voice, const SpeakerList& video,
+                                        Sender as = nullptr);
   void resendSpeakerLists();
 
   /// Monotonic ms of the last send that counts as gameplay input (0: none yet).

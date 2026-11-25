@@ -281,6 +281,7 @@ endif()
 add_library(crowdy_replication STATIC
   src/replication/udp_socket.cpp
   src/replication/connection.cpp
+  src/replication/fleet_session.cpp
 )
 target_include_directories(crowdy_replication PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

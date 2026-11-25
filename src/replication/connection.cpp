@@ -1,6 +1,7 @@
 #include "crowdy/replication/connection.hpp"
 
 #include "crowdy/media/video_frames.hpp"
+#include "dispatch.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -320,7 +321,8 @@ int Connection::receiveWaitMs(int maxWaitMs) {
   return remaining < maxWaitMs ? static_cast<int>(remaining) : maxWaitMs;
 }
 
-Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const SpatialSend& p) {
+Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const SpatialSend& p,
+                                                 Sender as) {
   if (!socket_.isOpen()) return Errc::NotConnected;
   // One lock for everything the token owns: the id, the key and the pre-keyed
   // MAC used to sign with it. Reading them separately took the same lock twice
@@ -338,7 +340,7 @@ Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const Spatial
   params.decay = p.decay;
   params.uuid = p.uuid;
   params.payload = p.payload;
-  params.gameTokenId = creds.gameTokenId;
+  params.gameTokenId = as != nullptr ? *as : creds.gameTokenId;
   params.sequence = nextSequence();
 
   std::uint8_t buf[wire::kMaxDatagramSize];
@@ -416,6 +418,14 @@ Result<std::uint8_t> Connection::sendVoxelUpdate(const wire::ChunkCoord& chunk,
                                                  std::int16_t y, std::int16_t z,
                                                  std::int16_t voxelType, Bytes voxelState,
                                                  std::uint8_t distance, wire::DecayRate decay) {
+  return sendVoxelUpdateAs(nullptr, chunk, uuid, x, y, z, voxelType, voxelState, distance, decay);
+}
+
+Result<std::uint8_t> Connection::sendVoxelUpdateAs(Sender as, const wire::ChunkCoord& chunk,
+                                                   const core::ActorUuid& uuid, std::int16_t x,
+                                                   std::int16_t y, std::int16_t z,
+                                                   std::int16_t voxelType, Bytes voxelState,
+                                                   std::uint8_t distance, wire::DecayRate decay) {
   if (voxelState.size() > wire::voxel::kMaxStateSize) return Errc::InvalidArgument;
   std::uint8_t payload[wire::kMaxLongSpatialPayload];
   auto pn = wire::encodeVoxelPayload(x, y, z, voxelType, voxelState,
@@ -427,13 +437,20 @@ Result<std::uint8_t> Connection::sendVoxelUpdate(const wire::ChunkCoord& chunk,
   p.payload = Bytes(payload, pn.value());
   p.distance = distance;
   p.decay = decay;
-  return sendLongSpatial(MessageType::VoxelUpdateRequest, p);
+  return sendLongSpatial(MessageType::VoxelUpdateRequest, p, as);
 }
 
 Result<std::uint8_t> Connection::sendClientEvent(const wire::ChunkCoord& chunk,
                                                  const core::ActorUuid& uuid,
                                                  std::uint16_t eventType, Bytes state,
                                                  std::uint8_t distance, wire::DecayRate decay) {
+  return sendClientEventAs(nullptr, chunk, uuid, eventType, state, distance, decay);
+}
+
+Result<std::uint8_t> Connection::sendClientEventAs(Sender as, const wire::ChunkCoord& chunk,
+                                                   const core::ActorUuid& uuid,
+                                                   std::uint16_t eventType, Bytes state,
+                                                   std::uint8_t distance, wire::DecayRate decay) {
   std::uint8_t payload[wire::kMaxLongSpatialPayload];
   auto pn = wire::encodeEventPayload(eventType, state, MutableBytes(payload, sizeof(payload)));
   if (!pn.ok()) return pn.error();
@@ -443,13 +460,20 @@ Result<std::uint8_t> Connection::sendClientEvent(const wire::ChunkCoord& chunk,
   p.payload = Bytes(payload, pn.value());
   p.distance = distance;
   p.decay = decay;
-  return sendLongSpatial(MessageType::ClientEventNotification, p);
+  return sendLongSpatial(MessageType::ClientEventNotification, p, as);
 }
 
 Result<std::size_t> Connection::sendVideoFrame(const wire::ChunkCoord& chunk,
                                                const core::ActorUuid& uuid, Bytes frame,
                                                std::uint16_t frameId, std::uint8_t codec,
                                                std::uint8_t distance, wire::DecayRate decay) {
+  return sendVideoFrameAs(nullptr, chunk, uuid, frame, frameId, codec, distance, decay);
+}
+
+Result<std::size_t> Connection::sendVideoFrameAs(Sender as, const wire::ChunkCoord& chunk,
+                                                 const core::ActorUuid& uuid, Bytes frame,
+                                                 std::uint16_t frameId, std::uint8_t codec,
+                                                 std::uint8_t distance, wire::DecayRate decay) {
   const auto fragments =
       media::fragmentFrame(frame, frameId, static_cast<media::VideoCodec>(codec));
   if (fragments.empty()) return Errc::InvalidArgument;  // empty, or > 16 fragments
@@ -460,7 +484,7 @@ Result<std::size_t> Connection::sendVideoFrame(const wire::ChunkCoord& chunk,
     p.payload = Bytes(fragment.data(), fragment.size());
     p.distance = distance;
     p.decay = decay;
-    auto r = sendLongSpatial(MessageType::ClientVideoPacket, p);
+    auto r = sendLongSpatial(MessageType::ClientVideoPacket, p, as);
     if (!r.ok()) return r.error();
   }
   return fragments.size();
@@ -469,13 +493,20 @@ Result<std::size_t> Connection::sendVideoFrame(const wire::ChunkCoord& chunk,
 Result<std::uint8_t> Connection::sendSingleActorMessage(const wire::ChunkCoord& targetChunk,
                                                         const core::ActorUuid& targetUuid,
                                                         Bytes payload) {
+  return sendSingleActorMessageAs(nullptr, targetChunk, targetUuid, payload);
+}
+
+Result<std::uint8_t> Connection::sendSingleActorMessageAs(Sender as,
+                                                          const wire::ChunkCoord& targetChunk,
+                                                          const core::ActorUuid& targetUuid,
+                                                          Bytes payload) {
   SpatialSend p;
   p.chunk = targetChunk;
   p.uuid = targetUuid;
   p.payload = payload;
   p.distance = 0;  // ignored by the server for single-actor messages
   p.decay = wire::DecayRate::None;
-  return sendLongSpatial(MessageType::SingleActorMessage, p);
+  return sendLongSpatial(MessageType::SingleActorMessage, p, as);
 }
 
 Result<std::uint8_t> Connection::sendChannelMessage(std::int64_t channelId,
@@ -489,7 +520,8 @@ Result<std::uint8_t> Connection::sendChannelAudio(std::int64_t channelId,
 }
 
 Result<std::uint8_t> Connection::sendChannelRequest(MessageType type, std::int64_t channelId,
-                                                    const core::ActorUuid& uuid, Bytes payload) {
+                                                    const core::ActorUuid& uuid, Bytes payload,
+                                                    Sender as) {
   if (!socket_.isOpen()) return Errc::NotConnected;
   const Credentials creds = credentials();
 
@@ -497,7 +529,7 @@ Result<std::uint8_t> Connection::sendChannelRequest(MessageType type, std::int64
   params.channelId = channelId;
   params.uuid = uuid;
   params.payload = payload;
-  params.gameTokenId = creds.gameTokenId;
+  params.gameTokenId = as != nullptr ? *as : creds.gameTokenId;
   params.sequence = nextSequence();
 
   std::uint8_t buf[wire::kMaxDatagramSize];
@@ -515,6 +547,14 @@ Result<std::uint8_t> Connection::sendRangedChannelMessage(std::int64_t channelId
                                                           Bytes payload,
                                                           const wire::ChunkCoord& origin,
                                                           std::uint32_t maxDistance) {
+  return sendRangedChannelMessageAs(nullptr, channelId, uuid, payload, origin, maxDistance);
+}
+
+Result<std::uint8_t> Connection::sendRangedChannelMessageAs(Sender as, std::int64_t channelId,
+                                                            const core::ActorUuid& uuid,
+                                                            Bytes payload,
+                                                            const wire::ChunkCoord& origin,
+                                                            std::uint32_t maxDistance) {
   if (!socket_.isOpen()) return Errc::NotConnected;
   if (maxDistance > wire::channel_ranged::kMaxDistance) return Errc::InvalidArgument;
   const Credentials creds = credentials();
@@ -526,7 +566,7 @@ Result<std::uint8_t> Connection::sendRangedChannelMessage(std::int64_t channelId
   params.origin = origin;
   params.maxDistance = maxDistance;
   params.payload = payload;
-  params.gameTokenId = creds.gameTokenId;
+  params.gameTokenId = as != nullptr ? *as : creds.gameTokenId;
   params.sequence = nextSequence();
 
   std::uint8_t buf[wire::kMaxDatagramSize];
@@ -547,6 +587,7 @@ Result<std::uint8_t> Connection::sendCapabilities() {
       nonce != 0 ? wire::ClientCapability::kAll
                  : (wire::ClientCapability::kAll & ~wire::ClientCapability::kBoundControl);
   if (ownMediaEcho_.load(std::memory_order_acquire)) flags |= wire::ClientCapability::kOwnMediaEcho;
+  if (fleet_) flags |= fleet_->capabilities.load(std::memory_order_acquire);
   le::writeU32(payload, flags);
   std::memcpy(payload + 4, &nonce, wire::kControlNonceSize);
   SpatialSend p;
@@ -562,7 +603,8 @@ void Connection::setOwnMediaEcho(bool on) {
   if (config_.advertiseCapabilities && state() == ConnState::Connected) (void)sendCapabilities();
 }
 
-Result<std::uint8_t> Connection::sendSpeakerLists(const SpeakerList& voice, const SpeakerList& video) {
+Result<std::uint8_t> Connection::sendSpeakerLists(const SpeakerList& voice, const SpeakerList& video,
+                                                  Sender as) {
   // [voiceMode][voiceCount][videoMode][videoCount][names x 32B]
   std::vector<std::uint8_t> payload(4 + (voice.names.size() + video.names.size()) *
                                             sizeof(core::ActorUuid));
@@ -582,7 +624,7 @@ Result<std::uint8_t> Connection::sendSpeakerLists(const SpeakerList& voice, cons
   p.distance = 0;
   p.decay = wire::DecayRate::None;
   p.payload = Bytes(payload.data(), payload.size());
-  return sendLongSpatial(MessageType::ClientMediaSpeakers, p);
+  return sendLongSpatial(MessageType::ClientMediaSpeakers, p, as);
 }
 
 Status Connection::setSpeakers(SpeakerList voice, SpeakerList video) {
@@ -626,12 +668,17 @@ void Connection::resendSpeakerLists() {
 
 Result<std::uint8_t> Connection::sendHeartbeat(const wire::ChunkCoord& chunk,
                                                const core::ActorUuid& uuid) {
+  return sendHeartbeatAs(nullptr, chunk, uuid);
+}
+
+Result<std::uint8_t> Connection::sendHeartbeatAs(Sender as, const wire::ChunkCoord& chunk,
+                                                 const core::ActorUuid& uuid) {
   SpatialSend p;
   p.chunk = chunk;
   p.uuid = uuid;
   p.distance = 0;
   p.decay = wire::DecayRate::None;
-  return sendLongSpatial(MessageType::ClientActorHeartbeat, p);
+  return sendLongSpatial(MessageType::ClientActorHeartbeat, p, as);
 }
 
 // ---------------------------------------------------------------------------
@@ -793,11 +840,52 @@ void Connection::handleDatagram(Bytes datagram) {
         return;
       }
       e.kind = Event::Kind::Channel;
-    } else if (type == static_cast<std::uint8_t>(MessageType::ClientCapabilities) ||
-               type == static_cast<std::uint8_t>(MessageType::ClientMediaSpeakers)) {
+    } else if (wire::isClientOnlyControlType(type)) {
       // Client-originated. Sharing the long-spatial layout must not enqueue a
       // server echo as a spatial notification; a client never expects one back.
       return;
+    } else if (fleet_ && (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult) ||
+                          type == static_cast<std::uint8_t>(MessageType::FleetReleased) ||
+                          type == static_cast<std::uint8_t>(MessageType::FleetDelivery))) {
+      // A fleet session's three messages. None carries an HMAC of its own, so a session
+      // that asks for it takes them only from a verified signed bundle.
+      Errc verdict = Errc::Ok;
+      if (fleet_->requireSignedBundle && !signedBundle) {
+        verdict = Errc::HmacMismatch;
+      } else if (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult)) {
+        verdict = wire::parseFleetCarryResult(message).error();
+      } else if (type == static_cast<std::uint8_t>(MessageType::FleetReleased)) {
+        verdict = wire::parseFleetReleased(message).error();
+      } else {
+        // The notification inside is what a player's own session is sent: a channel
+        // notification, or a long-spatial one whose HMAC (when it carries one) is the
+        // fleet token's.
+        const auto delivery = wire::parseFleetDelivery(message);
+        if (!delivery.ok()) {
+          verdict = delivery.error();
+        } else {
+          const Bytes inner = delivery->notification;
+          if (inner[0] == static_cast<std::uint8_t>(MessageType::ChannelMessageNotification) ||
+              inner[0] == static_cast<std::uint8_t>(MessageType::ChannelAudioNotification)) {
+            verdict = wire::parseChannelNotification(inner).error();
+          } else if (wire::isLongSpatialLayout(inner[0]) &&
+                     !wire::isClientOnlyControlType(inner[0])) {
+            verdict = wire::parseLongSpatial(inner).error();
+            if (verdict == Errc::Ok && config_.verifyNotifications &&
+                !wire::verifyLongSpatial(crypto_, inner, token, creds.mac.get()).ok())
+              verdict = Errc::HmacMismatch;
+          } else {
+            verdict = Errc::Malformed;
+          }
+        }
+      }
+      if (verdict != Errc::Ok) {
+        std::lock_guard lock(statsMutex_);
+        if (verdict == Errc::HmacMismatch) ++stats_.hmacFailures;
+        else ++stats_.malformed;
+        return;
+      }
+      e.kind = Event::Kind::Fleet;
     } else if (wire::isLongSpatialLayout(type)) {
       auto parsed = wire::parseLongSpatial(message);
       if (!parsed.ok()) {
@@ -897,6 +985,7 @@ void Connection::housekeeping() {
     }
     // The speaker lists live with the session on the server, as the capabilities do.
     resendSpeakerLists();
+    if (fleet_ && fleet_->advertised) fleet_->advertised();
   }
 
   // Proactive token refresh.
@@ -964,6 +1053,8 @@ void Connection::housekeeping() {
       setState(ConnState::Failed);
     }
   }
+
+  if (fleet_ && fleet_->tick) fleet_->tick();
 }
 
 void Connection::netLoop() {
@@ -1100,6 +1191,10 @@ std::size_t Connection::poll(std::size_t maxEvents) {
         if (handlers.status) handlers.status(e.statusValue);
         break;
 
+      case Event::Kind::Fleet:
+        if (fleet_ && fleet_->message) fleet_->message(message);
+        break;
+
       case Event::Kind::Error: {
         auto err = wire::parseGenericError(message);
         if (err.ok()) {
@@ -1142,58 +1237,7 @@ std::size_t Connection::poll(std::size_t maxEvents) {
           pendingWait_.outcome.serverEpochMs = v->epochMillisOrTokenId;
           pendingWait_.done = true;
         }
-        if (handlers.any) handlers.any(n);
-        switch (v->type) {
-          case MessageType::ActorUpdateNotification:
-            if (handlers.actorUpdate) handlers.actorUpdate(n);
-            break;
-          case MessageType::VoxelUpdateNotification: {
-            if (handlers.voxelUpdate) {
-              auto voxel = wire::parseVoxelPayload(v->payload);
-              if (voxel.ok()) handlers.voxelUpdate(n, voxel.value());
-            }
-            break;
-          }
-          case MessageType::ClientAudioNotification:
-            if (handlers.audio) handlers.audio(n);
-            break;
-          case MessageType::ClientVideoNotification:
-            if (handlers.video) handlers.video(n);
-            break;
-          case MessageType::ActorLeftNotification:
-            if (handlers.actorLeft)
-              handlers.actorLeft(n, wire::actorLeftReason(v->payload.data(), v->payload.size()));
-            break;
-          case MessageType::ChunkChangedNotification:
-            if (handlers.chunkChanged)
-              handlers.chunkChanged(n, wire::chunkChangedUpdatedAtMs(v->payload));
-            break;
-          case MessageType::ClientTextNotification:
-            if (handlers.text) handlers.text(n);
-            break;
-          case MessageType::ClientEventNotification: {
-            if (handlers.clientEvent) {
-              auto ev = wire::parseEventPayload(v->payload);
-              if (ev.ok()) handlers.clientEvent(n, ev.value());
-            }
-            break;
-          }
-          case MessageType::ServerEventNotification: {
-            if (handlers.serverEvent) {
-              auto ev = wire::parseEventPayload(v->payload);
-              if (ev.ok()) handlers.serverEvent(n, ev.value());
-            }
-            break;
-          }
-          case MessageType::GenericSpatial1:
-            if (handlers.genericSpatial) handlers.genericSpatial(n);
-            break;
-          case MessageType::SingleActorMessage:
-            if (handlers.singleActorMessage) handlers.singleActorMessage(n);
-            break;
-          default:
-            break;
-        }
+        detail::dispatchSpatial(handlers, n);
         break;
       }
     }

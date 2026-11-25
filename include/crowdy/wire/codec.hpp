@@ -524,6 +524,115 @@ inline Result<std::uint8_t> verifySessionReleased(const core::ICrypto& crypto, B
 }
 
 // ---------------------------------------------------------------------------
+// Fleet session messages (protocol.hpp, namespace fleet)
+// ---------------------------------------------------------------------------
+
+/// The proof inside a FLEET_CARRY: HMAC-SHA256(key = the player's 64-octet token,
+/// message = "ck-fleet-carry" + fleet gameTokenId + player gameTokenId + epoch millis),
+/// each number 8 bytes little endian. It shows the game server holds that player's token.
+/// `out` must hold 32 bytes.
+inline bool fleetCarryProof(const core::ICrypto& crypto, const Token64& playerToken,
+                            std::int64_t fleetGameTokenId, std::int64_t playerGameTokenId,
+                            std::int64_t epochMillis, std::uint8_t* out) {
+  std::uint8_t message[fleet::kCarryProofMessageSize];
+  std::memcpy(message, fleet::kCarryProofLabel, fleet::kCarryProofLabelSize);
+  le::writeI64(message + fleet::kCarryProofLabelSize, fleetGameTokenId);
+  le::writeI64(message + fleet::kCarryProofLabelSize + 8, playerGameTokenId);
+  le::writeI64(message + fleet::kCarryProofLabelSize + 16, epochMillis);
+  return crypto.hmacSha256(playerToken.bytes(), Bytes(message, sizeof(message)), out);
+}
+
+/// Write a FLEET_CARRY app payload, [8B player gameTokenId][8B epoch millis][32B proof], into
+/// `out`; returns the 48 bytes written. Send it in the long-spatial layout as the
+/// capabilities are sent (chunk (0,0,0), distance 0, no actor UUID), with the fleet
+/// session's own gameTokenId in the tail.
+inline Result<std::size_t> encodeFleetCarryPayload(const core::ICrypto& crypto,
+                                                   const Token64& playerToken,
+                                                   std::int64_t fleetGameTokenId,
+                                                   std::int64_t playerGameTokenId,
+                                                   std::int64_t epochMillis, MutableBytes out) {
+  if (out.size() < fleet::kCarryPayloadSize) return Errc::BufferTooSmall;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus.code;
+  std::uint8_t* b = out.data();
+  le::writeI64(b + fleet::kCarryPlayerOffset, playerGameTokenId);
+  le::writeI64(b + fleet::kCarryEpochOffset, epochMillis);
+  if (!fleetCarryProof(crypto, playerToken, fleetGameTokenId, playerGameTokenId, epochMillis,
+                       b + fleet::kCarryProofOffset))
+    return Errc::Malformed;
+  return fleet::kCarryPayloadSize;
+}
+
+/// Write a FLEET_RELEASE app payload, [8B player gameTokenId]; returns the 8 bytes written.
+inline Result<std::size_t> encodeFleetReleasePayload(std::int64_t playerGameTokenId,
+                                                     MutableBytes out) {
+  if (out.size() < fleet::kReleasePayloadSize) return Errc::BufferTooSmall;
+  le::writeI64(out.data(), playerGameTokenId);
+  return fleet::kReleasePayloadSize;
+}
+
+struct FleetCarryResultView {
+  std::int64_t playerGameTokenId;
+  /// 0 unless `status` is 0.
+  std::int64_t userId;
+  /// 0 carried; 1 no such live token; 2 another organization's or another app's player;
+  /// 3 the proof or its time failed; 4 the session carries as many as it may.
+  std::uint8_t status;
+};
+
+/// Parse a FLEET_CARRY_RESULT (51): [type][8B player gameTokenId][8B user id][1B status].
+inline Result<FleetCarryResultView> parseFleetCarryResult(Bytes message) {
+  if (message.size() < fleet::kCarryResultSize ||
+      message[0] != static_cast<std::uint8_t>(MessageType::FleetCarryResult))
+    return Errc::Malformed;
+  const std::uint8_t* b = message.data();
+  return FleetCarryResultView{le::readI64(b + 1), le::readI64(b + 9), b[17]};
+}
+
+struct FleetReleasedView {
+  std::int64_t playerGameTokenId;
+  /// 1 carried by another session; 2 the player's sign-in ended; 5 idle.
+  std::uint8_t reason;
+};
+
+/// Parse a FLEET_RELEASED (52): [type][8B player gameTokenId][1B reason].
+inline Result<FleetReleasedView> parseFleetReleased(Bytes message) {
+  if (message.size() < fleet::kReleasedSize ||
+      message[0] != static_cast<std::uint8_t>(MessageType::FleetReleased))
+    return Errc::Malformed;
+  const std::uint8_t* b = message.data();
+  return FleetReleasedView{le::readI64(b + 1), b[9]};
+}
+
+/// A parsed FLEET_DELIVERY (53). `notification` points into the original buffer.
+struct FleetDeliveryView {
+  /// How many carried players may receive the notification: 1 to 32.
+  std::size_t count;
+  /// `count` game token ids, 8 bytes little endian each; read them with recipient().
+  const std::uint8_t* recipients;
+  /// The notification exactly as a player's own session is sent it: its first byte is its
+  /// type (a long-spatial notification, or a channel notification 18 or 36).
+  Bytes notification;
+
+  std::int64_t recipient(std::size_t i) const { return le::readI64(recipients + i * 8); }
+};
+
+/// Parse a FLEET_DELIVERY (53): [type][1B count][count x 8B player gameTokenId][notification].
+/// Malformed for a count of 0 or over fleet::kMaxDeliveryRecipients, a frame shorter than its
+/// count says, and a frame with no notification after the list.
+inline Result<FleetDeliveryView> parseFleetDelivery(Bytes message) {
+  if (message.size() < fleet::kDeliveryHeaderSize ||
+      message[0] != static_cast<std::uint8_t>(MessageType::FleetDelivery))
+    return Errc::Malformed;
+  const std::size_t count = message[1];
+  if (count == 0 || count > fleet::kMaxDeliveryRecipients) return Errc::Malformed;
+  const std::size_t listEnd = fleet::kDeliveryHeaderSize + count * 8;
+  if (message.size() <= listEnd) return Errc::Malformed;
+  return FleetDeliveryView{count, message.data() + fleet::kDeliveryHeaderSize,
+                           message.subspan(listEnd)};
+}
+
+// ---------------------------------------------------------------------------
 // Bundle framing: [1B type=2]{[2B len LE][full message]}...
 //
 // The same framing in both directions. The server bundles notifications on

@@ -493,7 +493,8 @@ class Connection {
   std::int64_t readyAtMs_ = 0;
   std::int64_t lastRecvMs_ = 0;
   std::int64_t lastCapsMs_ = 0;  ///< monotonic ms of the last CLIENT_CAPABILITIES; 0 = none yet
-  std::int64_t lastSendMs_ = 0;
+  /// Written by whichever thread sends and read by the watchdog on the network thread.
+  std::atomic<std::int64_t> lastSendMs_{0};
   /// Set by the receive path on a verified idle release; housekeeping goes Inactive.
   std::atomic<bool> idleReleased_{false};
   std::atomic<bool> reconnectRequested_{false};

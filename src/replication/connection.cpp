@@ -117,7 +117,7 @@ Status Connection::doAssign() {
 
   readyAtMs_ = clock_.monotonicMillis() + config_.sessionReadyWaitMs;
   lastRecvMs_ = 0;
-  lastSendMs_ = 0;
+  lastSendMs_.store(0, std::memory_order_relaxed);
   lastCapsMs_ = 0;  // a new server knows nothing about us
   {
     // A new nonce per assignment, so a control frame bound to an earlier one is refused.
@@ -190,7 +190,7 @@ void Connection::disconnect() {
 Status Connection::sendDatagram(const std::uint8_t* data, std::size_t len) {
   Status st = socket_.send(Bytes(data, len));
   if (st.ok()) {
-    lastSendMs_ = clock_.monotonicMillis();
+    lastSendMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
     std::lock_guard lock(statsMutex_);
     ++stats_.datagramsSent;
     stats_.bytesSent += len;
@@ -1029,7 +1029,7 @@ void Connection::housekeeping() {
 
   // Silent-drop watchdog (opt-in).
   if (config_.watchdogSilenceMs > 0 && state() == ConnState::Connected && lastRecvMs_ > 0 &&
-      lastSendMs_ > lastRecvMs_ && nowMono - lastRecvMs_ > config_.watchdogSilenceMs) {
+      lastSendMs_.load(std::memory_order_relaxed) > lastRecvMs_ && nowMono - lastRecvMs_ > config_.watchdogSilenceMs) {
     logger_.log(core::LogLevel::Warn, "watchdog: sends flowing but nothing received; reassigning");
     reconnectRequested_.store(true, std::memory_order_release);
   }

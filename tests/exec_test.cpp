@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -64,13 +65,17 @@ void testGoldenFrames() {
       c.kind = exec_wire::ClientFrame::Kind::Ping;
       c.rid = static_cast<std::uint32_t>(f["nonce"].asInt64());
     } else {
+      const bool call = kind == "call" || kind == "callAs";
       c.kind = kind == "call" ? exec_wire::ClientFrame::Kind::Call
+               : kind == "callAs" ? exec_wire::ClientFrame::Kind::CallAs
                : kind == "subscribe" ? exec_wire::ClientFrame::Kind::Subscribe
                                      : exec_wire::ClientFrame::Kind::Unsubscribe;
       c.rid = static_cast<std::uint32_t>(f["rid"].asInt64());
+      // A u64, so the fixture writes it as a decimal string.
+      if (kind == "callAs") c.player = std::strtoull(f["player"].asString().c_str(), nullptr, 10);
       c.nodeType = f["nodeType"].asString();
       c.key = f["key"].asString();
-      c.method = kind == "call" ? f["method"].asString() : f["topic"].asString();
+      c.method = call ? f["method"].asString() : f["topic"].asString();
       c.payload = unhex(f["payloadHex"].asString());
     }
     Result<std::string> bytes = exec_wire::encode(c);
@@ -103,6 +108,25 @@ void testGoldenFrames() {
   CHECK(!exec_wire::decode(unhex("99")).ok());
   exec_wire::ClientFrame tooLong{exec_wire::ClientFrame::Kind::Call, 1, std::string(256, 'x'), "", "m", ""};
   CHECK(!exec_wire::encode(tooLong).ok());
+
+  // call-as (0x05): rid:u32 player:u64 type:str8 key:str16 method:str8 payload:rest, every
+  // integer little endian as in a call. The fixture must carry it.
+  int callAsCases = 0;
+  fx["client"].forEach([&](graphql::Json e) {
+    if (e["frame"]["kind"].asString() == "callAs") ++callAsCases;
+  });
+  CHECK(callAsCases >= 3);
+  exec_wire::ClientFrame as{exec_wire::ClientFrame::Kind::CallAs, 0x01020304, "t", "k", "m", "\xc0"};
+  as.player = 0x1112131415161718ULL;
+  Result<std::string> asBytes = exec_wire::encode(as);
+  CHECK(asBytes.ok());
+  CHECK_EQ(hex(asBytes.value()), "05" "04030201" "1817161514131211" "0174" "01006b" "016d" "c0");
+  // The same call as the server's own (0x01) is those bytes without the player.
+  as.kind = exec_wire::ClientFrame::Kind::Call;
+  CHECK_EQ(hex(exec_wire::encode(as).value()), "01" "04030201" "0174" "01006b" "016d" "c0");
+  as.kind = exec_wire::ClientFrame::Kind::CallAs;
+  as.method = std::string(256, 'x');
+  CHECK(!exec_wire::encode(as).ok());
 }
 
 void testStatusesAndDigests() {
@@ -402,6 +426,127 @@ void testConnection() {
   CHECK(r5->status == ExecStatus::Unavailable);
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   CHECK_EQ(transport->count(), 3u);
+}
+
+// ---- a server connection (ck-exec 0.25.0): the organization's own calls, and call-as ----
+
+void testServerConnection() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+
+  // From an execConnectAsServer result: the gateway, the connect token and the host.
+  auto server = ExecConnection::openAsServer(
+      transport, dispatcher, ExecEndpoint{"wss://gw.example", "server-token", "host-s"}, opts);
+  CHECK(server->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  auto c1 = transport->at(0);
+  CHECK_EQ(c1->url, "wss://gw.example/v1/connect?token=server-token");
+  c1->open();
+  CHECK(until(*dispatcher, [&] { return server->connected(); }));
+  CHECK_EQ(server->host(), "host-s");
+
+  // callAsRaw: client frame 0x05, the player between the request id and the names.
+  std::optional<ExecReply> asReply;
+  const std::string payload = unhex("81a27870cd0100");
+  server->callAsRaw(4242, "player", "p-4242", "report", payload, [&](ExecReply r) { asReply = r; });
+  CHECK(until(*dispatcher, [&] { return !c1->frames().empty(); }));
+  CHECK_EQ(c1->frames().size(), 1u);
+  const std::string sent = c1->frames()[0];
+  // rid 1 (the connection's first request), player 4242, "player", "p-4242", "report".
+  CHECK_EQ(hex(sent), "05" "01000000" "9210000000000000" "06706c61796572" "0600702d34323432" "067265706f7274"
+                      "81a27870cd0100");
+  // Answered like any call, by its request id.
+  c1->deliver(reply(1, 0, graphql::Json::parse(R"({"ok":true})").toMsgpack()));
+  CHECK(until(*dispatcher, [&] { return asReply.has_value(); }));
+  CHECK(asReply->ok());
+  CHECK(asReply->value()["ok"].asBool());
+
+  // callAs: the arguments as MessagePack, and a refusal with the hub's message.
+  std::optional<ExecReply> denied;
+  server->callAs(18446744073709551615ULL, "arena", "", "state",
+                 graphql::JVal::object({{"weapon", graphql::JVal(2)}}), [&](ExecReply r) { denied = r; });
+  CHECK(until(*dispatcher, [&] { return c1->frames().size() == 2; }));
+  const std::string second = c1->frames()[1];
+  CHECK_EQ(hex(second.substr(0, 13)), "05" "02000000" "ffffffffffffffff");
+  CHECK_EQ(hex(second.substr(13, 14)), "056172656e61" "0000" "057374617465");
+  CHECK_EQ(graphql::Json::fromMsgpack(second.substr(27))["weapon"].asInt64(), 2);
+  c1->deliver(reply(2, 6, "built for an earlier ABI"));
+  CHECK(until(*dispatcher, [&] { return denied.has_value(); }));
+  CHECK(denied->status == ExecStatus::Denied);
+  CHECK_EQ(denied->message(), "built for an earlier ABI");
+
+  // A plain call on the same connection is the server's own: frame 0x01, no player.
+  std::optional<ExecReply> own;
+  server->callRaw("arena", "m1", "state", "", [&](ExecReply r) { own = r; });
+  CHECK(until(*dispatcher, [&] { return c1->frames().size() == 3; }));
+  CHECK_EQ(hex(c1->frames()[2]), "01" "03000000" "056172656e61" "02006d31" "057374617465");
+  c1->deliver(reply(3, 0, ""));
+  CHECK(until(*dispatcher, [&] { return own.has_value(); }));
+  CHECK(own->ok());
+
+  // A name longer than its length prefix is refused before anything is sent.
+  std::optional<ExecReply> tooLong;
+  server->callAsRaw(1, std::string(256, 'x'), "", "m", "", [&](ExecReply r) { tooLong = r; });
+  CHECK(until(*dispatcher, [&] { return tooLong.has_value(); }));
+  CHECK(tooLong->status == ExecStatus::BadRequest);
+  CHECK_EQ(c1->frames().size(), 3u);
+  server->close();
+
+  // On a player's connection callAs is refused here: nothing is sent, and the reply says why.
+  auto player = ExecConnection::open(transport, dispatcher, ExecEndpoint{"wss://gw.example", "player-token", "host-p"},
+                                     opts);
+  CHECK(!player->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 2; }));
+  auto c2 = transport->at(1);
+  c2->open();
+  CHECK(until(*dispatcher, [&] { return player->connected(); }));
+  std::optional<ExecReply> refused;
+  player->callAsRaw(4242, "player", "p-4242", "report", payload, [&](ExecReply r) { refused = r; });
+  CHECK(until(*dispatcher, [&] { return refused.has_value(); }));
+  CHECK(refused->status == ExecStatus::Denied);
+  CHECK(refused->message().find("server connection") != std::string::npos);
+  std::optional<ExecReply> refusedJson;
+  player->callAs(4242, "player", "p-4242", "report", graphql::JVal::object({}), [&](ExecReply r) { refusedJson = r; });
+  CHECK(until(*dispatcher, [&] { return refusedJson.has_value(); }));
+  CHECK(refusedJson->status == ExecStatus::Denied);
+  CHECK(c2->frames().empty());
+  // Its plain calls still go.
+  player->callRaw("arena", "m1", "state", "", {});
+  CHECK(until(*dispatcher, [&] { return c2->frames().size() == 1; }));
+  CHECK_EQ(static_cast<int>(static_cast<std::uint8_t>(c2->frames()[0][0])), 0x01);
+  player->close();
+
+  // Over a dialer the server connection reconnects with a fresh connect token, and a call-as
+  // caught by the lost connection goes again once, as a call does.
+  std::atomic<int> dials{0};
+  ExecDial dial = [&dials](std::function<void(Result<ExecEndpoint>)> found) {
+    const int n = ++dials;
+    found(ExecEndpoint{"wss://gw.example", "server-token-" + std::to_string(n), "host-" + std::to_string(n)});
+  };
+  auto redialing = ExecConnection::connectAsServer(transport, dispatcher, dial, opts);
+  CHECK(redialing->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 3; }));
+  auto c3 = transport->at(2);
+  CHECK_EQ(c3->url, "wss://gw.example/v1/connect?token=server-token-1");
+  c3->open();
+  std::optional<ExecReply> again;
+  redialing->callAsRaw(77, "player", "p-77", "report", "", [&](ExecReply r) { again = r; });
+  CHECK(until(*dispatcher, [&] { return c3->frames().size() == 1; }));
+  CHECK_EQ(hex(c3->frames()[0].substr(0, 13)), "05" "01000000" "4d00000000000000");
+  c3->drop();
+  CHECK(until(*dispatcher, [&] { return transport->count() == 4; }));
+  auto c4 = transport->at(3);
+  CHECK_EQ(c4->url, "wss://gw.example/v1/connect?token=server-token-2");
+  c4->open();
+  CHECK(until(*dispatcher, [&] { return c4->frames().size() == 1; }));
+  CHECK_EQ(hex(c4->frames()[0]), hex(c3->frames()[0]));
+  c4->deliver(reply(1, 0, ""));
+  CHECK(until(*dispatcher, [&] { return again.has_value(); }));
+  CHECK(again->ok());
+  redialing->close();
 }
 
 void testCallTimesOut() {
@@ -1521,6 +1666,7 @@ int main() {
   testGoldenFrames();
   testStatusesAndDigests();
   testConnection();
+  testServerConnection();
   testCallTimesOut();
   testGatewayRefusal();
   testRefusedUpgrade();

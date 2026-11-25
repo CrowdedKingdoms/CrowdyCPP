@@ -67,13 +67,18 @@ bool execStatusRetryable(ExecStatus status) noexcept;
 namespace exec_wire {
 
 struct ClientFrame {
-  enum class Kind { Call, Subscribe, Unsubscribe, Ping };
+  /// CallAs (0x05, ck-exec 0.25.0): a call an organization's server makes for one of its
+  /// players. `rid:u32 player:u64 type:str8 key:str16 method:str8 payload:rest`; a gateway
+  /// takes it only on a server connection.
+  enum class Kind { Call, Subscribe, Unsubscribe, Ping, CallAs };
   Kind kind = Kind::Call;
   std::uint32_t rid = 0;  // the ping nonce for Ping
   std::string nodeType;
   std::string key;
   std::string method;  // the topic for Subscribe / Unsubscribe
   std::string payload;
+  /// CallAs only: the player the server acts for (the player's user id).
+  std::uint64_t player = 0;
 };
 
 struct ServerFrame {
@@ -193,6 +198,29 @@ class ExecConnection {
       std::shared_ptr<graphql::Dispatcher> dispatcher, ExecEndpoint endpoint,
       ExecConnectOptions options = {});
 
+  /// A server connection (ck-exec 0.25.0): one hub connection an organization's game server
+  /// opens for itself, from the gateway, connect token and host the Application API's
+  /// `execConnectAsServer` answered. Its plain calls are the server's own
+  /// (`Caller::Org { player: None }` in a hub), and `callAs` makes a call for one of the
+  /// organization's players. Like `open` it dials the URL it is given and does not
+  /// reconnect: a connect token lasts about a minute.
+  ///
+  /// FOR AN ORGANIZATION'S OWN SERVERS. The connect token comes from the org token, which
+  /// never reaches a player's device.
+  static std::shared_ptr<ExecConnection> openAsServer(
+      std::shared_ptr<graphql::IWebSocketTransport> transport,
+      std::shared_ptr<graphql::Dispatcher> dispatcher, ExecEndpoint endpoint,
+      ExecConnectOptions options = {});
+  /// A server connection that reconnects: `dial` answers a fresh `execConnectAsServer`
+  /// result each time it is asked. Returns at once; calls made meanwhile wait for the
+  /// connection. Pin it with `pinGateway` as for any connection you build over an ExecDial.
+  static std::shared_ptr<ExecConnection> connectAsServer(
+      std::shared_ptr<graphql::IWebSocketTransport> transport,
+      std::shared_ptr<graphql::Dispatcher> dispatcher, ExecDial dial,
+      ExecConnectOptions options = {});
+  /// True for a connection made by `openAsServer` or `connectAsServer`.
+  bool isServer() const;
+
   /// Start connecting. `done` fires once: Ok when open, the failure otherwise
   /// (Rejected when the gateway refused the connect token, `lastFailure()` says why).
   /// Calls made before then wait for the connection.
@@ -205,6 +233,17 @@ class ExecConnection {
   /// Call with `args` as MessagePack; decode the reply with ExecReply::value().
   void call(std::string nodeType, std::string key, std::string method,
             const graphql::JVal& args, ExecReplyCallback done, long timeoutMs = 0);
+  /// Call a node's endpoint for one of the organization's players, on a server connection
+  /// (client frame 0x05). The hub sees `Caller::Org { player: Some(player) }`: the platform
+  /// checks the connection is the app's organization's, and the player is the
+  /// organization's word. `player` is the player's user id. Replies, timeouts and the one
+  /// retry after a lost connection or a `Moved` are those of `callRaw`. On any other
+  /// connection nothing is sent and `done` fires `Denied`.
+  void callAsRaw(std::uint64_t player, std::string nodeType, std::string key, std::string method,
+                 std::string payload, ExecReplyCallback done, long timeoutMs = 0);
+  /// `callAsRaw` with `args` as MessagePack.
+  void callAs(std::uint64_t player, std::string nodeType, std::string key, std::string method,
+              const graphql::JVal& args, ExecReplyCallback done, long timeoutMs = 0);
   /// Receive what a node publishes on `topic`. Returns a handle for
   /// unsubscribe(); `done` fires with the gateway's answer to the first one.
   std::uint64_t subscribe(std::string nodeType, std::string key, std::string topic,

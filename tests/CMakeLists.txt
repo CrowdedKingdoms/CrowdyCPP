@@ -215,6 +215,12 @@ if(NOT WIN32 AND CROWDY_WITH_OPENSSL)
   target_link_libraries(replication_test PRIVATE crowdy_replication crowdy_crypto_openssl)
   add_test(NAME replication_test COMMAND replication_test)
 
+  # A fleet session (one realtime session of a game server, carrying its players) against
+  # a loopback UDP server, as replication_test runs a Connection.
+  add_executable(fleet_session_test fleet_session_test.cpp)
+  target_link_libraries(fleet_session_test PRIVATE crowdy_replication crowdy_crypto_openssl Threads::Threads)
+  add_test(NAME fleet_session_test COMMAND fleet_session_test)
+
   # Opens a UDP socket to a loopback assignment, as session_test does.
   add_executable(game_session_test game_session_test.cpp)
   target_link_libraries(game_session_test PRIVATE crowdy)

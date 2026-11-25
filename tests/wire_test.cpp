@@ -789,7 +789,264 @@ void testChannelAudio() {
   CHECK(err->code == ErrorCode::AppPaused);
 }
 
+// ---------------------------------------------------------------------------
+// Fleet sessions (DESIGN-2026-11-fleet-session section 6; the contract's section 3).
+//
+// The vectors were computed independently (Python hmac/hashlib) from the written formats:
+//   fleet token   "fleet-token-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP", gameTokenId 9001
+//   player token  "player-token-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO", gameTokenId 4242
+//   appId 7, epoch millis 1795000000000
+// fleet_session_test holds FleetSession to the same bytes.
+// ---------------------------------------------------------------------------
+
+const char kFleetToken[] = "fleet-token-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP";
+const char kPlayerToken[] = "player-token-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO";
+constexpr std::int64_t kFleetId = 9001;
+constexpr std::int64_t kPlayerId = 4242;
+constexpr std::int64_t kCarryEpochMs = 1795000000000LL;
+
+// proof = HMAC-SHA256(player token, "ck-fleet-carry" + 9001 + 4242 + 1795000000000)
+const char kGoldenCarryProof[] =
+    "5602abb9300581f6a20e247ea0b406f690646a3d27f9427e95c5f6363115b35a";
+// FLEET_CARRY (49), sequence 0: the capabilities' frame, the fleet id in the tail.
+const char kGoldenFleetCarry[] =
+    "3107000000000000000000000000000000000000000000000000000000000000000000010000000000000000"
+    "0000000000000000000000000000000000000000000000009210000000000000005e56eea10100005602abb9"
+    "300581f6a20e247ea0b406f690646a3d27f9427e95c5f6363115b35a9d69b5b07c19a2450e61725d9995c19c"
+    "940e41fa602fcce2535e780e5d2d81e3292300000000000000";
+// FLEET_RELEASE (50), sequence 2.
+const char kGoldenFleetRelease[] =
+    "3207000000000000000000000000000000000000000000000000000000000000000000010000000000000000"
+    "0000000000000000000000000000000000000000000000009210000000000000903cf330c14c7344619b97d3"
+    "736c97d042c2669c9c8c1ed8e4b1922c327f684d292300000000000002";
+// ACTOR_UPDATE_REQUEST (128) for the carried player, sequence 1: chunk (1,-2,3), distance 8,
+// uuid "0123456789abcdef0123456789abcdef", payload de ad be ef. The tail's id is the
+// PLAYER's (4242) and the HMAC is keyed with the FLEET token.
+const char kGoldenCarriedActorUpdate[] =
+    "8007000000000000000100000000000000feffffffffffffff03000000000000000800013031323334353637"
+    "383961626364656630313233343536373839616263646566deadbeefafca3c1e53f866c6384fb186e2396664"
+    "b62d7acd0fee6d9445b96e283d1c09f4921000000000000001";
+
+void testFleetConstants() {
+  CHECK_EQ(static_cast<int>(MessageType::FleetCarry), 49);
+  CHECK_EQ(static_cast<int>(MessageType::FleetRelease), 50);
+  CHECK_EQ(static_cast<int>(MessageType::FleetCarryResult), 51);
+  CHECK_EQ(static_cast<int>(MessageType::FleetReleased), 52);
+  CHECK_EQ(static_cast<int>(MessageType::FleetDelivery), 53);
+  // The two requests travel in the long-spatial layout; the three answers do not.
+  CHECK(isLongSpatialLayout(49) && isLongSpatialLayout(50));
+  CHECK(!isLongSpatialLayout(48) && !isLongSpatialLayout(51) && !isLongSpatialLayout(52) &&
+        !isLongSpatialLayout(53));
+  CHECK(isClientOnlyControlType(29) && isClientOnlyControlType(47) && isClientOnlyControlType(49) &&
+        isClientOnlyControlType(50));
+  CHECK(!isClientOnlyControlType(26) && !isClientOnlyControlType(51) && !isClientOnlyControlType(128));
+  CHECK_EQ(ClientCapability::kFleetOwnState, 8u);
+  CHECK_EQ(ClientCapability::kAll & ClientCapability::kFleetOwnState, 0u);
+  CHECK_EQ(fleet::kCarryProofLabelSize, 14u);
+  CHECK_EQ(fleet::kCarryProofMessageSize, 38u);
+  CHECK_EQ(fleet::kCarryPayloadSize, 48u);
+  CHECK_EQ(fleet::kCarryResultSize, 18u);
+  CHECK_EQ(fleet::kReleasedSize, 10u);
+  CHECK_EQ(fleet::kMaxDeliveryRecipients, 32u);
+}
+
+void testFleetCarryGolden() {
+  const Token64 fleetToken = *Token64::fromString(kFleetToken);
+  const Token64 playerToken = *Token64::fromString(kPlayerToken);
+
+  // The proof, against an HMAC computed here from the written format.
+  std::uint8_t proof[kHmacTagSize];
+  CHECK(fleetCarryProof(crypto(), playerToken, kFleetId, kPlayerId, kCarryEpochMs, proof));
+  CHECK_EQ(toHex(proof, sizeof(proof)), std::string(kGoldenCarryProof));
+  std::vector<std::uint8_t> message = {'c', 'k', '-', 'f', 'l', 'e', 'e', 't', '-', 'c', 'a', 'r', 'r', 'y'};
+  for (std::int64_t number : {kFleetId, kPlayerId, kCarryEpochMs}) {
+    for (int i = 0; i < 8; ++i)
+      message.push_back(static_cast<std::uint8_t>((static_cast<std::uint64_t>(number) >> (8 * i)) & 0xff));
+  }
+  CHECK_EQ(message.size(), 38u);
+  std::uint8_t independent[kHmacTagSize];
+  CHECK(crypto().hmacSha256(asBytes(kPlayerToken), Bytes(message.data(), message.size()), independent));
+  CHECK(std::memcmp(proof, independent, sizeof(proof)) == 0);
+  // Keyed with the player's token: the fleet token gives another proof.
+  std::uint8_t wrongKey[kHmacTagSize];
+  CHECK(fleetCarryProof(crypto(), fleetToken, kFleetId, kPlayerId, kCarryEpochMs, wrongKey));
+  CHECK(std::memcmp(proof, wrongKey, sizeof(proof)) != 0);
+  // Each of the three numbers is in it.
+  std::uint8_t other[kHmacTagSize];
+  CHECK(fleetCarryProof(crypto(), playerToken, kFleetId + 1, kPlayerId, kCarryEpochMs, other));
+  CHECK(std::memcmp(proof, other, sizeof(proof)) != 0);
+  CHECK(fleetCarryProof(crypto(), playerToken, kFleetId, kPlayerId + 1, kCarryEpochMs, other));
+  CHECK(std::memcmp(proof, other, sizeof(proof)) != 0);
+  CHECK(fleetCarryProof(crypto(), playerToken, kFleetId, kPlayerId, kCarryEpochMs + 1, other));
+  CHECK(std::memcmp(proof, other, sizeof(proof)) != 0);
+
+  // The payload and the whole message.
+  std::uint8_t payload[fleet::kCarryPayloadSize];
+  auto pn = encodeFleetCarryPayload(crypto(), playerToken, kFleetId, kPlayerId, kCarryEpochMs,
+                                    MutableBytes(payload, sizeof(payload)));
+  CHECK(pn.ok());
+  CHECK_EQ(pn.value(), 48u);
+  CHECK_EQ(le::readI64(payload), kPlayerId);
+  CHECK_EQ(le::readI64(payload + 8), kCarryEpochMs);
+  CHECK(std::memcmp(payload + 16, proof, sizeof(proof)) == 0);
+  std::uint8_t small[47];
+  CHECK_EQ(static_cast<int>(encodeFleetCarryPayload(crypto(), playerToken, kFleetId, kPlayerId,
+                                                    kCarryEpochMs, MutableBytes(small, sizeof(small)))
+                                .error()),
+           static_cast<int>(Errc::BufferTooSmall));
+
+  LongSpatialParams p;
+  p.type = MessageType::FleetCarry;
+  p.appId = 7;
+  p.payload = Bytes(payload, sizeof(payload));
+  p.gameTokenId = kFleetId;
+  p.sequence = 0;
+  std::uint8_t buf[256];
+  auto n = encodeLongSpatial(crypto(), p, fleetToken, MutableBytes(buf, sizeof(buf)));
+  CHECK(n.ok());
+  CHECK_EQ(n.value(), 157u);
+  CHECK_EQ(toHex(buf, n.value()), std::string(kGoldenFleetCarry));
+  // Signed with the fleet token, as every message of the session is.
+  CHECK(verifyLongSpatial(crypto(), Bytes(buf, n.value()), fleetToken).ok());
+  CHECK_EQ(static_cast<int>(verifyLongSpatial(crypto(), Bytes(buf, n.value()), playerToken).code),
+           static_cast<int>(Errc::HmacMismatch));
+  auto v = parseLongSpatial(Bytes(buf, n.value()));
+  CHECK(v.ok());
+  CHECK_EQ(v->epochMillisOrTokenId, kFleetId);
+  CHECK_EQ(v->payload.size(), 48u);
+
+  // FLEET_RELEASE.
+  std::uint8_t releasePayload[fleet::kReleasePayloadSize];
+  auto rn = encodeFleetReleasePayload(kPlayerId, MutableBytes(releasePayload, sizeof(releasePayload)));
+  CHECK(rn.ok());
+  CHECK_EQ(rn.value(), 8u);
+  p.type = MessageType::FleetRelease;
+  p.payload = Bytes(releasePayload, sizeof(releasePayload));
+  p.sequence = 2;
+  n = encodeLongSpatial(crypto(), p, fleetToken, MutableBytes(buf, sizeof(buf)));
+  CHECK(n.ok());
+  CHECK_EQ(n.value(), 117u);
+  CHECK_EQ(toHex(buf, n.value()), std::string(kGoldenFleetRelease));
+}
+
+// A message for a carried player: what the player's own session would send, with the HMAC
+// keyed by the fleet token. The tail's id is the player's either way.
+void testFleetCarriedActorUpdateGolden() {
+  const Token64 fleetToken = *Token64::fromString(kFleetToken);
+  const Token64 playerToken = *Token64::fromString(kPlayerToken);
+  LongSpatialParams p;
+  p.type = MessageType::ActorUpdateRequest;
+  p.appId = 7;
+  p.chunk = {1, -2, 3};
+  p.distance = 8;
+  p.uuid = testUuid();
+  const std::uint8_t payload[] = {0xde, 0xad, 0xbe, 0xef};
+  p.payload = Bytes(payload, sizeof(payload));
+  p.gameTokenId = kPlayerId;
+  p.sequence = 1;
+  std::uint8_t carried[256];
+  auto n = encodeLongSpatial(crypto(), p, fleetToken, MutableBytes(carried, sizeof(carried)));
+  CHECK(n.ok());
+  CHECK_EQ(n.value(), 113u);
+  CHECK_EQ(toHex(carried, n.value()), std::string(kGoldenCarriedActorUpdate));
+  CHECK(verifyLongSpatial(crypto(), Bytes(carried, n.value()), fleetToken).ok());
+  CHECK_EQ(static_cast<int>(verifyLongSpatial(crypto(), Bytes(carried, n.value()), playerToken).code),
+           static_cast<int>(Errc::HmacMismatch));
+
+  // The player's own session's message differs in the 32 HMAC bytes and nowhere else.
+  std::uint8_t own[256];
+  auto on = encodeLongSpatial(crypto(), p, playerToken, MutableBytes(own, sizeof(own)));
+  CHECK(on.ok());
+  CHECK_EQ(on.value(), n.value());
+  const std::size_t hmacAt = n.value() - kTailWithHmac;
+  CHECK(std::memcmp(carried, own, hmacAt) == 0);
+  CHECK(std::memcmp(carried + hmacAt, own + hmacAt, kHmacTagSize) != 0);
+  CHECK(std::memcmp(carried + hmacAt + kHmacTagSize, own + hmacAt + kHmacTagSize, kTailNoHmac) == 0);
+}
+
+void testFleetServerMessages() {
+  // FLEET_CARRY_RESULT: [51][player][user][status].
+  std::uint8_t result[fleet::kCarryResultSize] = {51};
+  le::writeI64(result + 1, kPlayerId);
+  le::writeI64(result + 9, 77);
+  result[17] = 0;
+  auto r = parseFleetCarryResult(Bytes(result, sizeof(result)));
+  CHECK(r.ok());
+  CHECK_EQ(r->playerGameTokenId, kPlayerId);
+  CHECK_EQ(r->userId, 77);
+  CHECK_EQ(r->status, 0u);
+  for (std::uint8_t status = 1; status <= 4; ++status) {
+    result[17] = status;
+    r = parseFleetCarryResult(Bytes(result, sizeof(result)));
+    CHECK(r.ok());
+    CHECK_EQ(r->status, status);
+  }
+  CHECK(!parseFleetCarryResult(Bytes(result, sizeof(result) - 1)).ok());
+  result[0] = 52;
+  CHECK(!parseFleetCarryResult(Bytes(result, sizeof(result))).ok());
+
+  // FLEET_RELEASED: [52][player][reason].
+  std::uint8_t released[fleet::kReleasedSize] = {52};
+  le::writeI64(released + 1, kPlayerId);
+  for (std::uint8_t reason : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{5}}) {
+    released[9] = reason;
+    auto rel = parseFleetReleased(Bytes(released, sizeof(released)));
+    CHECK(rel.ok());
+    CHECK_EQ(rel->playerGameTokenId, kPlayerId);
+    CHECK_EQ(rel->reason, reason);
+  }
+  CHECK(!parseFleetReleased(Bytes(released, sizeof(released) - 1)).ok());
+  released[0] = 51;
+  CHECK(!parseFleetReleased(Bytes(released, sizeof(released))).ok());
+
+  // FLEET_DELIVERY: [53][count][count x player][notification].
+  auto delivery = [](std::size_t count, std::size_t listed, Bytes notification) {
+    std::vector<std::uint8_t> f(2 + listed * 8 + notification.size());
+    f[0] = 53;
+    f[1] = static_cast<std::uint8_t>(count);
+    for (std::size_t i = 0; i < listed; ++i)
+      le::writeI64(f.data() + 2 + i * 8, 1000 + static_cast<std::int64_t>(i));
+    if (!notification.empty())
+      std::memcpy(f.data() + 2 + listed * 8, notification.data(), notification.size());
+    return f;
+  };
+  const Bytes note(kGoldenSpatial, sizeof(kGoldenSpatial));
+  auto one = delivery(1, 1, note);
+  auto d = parseFleetDelivery(Bytes(one.data(), one.size()));
+  CHECK(d.ok());
+  CHECK_EQ(d->count, 1u);
+  CHECK_EQ(d->recipient(0), 1000);
+  CHECK_EQ(d->notification.size(), sizeof(kGoldenSpatial));
+  CHECK(std::memcmp(d->notification.data(), kGoldenSpatial, sizeof(kGoldenSpatial)) == 0);
+
+  auto most = delivery(32, 32, note);
+  d = parseFleetDelivery(Bytes(most.data(), most.size()));
+  CHECK(d.ok());
+  CHECK_EQ(d->count, 32u);
+  for (std::size_t i = 0; i < 32; ++i) CHECK_EQ(d->recipient(i), 1000 + static_cast<std::int64_t>(i));
+  CHECK_EQ(d->notification[0], 140u);
+  CHECK_EQ(d->notification.size(), sizeof(kGoldenSpatial));
+
+  // A count of 0, a count past 32, a list shorter than its count, and no notification.
+  auto none = delivery(0, 0, note);
+  CHECK(!parseFleetDelivery(Bytes(none.data(), none.size())).ok());
+  auto tooMany = delivery(33, 33, note);
+  CHECK(!parseFleetDelivery(Bytes(tooMany.data(), tooMany.size())).ok());
+  auto shortList = delivery(4, 2, Bytes());
+  CHECK(!parseFleetDelivery(Bytes(shortList.data(), shortList.size())).ok());
+  auto bare = delivery(2, 2, Bytes());
+  CHECK(!parseFleetDelivery(Bytes(bare.data(), bare.size())).ok());
+  const std::uint8_t header[] = {53};
+  CHECK(!parseFleetDelivery(Bytes(header, sizeof(header))).ok());
+  one[0] = 51;
+  CHECK(!parseFleetDelivery(Bytes(one.data(), one.size())).ok());
+}
+
 int main() {
+  testFleetConstants();
+  testFleetCarryGolden();
+  testFleetCarriedActorUpdateGolden();
+  testFleetServerMessages();
   testLayoutConstants();
   testGoldenEncode();
   testEncodeClientCapabilities();

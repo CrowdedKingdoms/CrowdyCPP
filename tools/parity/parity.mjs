@@ -77,53 +77,11 @@ const SCHEMA_BASELINE = {
   // the block said it would. A future server release that lands here before it
   // lands in the pinned CrowdyJS gets a new, dated group in their place.
 
-  // FLEET SESSIONS (CrowdyCPP 0.94.0, Application API v2.89.1, 2026-11-26). This group is
-  // the other way round: the pinned CrowdyJS 18.40.0 copies its schema from the Application
-  // API's dev branch, and this snapshot is the published SDL, which stops at v2.88.0 and
-  // does not carry the fleet fields yet. The four root fields are implemented here
-  // (FleetSessionsAPI and ExecAPI, their documents written in the headers, which the root
-  // scan reads), so they are covered. The three settings are an operator's: neither SDK
-  // wraps setOrgManagedPlayerSettings or selects them. The schema sync that brings v2.89
-  // turns every entry stale and the gate says so: delete the group then, and move the four
-  // documents to operations/ (AGENTS.md, "Fleet sessions").
-  ...classifySchema(
-    [
-      'type:Mutation.closeFleetSession',
-      'type:Mutation.execConnectAsServer',
-      'type:Mutation.openFleetSession',
-      'type:Mutation.refreshFleetSession',
-    ],
-    CATEGORY.COVERED,
-    'fleet sessions and the hub server connection (Application API v2.89.1), implemented in admin().fleetSessions() and exec().serverEndpoint / connectAsServer from documents written in the headers; the published SDL this snapshot is synced from does not carry them yet',
-    'member-only',
-    'CrowdyJS',
-  ),
-  ...classifySchema(
-    [
-      'input:CloseFleetSessionInput',
-      'input:OpenFleetSessionInput',
-      'input:RefreshFleetSessionInput',
-      'type:FleetSession',
-    ],
-    CATEGORY.COVERED,
-    'the inputs and the answer of the fleet session calls (Application API v2.89.1): FleetSessionsAPI builds the inputs and domains::FleetSessionResponse reads the answer; the published SDL this snapshot is synced from does not carry them yet',
-    'definition-only',
-    'CrowdyJS',
-  ),
-  ...classifySchema(
-    [
-      'input:SetOrgManagedPlayerSettingsInput.fleetSessionsEnabled',
-      'input:SetOrgManagedPlayerSettingsInput.maxFleetPlayers',
-      'input:SetOrgManagedPlayerSettingsInput.maxFleetSessions',
-      'type:OrgManagedPlayerSettings.fleetSessionsEnabled',
-      'type:OrgManagedPlayerSettings.maxFleetPlayers',
-      'type:OrgManagedPlayerSettings.maxFleetSessions',
-    ],
-    CATEGORY.BROWSER,
-    "an operator switches fleet sessions on for an organization and sets its limits (setOrgManagedPlayerSettings, Application API v2.89.1), which neither SDK wraps or selects; the published SDL this snapshot is synced from does not carry them yet",
-    'member-only',
-    'CrowdyJS',
-  ),
+  // The fleet session group that lived here (CrowdyCPP 0.94.0: the pinned CrowdyJS 18.40.0
+  // copied the Application API's dev schema, v2.89.1, while this snapshot was the published
+  // SDL at v2.88.0) went stale the same day, when the published SDL caught up, and refused
+  // the promotion to test. 0.94.1 synced the snapshot and removed it. A dated group written
+  // because the published SDL trails is checked against the SDL again before a promotion.
 };
 
 const ROOT_CLASSIFICATIONS = {

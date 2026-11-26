@@ -2238,6 +2238,9 @@ void runAnIdleSessionIsNeverTakenForGone() {
     clock.advance(1000);
   }
   CHECK_EQ(advertisements, 41);  // at 0 and every 15 seconds
+  // The last acknowledgement crosses the loopback in its own time (macOS takes longer than one
+  // empty pump): wait for it, in real time, before counting.
+  pumpUntil(fleet, [&] { return fleet.stats().boundControlAcks >= 41u; });
   const auto stats = fleet.stats();
   CHECK_EQ(stats.boundControlAcks, 41u);
   CHECK_EQ(stats.reconnects, 0u);

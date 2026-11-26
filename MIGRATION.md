@@ -3,7 +3,7 @@
 ## Unreleased: fleet sessions for an organization's game servers
 
 Not in a release yet; the release that carries it takes this section's place in the order. A dev-tier preview:
-it needs Application API v2.89.0, realtime servers v0.50.0, and ck-exec 0.25.0. Native first:
+it needs Application API v2.89.0, realtime servers v0.50.1, and ck-exec 0.25.0. Native first:
 CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
 `exec_wire::ClientFrame::Kind` without a `default`.
 
@@ -45,7 +45,14 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   `FleetReleaseReason::Unknown` with the byte in `FleetReleased::wireReason`. A `ProofRefused` that arrives
   while another carry for the player has no answer yet does not end the carry: at the first, the session sends
   one more at once, and the carry ends `ProofRefused` once every carry sent for the player has been refused, or
-  at the deadline.
+  at the deadline. A carry answered `NoLiveToken` is sent once more, 250 ms later, before it ends that way
+  (`Stats::noLiveTokenRetries`).
+- **A refreshed player token.** `PlayerToken` gains `replaces`: after `refreshAppToken` for a carried player,
+  call `carry({newToken, newGameTokenId, oldGameTokenId})`. The player stays carried throughout and `released`
+  does not fire. From the moment the new `FLEET_CARRY` leaves, the player's sends name the new id on the wire,
+  whichever of the two ids you pass. When the result is `Carried`, sends for the old id return `NotCarried`, and
+  a late frame about the old id is ignored and counted (`Stats::replacedIdFrames`). A refused replacement
+  leaves the player carried under the old id; one that nothing answers releases both ids.
 - **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
   player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
   send, with the HMAC keyed by the fleet token. Under its own id the session sends `CLIENT_CAPABILITIES` (29),
@@ -60,19 +67,29 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   `MESSAGE_BUNDLE_SIGNED`. A frame whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`. The
   notification inside a `FLEET_DELIVERY` is the unsigned form. The largest datagram a fleet session is sent is
   1,242 bytes (`wire::fleet::kMaxReceiveDatagramSize`).
-- **`GenericError::verified`** is new, on `Connection` and `FleetSession` alike: true when the error frame
-  arrived inside a signed bundle whose HMAC held. A fleet session acts on `TOKEN_EXPIRED` only when it is
-  verified; an unverified error frame reaches `genericError` with `verified` false and changes nothing in the
-  session. A `Connection` acts on `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two
-  values still compiles.
-- **When a session ends.** The realtime servers send an ended session nothing, so its sends return `Ok` and
-  are dropped. A `FleetConfig` therefore starts with `transport.watchdogSilenceMs` 45,000
-  (`fleetTransportDefaults()`; a player's `Connection` keeps 0): when nothing the server signed has arrived
-  for 45 seconds, `moveOrdered()` and `refreshDue()` turn true. The refresh answers `NOT_FOUND` for a
-  session that was closed or whose org token was revoked. The session keeps its socket and its state
-  meanwhile, and after a refresh that answers a server it carries every player again. With
-  `FleetConfig::reassign` set, the session calls it when the timeout passes. 0 switches the timeout off, a
-  smaller value than 3,000 is 3,000, and `transport.advertiseIntervalMs` is held to at most a third of it.
+- **Refusals.** `GenericError::verified` is new, on `Connection` and `FleetSession` alike: true when the error
+  frame arrived inside a signed bundle whose HMAC held. The realtime servers send a fleet session its refusals
+  inside its signed bundles, so they are verified; a lone three-byte frame is a hint. No error frame changes
+  anything in a fleet session, `TOKEN_EXPIRED` included: that one is about the token of the player the send
+  named. `FleetHandlers::sendRefused` names the player of a verified refusal (`FleetSendRefused`) when no send
+  for another player used the same sequence number in the last 3 seconds. A `Connection` acts on
+  `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two values still compiles.
+- **When a session ends.** The realtime server tells the session once, signed (`COMMAND_SESSION_RELEASED`):
+  reason 0 for a session that was closed through the Application API, whose org token was revoked, or whose
+  organization lost fleet sessions, reason 2 for an expired fleet token, and 1, 3, or 4 when the server lets a
+  live session go. `FleetHandlers::sessionReleased` reports it (`FleetSessionReleased`). At once
+  `moveOrdered()` and `refreshDue()` are true and the session carries nobody. The refresh answers `NOT_FOUND`
+  for a session that has ended: open a new one. When it answers a server, apply it, and the session carries
+  every player again.
+- **Silence.** That message can be lost, and a session never authorized on its server is sent nothing. A
+  `FleetConfig` therefore starts with `transport.watchdogSilenceMs` 45,000 (`fleetTransportDefaults()`; a
+  player's `Connection` keeps 0): when nothing the server signed has arrived for 45 seconds, `moveOrdered()`
+  and `refreshDue()` turn true. The session keeps its socket and its state meanwhile, and after a refresh
+  that answers a server it carries every player again. With `FleetConfig::reassign` set, the session calls
+  it when the server ends the session or the timeout passes. 0 switches the timeout off, a smaller value
+  than 3,000 is 3,000, and `transport.advertiseIntervalMs` is held to at most a third of it.
+- **`FleetSession::Stats`** is `Connection::Stats` with the session's own counts: `noLiveTokenRetries`,
+  `replacedIdFrames`, `sessionReleases`, and `sendRefusalsNamed`.
 - **Nothing but its own.** A fleet session drops a notification that names another app than its own
   (`Stats::wrongApp`) and a plain notification that nothing signed (`Stats::unsignedNotifications`), and logs
   each at WARN at the first and each time the count doubles. Both are new members of `Connection::Stats` and

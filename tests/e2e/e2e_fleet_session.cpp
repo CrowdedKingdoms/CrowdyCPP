@@ -8,6 +8,15 @@
 //   CROWDY_FLEET_ORG_TOKEN   an org token of that organization with the scopes fleet:session
 //                            and players:mint. Read from the environment, never printed.
 // Optional:
+//   CROWDY_FLEET_REALTIME_MIN  the least version the tier's realtime servers are known to
+//                              run, as 0.50.1. Three steps differ between v0.50.1 and
+//                              the build before it: how a session closed through the API
+//                              learns of it
+//                              (a signed release within 5 seconds, or 45 seconds of
+//                              silence), whether a refusal arrives verified, and whether a
+//                              carried player's refreshed token is carried with no send
+//                              refused. Each prints which it saw. With this set to 0.50.1
+//                              or later, the earlier behaviour fails the run.
 //   CROWDY_FLEET_IDLE_SECONDS  the app's idle timeout when it is short (60, say): the suite
 //                              then lets one carried player go quiet and requires its
 //                              FLEET_RELEASED, reason 5. Unset, that step is skipped.
@@ -29,6 +38,7 @@
 // The players stand in chunk (7100, 7100, 0). Each send is retried a few times where UDP may
 // have dropped it; a refusal or a wrong delivery fails the run.
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -107,6 +117,26 @@ void say(const std::string& line) { std::printf("%s\n", scrub(line).c_str()); }
   do {                                                                                 \
     if (!(cond)) fail(std::string(why) + " (" #cond ", line " + std::to_string(__LINE__) + ")"); \
   } while (0)
+
+/// CROWDY_FLEET_REALTIME_MIN as major, minor, patch; zeros when unset.
+std::array<int, 3> realtimeMinimum() {
+  std::array<int, 3> version{0, 0, 0};
+  const std::string text = envOr("CROWDY_FLEET_REALTIME_MIN");
+  std::size_t at = 0;
+  if (!text.empty() && (text[0] == 'v' || text[0] == 'V')) at = 1;
+  for (int part = 0; part < 3 && at < text.size(); ++part) {
+    version[static_cast<std::size_t>(part)] = std::atoi(text.c_str() + at);
+    at = text.find('.', at);
+    if (at == std::string::npos) break;
+    ++at;
+  }
+  return version;
+}
+
+/// True when the tier's realtime servers are known to run at least this version.
+bool realtimeAtLeast(int major, int minor, int patch) {
+  return realtimeMinimum() >= std::array<int, 3>{major, minor, patch};
+}
 
 std::int64_t msSince(Clock::time_point from) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count();
@@ -220,6 +250,11 @@ struct StatusSeen {
   Clock::time_point at;
 };
 
+struct SessionEndSeen {
+  FleetSessionReleased released;
+  Clock::time_point at;
+};
+
 /// One of the organization's game servers: its session at the API and on the wire.
 struct GameServer {
   explicit GameServer(std::string called) : name(std::move(called)) {}
@@ -236,6 +271,10 @@ struct GameServer {
   std::vector<ReleasedSeen> released;
   std::vector<StatusSeen> statuses;
   std::vector<FleetCarryResult> results;
+  /// The realtime server's signed word that the session ended (v0.50.1 sends one).
+  std::vector<SessionEndSeen> sessionEnds;
+  /// Verified refusals the session could name a player for.
+  std::vector<FleetSendRefused> refusedSends;
   /// Communications that arrived outside a FLEET_DELIVERY: there must be none.
   int plainCommunications = 0;
   /// Notifications a handler was given that named another app than the session's: the SDK
@@ -251,6 +290,8 @@ struct GameServer {
     fleet.reset();
     log = std::make_shared<SessionLog>();
     ofAnotherApp = 0;
+    sessionEnds.clear();
+    refusedSends.clear();
     fleet = std::make_unique<FleetSession>(config.value(), core::opensslCrypto(), core::systemClock(), *log);
     FleetHandlers h;
     h.any = [this, app = config.value().appId](const SpatialNotification& n, FleetRecipients) {
@@ -280,6 +321,8 @@ struct GameServer {
     h.released = [this](const FleetReleased& r) { released.push_back({r, Clock::now()}); };
     h.status = [this](ConnState s) { statuses.push_back({s, Clock::now()}); };
     h.carryResult = [this](const FleetCarryResult& r) { results.push_back(r); };
+    h.sessionReleased = [this](const FleetSessionReleased& r) { sessionEnds.push_back({r, Clock::now()}); };
+    h.sendRefused = [this](const FleetSendRefused& r) { refusedSends.push_back(r); };
     fleet->setHandlers(std::move(h));
     FLEET_CHECK(fleet->open().ok(), name + ": the session opens");
   }
@@ -555,6 +598,10 @@ int run() {
   }
   keepSecret(orgToken);
   const int idleSeconds = std::atoi(envOr("CROWDY_FLEET_IDLE_SECONDS", "0").c_str());
+  // What realtime servers v0.50.1 changed is required only of a tier known to run it.
+  const bool v0501 = realtimeAtLeast(0, 50, 1);
+  say(v0501 ? "the tier's realtime servers are at least v0.50.1 (CROWDY_FLEET_REALTIME_MIN): its behaviour is required"
+            : "CROWDY_FLEET_REALTIME_MIN is not 0.50.1 or later: what differs from v0.50.1 is reported, and does not fail the run");
 
   auto http = std::make_shared<CountingTransport>(graphql::makeCurlTransport());
   ClientConfig c;
@@ -801,9 +848,28 @@ int run() {
     FLEET_CHECK(refusal->code == wire::ErrorCode::Unauthorized, "the refusal is UNAUTHORIZED");
     w.spin(500);
     FLEET_CHECK(Y.updatesWith(pose) == 0, "the refused update reached nobody");
-    FLEET_CHECK(X.fleet->carries(p1.token.gameTokenId) && X.fleet->state() == ConnState::Connected,
+    FLEET_CHECK(X.fleet->carries(p1.token.gameTokenId) && X.fleet->state() == ConnState::Connected &&
+                    !X.fleet->moveOrdered() && !X.fleet->refreshDue(),
                 "a refusal changes nothing in the session");
     std::printf("REFUSALS_VERIFIED=%s\n", refusal->verified ? "true" : "false");
+    // Realtime servers v0.50.1 send a fleet session its refusals inside its signed bundles.
+    if (v0501) FLEET_CHECK(refusal->verified, "a refusal from realtime servers v0.50.1 is verified");
+    // A verified refusal names the player whose send it was: X has sent nothing under that
+    // sequence number for anyone else in the last seconds.
+    const FleetSendRefused* named = nullptr;
+    for (const auto& r : X.refusedSends) {
+      if (r.sequence == refusal->sequence) named = &r;
+    }
+    if (refusal->verified) {
+      FLEET_CHECK(named != nullptr, "sendRefused names the player of a verified refusal");
+      FLEET_CHECK(named->playerGameTokenId == p1.token.gameTokenId && named->userId == p1.userId &&
+                      named->code == wire::ErrorCode::Unauthorized && !named->playerTokenExpired(),
+                  "the player it names is player 1");
+      say("   sendRefused named player 1");
+    } else {
+      FLEET_CHECK(named == nullptr, "an unverified refusal names no player");
+      say("   the refusal was unverified, so sendRefused named nobody (realtime servers before v0.50.1)");
+    }
   }
 
   // ---- 9 ----
@@ -833,6 +899,98 @@ int run() {
     p1.lastInput = Clock::now();
   }
 
+  // ---- 9a ----
+  step("9a", "a carried player's refreshed token: carried throughout, and no send refused");
+  {
+    Managed& p = p2;
+    const std::int64_t oldId = p.token.gameTokenId;
+    // refreshAppToken, as the player (the app token is its bearer). A carried player has no
+    // session of its own, so the refresh names no realtime server.
+    ClientConfig pc;
+    pc.httpUrl = apiUrl;
+    CrowdyClient asPlayer(std::move(pc));
+    asPlayer.setToken(p.token.token);
+    const auto fresh = whenNotBusy([&] { return asPlayer.portal().refresh(/*install=*/false); });
+    keepSecret(fresh.token);
+    FLEET_CHECK(fresh.token.size() == 64, "refreshAppToken answers a 64-character token");
+    const std::int64_t newId = fresh.gameTokenIdInt64().value_or(0);
+    FLEET_CHECK(newId > 0, "and its gameTokenId");
+    FLEET_CHECK(fresh.token != p.token.token, "and it is a new token");
+    say("   refreshAppToken answered " +
+        std::string(newId != oldId ? "a new gameTokenId, " + std::to_string(newId) : "the same gameTokenId"));
+
+    const std::size_t errorsBefore = Y.errors.size(), releasedBefore = Y.released.size();
+    const auto statsBefore = Y.fleet->stats();
+    p.quiet = true;  // this step sends for the player itself, every 20 ms
+    bool done = false;
+    FleetCarryResult result;
+    std::int64_t carriedMs = -1;
+    const auto start = Clock::now();
+    FLEET_CHECK(Y.fleet
+                    ->carry(PlayerToken{fresh.token, newId, oldId},
+                            [&](const FleetCarryResult& r) {
+                              result = r;
+                              carriedMs = msSince(start);
+                              done = true;
+                            })
+                    .ok(),
+                "carry() with the refreshed token and `replaces` is accepted");
+    std::vector<std::string> poses;
+    std::map<std::string, int> refusedHere;
+    for (int n = 0; msSince(start) < 2000; ++n) {
+      const std::string pose = "refreshed " + w.tag + " " + std::to_string(n);
+      // Either id names the player while the carry waits; the session puts the right one on
+      // the wire. Once the carry is confirmed the old id names nothing.
+      const std::int64_t id = (!done && n % 2 == 0) ? oldId : newId;
+      const auto sent = Y.fleet->sendActorUpdate(id, {kChunk, p.uuid, bytesOf(pose)});
+      if (sent.ok()) poses.push_back(pose);
+      else ++refusedHere[errcName(sent.error())];
+      (void)Y.fleet->flushSends();
+      w.spin(20);
+    }
+    FLEET_CHECK(done, "the refreshed token's carry has a result");
+    say("   the carry: " + std::string(fleetCarryStatusName(result.status)) + " in " + std::to_string(carriedMs) + " ms");
+    FLEET_CHECK(result.carried() && result.userId == p.userId && result.playerGameTokenId == newId,
+                "the refreshed token's carry ends Carried, for the same user");
+    std::string here;
+    for (const auto& [name, count] : refusedHere) here += " " + name + " x" + std::to_string(count);
+    FLEET_CHECK(refusedHere.empty(), "the player stayed carried: the session accepted every send (" + here + " )");
+    FLEET_CHECK(Y.fleet->carries(newId), "the session carries the player under the new id");
+    if (newId != oldId) {
+      FLEET_CHECK(!Y.fleet->carries(oldId), "and the old id names nothing");
+      FLEET_CHECK(Y.fleet->sendActorUpdate(oldId, {kChunk, p.uuid, bytesOf("old")}).error() == Errc::NotCarried,
+                  "a send for the old id is NotCarried");
+    }
+    p.token = PlayerToken{fresh.token, newId};
+    p.quiet = false;
+    p.lastInput = Clock::now();
+    // A refusal can take the realtime server two seconds; after that, what was sent arrived.
+    w.spin(2500);
+    FLEET_CHECK(Y.releasedOf(oldId, releasedBefore) == nullptr && Y.releasedOf(newId, releasedBefore) == nullptr,
+                "no release was reported: the carry under the old token stood until the new one took effect");
+    int reached = 0;
+    for (const auto& pose : poses) reached += X.updatesWith(pose) > 0;
+    std::map<std::string, int> refusals;
+    for (std::size_t i = errorsBefore; i < Y.errors.size(); ++i) {
+      ++refusals["code " + std::to_string(static_cast<int>(Y.errors[i].code)) +
+                 (Y.errors[i].verified ? " verified" : " unverified")];
+    }
+    std::string answered;
+    for (const auto& [kind, count] : refusals) answered += (answered.empty() ? "" : ", ") + kind + " x" + std::to_string(count);
+    const auto statsAfter = Y.fleet->stats();
+    const int refused = static_cast<int>(Y.errors.size() - errorsBefore);
+    say("   " + std::to_string(poses.size()) + " sends for the player in 2 s around the carry: " +
+        std::to_string(reached) + " reached X; the realtime server refused " + std::to_string(refused) +
+        (answered.empty() ? "" : " (" + answered + ")") + "; late frames about the old id: " +
+        std::to_string(statsAfter.replacedIdFrames - statsBefore.replacedIdFrames));
+    std::printf("REFRESHED_TOKEN_REFUSED_SENDS=%d\n", refused);
+    FLEET_CHECK(reached > 0, "the player's sends reach the other session");
+    if (v0501) {
+      FLEET_CHECK(refused == 0, "no send for the player was refused around the refreshed token's carry");
+      FLEET_CHECK(reached * 10 >= static_cast<int>(poses.size()) * 9, "and they reached the other session");
+    }
+  }
+
   // ---- 9b ----
   // Player 1 goes quiet from here: with CROWDY_FLEET_IDLE_SECONDS its idle release is step 9c.
   p1.quiet = true;
@@ -840,11 +998,12 @@ int run() {
   const std::size_t xReleasedBefore = X.released.size();
 
   // A third server takes player 3 from Y, its session is closed through the API, and its
-  // FleetSession goes on sending for player 3. The realtime server sends an ended session
-  // nothing, so what is required is that it no longer speaks for the player, that the
-  // silence timeout makes a refresh due about 45 seconds later, that the refresh answers
-  // NOT_FOUND, and that a new session carries the player again.
-  step("9b", "a session ended through the API: silent, a refresh due in 45 s, NOT_FOUND, a new session");
+  // FleetSession goes on sending for player 3. Realtime servers v0.50.1 tell the session,
+  // signed, at once (COMMAND_SESSION_RELEASED, reason 0); the build before it sends nothing, and the
+  // silence timeout makes the refresh due about 45 seconds later. Either way the session no
+  // longer speaks for the player, the refresh answers NOT_FOUND, and a new session carries
+  // the player again.
+  step("9b", "a session ended through the API: a refresh is due, NOT_FOUND, a new session");
   {
     GameServer& S = Z;
     S.opened = whenNotBusy([&] { return sessions.open(appId); });
@@ -884,7 +1043,10 @@ int run() {
     const auto note = [&](const std::string& what) {
       say("   +" + std::to_string(msSince(closedAt)) + " ms: " + what);
     };
-    for (int n = 0; msSince(closedAt) < 60000; ++n) {
+    // Until 3 seconds after the refresh came due, or 60 seconds.
+    for (int n = 0; msSince(closedAt) < 60000 &&
+                    (refreshDueAtMs < 0 || msSince(closedAt) < refreshDueAtMs + 3000);
+         ++n) {
       const std::string pose = "after " + S.name + " " + w.tag + " " + std::to_string(n);
       const std::int64_t sentMs = msSince(closedAt);
       const auto sent = S.fleet->sendActorUpdate(p3.token.gameTokenId, {kChunk, p3.uuid, bytesOf(pose)});
@@ -965,17 +1127,36 @@ int run() {
 
     // An ended session no longer speaks for its players.
     FLEET_CHECK(arrivedLate == 0, "nothing an ended session sends for a player is delivered");
-    // (One acknowledgement may have been on its way when the session was closed.)
-    FLEET_CHECK(statsAfter.boundControlAcks - statsBefore.boundControlAcks <= 1 &&
-                    statsAfter.messagesSentByType[29] - statsBefore.messagesSentByType[29] >= 3,
-                "an ended session's capabilities are not acknowledged");
-    // The silence is what tells it: a refresh is due about 45 seconds after the server last
-    // said something, and the session stays as it is meanwhile.
-    FLEET_CHECK(refreshDueAtMs >= 0 && moveOrderedAtMs >= 0,
-                "the silence timeout makes a refresh due on an ended session");
-    FLEET_CHECK(refreshDueAtMs >= 30000 && refreshDueAtMs <= 50000, "about 45 seconds after the close");
+    // A refresh is due, by the server's signed word or by its silence, and the session keeps
+    // its socket and its state meanwhile.
+    FLEET_CHECK(refreshDueAtMs >= 0 && moveOrderedAtMs >= 0, "a refresh is due on an ended session");
     FLEET_CHECK(statsAfter.reconnects == statsBefore.reconnects && S.fleet->state() == ConnState::Connected,
                 "the session keeps its socket and its state");
+    const bool told = !S.sessionEnds.empty();
+    if (told) {
+      const auto& end = S.sessionEnds.front();
+      const auto toldMs = std::chrono::duration_cast<std::chrono::milliseconds>(end.at - closedAt).count();
+      say("   the realtime server told the session, signed: COMMAND_SESSION_RELEASED reason " +
+          std::to_string(end.released.wireReason) + " (" + fleetSessionReleaseReasonName(end.released.reason) +
+          "), handled " + std::to_string(toldMs) + " ms after the close; refreshDue() was true " +
+          std::to_string(refreshDueAtMs) + " ms after it (realtime servers v0.50.1)");
+      FLEET_CHECK(S.sessionEnds.size() == 1, "it is told once");
+      FLEET_CHECK(end.released.reason == FleetSessionReleaseReason::Deauthorized && end.released.wireReason == 0,
+                  "the reason is 0: the token is no longer authorized");
+      FLEET_CHECK(refreshDueAtMs <= 5000, "within 5 seconds of the close");
+      FLEET_CHECK(!S.fleet->carries(p3.token.gameTokenId) && statsAfter.sessionReleases == 1,
+                  "and the session carries nobody");
+    } else {
+      say("   the realtime server sent the session nothing; the silence timeout made the refresh due " +
+          std::to_string(refreshDueAtMs) + " ms after the close (realtime servers before v0.50.1)");
+      // (One acknowledgement may have been on its way when the session was closed.)
+      FLEET_CHECK(statsAfter.boundControlAcks - statsBefore.boundControlAcks <= 1 &&
+                      statsAfter.messagesSentByType[29] - statsBefore.messagesSentByType[29] >= 3,
+                  "an ended session's capabilities are not acknowledged");
+      FLEET_CHECK(refreshDueAtMs >= 30000 && refreshDueAtMs <= 50000, "about 45 seconds after the close");
+    }
+    if (v0501) FLEET_CHECK(told, "realtime servers v0.50.1 tell a closed session that it ended");
+    std::printf("ENDED_SESSION_SIGN=%s\n", told ? "released" : "silence");
     std::printf("ENDED_SESSION_REFRESH_DUE_MS=%lld\n", static_cast<long long>(refreshDueAtMs));
     // The session is gone at the API: a second close answers false, a refresh NOT_FOUND.
     FLEET_CHECK(!sessions.close(*S.fleet), "a second close answers false");

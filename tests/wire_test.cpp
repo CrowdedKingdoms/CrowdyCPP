@@ -1049,7 +1049,7 @@ void testFleetServerMessages() {
 }
 
 // ---------------------------------------------------------------------------
-// The server's frames as built (realtime servers v0.50.0; the contract's section 8.3).
+// The server's frames as built (realtime servers v0.50.1; the contract's section 8.3).
 //
 // Each vector is a frame followed by its own HMAC, the form a session is sent when the
 // frame is alone in its datagram or a member of a plain MESSAGE_BUNDLE:

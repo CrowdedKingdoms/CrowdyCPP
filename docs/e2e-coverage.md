@@ -26,11 +26,20 @@ labels.
 
 ## Fleet sessions live validation (unreleased)
 
-On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, realtime servers `v0.50.0`),
-about 1.5 minutes a run, and under ThreadSanitizer and under AddressSanitizer with
-UndefinedBehaviorSanitizer, which reported nothing. One org token opened four fleet sessions and signed four
-managed players in. In several runs the sessions were on different realtime servers, so the steps below also
-passed between servers. What a run asserts, and what it measured:
+On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, and the realtime servers' build
+before `v0.50.1`, which never left dev), about 1.5 minutes a run, and under ThreadSanitizer and under
+AddressSanitizer with UndefinedBehaviorSanitizer, which reported nothing. One org token opened four fleet
+sessions and signed four managed players in. In several runs the sessions were on different realtime servers,
+so the steps below also passed between servers.
+
+Since then the suite follows realtime servers `v0.50.1`, and it has not run against them from here yet.
+Three steps differ there, and each prints which behaviour it saw: a session closed through the Application
+API is told within 5 seconds by a signed `COMMAND_SESSION_RELEASED` with reason 0 (before, 45 seconds of
+silence); a refusal arrives verified and `sendRefused` names the player; and a carried player's refreshed
+token (`refreshAppToken`, then `carry` with `replaces`) is carried with the player carried throughout and no
+send refused. `CROWDY_FLEET_REALTIME_MIN=0.50.1` makes the `v0.50.1` behaviour required.
+
+What a run asserted on 2026-11-26, and what it measured:
 
 - **Carrying.** Two sessions carried two players each. Every carry ended `Carried` with a user id, 30 to
   50 ms after `carry()` was called (the suite polls every 10 ms). Every capabilities advertisement of a live

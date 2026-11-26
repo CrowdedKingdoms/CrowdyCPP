@@ -4,7 +4,7 @@
 // except the last case, which runs the owned network thread.
 //
 // The golden bytes are wire_test's, computed independently (Python hmac/hashlib) from the
-// wire as built (realtime servers v0.50.0; the build contract's section 8).
+// wire as built (realtime servers v0.50.1; the build contract's sections 8 and 9).
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -2140,9 +2140,11 @@ void runMoveOrderWaitsForARefresh() {
 }
 
 // ---------------------------------------------------------------------------
-// The silence timeout. A session the Application API ended is sent nothing more by its
-// realtime server: no error frame, no acknowledgement of its capabilities (seen live against
-// v0.50.0). So a FleetConfig starts with FleetConfig::transport.watchdogSilenceMs 45,000:
+// The silence timeout. The realtime server tells a session that it ended in one datagram,
+// which can be lost, and a session never authorized on its server is sent nothing: no error
+// frame, no acknowledgement of its capabilities. (The build before v0.50.1 told a session
+// closed through the Application API nothing at all.) So a FleetConfig starts with
+// FleetConfig::transport.watchdogSilenceMs 45,000:
 // nothing the server signed for that long makes a refresh due, and the refresh's answer
 // (NOT_FOUND for an ended session) is what the game server acts on.
 // ---------------------------------------------------------------------------
@@ -3211,7 +3213,8 @@ void runSendFaultIsNamed() {
 // A fleet session is in one app. A notification that names another app is not the session's,
 // however it was signed: it is dropped, counted in Stats::wrongApp and reaches no handler,
 // plain or inside a FLEET_DELIVERY. (The realtime servers should never send one; a live run
-// against v0.50.0 saw them do it.) A plain notification nothing signed is dropped and counted
+// against the build before v0.50.1 saw it happen.) A plain notification nothing signed is
+// dropped and counted
 // in Stats::unsignedNotifications.
 // ---------------------------------------------------------------------------
 

@@ -959,7 +959,7 @@ hold the organization's org token and never reaches a player's device. A game th
 a player's device uses `Connection` with that player's own token.
 
 Fleet sessions are a dev-tier preview and are not in a release of this SDK yet. They need
-Application API v2.89.0 and realtime servers v0.50.0, and an operator switches them on for
+Application API v2.89.0 and realtime servers v0.50.1, and an operator switches them on for
 an organization.
 
 The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet
@@ -1021,14 +1021,27 @@ fleet.close();
   carry ends `TimedOut` after 5 seconds (`FleetConfig::carryResendMs`, `carryTimeoutMs`).
   The server drops carries past 64 a second, so the session sends at most 50 a second after
   a burst of 32 (`carriesPerSecond`, `carryBurst`; `fleetConfigOf` raises the burst to the
-  session's `maxPlayers`). After you refresh a player's token, call `carry` with the new
-  one. Once that carry is confirmed it replaces the entry the same user had.
+  session's `maxPlayers`). A carry answered `NoLiveToken` is asked once more, 250 ms
+  later, before it ends that way: a token made a moment ago may not have reached the
+  realtime server yet.
   A result does not say which of a player's carries it answers. A `ProofRefused` that
   arrives while another carry for the player has no answer yet can be the answer to an
   earlier carry that reached the server after a later one was accepted. So it ends
   nothing: at the first, the session sends one more carry at once, and it goes on sending
   every 250 ms. The carry ends `ProofRefused` once every carry the session sent for the
   player has been refused, or when the 5 seconds run out after a refusal.
+- **A refreshed player token.** After `refreshAppToken` for a carried player, carry the
+  player again and name the id they are carried under:
+  `fleet.carry({newToken, newGameTokenId, oldGameTokenId})`. The third value is
+  `PlayerToken::replaces`. The player stays carried throughout, with their speaker lists,
+  and `released` does not fire: the carry made with the old token stands until the new one
+  takes effect. From the moment the new `FLEET_CARRY` leaves, every send for the player
+  names the new id on the wire, whichever of the two ids you pass, and the realtime server
+  holds those sends behind the carry. A send that still named the old id after the new
+  carry took effect would be refused. Once the result is `Carried`, the old id names
+  nothing in this session. If the new carry is refused, the player stays carried under
+  the old id. If nothing answers it in 5 seconds, the session releases both ids and the
+  player is carried no more.
 - **Carry results.** `Carried` comes with the player's user id. The four refusals are:
 
   | Status | Meaning |
@@ -1064,23 +1077,34 @@ fleet.close();
   `handlers.released` reports a carry that the platform ended: `CarriedElsewhere`,
   `SignInEnded`, or `Idle`. It fires only for a player the session holds. A reason byte
   this SDK does not know arrives as `Unknown`, with the byte in `FleetReleased::wireReason`,
-  and the carry has ended all the same. A refusal of a send (`handlers.genericError`)
-  carries a one-byte sequence number the whole session shares and names no player.
+  and the carry has ended all the same.
+- **Crossings.** `FLEET_RELEASED` is sent once. It can be lost, and it can arrive up to
+  about 6 seconds late. The sure sign that this session no longer carries a player is the
+  refusal of its next send for that player (`UNAUTHORIZED`). Stop sending for a player
+  before you hand them to another server. Around a crossing the new session can receive a
+  few state updates that the previous session sent for the player just before, so treat
+  state that arrives for a player you carry as stale.
 - **Your own players' state.** A fleet session is not sent the state its own carried
   players sent. `fleet.setFleetOwnState(true)` (or `FleetConfig::fleetOwnState`) asks for
   it.
 - **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
   and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
 - **When a session ends.** A session ends when you close it, when its org token is
-  revoked, or at its `expiresAt`. Its carries end with it. The realtime servers send an
-  ended session nothing: no error frame, and no acknowledgement of its capabilities. Its
-  sends still return `Ok` and are dropped. Within about 45 seconds `refreshDue()` turns
-  true, because a live session hears an acknowledgement of its capabilities every 15
-  seconds and an ended one hears none. `refresh` then answers `NOT_FOUND` for a session
-  that was closed or whose org token was revoked. Open a new session and carry your
-  players again. When the refresh answers a server instead, the session was only out of
-  reach: give the answer to `applyFleetRefresh`, and the session carries every player
-  again. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
+  revoked, when fleet sessions are switched off for the organization, or at its
+  `expiresAt`. Its carries end with it. The realtime server tells the session once, in a
+  message signed with the fleet token (`COMMAND_SESSION_RELEASED`): reason 0 for a session
+  that was closed, whose org token was revoked, or whose organization lost fleet
+  sessions, and reason 2 for a fleet token that expired. `handlers.sessionReleased`
+  reports the reason. `refreshDue()` is true at once, and sends return `NotCarried`.
+  `refresh` then answers `NOT_FOUND`: open a new session and carry your players again.
+  The server sends the same message with reason 1, 3, or 4 when it lets a live session
+  go. Then `refresh` answers a server: give the answer to `applyFleetRefresh`, and the
+  session carries every player again.
+- **Silence.** That one message can be lost, and a session that was never authorized on
+  its server is sent nothing at all. So the session also watches for silence. A live
+  session hears an acknowledgement of its capabilities every 15 seconds. After 45 seconds
+  with nothing the server signed, `refreshDue()` turns true, and the refresh decides as
+  above. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
   timeout off, and the session sends its capabilities at least three times in it.
 
 ### Security notes
@@ -1091,14 +1115,14 @@ fleet.close();
 - **Signed messages.** `FLEET_CARRY_RESULT`, `FLEET_RELEASED`, and `FLEET_DELIVERY` count
   only with an HMAC keyed by the fleet token: their own, or that of the signed bundle they
   arrive in. One whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`.
-- **Error frames.** An error frame has no HMAC of its own. `GenericError::verified` is true
-  when the frame arrived inside a signed bundle whose HMAC held. A fleet session follows a
-  `TOKEN_EXPIRED` to a new assignment only when it is verified. An unverified error frame
-  still reaches `handlers.genericError`, with `verified` false, and changes nothing in the
-  session. If the fleet token has expired, refresh or open the session again yourself:
-  `refreshDue()` asks for a refresh 12 hours before that can happen. Realtime servers
-  v0.50.0 send a refusal such as `UNAUTHORIZED` outside a signed bundle, so it arrives
-  with `verified` false.
+- **Refusals.** A refusal of one send is three bytes, `[3][sequence][code]`, with no HMAC
+  of their own. The realtime servers send a fleet session its refusals inside its signed
+  bundles, so they are verified: `GenericError::verified` is true. A lone three-byte
+  frame arrives with `verified` false. Anyone who can reach the session's socket could
+  have sent it, so take it as a hint. Verified or unverified, a refusal changes nothing
+  in the session: no carry ends on it and no refresh comes due. `TOKEN_EXPIRED` is about
+  the token of the player the send named. The signed word that the fleet token expired is
+  `sessionReleased` with reason 2.
 - **Nothing but its own.** A fleet session is in one app. A notification that names
   another app is dropped and counted in `stats().wrongApp`, plain or inside a
   `FLEET_DELIVERY`, however it was signed. A notification that nothing signed is dropped
@@ -1116,6 +1140,30 @@ fleet.close();
   carries it sends again. It overwrites that copy with zeros when the player's entry goes
   (a release, a refusal, a timeout, a `FLEET_RELEASED`) and when the session closes. The
   string you passed to `carry` is yours to clear.
+
+### Why a send is refused
+
+`handlers.genericError` receives every refusal. A refusal echoes the one-byte sequence
+number of the send it answers and names no player. For a verified refusal
+`handlers.sendRefused` follows and names the player, when the session sent nothing for
+another player under that number in the last 3 seconds. A session that sends more than
+about 85 messages a second reuses a number sooner than that. Then match
+`GenericError::sequence` against the numbers your own sends returned.
+
+| Code | Why | What to do |
+|---|---|---|
+| `TOKEN_EXPIRED` (32) | The send landed just before the player's own token expired | Refresh the player's token (`refreshAppToken`) and carry again with `replaces`. Without a new carry, `FLEET_RELEASED` with reason 2 follows |
+| `UNAUTHORIZED` (7) | The player is no longer carried here: released, idle, sign-in ended, or carried by another session | Carry again if you mean to |
+| `UNAUTHORIZED` (7) | The send named the player's previous token id after a refreshed token's carry took effect | Carry with `replaces`; the session then names the new id itself |
+| `UNAUTHORIZED` (7) | A permission is missing: access, voice, video, text, direct message, or voxel write | Fix the grant |
+| `UNAUTHORIZED` (7) | The region's permissions were still loading (over 2 seconds, or too many sends waiting) | Send again |
+| `UNAUTHORIZED` (7) | The actor is another player's | Do not send under it |
+| `UNAUTHORIZED` (7) | The actor lookup did not answer in 2 seconds | Send again |
+| `UNAUTHORIZED` (7) | A communication rule refused it: a minor's direct message, or a scope that is switched off | Nothing |
+| `UNAUTHORIZED` (7) | The player's access to the app is suspended or ended | Stop serving the player |
+| `APP_PAUSED` (33) | The app is paused | Nothing the player did |
+
+A send past the player's rate budget has no refusal: it is dropped in silence.
 
 ### Opening, refreshing, and closing a session
 

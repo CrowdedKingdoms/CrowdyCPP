@@ -35,6 +35,11 @@
 ///
 /// A player who moves to another of the organization's servers is carried by that server's
 /// session; this one hears FleetHandlers::released with FleetReleaseReason::CarriedElsewhere.
+/// That release is sent once: it can be lost, or arrive up to about 6 seconds late. The sure
+/// sign that this session no longer carries a player is the refusal of its next send for
+/// that player (UNAUTHORIZED). Stop sending for a player before you hand them to another
+/// server. Around a crossing the new session can receive a few state updates the previous
+/// session sent for the player just before: treat state for a player you carry as stale.
 ///
 /// What goes on the wire (realtime servers v0.50.1):
 ///
@@ -343,7 +348,10 @@ struct FleetHandlers {
   /// server.
   std::function<void(const FleetCarryResult&)> carryResult;
   /// The server ended a carry: this session no longer carries the player when this fires.
-  /// It fires only for a player the session's table held; a FLEET_RELEASED for any other
+  /// The server sends it once, so it can be lost, and it can arrive up to about 6 seconds
+  /// late: the refusal of the next send for the player is the sure sign (sendRefused). It
+  /// does not fire for a carry that a refreshed token's carry replaced
+  /// (PlayerToken::replaces). It fires only for a player the session's table held; a FLEET_RELEASED for any other
   /// (one sent again after the player's row went, say) is counted in the statistics and
   /// reports nothing. A FLEET_RELEASED carries nothing that makes it fresh, so a captured
   /// one sent again releases a player the session carries here: when the player is still on
@@ -400,12 +408,14 @@ struct FleetConfig {
   int carryBurst = 32;
 
   /// Called when the session needs a realtime server again after open(): the server asked
-  /// it to move (COMMAND_RECONNECT), answered TOKEN_EXPIRED, or said nothing for the silence
-  /// timeout. Call `refreshFleetSession` without a `currentServer` and return the server it
-  /// answers. It runs on the network thread (the pump() caller with manualPump) and may
-  /// block. Unset, moveOrdered() says a server is wanted, and setServer() or applyRefresh()
-  /// gives it one later: after a move order the session opens again at the server it has
-  /// meanwhile, and after a silence it stays as it is.
+  /// it to move (COMMAND_RECONNECT), ended it (COMMAND_SESSION_RELEASED with any reason but
+  /// idleness), or said nothing for the silence timeout. Call `refreshFleetSession` without
+  /// a `currentServer` and return the server it answers, or an error when it answers
+  /// NOT_FOUND (the session then fails, and the game server opens a new one). It runs on
+  /// the network thread (the pump() caller with manualPump) and may block. Unset,
+  /// moveOrdered() says a server is wanted, and setServer() or applyRefresh() gives it one
+  /// later: after a move order the session opens again at the server it has meanwhile, and
+  /// after a silence, or when the server ended it, it stays as it is.
   std::function<Result<Assignment>()> reassign;
 
   /// Socket, bundling and pump options, with the meanings Connection gives them. `appId`

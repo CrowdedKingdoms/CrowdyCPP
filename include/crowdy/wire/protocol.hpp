@@ -316,7 +316,7 @@ constexpr std::size_t kDeliveryHeaderSize = 2;
 /// The most players one FleetDelivery lists; the server splits a longer list over frames.
 constexpr std::size_t kMaxDeliveryRecipients = 32;
 
-// How the three server frames are signed (realtime servers v0.50.0). A session reads both
+// How the three server frames are signed (realtime servers v0.50.1). A session reads both
 // forms whatever it advertised:
 //
 //  - a member of a MESSAGE_BUNDLE_SIGNED (30): the frame as above, with no HMAC of its own

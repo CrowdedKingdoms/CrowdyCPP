@@ -401,8 +401,8 @@ sends from any thread, the resends from the network thread's `tick`, and results
 deadlines from `poll()`, which is also the only thread a callback fires on (after the lock is
 dropped). A carry that is refused or times out removes its row.
 
-The wire is the realtime servers' v0.50.0 as built (the docs site's wire formats page has the
-bytes). What a
+The wire is the realtime servers' v0.50.1 as built (the docs site's wire formats page has the
+bytes). v0.50.1 replaced a build that never left dev: name v0.50.1 in anything public. What a
 change here must keep:
 
 - 51, 52 and 53 are read in both forms, whatever the session advertised: followed by their own
@@ -419,11 +419,37 @@ change here must keep:
 - A new session epoch on the server the carries were made on leaves them standing; another
   server, another fleet token or id, and a session opened again carry every player again with
   `carried` false until each 51 (`recarryAllLocked`).
-- An error frame has no HMAC of its own. With `fleet_` set, `Connection::poll()` acts on
-  `TOKEN_EXPIRED` only when `Event::verified` (the frame came in a verified signed bundle);
-  every error frame reaches `genericError` with `GenericError::verified` saying which. A
-  player's `Connection` acts on either, as it always has (changing that is the operator's
-  call). Anything new a fleet session does on the server's word needs the same check.
+- An error frame has no HMAC of its own; v0.50.1 sends a fleet session's inside its signed
+  bundles, so `GenericError::verified` is true for them. With `fleet_` set no error frame
+  changes anything, verified or not: `TOKEN_EXPIRED` answers one send and is about that
+  player's token (the fleet token's own expiry is a signed 45, reason 2), and of the eight
+  reasons for `UNAUTHORIZED` most are not about the carry. `FleetSession::onGenericError`
+  hands every frame to `genericError` and, for a verified one, names the player through
+  `sendRefused` when the sequence number allows it: `sentBySequence_` (filled by the
+  `FleetHooks::sent` hook in Connection's three send workers) keeps, per number, the last
+  player and when a message for anyone else last left under it, and a player is named only
+  when nothing for anyone else left under the number in `kFleetRefusalWindowMs`. A player's
+  `Connection` acts on `TOKEN_EXPIRED` verified or not, as it always has (changing that is
+  the operator's call). Anything new a fleet session does on the server's word needs a
+  verified frame.
+- A verified COMMAND_SESSION_RELEASED (45, or 28 before the bound forms are acknowledged)
+  with any reason but 5 ends the session's carries (`FleetHooks::sessionReleased`, on the
+  network thread; the handler fires from `poll()` through a two-byte `Fleet` event). Rows
+  stay, `carried` false and an attempt begun, and `carriesHeld_` keeps every FLEET_CARRY in
+  until `place()`, a new token or a new epoch that carries again: a server that ended the
+  session would answer none, and each would time out and take its row along. v0.50.1 sends
+  reason 0 to a session closed through the API. Reason 5 is Connection's idle path.
+- A refreshed token's carry (`PlayerToken::replaces`, the contract's 9.3) moves the row to
+  the new id (`supersedeLocked`, by node handle: a row holds two `ScrubbedToken64` and does
+  not move) and keeps `previousId` and `previousKey` to go back to. `aliases_` maps the old
+  id to the row while it waits, `retired_` remembers ids for a minute so their late 51 and
+  52 are counted (`Stats::replacedIdFrames`) and ignored. `Player::sendId` is the id the
+  player's sends name: it switches in `sendCarryLocked` when the new 49 leaves, after
+  `sendsInFlight_` reaches 0 (`SendScope` counts a send from its check to its transmission,
+  under `playersMutex_`), so no message names the old id after the carry has left. A send
+  worker for a player goes through `SendScope`; do not send for a player around it.
+- A status 1 is asked once more (`Player::noLiveToken`): the first sets the next send a
+  resend interval away, and only a status 1 after that carry left settles.
 - 51 and 52 carry no time, so a signed one can be replayed. A 52 for a row the table does not
   hold reports nothing (it is still counted in `messagesReceivedByType`); a 51 with no carry
   waiting is ignored; a reason byte other than 1, 2 and 5 is `FleetReleaseReason::Unknown`
@@ -445,15 +471,19 @@ change here must keep:
   the WARN line name it, and retrying it in a test would hide it.
 
 `e2e_fleet_session` is the live suite (`CROWDY_FLEET_*`, label `e2e_optional`; its header says
-what it leaves on a tier). It passed on dev on 2026-11-26 against realtime servers v0.50.0 and
-Application API v2.89.1 (`docs/e2e-coverage.md`). What that run showed, which a change here
-should keep in mind:
+what it leaves on a tier). It passed on dev on 2026-11-26 against the realtime servers' build
+before v0.50.1 and Application API v2.89.1 (`docs/e2e-coverage.md`). Three of its steps
+differ on v0.50.1 (a closed session is told, a refusal is verified, a refreshed token's carry
+has no refused send): each prints what it saw, and `CROWDY_FLEET_REALTIME_MIN=0.50.1` makes
+the v0.50.1 behaviour required. It has not run against v0.50.1 from here yet. What the runs
+showed, which a change here should keep in mind:
 
-- The servers send a refusal (`UNAUTHORIZED`) outside a signed bundle, so `GenericError::verified`
-  is false for it. A fleet session therefore acts on no error frame these servers send today.
-- A session closed through the API is sent nothing more: no error frame, no 46 for its
-  capabilities, no 52. So the silence timeout is on by default for a fleet session (Michael,
-  2026-11-26): `FleetConfig::transport` starts from `fleetTransportDefaults()`, 45,000 ms, and
+- That earlier build sent a refusal (`UNAUTHORIZED`) outside a signed bundle, so
+  `GenericError::verified` was false for it.
+- It sent a session closed through the API nothing more: no error frame, no 46 for its
+  capabilities, no 52. v0.50.1 sends a signed 45 with reason 0, once, which can be lost; a
+  session never authorized on its server is still sent nothing. So the silence timeout is on
+  by default for a fleet session (Michael, 2026-11-26): `FleetConfig::transport` starts from `fleetTransportDefaults()`, 45,000 ms, and
   a player's `Connection` keeps 0. The rule is `FleetSession::checkSilence`, on the network
   thread at the end of every housekeeping pass, and `Connection`'s own watchdog is skipped
   when `fleet_` is set. It counts only what verified (`Connection::lastVerifiedMs_`: a signed

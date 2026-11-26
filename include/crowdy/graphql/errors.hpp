@@ -365,8 +365,9 @@ inline bool orgLegalAcceptanceRequiredOf(const std::vector<GraphQLErrorDetail>& 
 }
 
 /// True when a field that takes an org token was refused ORG_TOKEN_REQUIRED: the bearer was a
-/// session token, an app token or a fleet token, or the request came from a browser. The fleet
-/// session calls and execConnectAsServer take the organization's org token and nothing else.
+/// session token, an app token or a fleet token. The fleet session calls and
+/// execConnectAsServer take the organization's org token and nothing else. (An org token sent
+/// from a browser is refused ORG_TOKEN_NOT_ALLOWED.)
 /// Not fixed by retrying.
 inline bool orgTokenRequiredOf(const std::vector<GraphQLErrorDetail>& errors) {
   return errorWithCode(errors, kOrgTokenRequiredCode) != nullptr;

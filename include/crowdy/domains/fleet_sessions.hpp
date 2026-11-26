@@ -35,12 +35,14 @@
 ///
 /// | Code | Means | Reader |
 /// |---|---|---|
-/// | `ORG_TOKEN_REQUIRED` | the bearer is not an org token, or the request came from a browser | `orgTokenRequiredOf` |
+/// | `ORG_TOKEN_REQUIRED` | the bearer is not an org token | `orgTokenRequiredOf` |
+/// | `ORG_TOKEN_NOT_ALLOWED` | the request came from a browser (it carried an `Origin` header) | `errorWithCode` |
 /// | `FLEET_SESSION_LIMIT` | open: the organization holds as many sessions as it may (512 unless an operator set another) | `fleetSessionLimitOf` |
 /// | `NOT_FOUND` | refresh: the session expired, was closed, or was opened with another org token | `fleetSessionNotFoundOf` |
 /// | `PLATFORM_BUSY` | the platform is shedding load; wait `retryAfterMs` and call again | `platformBusyOf` |
 /// | `ORG_LEGAL_ACCEPTANCE_REQUIRED` | an admin has not accepted the current Org-Managed Players Addendum | `orgLegalAcceptanceRequiredOf` |
-/// | `FORBIDDEN` | fleet sessions are not switched on for the organization, the org token lacks the scope, or the app is not in its app list | `errorWithCode` |
+/// | `FORBIDDEN` | fleet sessions are not switched on for the organization, or the org token lacks the `fleet:session` scope | `errorWithCode` |
+/// | `SCOPE_MISSING` | the app is not in the org token's app list | `errorWithCode` |
 /// | `FEATURE_DISABLED` | the tier does not serve org-managed players | `errorWithCode` |
 ///
 /// The documents are written here, as PortalAPI's are, because the published schema this

@@ -1107,12 +1107,14 @@ async calls deliver them in the outcome's `errors`. `crowdy/graphql/errors.hpp` 
 
 | `extensions.code` | Meaning | Reader |
 |---|---|---|
-| `ORG_TOKEN_REQUIRED` | The bearer is not an org token, or the request came from a browser | `orgTokenRequiredOf` |
+| `ORG_TOKEN_REQUIRED` | The bearer is not an org token | `orgTokenRequiredOf` |
+| `ORG_TOKEN_NOT_ALLOWED` | The request came from a browser (it carried an `Origin` header). An org token is used from your own servers only | `errorWithCode` |
 | `FLEET_SESSION_LIMIT` | `open`: the organization holds as many sessions as it may (512 unless an operator set another number) | `fleetSessionLimitOf` |
 | `NOT_FOUND` | `refresh`: the session expired, was closed, or was opened with another org token. Open a new one | `fleetSessionNotFoundOf` |
 | `PLATFORM_BUSY` | The platform is shedding load. Wait `retryAfterMs`, then call again | `platformBusyOf` |
 | `ORG_LEGAL_ACCEPTANCE_REQUIRED` | An admin has not accepted the current Org-Managed Players Addendum | `orgLegalAcceptanceRequiredOf` |
-| `FORBIDDEN` | Fleet sessions are not switched on for the organization, the org token lacks the scope, or the app is not in its app list | `errorWithCode` |
+| `FORBIDDEN` | Fleet sessions are not switched on for the organization, or the org token lacks the `fleet:session` scope | `errorWithCode` |
+| `SCOPE_MISSING` | The app is not in the org token's app list | `errorWithCode` |
 
 ### Hub calls from a game server
 

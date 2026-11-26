@@ -24,6 +24,67 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.94.0 live validation: fleet sessions
+
+On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, and the realtime servers' build
+before `v0.50.1`, which never left dev), about 1.5 minutes a run, and under ThreadSanitizer and under
+AddressSanitizer with UndefinedBehaviorSanitizer, which reported nothing. One org token opened four fleet
+sessions and signed four managed players in. In several runs the sessions were on different realtime servers,
+so the steps below also passed between servers.
+
+Since then the suite follows realtime servers `v0.50.3` (the first release with fleet sessions to leave dev). It
+ran against them on dev the same day with `CROWDY_FLEET_REALTIME_MIN=0.50.1` and passed every step, the hub step
+included. Three steps differ from the earlier build, and each prints which behaviour it saw: a session closed through the Application
+API is told within 5 seconds by a signed `COMMAND_SESSION_RELEASED` with reason 0 (before, 45 seconds of
+silence); a refusal arrives verified and `sendRefused` names the player; and a carried player's refreshed
+token (`refreshAppToken`, then `carry` with `replaces`) is carried with the player carried throughout and no
+send refused. `CROWDY_FLEET_REALTIME_MIN=0.50.1` (or later) makes that behaviour required.
+The suite has run on dev only: nobody has run it on test or prod, where the same platform releases have been since that day.
+
+What a run asserted on 2026-11-26, and what it measured:
+
+- **Carrying.** Two sessions carried two players each. Every carry ended `Carried` with a user id, 30 to
+  50 ms after `carry()` was called (the suite polls every 10 ms). Every capabilities advertisement of a live
+  session was acknowledged.
+- **State.** Ten actor updates for one player reached the other session once each, plain. Neither session was
+  sent its own players' state.
+- **Text.** One player's text reached each session in one `FLEET_DELIVERY`: the other session's listed its two
+  players, and the sender's own session's listed the sender and its other player. No communication arrived
+  outside a delivery.
+- **A crossing.** The second session carried a player of the first. Its carry ended `Carried` in 30 to 50 ms,
+  the first session was sent `FLEET_RELEASED` reason 1 in the same time, a send for that player on the first
+  session returned `NotCarried`, and the crossing made no Application API request.
+- **A refusal.** An actor update for one player under another player's actor was answered `UNAUTHORIZED`. It
+  arrived outside a signed bundle (`GenericError::verified` false) and changed nothing in the session.
+- **A refresh.** `refreshFleetSession` answered the same token and id with a later expiry on the same server.
+  The session stayed connected, sent no `FLEET_CARRY`, and its carried player's next update reached the
+  other session.
+- **An ended session.** After `closeFleetSession` the realtime server sent the session nothing in 60 seconds:
+  no error frame, no acknowledgement of four capabilities advertisements. Its 60 sends for its carried player
+  returned `Ok`, and none sent 5 seconds or more after the close reached the other session. With the config
+  `fleetConfigOf` makes (the silence timeout on, 45 seconds), `moveOrdered()` and `refreshDue()` turned true
+  44.6 to 45.0 seconds after the close, and the session kept its socket and stayed `Connected`. A second
+  close answered false and the refresh `NOT_FOUND`. A new session then carried the player in 40 to 50 ms.
+- **Idle.** A carried player with no input was released with reason 5 after 60 to 61 seconds (the app's idle
+  timeout is 60 seconds). Its session stayed connected, carried nobody for the rest of the run, heard only the
+  acknowledgements of its capabilities, and was never taken for gone.
+- **The hub.** `exec().connectAsServer` opened a server connection to the platform's probe app with another
+  organization's org token. The hub saw the server's own call as `Org { player: None }` and the `callAs` as
+  `Org { player: Some(id) }`, and the probe's `server` endpoint answered the player the server named.
+- **The end.** Every player was released, every session closed, `closeFleetSession` answered true for each
+  and false the second time.
+- **Nothing but its own.** The last step requires each session's counts of another app's notifications
+  (`Stats::wrongApp`), unsigned notifications (`Stats::unsignedNotifications`), and HMAC failures to be 0, and
+  that no handler was given a notification of another app. Of twelve runs between 04:24 and 04:52 UTC, the
+  two under the sanitizers among them, eight passed with every count 0. In three, between 04:25 and 04:31 UTC, a session on one realtime server was
+  sent actor updates (type 130) of another app of the same organization, inside signed bundles that
+  verified: 71, 105 (two sessions), and 508 (two sessions) of them. The SDK dropped and counted each, no
+  handler saw one, and every other step of those runs passed. That is a defect of the realtime servers,
+  and the step fails on it by design. One run in the same minutes failed earlier: a session on another
+  realtime server did not have its player's update delivered to a session on that server within 15 seconds.
+  The suite now waits 30 seconds there and prints what both sessions saw; it did not happen again in four
+  runs.
+
 ## 0.93.0 live validation
 
 On 2026-11-23 `e2e_studio_dock` passed live on dev and on test (Application API `v2.86.0` on both) as each
@@ -173,6 +234,8 @@ The TypeScript SDK's end-to-end suites are the primary parity target.
 | bans and account blocks | `e2e_bans_blocks`: the app's owner bans from a channel and a team (join, add, request and approval refused `GROUP_MEMBER_BANNED`; the ban survives leaving; unban lifts it), a member without `manage_members` and a player banning themselves are refused, a manager may ban a member but never the team's owner; with `CROWDY_E2E_OPERATOR_EMAIL` / `_PASSWORD`, a 20 s block refuses sign-in `ACCOUNT_BLOCKED` with `blockedUntil` and lapses by itself, an open-ended one carries no `blockedUntil`, and unblock lifts it | implemented; optional live. Passed on dev 2026-10-14 (all five sections, ck-api v2.44.1) |
 | input log | `input_log_test` (paging, `missingRecords`, the retryable and funds refusals, cancellation before and during a read) + `e2e_input_log` (the owner lists sessions with `missingRecords`, pages one session, a cancelled token sends nothing) | offline in default CI; optional live, read-only (0.62.0) |
 | generic GraphQL-WS | `graphql_subscription_test` | protocol behavior in default CI; the live round trip (`e2e_graphql_websocket`) went in 0.48.0 with the game-model feeds; the published schema's only subscription root now is `udpNotifications`, which CrowdyCPP replaces natively |
+| a game server's hub connection (`execConnectAsServer`, call-as) | `exec_test` (ck-exec's golden client frames, the `execConnectAsServer` document, the server role, `callAs` refused on other connections) + `e2e_fleet_session` (step 10) | frames and routing in default CI; the server's own call, a call for a player and the probe's `server` endpoint optional live |
+| fleet session calls (`openFleetSession`, `refreshFleetSession`, `closeFleetSession`) | `fleet_sessions_api_test` + `e2e_fleet_session` | documents, variables, parsed answers and the refusal readers in default CI; open, refresh, close, a second close and a refresh of an ended session optional live with an org token |
 | ck-exec connections | `exec_test` + `e2e_exec_gateway` (calls, a subscription's pushes, a refused platform method, a ping) | wire and routing in default CI; optional live against a gateway you name |
 | mods, CLIENT halves + grid ownership | `player_runtime_surface_test` (grid ownership) + `exec_test` (the Studio mod runtime, both targets) + `e2e_crowdy_studio` (the mod starter, a SERVER mod build) + `e2e_exec_client_halves` | typed surface and the Studio runtime in default CI; SERVER and CLIENT round trips optional live on an owned grid |
 | a Studio dock's calls (0.86.0, 0.87.0, 0.93.0) | `studio_dock_test` (live-modding check, model list, Studio origin, starter projects replayed from CrowdyJS, `CrowdyStudioModRunner` sequences, refusals, cancel and destroy; from 0.87.0 the Studio source on builds, the platform's CLIENT half starter and its 503 fallback, `links()`; from 0.93.0 dropped reads as missed polls and reads read once more, settled target states and mod facts, `Blocked`, module-name pins, exceptions reaching `onDone`, and the app-token runner with its redirect and `setAppToken`), `exec_test` and `crowdy_studio_test` (the blocking runtime's and `waitForModBuild`'s dropped reads) + `e2e_studio_dock` | default CI offline; the draft tests, the starter and the refusal paths optional live on an owned mod grid; the enabled agent path with `CROWDY_E2E_AGENT_ENABLED=1` |
@@ -218,6 +281,7 @@ docs (wire formats, HMAC, operations, troubleshooting).
 | permission refresh (grant/revoke on a live session) | `e2e_permission_refresh` | implemented; optional slow live |
 | app-token refresh + reconnect | `client_portable_test` + `e2e_gameplay_token_refresh` | staged failures in default CI; fresh-token HMAC self-echo optional live |
 | cross-server replication | `e2e_cross_server` | implemented; optional live with 2+ servers |
+| fleet sessions (one session of an organization's game server carrying its players) | `wire_test` + `fleet_session_test` (golden bytes, both signed forms, pacing, replays, the silent server) + `e2e_fleet_session` | wire and session behaviour in default CI against a loopback server; carries, a crossing, state and text delivery, a refusal, a refresh, an ended session and the idle release optional live (`CROWDY_FLEET_*`) |
 | soak / sustained two-client | `e2e_soak_two_clients` | implemented; optional slow live |
 | `COMMAND_RECONNECT` load-shed | — | excluded: server-side trigger; client handling is covered by the offline `replication_test` fake-server unit test |
 | server-notification inject; runtime-permission schema | — | excluded: internal (server-to-server / operator) surfaces, not part of the public client contract |

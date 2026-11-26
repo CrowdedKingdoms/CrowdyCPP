@@ -19,7 +19,9 @@ Bumping the minor also means updating `project(CrowdyCPP VERSION ...)` in
 `CMakeLists.txt`, the `find_package(CrowdyCPP <minor> ...)` request in
 `tests/consumer/CMakeLists.txt`, `version` in `package.json`, the target
 line in `README.md`, both `version` fields in `package-lock.json`, and the
-version `docs/compatibility.md` attaches its parity claim to. The consumer test
+version `docs/compatibility.md` attaches its parity claim to. The Opus job in
+`.github/workflows/ci.yml` writes a consumer of its own with the same
+`find_package` request; move it too (the gate below reads it). The consumer test
 is what proves the package config rejects a different `0.x` minor, so a stale
 request there passes for the wrong reason.
 

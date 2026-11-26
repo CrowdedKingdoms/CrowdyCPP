@@ -1,5 +1,158 @@
 # CrowdyCPP migration notes
 
+## 0.94.0 Fleet sessions for an organization's game servers
+
+For Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 (for the hub connection). All
+three have been on dev, test, and prod since November 26, 2026. Pinned to CrowdyJS 18.40.0, which carries the
+same feature. Fleet sessions stay off for an organization until Crowded Kingdoms switches them on, and the
+organization also needs org-managed players. Until then, the Application API refuses `fleetSessions().open` with
+`FORBIDDEN`. Every other call works with the Application API releases that 0.93.0 works with. Your code needs no
+change unless it switches over `Errc` or `exec_wire::ClientFrame::Kind` without a `default`.
+
+- **`client.fleetSessions()`** (`crowdy/domains/fleet_sessions.hpp`) wraps the Application API's
+  `openFleetSession`, `refreshFleetSession`, and `closeFleetSession`: `open(appId)`, `refresh(...)`, and
+  `close(...)`, each with an `...Async` twin. `client.admin().fleetSessions()` is the same instance. The
+  client's bearer is the organization's org token (`cko_...`, scope `fleet:session`). `open` and `refresh`
+  answer a `FleetSessionResponse` (`token`, `gameTokenId`, `appId`, `expiresAt`, `maxPlayers`, `server`); the
+  fleet token in it signs the realtime session and is never an API
+  bearer. **Refresh and close work only with the org token that opened the session:** another org token of the
+  same organization gets `NOT_FOUND` from `refresh` and `false` from `close`. Revoking an org token ends every
+  session it opened and closes the hub connections it opened, and a session that is neither refreshed nor
+  closed ends at its `expiresAt`, 24 hours after it was opened or last refreshed.
+- **From an answer to the session.** `domains::fleetConfigOf(opened)` is the `FleetConfig` for a new
+  `FleetSession`, and `domains::applyFleetRefresh(session, answer)` gives a live session its new expiry and, when
+  the answer names another realtime server, moves it there. `FleetSession::refreshDue()` is true once half of the
+  token's lifetime has passed (12 of 24 hours) or a realtime server told the session to move
+  (`moveOrdered()`). `FleetSession::applyRefresh(token, server)` takes a refresh without this client. The
+  session makes no Application API call of its own.
+- **`exec().connectAsServer(appId)`** asks `execConnectAsServer` for a game server's own hub connection with the
+  same org token and opens it; `exec().serverEndpoint(appId)` returns the answer for
+  `ExecConnection::openAsServer`.
+- **Refusals** are GraphQL errors, read by `graphql::orgTokenRequiredOf` (`ORG_TOKEN_REQUIRED`),
+  `fleetSessionLimitOf` (`FLEET_SESSION_LIMIT`), `fleetSessionNotFoundOf` (`NOT_FOUND` on a refresh), and
+  `platformBusyOf` (`PLATFORM_BUSY`, with `retryAfterMs`), beside `orgLegalAcceptanceRequiredOf`.
+
+- **`replication::FleetSession`** (`crowdy/replication/fleet_session.hpp`) is one realtime session that an
+  organization's game server opens for itself and uses for every player on that server. It is for an
+  organization's own servers: the fleet token signs for every player the session carries and never reaches a
+  player's device. `FleetConfig` holds the fleet token (64 characters), its `gameTokenId`, the app, and the realtime
+  server, all from `openFleetSession`. `setToken` takes a refreshed token and `setServer` a new realtime server.
+- **Carrying.** `carry({token, gameTokenId}, callback)` sends `FLEET_CARRY` (49) every 250 ms, each time with a
+  new time and proof, until `FLEET_CARRY_RESULT` (51) arrives, for at most 5 seconds. The session sends at most
+  50 carries a second after a burst of 32 (`FleetConfig::carriesPerSecond`, `carryBurst`), because the server
+  drops carries past 64 a second. The result is a `FleetCarryStatus`: `Carried` (with the user id), `NoLiveToken`
+  (1, also a token of another app), `OtherOrganization` (2), `ProofRefused` (3, also a replay), `NoRoom` (4, also
+  no place for the carry), or `TimedOut`. `release(gameTokenId)` sends `FLEET_RELEASE` (50), which has no answer.
+  `FleetHandlers::released` reports `FLEET_RELEASED` (52) with `CarriedElsewhere` (1), `SignInEnded` (2), or
+  `Idle` (5), only for a player the session holds. Any other reason byte arrives as
+  `FleetReleaseReason::Unknown` with the byte in `FleetReleased::wireReason`. A `ProofRefused` that arrives
+  while another carry for the player has no answer yet does not end the carry: at the first, the session sends
+  one more at once, and the carry ends `ProofRefused` once every carry sent for the player has been refused, or
+  at the deadline. A carry answered `NoLiveToken` is sent once more, 250 ms later, before it ends that way
+  (`Stats::noLiveTokenRetries`).
+- **A refreshed player token.** `PlayerToken` gains `replaces`: after `refreshAppToken` for a carried player,
+  call `carry({newToken, newGameTokenId, oldGameTokenId})`. The player stays carried throughout and `released`
+  does not fire. From the moment the new `FLEET_CARRY` leaves, the player's sends name the new id on the wire,
+  whichever of the two ids you pass. When the result is `Carried`, sends for the old id return `NotCarried`, and
+  a late frame about the old id is ignored and counted (`Stats::replacedIdFrames`). A refused replacement
+  leaves the player carried under the old id; one that nothing answers releases both ids.
+- **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
+  player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
+  send, with the HMAC keyed by the fleet token. Under its own id the session sends `CLIENT_CAPABILITIES` (29),
+  `FLEET_CARRY` (49), `FLEET_RELEASE` (50), and its keepalive (26) only, and its capabilities always leave first.
+- **Receiving.** `FleetHandlers` are `Connection`'s `Handlers` with a `FleetRecipients` argument last. State
+  arrives plain and once: `forSession()` is true, and the game server decides which of its players see it. A
+  communication always arrives inside `FLEET_DELIVERY` (53), listing the only carried players who may receive it
+  (at most 32). A client event (138) or an app-defined spatial message (140) arrives plain when every carried
+  player in range may receive it, and inside a `FLEET_DELIVERY` when only some may.
+- **Signing.** A session reads `FLEET_CARRY_RESULT`, `FLEET_RELEASED`, and `FLEET_DELIVERY` in both forms the
+  server sends: followed by their own 32-byte HMAC (alone, or in a `MESSAGE_BUNDLE`), and bare inside a
+  `MESSAGE_BUNDLE_SIGNED`. A frame whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`. The
+  notification inside a `FLEET_DELIVERY` is the unsigned form. The largest datagram a fleet session is sent is
+  1,242 bytes (`wire::fleet::kMaxReceiveDatagramSize`).
+- **Refusals.** `GenericError::verified` is new, on `Connection` and `FleetSession` alike: true when the error
+  frame arrived inside a signed bundle whose HMAC held. The realtime servers send a fleet session its refusals
+  inside its signed bundles, so they are verified; a lone three-byte frame is a hint. No error frame changes
+  anything in a fleet session, `TOKEN_EXPIRED` included: that one is about the token of the player the send
+  named. `FleetHandlers::sendRefused` names the player of a verified refusal (`FleetSendRefused`) when no send
+  for another player used the same sequence number in the last 3 seconds. A `Connection` acts on
+  `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two values still compiles.
+- **When a session ends.** The realtime server tells the session once, signed (`COMMAND_SESSION_RELEASED`):
+  reason 0 for a session that was closed through the Application API, whose org token was revoked, or whose
+  organization lost fleet sessions, reason 2 for an expired fleet token, and 1, 3, or 4 when the server lets a
+  live session go. `FleetHandlers::sessionReleased` reports it (`FleetSessionReleased`). At once
+  `moveOrdered()` and `refreshDue()` are true and the session carries nobody. The refresh answers `NOT_FOUND`
+  for a session that has ended: open a new one. When it answers a server, apply it, and the session carries
+  every player again.
+- **Silence.** That message can be lost, and a session never authorized on its server is sent nothing. A
+  `FleetConfig` therefore starts with `transport.watchdogSilenceMs` 45,000 (`fleetTransportDefaults()`; a
+  player's `Connection` keeps 0): when nothing the server signed has arrived for 45 seconds, `moveOrdered()`
+  and `refreshDue()` turn true. The session keeps its socket and its state meanwhile, and after a refresh
+  that answers a server it carries every player again. With `FleetConfig::reassign` set, the session calls
+  it when the server ends the session or the timeout passes. 0 switches the timeout off, a smaller value
+  than 3,000 is 3,000, and `transport.advertiseIntervalMs` is held to at most a third of it.
+- **`FleetSession::Stats`** is `Connection::Stats` with the session's own counts: `noLiveTokenRetries`,
+  `replacedIdFrames`, `sessionReleases`, and `sendRefusalsNamed`.
+- **Nothing but its own.** A fleet session drops a notification that names another app than its own
+  (`Stats::wrongApp`) and a plain notification that nothing signed (`Stats::unsignedNotifications`), and logs
+  each at WARN at the first and each time the count doubles. Both are new members of `Connection::Stats` and
+  stay 0 on a player's `Connection`, which makes neither check.
+- **A send fault is named.** `UdpSocket::lastSendFault()` is the operating system's error code of the last send
+  that failed `SocketError`, and `Connection` logs it at WARN at the first such fault and each time their
+  count doubles. A full buffer is `WouldBlock`, as before, and is not logged.
+- **Replays.** A signed `FLEET_RELEASED` that is sent again makes the session mark the player released; the
+  game server carries the player again, and the realtime server answers that carry. Handle `released` by
+  calling `carry` again when the player is still on your server.
+- **Player tokens in memory.** A session overwrites its copy of a carried player's token with zeros when the
+  player's entry goes and when the session closes (`wire::ScrubbedToken64`, `wire::scrub`).
+- **Coming back.** On the realtime server its carries were made on, a session's carries stand: after a refresh
+  it sends its capabilities again and no `FLEET_CARRY`. On another server (a refresh that names one, or a move the
+  server ordered) it sends its capabilities, then a new `FLEET_CARRY` for every player, and counts each as carried
+  again when its result arrives.
+- **`ClientCapability::kFleetOwnState`** (bit 3, value 8) asks for the state a session's own carried players sent.
+  `FleetSession::setFleetOwnState` sets it; it is off by default.
+- **`wire::MessageType`** gains `FleetCarry` (49), `FleetRelease` (50), `FleetCarryResult` (51), `FleetReleased`
+  (52), and `FleetDelivery` (53). `isLongSpatialLayout` is true for 49 and 50. `crowdy/wire/codec.hpp` gains
+  `fleetCarryProof`, `encodeFleetCarryPayload`, `encodeFleetReleasePayload`, `verifyFleetFrame`,
+  `parseFleetCarryResult`, `parseFleetReleased`, `parseFleetDelivery`, `parseFleetDeliveredSpatial`, and
+  `parseFleetDeliveredChannel`. A `Connection` ignores all five types, as it did before they had names.
+- **`ExecConnection::openAsServer` and `connectAsServer`** open a hub connection for a game server from an
+  `execConnectAsServer` result. On it, `callAs(player, type, key, method, args)` and `callAsRaw` send client frame
+  0x05 for one of the organization's players, and plain calls are the server's own. On any other connection
+  `callAs` sends nothing and answers `Denied`. `openAsServer` never reconnects, as `open` never does, and
+  ignores `ExecConnectOptions::reconnect`: its connect token opens one socket. `connectAsServer` reconnects
+  with a new connect token each time.
+- **New enumerators.** A `switch` over `Errc` without a `default` needs `NotCarried` (a `FleetSession` send that
+  named a player the session does not carry). A `switch` over `exec_wire::ClientFrame::Kind` needs `CallAs`, and
+  `ClientFrame` gains `player` as its last member.
+- **`Connection` is unchanged** in its behaviour, and its public API gains only `GenericError::verified`. Its
+  `UdpSocket` now lets a send from one thread run while the network thread closes and reopens the socket.
+- **The four documents are written in the headers**, as `PortalAPI`'s are. The published schema this SDK
+  generates its operations from does not carry the fields yet; they move to `operations/` when it does.
+- **The schema is the published one of November 25, 2026** (Application API v2.88.0). `crowdy/generated/enums.hpp`
+  gains `gen::ProjectProfileStatus` (`INCOMPLETE`, `WAITING_FOR_REVIEW`, `APPROVED`, `DECLINED`). No operation
+  changed, and this SDK wraps none of the fields that came with it: Studio shows an organization its project
+  profile and compute ceiling, and Crowded Kingdoms' operators set the profile's review and the ceiling.
+- **CrowdyJS 18.40.0 has the same calls under its own names:** `client.fleetSessions`, `FleetSession` from
+  `@crowdedkingdoms/crowdyjs/fleet` (Node), and `exec.connectAsServer` with `callAs`. `docs/parity-matrix.md`
+  maps each of its exports to the name here. One behaviour differs. CrowdyJS refuses a carry for a new player
+  once its table holds the session's `maxPlayers` and 32 more rows (`tableFull`). `FleetSession` has no limit of
+  its own: the realtime server answers a carry past `maxPlayers` with `NoRoom`, and a carry that is refused or
+  times out leaves the table.
+- **CrowdyPy** vendors this repository at a pinned release (0.93.0 on November 26, 2026) and binds `Connection`,
+  `WorldSession`, `Config::onEventsReady`, `IChunkSource`, `IHostElection`, and `WorldSessionServices`. None of
+  those contracts changed. At its next release CrowdyPy does three things:
+  1. It vendors this repository again at `dev/v0.94.0`
+     (`scripts/vendor_crowdycpp.py --crowdycpp ../CrowdyCPP --ref dev/v0.94.0`). The new sources
+     (`src/replication/fleet_session.cpp` among them) build with the library, so its build files need no edit.
+  2. It moves its own CrowdyJS pin to 18.40.0 (`dev/v18.40.0`) in the same change, because its vendor check
+     requires this repository's CrowdyJS pin and its own to be equal.
+  3. It adds what is new on the types it already binds: `GenericError::verified`, `Connection::Stats::wrongApp`
+     and `unsignedNotifications` (both stay 0 on a player's `Connection`), and `Errc::NotCarried` in any table
+     of `Errc` names it keeps.
+
+  A Python `FleetSession` is CrowdyPy's own work for a later release. Nothing in 0.94.0 requires it.
+
 ## 0.93.0 A Studio run survives a dropped read and says what each target holds
 
 For any Application API on dev, test, and prod; pinned to CrowdyJS 18.39.1. Your code needs no change unless you

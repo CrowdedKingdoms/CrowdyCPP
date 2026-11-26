@@ -116,6 +116,7 @@ Status Connection::doAssign() {
   }
 
   readyAtMs_ = clock_.monotonicMillis() + config_.sessionReadyWaitMs;
+  lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
   lastRecvMs_.store(0, std::memory_order_relaxed);
   lastSendMs_.store(0, std::memory_order_relaxed);
   lastCapsMs_ = 0;  // a new server knows nothing about us
@@ -220,6 +221,24 @@ Status Connection::sendDatagram(const std::uint8_t* data, std::size_t len) {
     }
   }
   return st;
+}
+
+void Connection::countNotOwn(bool wrongApp, const wire::LongSpatialView& view) {
+  std::uint64_t count = 0;
+  {
+    std::lock_guard lock(statsMutex_);
+    count = wrongApp ? ++stats_.wrongApp : ++stats_.unsignedNotifications;
+  }
+  if ((count & (count - 1)) != 0 || !logger_.enabled(core::LogLevel::Warn)) return;
+  logger_.log(core::LogLevel::Warn,
+              std::string(wrongApp ? "dropped a notification of another app: app "
+                                   : "dropped a notification nothing signed: app ") +
+                  std::to_string(view.appId) + ", message type " +
+                  std::to_string(static_cast<int>(view.type)) + ", chunk (" +
+                  std::to_string(view.chunk.x) + ", " + std::to_string(view.chunk.y) + ", " +
+                  std::to_string(view.chunk.z) + "), " + std::to_string(count) +
+                  " so far. The realtime server should never send a fleet session this: "
+                  "report it to Crowded Kingdoms");
 }
 
 void Connection::countMessageSent(std::uint8_t type) {
@@ -733,6 +752,7 @@ void Connection::handleDatagram(Bytes datagram) {
     }
     if (n == 0) verdict = Errc::Rejected;  // we never asked for bound frames
     if (verdict == Errc::Ok) {
+      lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
       if (ack) {
         // Bound to the nonce it verified: after a reassignment it matches nothing.
         boundNonce_.store(n, std::memory_order_release);
@@ -832,6 +852,7 @@ void Connection::handleDatagram(Bytes datagram) {
       ++stats_.hmacFailures;
       return;
     }
+    lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
   }
   bool queued = false;
   Status bundleStatus = wire::forEachMessage(datagram, [&](Bytes message) {
@@ -868,8 +889,12 @@ void Connection::handleDatagram(Bytes datagram) {
       Errc verdict = Errc::Ok;
       if (!signedBundle) {
         const auto frame = wire::verifyFleetFrame(crypto_, message, token, creds.mac.get());
-        if (frame.ok()) message = frame.value();
-        else verdict = frame.error();
+        if (frame.ok()) {
+          message = frame.value();
+          lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
+        } else {
+          verdict = frame.error();
+        }
       }
       if (verdict != Errc::Ok) {
         // dropped below
@@ -881,10 +906,20 @@ void Connection::handleDatagram(Bytes datagram) {
         // The notification inside is what a player's own session would have been sent, in
         // its unsigned form: nothing here is taken on its own word.
         const auto delivery = wire::parseFleetDelivery(message);
-        if (!delivery.ok()) verdict = delivery.error();
-        else if (delivery->channel())
+        if (!delivery.ok()) {
+          verdict = delivery.error();
+        } else if (delivery->channel()) {
           verdict = wire::parseFleetDeliveredChannel(delivery->notification).error();
-        else verdict = wire::parseFleetDeliveredSpatial(delivery->notification).error();
+        } else {
+          const auto inner = wire::parseFleetDeliveredSpatial(delivery->notification);
+          if (!inner.ok()) {
+            verdict = inner.error();
+          } else if (inner->appId != config_.appId) {
+            // Signed, and another app's: not this session's, whoever it lists.
+            countNotOwn(/*wrongApp=*/true, inner.value());
+            return;
+          }
+        }
       }
       if (verdict != Errc::Ok) {
         std::lock_guard lock(statsMutex_);
@@ -905,6 +940,21 @@ void Connection::handleDatagram(Bytes datagram) {
         std::lock_guard lock(statsMutex_);
         ++stats_.hmacFailures;
         return;
+      }
+      if (parsed->containsAuth && config_.verifyNotifications)
+        lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
+      if (fleet_) {
+        // A fleet session gives its game server nothing the realtime server did not sign,
+        // and nothing of another app, however it was signed. A player's connection makes
+        // neither check, as it never has.
+        if (!signedBundle && !parsed->containsAuth) {
+          countNotOwn(/*wrongApp=*/false, parsed.value());
+          return;
+        }
+        if (parsed->appId != config_.appId) {
+          countNotOwn(/*wrongApp=*/true, parsed.value());
+          return;
+        }
       }
       {
         std::lock_guard lock(statsMutex_);
@@ -1036,9 +1086,10 @@ void Connection::housekeeping() {
     }
   }
 
-  // Silent-drop watchdog (opt-in).
+  // Silent-drop watchdog (opt-in). A fleet session has its own rule (FleetSession::
+  // checkSilence, from the tick below): it counts only what verified, and it is on by default.
   const std::int64_t lastRecv = lastRecvMs_.load(std::memory_order_relaxed);
-  if (config_.watchdogSilenceMs > 0 && state() == ConnState::Connected && lastRecv > 0 &&
+  if (!fleet_ && config_.watchdogSilenceMs > 0 && state() == ConnState::Connected && lastRecv > 0 &&
       lastSendMs_.load(std::memory_order_relaxed) > lastRecv &&
       nowMono - lastRecv > config_.watchdogSilenceMs) {
     logger_.log(core::LogLevel::Warn, "watchdog: sends flowing but nothing received; reassigning");

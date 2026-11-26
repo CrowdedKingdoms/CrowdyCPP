@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -141,6 +142,17 @@ struct FakeServer {
   }
 };
 
+/// A logger that keeps what is logged at WARN and above.
+struct RecordingLogger final : core::ILogger {
+  mutable std::mutex mutex;
+  mutable std::vector<std::string> lines;
+  bool enabled(core::LogLevel level) const override { return level >= core::LogLevel::Warn; }
+  void log(core::LogLevel, std::string_view message) const override {
+    std::lock_guard lock(mutex);
+    lines.emplace_back(message);
+  }
+};
+
 /// A clock that moves only when the test moves it.
 struct ManualClock final : core::IClock {
   std::atomic<std::int64_t> epoch{kEpochMs};
@@ -165,6 +177,18 @@ FleetConfig configFor(const FakeServer& server) {
   // to its address), and no periodic one lands between the messages a case reads.
   cfg.transport.bundleSends = false;
   cfg.transport.advertiseIntervalMs = 3'600'000;
+  // The silence timeout (on by default, and it holds the capabilities interval to a third of
+  // itself) is off here: these cases read every datagram and move the clock by hand past a
+  // server that says nothing. watchedConfigFor() has it as a FleetConfig starts with it.
+  cfg.transport.watchdogSilenceMs = 0;
+  return cfg;
+}
+
+/// configFor with the silence timeout and the capabilities interval a FleetConfig starts with.
+FleetConfig watchedConfigFor(const FakeServer& server) {
+  FleetConfig cfg = configFor(server);
+  cfg.transport.watchdogSilenceMs = FleetConfig{}.transport.watchdogSilenceMs;
+  cfg.transport.advertiseIntervalMs = Config{}.advertiseIntervalMs;
   return cfg;
 }
 
@@ -206,10 +230,10 @@ std::vector<std::uint8_t> deliveryFrame(const std::vector<std::int64_t>& ids,
 
 /// A signed server-to-client long-spatial notification (epoch millis in the tail slot).
 std::vector<std::uint8_t> notification(wire::MessageType type, Bytes payload, std::uint8_t seq,
-                                       const wire::Token64& key) {
+                                       const wire::Token64& key, std::int64_t appId = kAppId) {
   wire::LongSpatialParams p;
   p.type = type;
-  p.appId = kAppId;
+  p.appId = appId;
   p.chunk = {1, 2, 3};
   p.distance = 8;
   p.uuid = uuid('b');
@@ -246,8 +270,9 @@ std::vector<std::uint8_t> withoutOwnHmac(std::vector<std::uint8_t> note) {
 }
 
 /// What a FLEET_DELIVERY wraps for a long-spatial notification.
-std::vector<std::uint8_t> unsignedNote(wire::MessageType type, Bytes payload, std::uint8_t seq) {
-  return withoutOwnHmac(notification(type, payload, seq, fleetKey()));
+std::vector<std::uint8_t> unsignedNote(wire::MessageType type, Bytes payload, std::uint8_t seq,
+                                       std::int64_t appId = kAppId) {
+  return withoutOwnHmac(notification(type, payload, seq, fleetKey(), appId));
 }
 
 /// A plain MESSAGE_BUNDLE (2) over `members`: no HMAC of its own.
@@ -2098,59 +2123,306 @@ void runMoveOrderWaitsForARefresh() {
   CHECK(fleet.carries(a));
 }
 
-// A session the Application API ended is sent nothing more by its realtime server: no error
-// frame, no acknowledgement of its capabilities (seen live against v0.50.0). By default the
-// session cannot tell: it stays Connected and its sends return Ok. With the silence watchdog
-// on (Config::watchdogSilenceMs) it asks for a refresh, as after a move order, and the
-// refresh's answer (NOT_FOUND for an ended session) is what the game server acts on.
-void runSilenceAsksForARefreshOnlyWithTheWatchdog() {
-  const std::uint8_t pose[] = {1, 2, 3};
-  for (const std::int64_t watchdogMs : {std::int64_t{0}, std::int64_t{20'000}}) {
+// ---------------------------------------------------------------------------
+// The silence timeout. A session the Application API ended is sent nothing more by its
+// realtime server: no error frame, no acknowledgement of its capabilities (seen live against
+// v0.50.0). So a FleetConfig starts with FleetConfig::transport.watchdogSilenceMs 45,000:
+// nothing the server signed for that long makes a refresh due, and the refresh's answer
+// (NOT_FOUND for an ended session) is what the game server acts on.
+// ---------------------------------------------------------------------------
+
+/// CONTROL_BOUND_ACK (46) for a CLIENT_CAPABILITIES the session sent: over its nonce, signed
+/// with the fleet token. What a live session hears every capabilities interval.
+std::vector<std::uint8_t> acknowledgementOf(const std::vector<std::uint8_t>& capabilities) {
+  auto v = wire::parseLongSpatial(Bytes(capabilities.data(), capabilities.size()));
+  CHECK(v.ok());
+  CHECK_EQ(v->payload.size(), 4u + wire::kControlNonceSize);
+  std::vector<std::uint8_t> f = {46};
+  f.insert(f.end(), v->payload.begin() + 4, v->payload.end());
+  const std::size_t signedLen = f.size();
+  f.resize(signedLen + wire::kHmacTagSize);
+  CHECK(crypto().hmacSha256(asBytes(kFleetToken), Bytes(f.data(), signedLen), f.data() + signedLen));
+  CHECK_EQ(f.size(), wire::kControlBoundAckSize);
+  return f;
+}
+
+/// Everything the session has sent that the server has not read yet.
+std::vector<std::vector<std::uint8_t>> sentSoFar(FakeServer& server) {
+  std::vector<std::vector<std::uint8_t>> all;
+  for (auto got = server.tryRecv(1); !got.empty(); got = server.tryRecv(1)) all.push_back(std::move(got));
+  return all;
+}
+
+void runSilenceTimeoutDefaults() {
+  // On for a fleet session, off for a player's connection, as it always was.
+  CHECK_EQ(FleetConfig{}.transport.watchdogSilenceMs, 45'000);
+  CHECK_EQ(kFleetSilenceTimeoutMs, 45'000);
+  CHECK_EQ(fleetTransportDefaults().watchdogSilenceMs, 45'000);
+  CHECK_EQ(fleetTransportDefaults().advertiseIntervalMs, 15'000);
+  CHECK_EQ(Config{}.watchdogSilenceMs, 0);
+
+  // The capabilities interval is at most a third of the timeout, and a timeout below 3,000
+  // is 3,000. Counted on the wire: an acknowledged session's advertisements in 12 seconds.
+  struct Case {
+    std::int64_t timeoutMs, intervalMs;
+    int expected;
+  };
+  for (const Case c : {Case{6'000, 3'600'000, 7},   // every 2,000
+                       Case{1, 3'600'000, 13},      // 3,000: every 1,000
+                       Case{45'000, 4'000, 4},      // a shorter interval is kept
+                       Case{0, 5'000, 3}}) {        // off: the interval is as it was set
     FakeServer server;
     server.start();
     ManualClock clock;
     FleetConfig cfg = configFor(server);
-    cfg.transport.watchdogSilenceMs = watchdogMs;
+    cfg.transport.watchdogSilenceMs = c.timeoutMs;
+    cfg.transport.advertiseIntervalMs = c.intervalMs;
     FleetSession fleet(cfg, crypto(), clock);
-    openConnected(fleet, server);
-    const std::int64_t a = 711;
-    carryAs(fleet, server, a, 7011, tokenFor(a));  // the server has answered: traffic was received
-
-    // From here the server says nothing. The session goes on sending for its player.
-    for (int second = 1; second <= 30; ++second) {
-      clock.advance(1000);
-      CHECK(fleet.sendActorUpdate(a, {{1, 2, 3}, uuid('a'), Bytes(pose, sizeof(pose))}).ok() ||
-            fleet.state() != ConnState::Connected);
+    CHECK(fleet.open().ok());
+    int advertisements = 0;
+    for (int step = 0; step <= 48; ++step) {  // 250 ms steps
+      fleet.pump(0);
+      for (const auto& got : sentSoFar(server)) {
+        CHECK_EQ(got[0], 29u);
+        ++advertisements;
+        server.send(acknowledgementOf(got));
+      }
       fleet.pump(0);
       fleet.poll();
-      if (watchdogMs == 0 || second * 1000 <= watchdogMs) {
-        CHECK(!fleet.moveOrdered());
-        CHECK(!fleet.refreshDue());
-        CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+      CHECK(!fleet.moveOrdered());
+      clock.advance(250);
+    }
+    CHECK_EQ(advertisements, c.expected);
+  }
+}
+
+// A live session that carries nobody, with nothing in range, hears only the acknowledgements
+// of its capabilities. Ten minutes of that never make a refresh due.
+void runAnIdleSessionIsNeverTakenForGone() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetSession fleet(watchedConfigFor(server), crypto(), clock);
+  CHECK(fleet.open().ok());
+  int advertisements = 0;
+  for (int second = 0; second <= 600; ++second) {
+    fleet.pump(0);
+    for (const auto& got : sentSoFar(server)) {
+      CHECK_EQ(got[0], 29u);  // an idle session sends nothing else
+      ++advertisements;
+      server.send(acknowledgementOf(got));
+    }
+    fleet.pump(0);
+    fleet.poll();
+    CHECK(!fleet.moveOrdered());
+    CHECK(!fleet.refreshDue());
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+    clock.advance(1000);
+  }
+  CHECK_EQ(advertisements, 41);  // at 0 and every 15 seconds
+  const auto stats = fleet.stats();
+  CHECK_EQ(stats.boundControlAcks, 41u);
+  CHECK_EQ(stats.reconnects, 0u);
+  CHECK_EQ(stats.messagesReceived, 0u);  // nothing but the acknowledgements arrived
+}
+
+// The acknowledgements of two advertisements in a row are lost, again and again, and the
+// third's arrives late, after the 45 seconds have passed: no refresh is due. Three lost in a
+// row are the timeout: one refresh is due, the session keeps its socket and its state, and
+// says so once.
+void runTwoLostAcknowledgementsAreNotSilence() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  RecordingLogger logger;
+  FleetSession fleet(watchedConfigFor(server), crypto(), clock, logger);
+  CHECK(fleet.open().ok());
+  const std::int64_t start = clock.monotonicMillis();
+  int advertisements = 0;
+  bool acknowledging = true;
+  std::int64_t lastHeardMs = -1, trippedAtMs = -1;
+  // An acknowledgement the server sends later: (when, frame).
+  std::vector<std::pair<std::int64_t, std::vector<std::uint8_t>>> late;
+  for (int step = 0; step <= 4 * 600; ++step) {  // 250 ms steps, ten minutes
+    const std::int64_t now = clock.monotonicMillis() - start;
+    if (now == 300'000) acknowledging = false;  // from five minutes on the server says nothing
+    fleet.pump(0);
+    for (const auto& got : sentSoFar(server)) {
+      CHECK_EQ(got[0], 29u);
+      const int index = advertisements++;
+      if (!acknowledging || index % 3 != 0) continue;  // two of every three are lost
+      // Every other one that is answered is answered 750 ms late.
+      if ((index / 3) % 2 == 1) {
+        late.emplace_back(now + 750, acknowledgementOf(got));
+      } else {
+        server.send(acknowledgementOf(got));
+        lastHeardMs = now;
       }
     }
-    if (watchdogMs == 0) {
+    for (auto it = late.begin(); it != late.end();) {
+      if (it->first > now) {
+        ++it;
+        continue;
+      }
+      server.send(it->second);
+      lastHeardMs = now;
+      it = late.erase(it);
+    }
+    fleet.pump(0);
+    fleet.poll();
+    if (acknowledging) {
+      CHECK(!fleet.moveOrdered());
+      CHECK(!fleet.refreshDue());
+    } else if (fleet.moveOrdered() && trippedAtMs < 0) {
+      trippedAtMs = now;
+    }
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+    clock.advance(250);
+  }
+  // While it was answered: 21 advertisements in five minutes, 7 of them acknowledged, and the
+  // late ones arrived 45.75 seconds after the one before was heard.
+  CHECK(advertisements >= 41);
+  CHECK(fleet.stats().boundControlAcks == 7u);
+  // Then nothing: a refresh is due between 45 and 46.25 seconds after the last one heard.
+  CHECK(trippedAtMs > lastHeardMs + 45'000);
+  CHECK(trippedAtMs <= lastHeardMs + 46'250);
+  CHECK(fleet.moveOrdered());
+  CHECK(fleet.refreshDue());
+  CHECK_EQ(fleet.stats().reconnects, 0u);  // it kept its socket
+  CHECK_EQ(fleet.server().clientPort, server.port);
+  int said = 0;
+  {
+    std::lock_guard lock(logger.mutex);
+    for (const auto& line : logger.lines) said += line.find("a refresh is due") != std::string::npos;
+  }
+  CHECK_EQ(said, 1);  // once, for four more minutes of silence
+}
+
+// What a silent server means for a session that carries a player. With the timeout off
+// (0) nothing ever tells the session. With it on, a refresh is due after 45 seconds; the
+// carries stay as they are until the game server answers, and then every player is carried
+// again, on the server the session was on too: it may have lost them.
+void runSilenceMakesARefreshDue() {
+  const std::uint8_t pose[] = {1, 2, 3};
+  for (const bool watched : {false, true}) {
+    FakeServer server;
+    server.start();
+    ManualClock clock;
+    FleetConfig cfg = watched ? watchedConfigFor(server) : configFor(server);
+    if (!watched) CHECK_EQ(cfg.transport.watchdogSilenceMs, 0);
+    FleetSession fleet(cfg, crypto(), clock);
+    Seen seen;
+    fleet.setHandlers(recording(seen));
+    openConnected(fleet, server);
+    const std::int64_t a = 711;
+    carryAs(fleet, server, a, 7011, tokenFor(a));  // the last thing the server says
+
+    // From here the server says nothing. The session goes on sending for its player.
+    int secondsToDue = -1;
+    for (int second = 1; second <= 120; ++second) {
+      clock.advance(1000);
+      CHECK(fleet.sendActorUpdate(a, {{1, 2, 3}, uuid('a'), Bytes(pose, sizeof(pose))}).ok());
+      fleet.pump(0);
+      fleet.poll();
+      if (fleet.refreshDue() && secondsToDue < 0) secondsToDue = second;
+      CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+      CHECK(fleet.carries(a));
+    }
+    for (const auto& got : sentSoFar(server)) CHECK(got[0] == 29 || got[0] == 128);  // no FLEET_CARRY
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+    if (!watched) {
       // Nothing told it: the refresh at half the token's lifetime is all it has.
       CHECK(!fleet.moveOrdered());
       CHECK(!fleet.refreshDue());
-      CHECK(fleet.carries(a));
-      CHECK_EQ(fleet.stats().reconnects, 0u);
+      CHECK_EQ(secondsToDue, -1);
       continue;
     }
     CHECK(fleet.moveOrdered());
-    CHECK(fleet.refreshDue());
-    CHECK_EQ(fleet.stats().reconnects, 1u);
-    pumpUntil(fleet, [&] { return fleet.state() == ConnState::Connected; });
+    CHECK(secondsToDue == 46 || secondsToDue == 47);
     CHECK_EQ(fleet.server().clientPort, server.port);  // where it was: nobody named another
+
+    // The refresh answers the server it is on (the session was only out of reach, or the
+    // server was restarted): the capabilities, then the player again with a new proof.
+    CHECK(fleet.applyRefresh(TokenInfo{kFleetToken, kFleetId, 0}, Assignment{"127.0.0.1", "", server.port}).ok());
+    CHECK(!fleet.moveOrdered());
+    CHECK(!fleet.refreshDue());
+    CHECK(!fleet.carries(a));  // carried again when its result says so
+    fleet.pump(0);
+    const auto after = sentSoFar(server);
+    CHECK_EQ(after.size(), 2u);
+    CHECK_EQ(after[0][0], 29u);
+    CHECK_EQ(readCarry(after[1], tokenFor(a)).player, a);
+    server.send(own(carryResultFrame(a, 7011, 0)));
+    pumpUntil(fleet, [&] { return fleet.carries(a); });
     CHECK(fleet.carries(a));
-    // It sent its capabilities again and no FLEET_CARRY.
-    bool capabilitiesAgain = false;
-    for (auto got = server.tryRecv(60); !got.empty(); got = server.tryRecv(60)) {
-      CHECK(got[0] != 49);
-      if (got[0] == 29) capabilitiesAgain = true;
+    CHECK_EQ(seen.results.size(), 2u);
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+
+    // The server it was placed on has the timeout to be heard from, from the placement and
+    // from each frame of its own after: silent again, a refresh is due again.
+    secondsToDue = -1;
+    for (int second = 1; second <= 60 && secondsToDue < 0; ++second) {
+      clock.advance(1000);
+      fleet.pump(0);
+      fleet.poll();
+      if (fleet.refreshDue()) secondsToDue = second;
     }
-    CHECK(capabilitiesAgain);
+    CHECK(secondsToDue == 46 || secondsToDue == 47);
+    // A refresh that names another server: the session moves there and carries there.
+    FakeServer second;
+    second.start();
+    CHECK(fleet.applyRefresh(TokenInfo{kFleetToken, kFleetId, 0}, Assignment{"127.0.0.1", "", second.port}).ok());
+    CHECK(!fleet.moveOrdered());
+    pumpUntil(fleet, [&] { return fleet.stats().reconnects == 1 && fleet.state() == ConnState::Connected; });
+    fleet.pump(0);
+    CHECK_EQ(fleet.server().clientPort, second.port);
+    CHECK_EQ(expectCapabilities(second), 0x03u);
+    CHECK_EQ(readCarry(second.recvOne(), tokenFor(a)).player, a);
   }
+}
+
+// With FleetConfig::reassign the session asks the game server itself when the timeout
+// passes, on the network thread, and connects where it is told; there it carries every
+// player again, the same server included.
+void runSilenceAsksTheGameServerForAServer() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetConfig cfg = watchedConfigFor(server);
+  int asked = 0;
+  cfg.reassign = [&]() -> Result<Assignment> {
+    ++asked;
+    return Assignment{"127.0.0.1", "", server.port};
+  };
+  FleetSession fleet(cfg, crypto(), clock);
+  openConnected(fleet, server);
+  const std::int64_t a = 712;
+  carryAs(fleet, server, a, 7012, tokenFor(a));
+  for (int second = 1; second <= 44; ++second) {
+    clock.advance(1000);
+    fleet.pump(0);
+    fleet.poll();
+  }
+  CHECK_EQ(asked, 0);
+  (void)sentSoFar(server);
+  for (int second = 45; second <= 48; ++second) {
+    clock.advance(1000);
+    fleet.pump(0);
+    fleet.poll();
+  }
+  pumpUntil(fleet, [&] { return fleet.state() == ConnState::Connected && fleet.stats().reconnects == 1; });
+  CHECK_EQ(asked, 1);
+  CHECK(!fleet.moveOrdered());  // the game server answered inside the session
+  CHECK_EQ(fleet.stats().reconnects, 1u);
+  fleet.pump(0);
+  // The advertisement that went unanswered as the timeout passed, and then, from the new
+  // socket, the capabilities and the player again.
+  const auto after = sentSoFar(server);
+  CHECK_EQ(after.size(), 3u);
+  CHECK_EQ(after[0][0], 29u);
+  CHECK_EQ(after[1][0], 29u);
+  CHECK_EQ(readCarry(after[2], tokenFor(a)).player, a);
+  CHECK(!fleet.carries(a));
 }
 
 // COMMAND_SESSION_RELEASED ends the session as it ends an ordinary one, and its carries end
@@ -2558,16 +2830,6 @@ void runProofRefusedConverges() {
 // send after the refusal came back).
 // ---------------------------------------------------------------------------
 
-struct RecordingLogger final : core::ILogger {
-  mutable std::mutex mutex;
-  mutable std::vector<std::string> lines;
-  bool enabled(core::LogLevel level) const override { return level >= core::LogLevel::Warn; }
-  void log(core::LogLevel, std::string_view message) const override {
-    std::lock_guard lock(mutex);
-    lines.emplace_back(message);
-  }
-};
-
 void runSendFaultIsNamed() {
   RecordingLogger logger;
   ManualClock clock;
@@ -2599,6 +2861,121 @@ void runSendFaultIsNamed() {
     for (const auto& line : logger.lines) std::fprintf(stderr, "logged: %s\n", line.c_str());
   }
   CHECK(named);
+}
+
+// ---------------------------------------------------------------------------
+// A fleet session is in one app. A notification that names another app is not the session's,
+// however it was signed: it is dropped, counted in Stats::wrongApp and reaches no handler,
+// plain or inside a FLEET_DELIVERY. (The realtime servers should never send one; a live run
+// against v0.50.0 saw them do it.) A plain notification nothing signed is dropped and counted
+// in Stats::unsignedNotifications.
+// ---------------------------------------------------------------------------
+
+void runOnlyTheSessionsOwnAppIsDispatched() {
+  constexpr std::int64_t kOtherApp = kAppId + 1;
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  RecordingLogger logger;
+  FleetSession fleet(configFor(server), crypto(), clock, logger);
+  struct Got {
+    std::int64_t appId;
+    std::string payload;
+    bool forSession;
+  };
+  std::vector<Got> got;
+  int any = 0, channel = 0;
+  FleetHandlers h;
+  const auto record = [&](const SpatialNotification& n, FleetRecipients r) {
+    got.push_back({n.appId, std::string(n.payload.begin(), n.payload.end()), r.forSession()});
+  };
+  h.actorUpdate = record;
+  h.text = record;
+  h.genericSpatial = record;
+  h.any = [&](const SpatialNotification&, FleetRecipients) { ++any; };
+  h.channelMessage = [&](const ChannelNotification&, FleetRecipients) { ++channel; };
+  fleet.setHandlers(std::move(h));
+  openConnected(fleet, server);
+  const std::int64_t a = 721;
+  carryAs(fleet, server, a, 7021, tokenFor(a));
+  const auto note = [](const char* text) { return Bytes(reinterpret_cast<const std::uint8_t*>(text), std::strlen(text)); };
+  const auto arrived = [&](std::size_t dispatched, std::uint64_t wrongApp, std::uint64_t notSigned) {
+    pumpUntil(fleet, [&] {
+      const auto s = fleet.stats();
+      return got.size() == dispatched && s.wrongApp == wrongApp && s.unsignedNotifications == notSigned;
+    });
+    settle(fleet);
+    const auto s = fleet.stats();
+    CHECK_EQ(got.size(), dispatched);
+    CHECK_EQ(s.wrongApp, wrongApp);
+    CHECK_EQ(s.unsignedNotifications, notSigned);
+    CHECK_EQ(static_cast<std::size_t>(any), dispatched);
+  };
+
+  // Plain, in a signed bundle that verifies: the session's own state between two of another
+  // app's. Only its own is dispatched.
+  server.send(signedBundle(
+      {unsignedNote(wire::MessageType::ActorUpdateNotification, note("theirs 1"), 1, kOtherApp),
+       unsignedNote(wire::MessageType::ActorUpdateNotification, note("mine 1"), 2),
+       unsignedNote(wire::MessageType::GenericSpatial1, note("theirs 2"), 3, kOtherApp)}));
+  arrived(1, 2, 0);
+  CHECK_EQ(got[0].payload, std::string("mine 1"));
+  CHECK_EQ(got[0].appId, kAppId);
+
+  // Plain and alone, with its own HMAC, which holds: another app's all the same.
+  server.send(notification(wire::MessageType::ActorUpdateNotification, note("theirs 3"), 4, fleetKey(), kOtherApp));
+  arrived(1, 3, 0);
+  server.send(notification(wire::MessageType::ActorUpdateNotification, note("mine 2"), 5, fleetKey()));
+  arrived(2, 3, 0);
+
+  // Inside a FLEET_DELIVERY, with the frame's own HMAC and inside a signed bundle: the
+  // delivery lists the session's player, and the text is another app's.
+  server.send(own(deliveryFrame({a}, unsignedNote(wire::MessageType::ClientTextNotification, note("theirs 4"), 6, kOtherApp))));
+  arrived(2, 4, 0);
+  server.send(signedBundle(
+      {deliveryFrame({a}, unsignedNote(wire::MessageType::ClientTextNotification, note("theirs 5"), 7, kOtherApp)),
+       deliveryFrame({a}, unsignedNote(wire::MessageType::ClientTextNotification, note("mine 3"), 8))}));
+  arrived(3, 5, 0);
+  CHECK_EQ(got[2].payload, std::string("mine 3"));
+  CHECK(!got[2].forSession);
+
+  // A plain notification nothing signed (no HMAC of its own, outside a signed bundle), alone
+  // and in a plain bundle: dropped, the session's own app or another's.
+  server.send(unsignedNote(wire::MessageType::ActorUpdateNotification, note("unsigned 1"), 9));
+  arrived(3, 5, 1);
+  server.send(plainBundle({unsignedNote(wire::MessageType::ActorUpdateNotification, note("unsigned 2"), 10),
+                           unsignedNote(wire::MessageType::ActorUpdateNotification, note("unsigned 3"), 11, kOtherApp),
+                           notification(wire::MessageType::ActorUpdateNotification, note("mine 4"), 12, fleetKey())}));
+  arrived(4, 5, 3);
+  CHECK_EQ(got[3].payload, std::string("mine 4"));
+
+  // Nothing of another app reached a handler, and none of these counts as a bad HMAC or as
+  // unreadable: the frames were what the server signed.
+  for (const auto& g : got) CHECK_EQ(g.appId, kAppId);
+  const auto stats = fleet.stats();
+  CHECK_EQ(stats.hmacFailures, 0u);
+  CHECK_EQ(stats.malformed, 0u);
+  // A channel notification names no app: it is as it was.
+  const std::uint8_t body[] = {'h', 'i'};
+  server.send(signedBundle({deliveryFrame({a}, channelNote(18, 55, Bytes(body, 2)))}));
+  pumpUntil(fleet, [&] { return channel == 1; });
+  CHECK_EQ(channel, 1);
+
+  // The log names what was dropped, at the first and at every doubling of the count: the
+  // app it named, the message type and the chunk.
+  std::lock_guard lock(logger.mutex);
+  int ofAnotherApp = 0, notSigned = 0;
+  for (const auto& line : logger.lines) {
+    if (line.find("dropped a notification of another app: app " + std::to_string(kOtherApp) +
+                  ", message type 130, chunk (1, 2, 3), 1 so far") != std::string::npos)
+      ++ofAnotherApp;
+    if (line.find("of another app") != std::string::npos && line.find("4 so far") != std::string::npos) ++ofAnotherApp;
+    if (line.find("dropped a notification nothing signed: app " + std::to_string(kAppId)) != std::string::npos) ++notSigned;
+    CHECK(line.find("report it to Crowded Kingdoms") != std::string::npos);
+  }
+  CHECK_EQ(ofAnotherApp, 2);
+  CHECK_EQ(notSigned, 2);  // the first and the second
+  CHECK_EQ(logger.lines.size(), 5u);  // wrong app at 1, 2 and 4; unsigned at 1 and 2
 }
 
 // ---------------------------------------------------------------------------
@@ -2775,8 +3152,13 @@ int main() {
   runSetToken();
   runUnverifiedErrorsChangeNothing();
   runProofRefusedConverges();
-  runSilenceAsksForARefreshOnlyWithTheWatchdog();
+  runSilenceTimeoutDefaults();
+  runAnIdleSessionIsNeverTakenForGone();
+  runTwoLostAcknowledgementsAreNotSilence();
+  runSilenceMakesARefreshDue();
+  runSilenceAsksTheGameServerForAServer();
   runSendFaultIsNamed();
+  runOnlyTheSessionsOwnAppIsDispatched();
   runSendsWhileTheSessionMoves();
   runOwnedThread();
   std::puts("fleet_session_test OK");

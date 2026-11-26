@@ -12,6 +12,10 @@ using wire::MessageType;
 
 namespace {
 
+/// How long the silence check waits for the answer to the capabilities that last left, so
+/// that the acknowledgement of the advertisement sent as the timeout passes still counts.
+constexpr std::int64_t kAcknowledgementGraceMs = 1'000;
+
 bool sameServer(const Assignment& a, const Assignment& b) {
   return a.ip4 == b.ip4 && a.ip6 == b.ip6 && a.clientPort == b.clientPort;
 }
@@ -79,6 +83,9 @@ class FleetSession::Endpoint final : public ISessionProvider {
 
   bool moveOrdered() const { return moveOrdered_.load(std::memory_order_acquire); }
   void clearMoveOrdered() { moveOrdered_.store(false, std::memory_order_release); }
+  /// The session wants a server from the game server, and stays where it is until then.
+  void orderMove() { moveOrdered_.store(true, std::memory_order_release); }
+  bool asksGameServer() const { return static_cast<bool>(reassign_); }
 
   void set(const Assignment& server) {
     std::lock_guard lock(mutex_);
@@ -105,6 +112,16 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
       endpoint_(std::make_shared<Endpoint>(config_.server, config_.reassign)) {
   // The session's CLIENT_CAPABILITIES binds it to its address, so it is not an option here.
   config_.transport.advertiseCapabilities = true;
+  // An idle session hears only the acknowledgements of its capabilities, so three
+  // advertisements fit in the silence timeout.
+  std::int64_t& silence = config_.transport.watchdogSilenceMs;
+  if (silence > 0) {
+    silence = std::max(silence, kFleetMinSilenceTimeoutMs);
+    config_.transport.advertiseIntervalMs =
+        std::min(config_.transport.advertiseIntervalMs, silence / 3);
+  } else {
+    silence = 0;
+  }
   Config transport = config_.transport;
   transport.appId = config_.appId;
   transport.token = config_.token;
@@ -206,13 +223,34 @@ TokenInfo FleetSession::token() const {
 }
 
 Status FleetSession::setServer(const Assignment& server) {
+  bool advertised = false;
+  return place(server, advertised);
+}
+
+Status FleetSession::place(const Assignment& server, bool& advertised) {
   const std::string& host =
       (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
   if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
   // The game server has named the session's server: an order to move is answered, whether
-  // or not the answer is the server it is on.
+  // or not the answer is the server it is on. The server named has the silence timeout to
+  // be heard from.
+  const bool afterSilence = silenceTripped_.exchange(false, std::memory_order_acq_rel);
+  connection_->lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
   endpoint_->clearMoveOrdered();
-  if (sameServer(endpoint_->get(), server)) return Errc::Ok;
+  if (sameServer(endpoint_->get(), server)) {
+    if (afterSilence) {
+      // The server said nothing for the silence timeout: it may have lost the session and
+      // its carries (it was restarted, say). The capabilities first, which bind the session
+      // again, then every player again.
+      if (state() == ConnState::Connected) {
+        (void)connection_->sendCapabilities();
+        advertised = true;
+      }
+      std::lock_guard lock(playersMutex_);
+      recarryAllLocked();
+    }
+    return Errc::Ok;
+  }
   endpoint_->set(server);
   const ConnState s = state();
   if (s == ConnState::Connected || s == ConnState::Connecting || s == ConnState::Reconnecting) {
@@ -234,12 +272,13 @@ Status FleetSession::applyRefresh(const TokenInfo& token, const Assignment& serv
   const bool stays = sameServer(endpoint_->get(), server);
   const Status taken = setToken(token);
   if (!taken.ok()) return taken;
-  const Status placed = setServer(server);
+  bool advertised = false;
+  const Status placed = place(server, advertised);
   // The same session on the same server: its carries stand. The refresh authorized the
   // token there again, and the capabilities sent now are what let the server follow the
   // session to the address it has. No FLEET_CARRY. (Another server, or another session,
   // sends its capabilities and its carries once it is connected.)
-  if (placed.ok() && stays && sameSession && state() == ConnState::Connected)
+  if (placed.ok() && stays && sameSession && !advertised && state() == ConnState::Connected)
     (void)connection_->sendCapabilities();
   return placed;
 }
@@ -377,7 +416,35 @@ void FleetSession::recarryAllLocked() {
   }
 }
 
+void FleetSession::checkSilence() {
+  const std::int64_t timeout = config_.transport.watchdogSilenceMs;
+  if (timeout <= 0 || state() != ConnState::Connected) return;
+  // One sign for one silence: the game server has a refresh due already.
+  if (endpoint_->moveOrdered()) return;
+  const std::int64_t now = clock_.monotonicMillis();
+  const std::int64_t heard = connection_->lastVerifiedMs_.load(std::memory_order_relaxed);
+  if (now - heard <= timeout) return;
+  // The capabilities that just left are still owed their acknowledgement.
+  if (now - connection_->lastCapsMs_ < kAcknowledgementGraceMs) return;
+  if (connection_->logger_.enabled(core::LogLevel::Warn)) {
+    connection_->logger_.log(
+        core::LogLevel::Warn,
+        "fleet session: the realtime server has sent nothing that verifies for " +
+            std::to_string(now - heard) + " ms; a refresh is due");
+  }
+  // The server may be gone, or may have ended the session: it may hold no carry when it,
+  // or another, is heard again.
+  silenceTripped_.store(true, std::memory_order_release);
+  if (endpoint_->asksGameServer()) {
+    sessionRestarted_.store(true, std::memory_order_release);
+    connection_->requestReassignment();
+  } else {
+    endpoint_->orderMove();
+  }
+}
+
 void FleetSession::onTick() {
+  checkSilence();
   if (!ready()) return;
   const std::uint64_t epoch = connection_->sessionEpoch();
   std::lock_guard lock(playersMutex_);

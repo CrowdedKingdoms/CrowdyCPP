@@ -398,6 +398,15 @@ void testAnswersReachTheWireClass() {
   CHECK_EQ(domains::fleetConfigOf(opened, base).value().carryBurst, 1000);
   base.carryBurst = 32;
   CHECK(domains::fleetConfigOf(opened).ok());
+  // The silence timeout is on in a config made from an answer (45 seconds; an ended session
+  // is sent nothing, so silence is the only sign), and the caller's own choice is kept: 0
+  // switches it off.
+  CHECK_EQ(config.value().transport.watchdogSilenceMs, 45'000);
+  CHECK_EQ(domains::fleetConfigOf(opened).value().transport.watchdogSilenceMs, 45'000);
+  base.transport.watchdogSilenceMs = 0;
+  CHECK_EQ(domains::fleetConfigOf(opened, base).value().transport.watchdogSilenceMs, 0);
+  base.transport.watchdogSilenceMs = 90'000;
+  CHECK_EQ(domains::fleetConfigOf(opened, base).value().transport.watchdogSilenceMs, 90'000);
 
   // An answer that cannot be a session's is refused.
   FleetSessionResponse bad = opened;

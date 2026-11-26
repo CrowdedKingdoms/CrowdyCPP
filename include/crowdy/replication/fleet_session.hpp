@@ -252,6 +252,19 @@ struct FleetHandlers {
   std::function<void(const FleetReleased&)> released;
 };
 
+/// How long a fleet session lets its realtime server say nothing that verifies before it
+/// takes the session for gone (FleetConfig::transport.watchdogSilenceMs).
+inline constexpr std::int64_t kFleetSilenceTimeoutMs = 45'000;
+/// The shortest silence timeout a fleet session keeps; a smaller one that is not 0 is raised.
+inline constexpr std::int64_t kFleetMinSilenceTimeoutMs = 3'000;
+
+/// Connection's Config as a fleet session starts from it: the silence watchdog on.
+inline Config fleetTransportDefaults() {
+  Config transport;
+  transport.watchdogSilenceMs = kFleetSilenceTimeoutMs;
+  return transport;
+}
+
 struct FleetConfig {
   std::int64_t appId = 0;
   /// The fleet token (64 characters), its gameTokenId and when it expires, as
@@ -283,18 +296,36 @@ struct FleetConfig {
   int carryBurst = 32;
 
   /// Called when the session needs a realtime server again after open(): the server asked
-  /// it to move (COMMAND_RECONNECT), answered TOKEN_EXPIRED, or the silence watchdog fired.
-  /// Call `refreshFleetSession` without a `currentServer` and return the server it answers.
-  /// It runs on the network thread (the pump() caller with manualPump) and may block. Unset,
-  /// the session opens again at the server it has and moveOrdered() says so; setServer() or
-  /// applyRefresh() moves it later.
+  /// it to move (COMMAND_RECONNECT), answered TOKEN_EXPIRED, or said nothing for the silence
+  /// timeout. Call `refreshFleetSession` without a `currentServer` and return the server it
+  /// answers. It runs on the network thread (the pump() caller with manualPump) and may
+  /// block. Unset, moveOrdered() says a server is wanted, and setServer() or applyRefresh()
+  /// gives it one later: after a move order the session opens again at the server it has
+  /// meanwhile, and after a silence it stays as it is.
   std::function<Result<Assignment>()> reassign;
 
-  /// Socket, bundling, pump and watchdog options, with the meanings Connection gives them.
-  /// `appId` and `token` here are ignored (the two above are used). `refreshLeadMs` is
-  /// ignored: the game server refreshes its fleet token itself. `advertiseCapabilities` is
-  /// always on: the session's CLIENT_CAPABILITIES is what binds it to its address.
-  Config transport;
+  /// Socket, bundling and pump options, with the meanings Connection gives them. `appId`
+  /// and `token` here are ignored (the two above are used). `refreshLeadMs` is ignored: the
+  /// game server refreshes its fleet token itself. `advertiseCapabilities` is always on: the
+  /// session's CLIENT_CAPABILITIES is what binds it to its address.
+  ///
+  /// `watchdogSilenceMs` is the session's silence timeout, and here it is ON BY DEFAULT:
+  /// 45,000 (kFleetSilenceTimeoutMs), where a player's Connection has 0. A realtime server
+  /// sends a session that has ended nothing at all (a session closed with
+  /// `closeFleetSession`, one whose org token was revoked, one that expired), so silence is
+  /// the only sign. When nothing the server signed has arrived for this long, moveOrdered()
+  /// and refreshDue() turn true: call `refreshFleetSession`, which answers NOT_FOUND for a
+  /// session that has ended. The session keeps its socket meanwhile, so one whose server
+  /// was only out of reach goes on when it is heard again. When the refresh answers a
+  /// server, the session carries every player again there, the same server included: a
+  /// server that was silent may hold no carry. 0 switches the timeout off; a smaller value
+  /// than 3,000 is raised to 3,000.
+  ///
+  /// A live session with nobody in range hears only the acknowledgements of its
+  /// capabilities, so `advertiseIntervalMs` (15,000) is held to at most a third of the
+  /// silence timeout: the acknowledgements of two advertisements in a row can be lost
+  /// before the timeout passes.
+  Config transport = fleetTransportDefaults();
 };
 
 class FleetSession {
@@ -534,6 +565,11 @@ class FleetSession {
   /// Connected, with this session's CLIENT_CAPABILITIES on its way: nothing else leaves
   /// before the message that binds the session to its address.
   bool ready() const;
+  /// The silence timeout (network thread, every housekeeping pass): nothing the server
+  /// signed for FleetConfig::transport.watchdogSilenceMs makes a refresh due, once.
+  void checkSilence();
+  /// setServer(), saying whether it sent the capabilities itself.
+  Status place(const Assignment& server, bool& advertised);
   /// NotCarried for a player the session does not carry, NotConnected while it is not
   /// ready, Ok when a message for the player may leave.
   Errc sendGate(std::int64_t player) const;
@@ -588,6 +624,9 @@ class FleetSession {
   /// open() started a session anew (after Idle, Closed, Failed or Inactive): the server
   /// holds none of the table's carries, whichever server it is.
   std::atomic<bool> sessionRestarted_{false};
+  /// The silence timeout passed: the server the game server next places the session on may
+  /// hold none of its carries, the one it is on included.
+  std::atomic<bool> silenceTripped_{false};
   /// The session epoch whose capabilities have been advertised (0: none yet).
   std::atomic<std::uint64_t> advertisedEpoch_{0};
   /// Epoch millis when the session was last given its token: where refreshDue() counts the

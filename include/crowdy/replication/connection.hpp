@@ -331,6 +331,19 @@ class Connection {
     /// recently (0.83.0): a 22 signs fixed bytes, so a captured one verifies for the
     /// game token's life, and each honoured one moves the player to another server.
     std::uint64_t legacyReconnectsSuppressed = 0;
+    /// A fleet session only (FleetSession::stats()): notifications dropped because they
+    /// named another app than the session's, plain or inside a FLEET_DELIVERY. A fleet
+    /// session is in one app, so state or a communication of another app is never its own,
+    /// however it was signed, and it reaches no handler. THIS SHOULD NEVER HAPPEN: anything
+    /// but 0 is worth reporting to Crowded Kingdoms (the log names the app, the message type
+    /// and the chunk at the first one and at every doubling of the count). Always 0 on a
+    /// player's Connection, which does not make this check.
+    std::uint64_t wrongApp = 0;
+    /// A fleet session only: plain notifications dropped because nothing signed them (no
+    /// HMAC of their own, and not inside a signed bundle whose HMAC held). The realtime
+    /// servers send a fleet session nothing unsigned, so anything but 0 is worth reporting
+    /// too. Always 0 on a player's Connection, which takes such a notification as it is.
+    std::uint64_t unsignedNotifications = 0;
     std::int64_t lastServerEpochMs = 0;
     /// Messages sent, by wire opcode (actor/voxel/audio/text/event/channel/
     /// heartbeat requests).
@@ -498,6 +511,15 @@ class Connection {
   std::atomic<std::int64_t> lastRecvMs_{0};
   /// Sends the socket refused with a fault (Errc::SocketError), for the log's pacing.
   std::atomic<std::uint64_t> socketFaults_{0};
+  /// Monotonic ms of the last frame the server signed and this connection verified (a
+  /// signed bundle, a bound or legacy control frame, a frame with its own HMAC), or of the
+  /// assignment when none has arrived on it yet. A fleet session's silence is measured from
+  /// it (FleetSession::checkSilence); a player's watchdog keeps to lastRecvMs_.
+  std::atomic<std::int64_t> lastVerifiedMs_{0};
+  /// A fleet session dropped a notification that was not its own (Stats::wrongApp,
+  /// unsignedNotifications): count it, and name it in the log at the first and at every
+  /// doubling of the count. Network thread.
+  void countNotOwn(bool wrongApp, const wire::LongSpatialView& view);
   std::int64_t lastCapsMs_ = 0;  ///< monotonic ms of the last CLIENT_CAPABILITIES; 0 = none yet
   /// Written by whichever thread sends and read by the watchdog on the network thread.
   std::atomic<std::int64_t> lastSendMs_{0};

@@ -113,6 +113,17 @@ struct FakeServer {
     if (fd >= 0) ::close(fd);
   }
 
+  /// A larger receive buffer, for a test whose senders can outrun the thread that reads: a
+  /// datagram the kernel drops for want of room never arrives, and a test that reads "in
+  /// the order they arrived" cannot tell that from one never sent. The largest of these the
+  /// system allows is kept (macOS refuses a size above its limit).
+  void roomForABacklog() {
+    for (const int bytes : {8 << 20, 4 << 20, 2 << 20, 1 << 20}) {
+      const auto* value = reinterpret_cast<const char*>(&bytes);
+      if (::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, value, sizeof(bytes)) == 0) return;
+    }
+  }
+
   /// The next datagram, or empty when none arrives in time.
   std::vector<std::uint8_t> tryRecv(int timeoutMs) {
     timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
@@ -3681,6 +3692,7 @@ void runARefreshedTokenKeepsThePlayerCarried() {
 void runSendsInFlightSwitchWithTheCarry() {
   FakeServer server;
   server.start();
+  server.roomForABacklog();
   FleetConfig cfg = configFor(server);
   cfg.carryBurst = 64;
   FleetSession fleet(cfg, crypto());
@@ -3721,8 +3733,12 @@ void runSendsInFlightSwitchWithTheCarry() {
   std::int64_t expected = base;  // the id the player's sends name now
   int updates = 0, wrong = 0, carries = 0;
   const auto drain = [&](int atMost) {
-    int read = 0;
-    for (auto got = server.tryRecv(1); !got.empty() && read < atMost; got = server.tryRecv(1), ++read) {
+    // The bound is tested before the read: a datagram taken off the socket is always handled.
+    // (Reading first lost one at the bound, and when that one was the carry, `expected` never
+    // moved; a slow runner reaches the bound often.)
+    for (int read = 0; read < atMost; ++read) {
+      const auto got = server.tryRecv(1);
+      if (got.empty()) break;
       if (got[0] == 49) {
         const std::int64_t id = le::readI64(got.data() + wire::offsets::kPayload);
         if (id != expected) ++carries;  // a carry sent again names the same id

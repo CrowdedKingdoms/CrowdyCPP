@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -245,6 +246,26 @@ class FleetSession {
   Status setServer(const Assignment& server);
   /// The server the session is on, or will open at.
   Assignment server() const;
+  /// The app the session is in (FleetConfig::appId).
+  std::int64_t appId() const { return config_.appId; }
+
+  /// Take a `refreshFleetSession` answer in one call: setToken with the new expiry, then
+  /// setServer with the answer's server, which moves the session only when it differs. It
+  /// answers a move order (moveOrdered() is false afterwards). InvalidArgument, with nothing
+  /// changed, for a token that is not 64 characters or a server without an address or a port.
+  /// domains::applyFleetRefresh() calls this with the Application API's answer.
+  Status applyRefresh(const TokenInfo& token, const Assignment& server);
+
+  /// True when the realtime server told the session to move (COMMAND_RECONNECT), answered
+  /// TOKEN_EXPIRED, or the silence watchdog fired, and no FleetConfig::reassign answered it:
+  /// the session opened again at the server it has. Call `refreshFleetSession` without a
+  /// `currentServer` and apply the answer; setServer and applyRefresh clear it.
+  bool moveOrdered() const;
+  /// True when it is time to call `refreshFleetSession`: a move was ordered (moveOrdered()),
+  /// or less than half of the token's lifetime is left, counted from when this session was
+  /// given the token to its `expiresAtEpochMs` (12 hours into a 24-hour token). False for a
+  /// token with no expiry. The library makes no call itself; ask this from your own loop.
+  bool refreshDue() const;
 
   /// Start or stop asking for the state this session's own carried players sent
   /// (ClientCapability::kFleetOwnState). Advertised at once when connected and it changed;
@@ -406,6 +427,9 @@ class FleetSession {
   bool attemptsPending_ = false;
   /// The session epoch whose carries the table reflects; a later epoch carries again.
   std::uint64_t carriedEpoch_ = 0;
+  /// Epoch millis when the session was last given its token: where refreshDue() counts the
+  /// token's lifetime from.
+  std::atomic<std::int64_t> tokenSinceEpochMs_{0};
 
   /// Declared last: destroyed first, so its network thread has stopped before anything
   /// its hooks touch goes.

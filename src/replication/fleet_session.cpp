@@ -44,12 +44,17 @@ class FleetSession::Endpoint final : public ISessionProvider {
       : server_(std::move(server)), reassign_(std::move(reassign)) {}
 
   Result<Assignment> assignServer() override {
-    if (!useHeld_.exchange(false, std::memory_order_acq_rel) && reassign_) {
-      Result<Assignment> next = reassign_();
-      if (!next.ok()) return next.error();
-      std::lock_guard lock(mutex_);
-      server_ = next.value();
-      return server_;
+    if (!useHeld_.exchange(false, std::memory_order_acq_rel)) {
+      if (reassign_) {
+        Result<Assignment> next = reassign_();
+        if (!next.ok()) return next.error();
+        std::lock_guard lock(mutex_);
+        server_ = next.value();
+        return server_;
+      }
+      // Nobody answered the order: the session opens again where it is, and says so until
+      // the game server gives it a server (FleetSession::moveOrdered).
+      moveOrdered_.store(true, std::memory_order_release);
     }
     std::lock_guard lock(mutex_);
     return server_;
@@ -61,6 +66,9 @@ class FleetSession::Endpoint final : public ISessionProvider {
 
   /// The next assignment opens at the server held, without asking the game server.
   void useHeldNext() { useHeld_.store(true, std::memory_order_release); }
+
+  bool moveOrdered() const { return moveOrdered_.load(std::memory_order_acquire); }
+  void clearMoveOrdered() { moveOrdered_.store(false, std::memory_order_release); }
 
   void set(const Assignment& server) {
     std::lock_guard lock(mutex_);
@@ -76,6 +84,7 @@ class FleetSession::Endpoint final : public ISessionProvider {
   Assignment server_;
   std::function<Result<Assignment>()> reassign_;
   std::atomic<bool> useHeld_{true};
+  std::atomic<bool> moveOrdered_{false};
 };
 
 FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
@@ -88,6 +97,7 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
   transport.appId = config_.appId;
   transport.token = config_.token;
   transport.refreshLeadMs = 0;
+  tokenSinceEpochMs_.store(clock_.epochMillis(), std::memory_order_release);
   connection_ = std::make_unique<Connection>(std::move(transport), endpoint_, crypto_, clock_,
                                              logger);
 
@@ -145,6 +155,7 @@ Status FleetSession::setToken(const TokenInfo& token) {
   if (!key) return Errc::InvalidArgument;
   const Connection::Credentials before = connection_->credentials();
   connection_->setToken(token);
+  tokenSinceEpochMs_.store(clock_.epochMillis(), std::memory_order_release);
   const bool changed = before.gameTokenId != token.gameTokenId ||
                        std::memcmp(before.token.octets, key->octets, wire::kTokenOctets) != 0;
   if (changed) {
@@ -166,6 +177,9 @@ Status FleetSession::setServer(const Assignment& server) {
   const std::string& host =
       (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
   if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
+  // The game server has named the session's server: an order to move is answered, whether
+  // or not the answer is the server it is on.
+  endpoint_->clearMoveOrdered();
   if (sameServer(endpoint_->get(), server)) return Errc::Ok;
   endpoint_->set(server);
   const ConnState s = state();
@@ -177,6 +191,27 @@ Status FleetSession::setServer(const Assignment& server) {
 }
 
 Assignment FleetSession::server() const { return endpoint_->get(); }
+
+Status FleetSession::applyRefresh(const TokenInfo& token, const Assignment& server) {
+  // Both are checked before either is taken, so a bad answer changes nothing.
+  if (token.token.size() != wire::kTokenOctets) return Errc::InvalidArgument;
+  const std::string& host =
+      (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
+  if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
+  const Status taken = setToken(token);
+  if (!taken.ok()) return taken;
+  return setServer(server);
+}
+
+bool FleetSession::moveOrdered() const { return endpoint_->moveOrdered(); }
+
+bool FleetSession::refreshDue() const {
+  if (endpoint_->moveOrdered()) return true;
+  const std::int64_t expiresAt = token().expiresAtEpochMs;
+  if (expiresAt <= 0) return false;
+  const std::int64_t since = tokenSinceEpochMs_.load(std::memory_order_acquire);
+  return clock_.epochMillis() >= since + (expiresAt - since) / 2;
+}
 
 void FleetSession::setFleetOwnState(bool on) {
   constexpr std::uint32_t bit = wire::ClientCapability::kFleetOwnState;

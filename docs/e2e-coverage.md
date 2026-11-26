@@ -52,7 +52,7 @@ passed between servers. What a run asserts, and what it measured:
   no error frame, no acknowledgement of four capabilities advertisements. Its 60 sends for its carried player
   returned `Ok`, and none sent 5 seconds or more after the close reached the other session. With the config
   `fleetConfigOf` makes (the silence timeout on, 45 seconds), `moveOrdered()` and `refreshDue()` turned true
-  44.9 to 45.0 seconds after the close, and the session kept its socket and stayed `Connected`. A second
+  44.6 to 45.0 seconds after the close, and the session kept its socket and stayed `Connected`. A second
   close answered false and the refresh `NOT_FOUND`. A new session then carried the player in 40 to 50 ms.
 - **Idle.** A carried player with no input was released with reason 5 after 60 to 61 seconds (the app's idle
   timeout is 60 seconds). Its session stayed connected, carried nobody for the rest of the run, heard only the
@@ -64,8 +64,8 @@ passed between servers. What a run asserts, and what it measured:
   and false the second time.
 - **Nothing but its own.** The last step requires each session's counts of another app's notifications
   (`Stats::wrongApp`), unsigned notifications (`Stats::unsignedNotifications`), and HMAC failures to be 0, and
-  that no handler was given a notification of another app. Of ten runs between 04:24 and 04:39 UTC, six
-  passed with every count 0. In three, between 04:25 and 04:31 UTC, a session on one realtime server was
+  that no handler was given a notification of another app. Of twelve runs between 04:24 and 04:52 UTC, the
+  two under the sanitizers among them, eight passed with every count 0. In three, between 04:25 and 04:31 UTC, a session on one realtime server was
   sent actor updates (type 130) of another app of the same organization, inside signed bundles that
   verified: 71, 105 (two sessions), and 508 (two sessions) of them. The SDK dropped and counted each, no
   handler saw one, and every other step of those runs passed. That is a defect of the realtime servers,

@@ -3,7 +3,7 @@
 ## Unreleased: fleet sessions for an organization's game servers
 
 Not in a release yet; the release that carries it takes this section's place in the order. A dev-tier preview:
-it needs Application API v2.89.0, realtime servers that carry fleet sessions, and ck-exec 0.25.0. Native first:
+it needs Application API v2.89.0, realtime servers v0.50.0, and ck-exec 0.25.0. Native first:
 CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
 `exec_wire::ClientFrame::Kind` without a `default`.
 
@@ -34,24 +34,39 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   organization's own servers: the fleet token signs for every player the session carries and never reaches a
   player's device. `FleetConfig` holds the fleet token (64 characters), its `gameTokenId`, the app, and the realtime
   server, all from `openFleetSession`. `setToken` takes a refreshed token and `setServer` a new realtime server.
-- **Carrying.** `carry({token, gameTokenId}, callback)` sends `FLEET_CARRY` (49) every 250 ms until
-  `FLEET_CARRY_RESULT` (51) arrives, for at most 5 seconds. The result is a `FleetCarryStatus`: `Carried` (with the
-  user id), `NoLiveToken`, `OtherOrganizationOrApp`, `ProofFailed`, `SessionFull`, or `TimedOut`.
-  `release(gameTokenId)` sends `FLEET_RELEASE` (50). `FleetHandlers::released` reports `FLEET_RELEASED` (52) with
-  `CarriedElsewhere`, `SignInEnded`, or `Idle`.
+- **Carrying.** `carry({token, gameTokenId}, callback)` sends `FLEET_CARRY` (49) every 250 ms, each time with a
+  new time and proof, until `FLEET_CARRY_RESULT` (51) arrives, for at most 5 seconds. The session sends at most
+  50 carries a second after a burst of 32 (`FleetConfig::carriesPerSecond`, `carryBurst`), because the server
+  drops carries past 64 a second. The result is a `FleetCarryStatus`: `Carried` (with the user id), `NoLiveToken`
+  (1, also a token of another app), `OtherOrganization` (2), `ProofRefused` (3, also a replay), `NoRoom` (4, also
+  no place for the carry), or `TimedOut`. `release(gameTokenId)` sends `FLEET_RELEASE` (50), which has no answer.
+  `FleetHandlers::released` reports `FLEET_RELEASED` (52) with `CarriedElsewhere` (1), `SignInEnded` (2), or
+  `Idle` (5).
 - **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
   player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
-  send, with the HMAC keyed by the fleet token.
-- **Receiving.** `FleetHandlers` are `Connection`'s `Handlers` with a `FleetRecipients` argument last (a span of
-  `gameTokenId`s). State arrives once with no recipients. A communication arrives inside `FLEET_DELIVERY` (53) with
-  the carried players who may receive it, at most 32.
+  send, with the HMAC keyed by the fleet token. Under its own id the session sends `CLIENT_CAPABILITIES` (29),
+  `FLEET_CARRY` (49), `FLEET_RELEASE` (50), and its keepalive (26) only, and its capabilities always leave first.
+- **Receiving.** `FleetHandlers` are `Connection`'s `Handlers` with a `FleetRecipients` argument last. State
+  arrives plain and once: `forSession()` is true, and the game server decides which of its players see it. A
+  communication always arrives inside `FLEET_DELIVERY` (53), listing the only carried players who may receive it
+  (at most 32). A client event (138) or an app-defined spatial message (140) arrives plain when every carried
+  player in range may receive it, and inside a `FLEET_DELIVERY` when only some may.
+- **Signing.** A session reads `FLEET_CARRY_RESULT`, `FLEET_RELEASED`, and `FLEET_DELIVERY` in both forms the
+  server sends: followed by their own 32-byte HMAC (alone, or in a `MESSAGE_BUNDLE`), and bare inside a
+  `MESSAGE_BUNDLE_SIGNED`. A frame whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`. The
+  notification inside a `FLEET_DELIVERY` is the unsigned form. The largest datagram a fleet session is sent is
+  1,242 bytes (`wire::fleet::kMaxReceiveDatagramSize`).
+- **Coming back.** On the realtime server its carries were made on, a session's carries stand: after a refresh
+  it sends its capabilities again and no `FLEET_CARRY`. On another server (a refresh that names one, or a move the
+  server ordered) it sends its capabilities, then a new `FLEET_CARRY` for every player, and counts each as carried
+  again when its result arrives.
 - **`ClientCapability::kFleetOwnState`** (bit 3, value 8) asks for the state a session's own carried players sent.
   `FleetSession::setFleetOwnState` sets it; it is off by default.
 - **`wire::MessageType`** gains `FleetCarry` (49), `FleetRelease` (50), `FleetCarryResult` (51), `FleetReleased`
   (52), and `FleetDelivery` (53). `isLongSpatialLayout` is true for 49 and 50. `crowdy/wire/codec.hpp` gains
-  `fleetCarryProof`, `encodeFleetCarryPayload`, `encodeFleetReleasePayload`, `parseFleetCarryResult`,
-  `parseFleetReleased`, and `parseFleetDelivery`. A `Connection` ignores all five types, as it did before they
-  had names.
+  `fleetCarryProof`, `encodeFleetCarryPayload`, `encodeFleetReleasePayload`, `verifyFleetFrame`,
+  `parseFleetCarryResult`, `parseFleetReleased`, `parseFleetDelivery`, `parseFleetDeliveredSpatial`, and
+  `parseFleetDeliveredChannel`. A `Connection` ignores all five types, as it did before they had names.
 - **`ExecConnection::openAsServer` and `connectAsServer`** open a hub connection for a game server from an
   `execConnectAsServer` result. On it, `callAs(player, type, key, method, args)` and `callAsRaw` send client frame
   0x05 for one of the organization's players, and plain calls are the server's own. On any other connection

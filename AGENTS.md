@@ -399,15 +399,31 @@ worker and a `FleetSession` form.
 The carried table changes on two threads under `playersMutex_`: `carry()`, `release()` and the
 sends from any thread, the resends from the network thread's `tick`, and results, releases and
 deadlines from `poll()`, which is also the only thread a callback fires on (after the lock is
-dropped). A new session epoch (a reassignment, `setServer`, `open()` again) carries every player
-again, and so does `setToken` with another token or id, because a proof names the fleet session's
-`gameTokenId`. A carry that is refused or times out removes its row.
+dropped). A carry that is refused or times out removes its row.
+
+The wire is the realtime servers' v0.50.0 as built (the build contract's section 8;
+`cks-project-root/project-root-docs/DESIGN-2026-11-fleet-session.md` for the design). What a
+change here must keep:
+
+- 51, 52 and 53 are read in both forms, whatever the session advertised: followed by their own
+  HMAC (alone, or in a plain bundle; `wire::verifyFleetFrame`), or bare inside a verified signed
+  bundle. `Connection::handleDatagram` verifies and strips the HMAC and queues the frame without
+  it, which is why a 1,242-byte datagram fits the event ring's 1,232-byte slots.
+- The notification inside a 53 is the unsigned form. `parseFleetDeliveredSpatial` refuses
+  anything else, so nothing an ordinary session would have had to verify gets in that way.
+- Under its own id the session sends 29, 49, 50 and 26 and nothing else. Its capabilities are
+  always on and leave first (`ready()`); a new send that is the session's own needs the servers
+  to take it first.
+- Carries are paced (`takeCarryTurnLocked`: 50 a second after a burst) and each send has a new
+  time and proof.
+- A new session epoch on the server the carries were made on leaves them standing; another
+  server, another fleet token or id, and a session opened again carry every player again with
+  `carried` false until each 51 (`recarryAllLocked`).
 
 The golden bytes in `wire_test` and `fleet_session_test` (FLEET_CARRY, FLEET_RELEASE, a carried
-player's actor update) were computed independently in Python and are what the realtime servers'
-tests are checked against: a layout change edits both sides. None of 51, 52 and 53 carries an HMAC
-of its own; `FleetConfig::requireSignedControl` takes them only from a verified signed bundle and
-is off until the realtime servers confirm they always send them in one.
+player's actor update, and a signed 51, 52 and two 53s) were computed independently in Python
+(the script is quoted in `wire_test`) and are what the realtime servers' tests are checked
+against: a layout change edits both sides.
 
 `ExecConnection::openAsServer` / `connectAsServer` mark a connection as a server's
 (`Impl::server_`), which is what lets `callAs` send client frame 0x05; the role is how the

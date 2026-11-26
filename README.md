@@ -959,8 +959,8 @@ hold the organization's org token and never reaches a player's device. A game th
 a player's device uses `Connection` with that player's own token.
 
 Fleet sessions are a dev-tier preview and are not in a release of this SDK yet. They need
-Application API v2.89.0 and realtime servers that carry fleet sessions, and an operator
-switches them on for an organization.
+Application API v2.89.0 and realtime servers v0.50.0, and an operator switches them on for
+an organization.
 
 The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet
 session with `client.admin().fleetSessions().open(appId)`, which answers a 64-character
@@ -1016,26 +1016,48 @@ fleet.close();
 
 - **Carrying.** `carry` sends `FLEET_CARRY` (49) with a proof that the server holds the
   player's token: an HMAC keyed with that token over the fleet session's `gameTokenId`, the
-  player's `gameTokenId`, and the time. The message is sent again every 250 ms until its
-  result arrives, and the carry ends `TimedOut` after 5 seconds
-  (`FleetConfig::carryResendMs`, `carryTimeoutMs`). The result is `Carried` with the
-  player's user id, or one of four refusals: `NoLiveToken`, `OtherOrganizationOrApp`,
-  `ProofFailed` (a clock more than 30 seconds from the server's fails too), and
-  `SessionFull`. After you refresh a player's token, call `carry` with the new one. Once
-  that carry is confirmed it replaces the entry the same user had.
+  player's `gameTokenId`, and the time. The realtime server can leave a carry unanswered,
+  so the session sends it again every 250 ms, each time with a new time and proof, and the
+  carry ends `TimedOut` after 5 seconds (`FleetConfig::carryResendMs`, `carryTimeoutMs`).
+  The server drops carries past 64 a second, so the session sends at most 50 a second after
+  a burst of 32 (`carriesPerSecond`, `carryBurst`; `fleetConfigOf` raises the burst to the
+  session's `maxPlayers`). After you refresh a player's token, call `carry` with the new
+  one. Once that carry is confirmed it replaces the entry the same user had.
+- **Carry results.** `Carried` comes with the player's user id. The four refusals are:
+
+  | Status | Meaning |
+  |---|---|
+  | `NoLiveToken` (1) | No live token by that id in the session's app: it expired, the sign-in ended, or it is a token of another app |
+  | `OtherOrganization` (2) | The token belongs to another organization's player |
+  | `ProofRefused` (3) | The proof did not hold, its time is more than 30 seconds from the server's, or it is a replay |
+  | `NoRoom` (4) | The session carries as many players as it may, or the realtime server has no place for the carry |
+
 - **Sending.** Each of `Connection`'s sends takes the carried player's `gameTokenId`
   first: actor updates, voxel edits, voice, video, text, events, generic spatial messages,
   direct messages, channel messages, channel audio, ranged channel messages, actor
   heartbeats, and `setSpeakers`. The message is the one that player's own session would
   send, signed with the fleet token. A send for a player the session does not carry returns
   `Errc::NotCarried` and puts nothing on the wire. The platform applies each carried
-  player's own permissions, blocks, age rules, speaker lists, and idle timeout.
-- **Receiving.** State (actor updates and departures, voxel edits, events, generic spatial
-  messages, chunk changes) arrives once, with no recipients. Communications (spatial voice,
-  text and video, direct messages, channel messages, channel audio) arrive with the carried
-  players who may receive them, at most 32 in one message. Deliver each to those players
-  only. `handlers.released` reports a carry that the platform ended: `CarriedElsewhere`,
-  `SignInEnded`, or `Idle`.
+  player's own permissions, blocks, age rules, speaker lists, rate budget, and idle
+  timeout. Under its own id the session sends four messages only: its capabilities, which
+  bind it to its address and always leave first, `FLEET_CARRY`, `FLEET_RELEASE`, and
+  `sendHeartbeat()`, a keepalive with no actor. `release` has no answer; one that is lost
+  leaves the carry until the player idles out or is carried elsewhere.
+- **Receiving.** Every handler's last argument, `FleetRecipients`, says who the notification
+  is for.
+  - *State* (actor updates and departures, voxel edits, chunk changes) arrives once, for the
+    session: `recipients.forSession()` is true. The game server knows where its players are
+    and decides which of them see it.
+  - *Client events and app-defined spatial messages* are filtered for each receiver. When
+    every carried player in range may receive one, it arrives once for the session. When
+    some may not, it arrives listing only the players who may.
+  - *Communications* (spatial voice, text and video, direct messages, channel messages,
+    channel audio) always arrive listing the carried players who may receive them, at most
+    32 in one message. Deliver each to those players only.
+
+  `handlers.released` reports a carry that the platform ended: `CarriedElsewhere`,
+  `SignInEnded`, or `Idle`. A refusal of a send (`handlers.genericError`) carries a
+  one-byte sequence number the whole session shares and names no player.
 - **Your own players' state.** A fleet session is not sent the state its own carried
   players sent. `fleet.setFleetOwnState(true)` (or `FleetConfig::fleetOwnState`) asks for
   it.
@@ -1063,8 +1085,11 @@ Every call has an `...Async` twin whose callback receives the outcome and the an
   session that is neither refreshed nor closed ends at its `expiresAt`.
 - **From an answer to the session.** `fleetConfigOf(opened)` is the `FleetConfig` for a new
   session. `applyFleetRefresh(fleet, answer)` gives a live session its new expiry. When the
-  answer names another realtime server, the session reconnects there and carries its
-  players again.
+  answer names the server the session is on, its carries stand: the session sends its
+  capabilities again and no `FLEET_CARRY`. When it names another realtime server, that
+  server holds no carry. The session reconnects there, sends its capabilities, and carries
+  every player again. Each player counts as carried again when its result arrives, and
+  sends for it return `NotCarried` until then.
 - **When to refresh.** `fleet.refreshDue()` is true once 12 of the token's 24 hours have
   passed, and at once after a realtime server tells the session to move
   (`fleet.moveOrdered()`). `refresh(session)` names the server the session is on, so it

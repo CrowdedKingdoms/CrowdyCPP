@@ -389,6 +389,14 @@ void testAnswersReachTheWireClass() {
   CHECK_EQ(config.value().carryResendMs, 100);
   CHECK(config.value().fleetOwnState);
   CHECK(config.value().transport.manualPump);
+  // The carry burst is raised to the session's maxPlayers (256 here; the server allows a
+  // burst of maxPlayers + 32), and a larger one the caller chose is kept.
+  CHECK_EQ(base.carryBurst, 32);
+  CHECK_EQ(config.value().carryBurst, 256);
+  CHECK_EQ(config.value().carriesPerSecond, 50);
+  base.carryBurst = 1000;
+  CHECK_EQ(domains::fleetConfigOf(opened, base).value().carryBurst, 1000);
+  base.carryBurst = 32;
   CHECK(domains::fleetConfigOf(opened).ok());
 
   // An answer that cannot be a session's is refused.
@@ -528,6 +536,15 @@ struct UdpServer {
     CHECK(n > 0);
     return std::vector<std::uint8_t>(buf, buf + n);
   }
+  /// The next datagram of `type`, skipping any other.
+  std::vector<std::uint8_t> next(std::uint8_t type) {
+    for (int i = 0; i < 16; ++i) {
+      auto got = recvOne();
+      if (got[0] == type) return got;
+    }
+    CHECK(false);
+    return {};
+  }
   void send(const std::vector<std::uint8_t>& data) {
     CHECK(::sendto(fd, data.data(), data.size(), 0, reinterpret_cast<sockaddr*>(&client), clientLen) ==
           static_cast<ssize_t>(data.size()));
@@ -545,7 +562,6 @@ void testAMoveOrderAsksForANewServer() {
   base.transport.manualPump = true;
   base.transport.sessionReadyWaitMs = 0;
   base.transport.bundleSends = false;
-  base.transport.advertiseCapabilities = false;
   ManualClock clock;
   clock.epoch = kOpenedAtMs;
   replication::FleetSession fleet(domains::fleetConfigOf(api.open("7"), base).value(), core::opensslCrypto(),
@@ -556,8 +572,9 @@ void testAMoveOrderAsksForANewServer() {
   CHECK(!fleet.moveOrdered());
   CHECK(!fleet.refreshDue());
 
-  // Something for the server to answer to, then its order to move (COMMAND_RECONNECT, signed
-  // with the fleet token).
+  // The session's capabilities are the first thing the server hears; then its order to move
+  // (COMMAND_RECONNECT, signed with the fleet token).
+  CHECK_EQ(first.recvOne()[0], 29u);
   CHECK(fleet.sendHeartbeat().ok());
   CHECK_EQ(first.recvOne()[0], 26u);
   std::vector<std::uint8_t> reconnect(wire::kCommandReconnectSize);
@@ -586,6 +603,7 @@ void testAMoveOrderAsksForANewServer() {
     fleet.poll();
   }
   CHECK(fleet.state() == replication::ConnState::Connected);
+  CHECK_EQ(second.recvOne()[0], 29u);  // its capabilities, on the new server
   CHECK(fleet.sendHeartbeat().ok());
   CHECK_EQ(second.recvOne()[0], 26u);
 
@@ -608,7 +626,7 @@ void testAMoveOrderAsksForANewServer() {
   CHECK(answered.open().ok());
   answered.pump(0);
   CHECK(answered.sendHeartbeat().ok());
-  CHECK_EQ(second.recvOne()[0], 26u);
+  CHECK_EQ(second.next(26)[0], 26u);
   second.send(reconnect);
   for (int i = 0; i < 100 && asked == 0; ++i) {
     answered.pump(20);

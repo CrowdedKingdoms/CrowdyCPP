@@ -234,7 +234,8 @@ inline replication::Assignment fleetServerOf(const FleetSessionResponse& answer)
 
 /// The configuration of a replication::FleetSession for a session `openFleetSession`
 /// answered: `base` (your transport options, handlers of a move, carry timings) with the
-/// app, the fleet token and the realtime server taken from the answer.
+/// app, the fleet token and the realtime server taken from the answer, and `carryBurst`
+/// raised to the answer's `maxPlayers`.
 ///
 ///   auto opened = client.admin().fleetSessions().open(appId);
 ///   replication::FleetSession fleet(fleetConfigOf(opened).value(), crypto);
@@ -252,12 +253,17 @@ inline Result<replication::FleetConfig> fleetConfigOf(const FleetSessionResponse
   base.appId = *appId;
   base.token = token;
   base.server = server;
+  // The server lets a session send its `maxPlayers` + 32 carries at once, so one that moves
+  // to another realtime server can carry all its players again without waiting on the rate.
+  if (opened.maxPlayers > base.carryBurst) base.carryBurst = opened.maxPlayers;
   return base;
 }
 
 /// Give a live session the answer of `refreshFleetSession`: the new expiry, and the realtime
-/// server, which moves the session (it reconnects there and carries its players again) only
-/// when it is another one than the session is on.
+/// server. When the server is the one the session is on, its carries stand: the session
+/// sends its CLIENT_CAPABILITIES again and no FLEET_CARRY. When it is another one, the
+/// session reconnects there, sends its CLIENT_CAPABILITIES and carries every player again
+/// (each is carried again only when its result arrives).
 ///
 ///   if (fleet.refreshDue())
 ///     applyFleetRefresh(fleet, client.admin().fleetSessions().refresh(fleet));

@@ -571,36 +571,69 @@ inline Result<std::size_t> encodeFleetReleasePayload(std::int64_t playerGameToke
   return fleet::kReleasePayloadSize;
 }
 
+/// Verify a fleet session's server frame (51, 52 or 53) in the form that carries its own
+/// HMAC: alone in its datagram, or a member of a MESSAGE_BUNDLE (2). The last 32 bytes are
+/// HMAC-SHA256(key = the fleet token, message = every byte before them, from the type byte
+/// on, followed by the fleet token's 64 octets). Returns the frame without its HMAC, for the
+/// parsers below. Malformed for something too short to be a frame and its HMAC;
+/// HmacMismatch for a frame the fleet token did not sign, which must be dropped.
+///
+/// A member of a MESSAGE_BUNDLE_SIGNED (30) carries no HMAC of its own: verify the bundle
+/// (verifySignedBundle) and give its members to the parsers as they are.
+inline Result<Bytes> verifyFleetFrame(const core::ICrypto& crypto, Bytes message,
+                                      const Token64& fleetToken,
+                                      const core::IMac* mac = nullptr) {
+  if (message.size() <= kHmacTagSize) return Errc::Malformed;
+  const std::uint8_t type = message[0];
+  if (type != static_cast<std::uint8_t>(MessageType::FleetCarryResult) &&
+      type != static_cast<std::uint8_t>(MessageType::FleetReleased) &&
+      type != static_cast<std::uint8_t>(MessageType::FleetDelivery))
+    return Errc::Malformed;
+  const Status cryptoStatus = crypto.availability();
+  if (!cryptoStatus.ok()) return cryptoStatus.code;
+  const std::size_t frameLen = message.size() - kHmacTagSize;
+  std::uint8_t expected[kHmacTagSize];
+  if (!spatialHmac(crypto, message.first(frameLen), fleetToken, expected, mac))
+    return Errc::Malformed;
+  if (!crypto.constantTimeEquals(expected, message.data() + frameLen, kHmacTagSize))
+    return Errc::HmacMismatch;
+  return message.first(frameLen);
+}
+
 struct FleetCarryResultView {
   std::int64_t playerGameTokenId;
   /// 0 unless `status` is 0.
   std::int64_t userId;
-  /// 0 carried; 1 no such live token; 2 another organization's or another app's player;
-  /// 3 the proof or its time failed; 4 the session carries as many as it may.
+  /// 0 carried; 1 no such live token (also a token of another app); 2 another
+  /// organization's player; 3 the proof or its time failed (also a replay); 4 the session
+  /// carries as many as it may (also no place for the carry).
   std::uint8_t status;
 };
 
-/// Parse a FLEET_CARRY_RESULT (51): [type][8B player gameTokenId][8B user id][1B status].
-inline Result<FleetCarryResultView> parseFleetCarryResult(Bytes message) {
-  if (message.size() < fleet::kCarryResultSize ||
-      message[0] != static_cast<std::uint8_t>(MessageType::FleetCarryResult))
+/// Parse a FLEET_CARRY_RESULT (51) without its HMAC: [type][8B player gameTokenId][8B user
+/// id][1B status], 18 bytes exactly.
+inline Result<FleetCarryResultView> parseFleetCarryResult(Bytes frame) {
+  if (frame.size() != fleet::kCarryResultSize ||
+      frame[0] != static_cast<std::uint8_t>(MessageType::FleetCarryResult))
     return Errc::Malformed;
-  const std::uint8_t* b = message.data();
+  const std::uint8_t* b = frame.data();
   return FleetCarryResultView{le::readI64(b + 1), le::readI64(b + 9), b[17]};
 }
 
 struct FleetReleasedView {
   std::int64_t playerGameTokenId;
-  /// 1 carried by another session; 2 the player's sign-in ended; 5 idle.
+  /// 1 another session carries the player; 2 the player's sign-in ended; 5 no gameplay
+  /// input from the player for the app's idle timeout.
   std::uint8_t reason;
 };
 
-/// Parse a FLEET_RELEASED (52): [type][8B player gameTokenId][1B reason].
-inline Result<FleetReleasedView> parseFleetReleased(Bytes message) {
-  if (message.size() < fleet::kReleasedSize ||
-      message[0] != static_cast<std::uint8_t>(MessageType::FleetReleased))
+/// Parse a FLEET_RELEASED (52) without its HMAC: [type][8B player gameTokenId][1B reason],
+/// 10 bytes exactly.
+inline Result<FleetReleasedView> parseFleetReleased(Bytes frame) {
+  if (frame.size() != fleet::kReleasedSize ||
+      frame[0] != static_cast<std::uint8_t>(MessageType::FleetReleased))
     return Errc::Malformed;
-  const std::uint8_t* b = message.data();
+  const std::uint8_t* b = frame.data();
   return FleetReleasedView{le::readI64(b + 1), b[9]};
 }
 
@@ -610,26 +643,58 @@ struct FleetDeliveryView {
   std::size_t count;
   /// `count` game token ids, 8 bytes little endian each; read them with recipient().
   const std::uint8_t* recipients;
-  /// The notification exactly as a player's own session is sent it: its first byte is its
-  /// type (a long-spatial notification, or a channel notification 18 or 36).
+  /// What a player's own session would have been sent, unsigned: a long-spatial
+  /// notification with containsAuth 0 and its 9-byte tail (parseFleetDeliveredSpatial), or a
+  /// channel notification 18 or 36, byte for byte (parseFleetDeliveredChannel). Its length
+  /// is the frame's minus 2 + 8 x count.
   Bytes notification;
 
   std::int64_t recipient(std::size_t i) const { return le::readI64(recipients + i * 8); }
+  bool channel() const {
+    return notification[0] == static_cast<std::uint8_t>(MessageType::ChannelMessageNotification) ||
+           notification[0] == static_cast<std::uint8_t>(MessageType::ChannelAudioNotification);
+  }
 };
 
-/// Parse a FLEET_DELIVERY (53): [type][1B count][count x 8B player gameTokenId][notification].
-/// Malformed for a count of 0 or over fleet::kMaxDeliveryRecipients, a frame shorter than its
-/// count says, and a frame with no notification after the list.
-inline Result<FleetDeliveryView> parseFleetDelivery(Bytes message) {
-  if (message.size() < fleet::kDeliveryHeaderSize ||
-      message[0] != static_cast<std::uint8_t>(MessageType::FleetDelivery))
+/// Parse a FLEET_DELIVERY (53) without its HMAC: [type][1B count][count x 8B player
+/// gameTokenId][notification]. Malformed for a count of 0 or over
+/// fleet::kMaxDeliveryRecipients, a frame shorter than its count says, and a frame with no
+/// notification after the list.
+inline Result<FleetDeliveryView> parseFleetDelivery(Bytes frame) {
+  if (frame.size() < fleet::kDeliveryHeaderSize ||
+      frame[0] != static_cast<std::uint8_t>(MessageType::FleetDelivery))
     return Errc::Malformed;
-  const std::size_t count = message[1];
+  const std::size_t count = frame[1];
   if (count == 0 || count > fleet::kMaxDeliveryRecipients) return Errc::Malformed;
   const std::size_t listEnd = fleet::kDeliveryHeaderSize + count * 8;
-  if (message.size() <= listEnd) return Errc::Malformed;
-  return FleetDeliveryView{count, message.data() + fleet::kDeliveryHeaderSize,
-                           message.subspan(listEnd)};
+  if (frame.size() <= listEnd) return Errc::Malformed;
+  return FleetDeliveryView{count, frame.data() + fleet::kDeliveryHeaderSize,
+                           frame.subspan(listEnd)};
+}
+
+/// The long-spatial notification inside a FLEET_DELIVERY, read by the parser an ordinary
+/// session's notifications go through. Inside a delivery it is always the unsigned form
+/// (containsAuth 0, no HMAC of its own, the 9-byte tail): the delivery's own HMAC, or its
+/// signed bundle's, is what vouches for it. Malformed for anything else, a signed
+/// notification and a client-only request included, so this accepts nothing an ordinary
+/// session's path would have had to verify.
+inline Result<LongSpatialView> parseFleetDeliveredSpatial(Bytes notification) {
+  if (notification.size() < kMinLongSpatialNoHmac) return Errc::Malformed;
+  if (!isLongSpatialLayout(notification[0]) || isClientOnlyControlType(notification[0]))
+    return Errc::Malformed;
+  if (notification[offsets::kContainsAuth] != 0) return Errc::Malformed;
+  return parseLongSpatial(notification);
+}
+
+/// The channel notification (18 or 36) inside a FLEET_DELIVERY: byte for byte what any
+/// session receives, and nothing after it.
+inline Result<ChannelNotificationView> parseFleetDeliveredChannel(Bytes notification) {
+  auto parsed = parseChannelNotification(notification);
+  if (!parsed.ok()) return parsed;
+  if (notification.size() !=
+      channel::kHeaderSize + parsed->payload.size() + channel::kNotificationTailSize)
+    return Errc::Malformed;
+  return parsed;
 }
 
 // ---------------------------------------------------------------------------

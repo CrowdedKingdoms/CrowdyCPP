@@ -394,8 +394,8 @@ class Connection {
   /// connection's token either way.
   using Sender = const std::int64_t*;
   struct FleetHooks {
-    /// poll(): one FLEET_CARRY_RESULT, FLEET_RELEASED or FLEET_DELIVERY that parsed (and,
-    /// for a delivery, whose notification verified) on the receive path.
+    /// poll(): one FLEET_CARRY_RESULT, FLEET_RELEASED or FLEET_DELIVERY that the receive
+    /// path verified (its own HMAC, or its signed bundle's) and parsed, without its HMAC.
     std::function<void(Bytes message)> message;
     /// The net thread or pump(), at the end of every housekeeping pass.
     std::function<void()> tick;
@@ -403,8 +403,6 @@ class Connection {
     std::function<void()> advertised;
     /// Flags added to every CLIENT_CAPABILITIES (ClientCapability::kFleetOwnState).
     std::atomic<std::uint32_t> capabilities{0};
-    /// Take the three fleet messages only from inside a verified MESSAGE_BUNDLE_SIGNED.
-    bool requireSignedBundle = false;
   };
   std::unique_ptr<FleetHooks> fleet_;
 

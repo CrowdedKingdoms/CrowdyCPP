@@ -847,37 +847,30 @@ void Connection::handleDatagram(Bytes datagram) {
     } else if (fleet_ && (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult) ||
                           type == static_cast<std::uint8_t>(MessageType::FleetReleased) ||
                           type == static_cast<std::uint8_t>(MessageType::FleetDelivery))) {
-      // A fleet session's three messages. None carries an HMAC of its own, so a session
-      // that asks for it takes them only from a verified signed bundle.
+      // A fleet session's three frames. Inside a signed bundle the bundle's HMAC, checked
+      // above, vouches for them. Anywhere else (alone, or in a plain bundle) each is
+      // followed by its own HMAC, which is checked and taken off here; what is queued is
+      // the frame without it, so the largest datagram (1,242 bytes) queues as 1,210.
       Errc verdict = Errc::Ok;
-      if (fleet_->requireSignedBundle && !signedBundle) {
-        verdict = Errc::HmacMismatch;
+      if (!signedBundle) {
+        const auto frame = wire::verifyFleetFrame(crypto_, message, token, creds.mac.get());
+        if (frame.ok()) message = frame.value();
+        else verdict = frame.error();
+      }
+      if (verdict != Errc::Ok) {
+        // dropped below
       } else if (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult)) {
         verdict = wire::parseFleetCarryResult(message).error();
       } else if (type == static_cast<std::uint8_t>(MessageType::FleetReleased)) {
         verdict = wire::parseFleetReleased(message).error();
       } else {
-        // The notification inside is what a player's own session is sent: a channel
-        // notification, or a long-spatial one whose HMAC (when it carries one) is the
-        // fleet token's.
+        // The notification inside is what a player's own session would have been sent, in
+        // its unsigned form: nothing here is taken on its own word.
         const auto delivery = wire::parseFleetDelivery(message);
-        if (!delivery.ok()) {
-          verdict = delivery.error();
-        } else {
-          const Bytes inner = delivery->notification;
-          if (inner[0] == static_cast<std::uint8_t>(MessageType::ChannelMessageNotification) ||
-              inner[0] == static_cast<std::uint8_t>(MessageType::ChannelAudioNotification)) {
-            verdict = wire::parseChannelNotification(inner).error();
-          } else if (wire::isLongSpatialLayout(inner[0]) &&
-                     !wire::isClientOnlyControlType(inner[0])) {
-            verdict = wire::parseLongSpatial(inner).error();
-            if (verdict == Errc::Ok && config_.verifyNotifications &&
-                !wire::verifyLongSpatial(crypto_, inner, token, creds.mac.get()).ok())
-              verdict = Errc::HmacMismatch;
-          } else {
-            verdict = Errc::Malformed;
-          }
-        }
+        if (!delivery.ok()) verdict = delivery.error();
+        else if (delivery->channel())
+          verdict = wire::parseFleetDeliveredChannel(delivery->notification).error();
+        else verdict = wire::parseFleetDeliveredSpatial(delivery->notification).error();
       }
       if (verdict != Errc::Ok) {
         std::lock_guard lock(statsMutex_);
@@ -937,7 +930,8 @@ void Connection::handleDatagram(Bytes datagram) {
 
 std::size_t Connection::receiveBatch(int timeoutMs) {
   // Batched receive: one syscall per burst on Linux (recvmmsg), a drain loop
-  // elsewhere. 2048-byte slots comfortably hold any 1232-byte datagram.
+  // elsewhere. 2048-byte slots comfortably hold any 1232-byte datagram, and the 1,242
+  // bytes a fleet session can be sent (wire::fleet::kMaxReceiveDatagramSize).
   constexpr std::size_t kSlot = 2048;
   constexpr std::size_t kBatch = 16;
   std::uint8_t slab[kSlot * kBatch];

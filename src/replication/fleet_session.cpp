@@ -17,7 +17,7 @@ bool sameServer(const Assignment& a, const Assignment& b) {
 }
 
 FleetCarryStatus carryStatusOf(std::uint8_t wireStatus) {
-  return wireStatus <= static_cast<std::uint8_t>(FleetCarryStatus::SessionFull)
+  return wireStatus <= static_cast<std::uint8_t>(FleetCarryStatus::NoRoom)
              ? static_cast<FleetCarryStatus>(wireStatus)
              : FleetCarryStatus::Refused;
 }
@@ -93,6 +93,8 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
       crypto_(crypto),
       clock_(clock),
       endpoint_(std::make_shared<Endpoint>(config_.server, config_.reassign)) {
+  // The session's CLIENT_CAPABILITIES binds it to its address, so it is not an option here.
+  config_.transport.advertiseCapabilities = true;
   Config transport = config_.transport;
   transport.appId = config_.appId;
   transport.token = config_.token;
@@ -107,10 +109,9 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
   hooks->advertised = [this] { onAdvertised(); };
   hooks->capabilities.store(config_.fleetOwnState ? wire::ClientCapability::kFleetOwnState : 0u,
                             std::memory_order_release);
-  hooks->requireSignedBundle = config_.requireSignedControl;
   connection_->fleet_ = std::move(hooks);
 
-  // Whatever arrives outside a FLEET_DELIVERY is for the session as a whole: no recipients.
+  // Whatever arrives outside a FLEET_DELIVERY is for the session as a whole.
   Handlers plain;
   plain.any = [this](const SpatialNotification& n) {
     detail::dispatchSpatial(active_, n, FleetRecipients{});
@@ -125,6 +126,7 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
     if (active_.genericError) active_.genericError(e);
   };
   plain.status = [this](ConnState s) {
+    onStatus(s);
     if (active_.status) active_.status(s);
   };
   connection_->setHandlers(std::move(plain));
@@ -134,7 +136,11 @@ FleetSession::~FleetSession() { connection_->disconnect(); }
 
 Status FleetSession::open() {
   const ConnState s = state();
-  if (s != ConnState::Connected && s != ConnState::Connecting) endpoint_->useHeldNext();
+  if (s != ConnState::Connected && s != ConnState::Connecting) {
+    endpoint_->useHeldNext();
+    // A session that starts anew holds no carry on the server, whichever server it is.
+    sessionRestarted_.store(true, std::memory_order_release);
+  }
   return connection_->connect();
 }
 
@@ -150,20 +156,36 @@ void FleetSession::setHandlers(FleetHandlers handlers) {
   handlers_ = std::move(handlers);
 }
 
-Status FleetSession::setToken(const TokenInfo& token) {
+void FleetSession::onStatus(ConnState state) {
+  // The session ended (an idle release, or a reassignment that failed): its carries ended
+  // with it, unannounced. The rows wait to be carried again when it is opened again.
+  if (state != ConnState::Inactive && state != ConnState::Failed) return;
+  std::lock_guard lock(playersMutex_);
+  recarryAllLocked();
+}
+
+bool FleetSession::takeToken(const TokenInfo& token) {
   const auto key = wire::Token64::fromString(token.token);
-  if (!key) return Errc::InvalidArgument;
   const Connection::Credentials before = connection_->credentials();
   connection_->setToken(token);
   tokenSinceEpochMs_.store(clock_.epochMillis(), std::memory_order_release);
-  const bool changed = before.gameTokenId != token.gameTokenId ||
-                       std::memcmp(before.token.octets, key->octets, wire::kTokenOctets) != 0;
-  if (changed) {
-    // A proof names the fleet session's gameTokenId, and the server knows the carries by
-    // the session that made them.
+  return before.gameTokenId != token.gameTokenId ||
+         (key && std::memcmp(before.token.octets, key->octets, wire::kTokenOctets) != 0);
+}
+
+Status FleetSession::setToken(const TokenInfo& token) {
+  if (token.token.size() != wire::kTokenOctets) return Errc::InvalidArgument;
+  if (!takeToken(token)) return Errc::Ok;  // a refresh: the same session, its carries stand
+  // Another token or id is another session to the server, which holds no carry of it:
+  // capabilities under the new id first, then every player again.
+  {
     std::lock_guard lock(playersMutex_);
     recarryAllLocked();
-    if (state() == ConnState::Connected) driveCarriesLocked(clock_.monotonicMillis());
+  }
+  if (state() == ConnState::Connected) {
+    (void)connection_->sendCapabilities();
+    std::lock_guard lock(playersMutex_);
+    driveCarriesLocked(clock_.monotonicMillis());
   }
   return Errc::Ok;
 }
@@ -198,9 +220,18 @@ Status FleetSession::applyRefresh(const TokenInfo& token, const Assignment& serv
   const std::string& host =
       (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
   if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
+  const bool sameSession = token.gameTokenId == connection_->credentials().gameTokenId;
+  const bool stays = sameServer(endpoint_->get(), server);
   const Status taken = setToken(token);
   if (!taken.ok()) return taken;
-  return setServer(server);
+  const Status placed = setServer(server);
+  // The same session on the same server: its carries stand. The refresh authorized the
+  // token there again, and the capabilities sent now are what let the server follow the
+  // session to the address it has. No FLEET_CARRY. (Another server, or another session,
+  // sends its capabilities and its carries once it is connected.)
+  if (placed.ok() && stays && sameSession && state() == ConnState::Connected)
+    (void)connection_->sendCapabilities();
+  return placed;
 }
 
 bool FleetSession::moveOrdered() const { return endpoint_->moveOrdered(); }
@@ -219,8 +250,7 @@ void FleetSession::setFleetOwnState(bool on) {
   const std::uint32_t before = on ? capabilities.fetch_or(bit, std::memory_order_acq_rel)
                                   : capabilities.fetch_and(~bit, std::memory_order_acq_rel);
   if (((before & bit) != 0) == on) return;
-  if (config_.transport.advertiseCapabilities && state() == ConnState::Connected)
-    (void)connection_->sendCapabilities();
+  if (state() == ConnState::Connected) (void)connection_->sendCapabilities();
 }
 
 bool FleetSession::fleetOwnState() const noexcept {
@@ -249,14 +279,19 @@ Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
   entry.order = ++carryOrder_;
   entry.done = std::move(done);
   attemptsPending_ = true;
-  // Before the session is connected the carry waits for the pass that finds it so.
-  if (s == ConnState::Connected) sendCarryLocked(player.gameTokenId, entry, clock_.monotonicMillis());
+  // Before the session is connected, and when the rate has no turn left, the carry waits
+  // for the pass that can send it.
+  if (ready()) {
+    const std::int64_t now = clock_.monotonicMillis();
+    if (takeCarryTurnLocked(now)) sendCarryLocked(player.gameTokenId, entry, now);
+  }
   return Errc::Ok;
 }
 
 void FleetSession::sendCarryLocked(std::int64_t id, Player& player, std::int64_t nowMono) {
   // One read of the session's id for the proof and the tail, so a token change between
-  // them cannot make the two disagree.
+  // them cannot make the two disagree. The time and the proof are new at every send: the
+  // same bytes again are a replay once the first was accepted and its carry ended.
   const std::int64_t fleetId = connection_->credentials().gameTokenId;
   std::uint8_t payload[wire::fleet::kCarryPayloadSize];
   const auto n = wire::encodeFleetCarryPayload(crypto_, player.token, fleetId, id,
@@ -271,38 +306,72 @@ void FleetSession::sendCarryLocked(std::int64_t id, Player& player, std::int64_t
   if (player.deadlineMs == 0) player.deadlineMs = nowMono + std::max(0, config_.carryTimeoutMs);
 }
 
+bool FleetSession::takeCarryTurnLocked(std::int64_t nowMono) {
+  // The server drops carries past 64 a second unanswered; the session keeps under that.
+  const double burst = static_cast<double>(std::max(1, config_.carryBurst));
+  const double rate = static_cast<double>(std::max(1, config_.carriesPerSecond));
+  if (!carryTurnsPrimed_) {
+    carryTurnsPrimed_ = true;
+    carryTurns_ = burst;
+  } else if (nowMono > carryTurnsAtMs_) {
+    carryTurns_ = std::min(burst, carryTurns_ + static_cast<double>(nowMono - carryTurnsAtMs_) * rate / 1000.0);
+  }
+  carryTurnsAtMs_ = nowMono;
+  if (carryTurns_ < 1.0) return false;
+  carryTurns_ -= 1.0;
+  return true;
+}
+
 void FleetSession::driveCarriesLocked(std::int64_t nowMono) {
   if (!attemptsPending_) return;
+  dueScratch_.clear();
   bool any = false;
-  for (auto& [id, player] : players_) {
+  for (const auto& [id, player] : players_) {
     if (!player.attempt) continue;
     any = true;
     // Past its deadline a carry is poll()'s to report; it is not sent again.
     if (player.deadlineMs != 0 && nowMono >= player.deadlineMs) continue;
-    if (nowMono >= player.nextSendMs) sendCarryLocked(id, player, nowMono);
+    if (nowMono >= player.nextSendMs) dueScratch_.emplace_back(player.nextSendMs, id);
   }
   attemptsPending_ = any;
+  if (dueScratch_.empty()) return;
+  // A carry that never left (0) goes before one that is being sent again, and of those the
+  // one that has waited longest, so the rate starves no player.
+  std::sort(dueScratch_.begin(), dueScratch_.end());
+  for (const auto& due : dueScratch_) {
+    if (!takeCarryTurnLocked(nowMono)) break;
+    sendCarryLocked(due.second, players_.find(due.second)->second, nowMono);
+  }
 }
 
 void FleetSession::recarryAllLocked() {
   for (auto& [id, player] : players_) {
     (void)id;
     if (!player.attempt && !player.carried) continue;
+    // Carried again only when its own result says so.
+    player.carried = false;
     player.attempt = true;
     player.nextSendMs = 0;
-    player.deadlineMs = 0;  // a fresh window on the new session
+    player.deadlineMs = 0;  // its timeout starts when it is first sent
     attemptsPending_ = true;
   }
 }
 
 void FleetSession::onTick() {
-  if (connection_->state() != ConnState::Connected) return;
+  if (!ready()) return;
   const std::uint64_t epoch = connection_->sessionEpoch();
   std::lock_guard lock(playersMutex_);
   if (epoch != carriedEpoch_) {
-    // A new session, on this realtime server or another: it knows nothing of the carries
-    // the last one held, as it knows nothing of its capabilities.
-    recarryAllLocked();
+    // The session is connected again, and its capabilities have left. On the realtime
+    // server its carries were made on they stand (a refresh is what lets that server
+    // follow the session to its new address). Another server holds none of them, and
+    // neither does any server for a session that was opened again: every player is
+    // carried again, and the server left sends no FLEET_RELEASED for them.
+    const Assignment now = connection_->assignmentSnapshot();
+    const bool restarted = sessionRestarted_.exchange(false, std::memory_order_acq_rel);
+    if (restarted || !carriedServerKnown_ || !sameServer(now, carriedServer_)) recarryAllLocked();
+    carriedServer_ = now;
+    carriedServerKnown_ = true;
     carriedEpoch_ = epoch;
   }
   driveCarriesLocked(clock_.monotonicMillis());
@@ -313,6 +382,7 @@ Status FleetSession::release(std::int64_t playerGameTokenId) {
     std::lock_guard lock(playersMutex_);
     players_.erase(playerGameTokenId);
   }
+  if (!ready()) return Errc::NotConnected;
   std::uint8_t payload[wire::fleet::kReleasePayloadSize];
   const auto n = wire::encodeFleetReleasePayload(playerGameTokenId,
                                                  MutableBytes(payload, sizeof(payload)));
@@ -320,6 +390,16 @@ Status FleetSession::release(std::int64_t playerGameTokenId) {
   const auto sent = connection_->sendLongSpatial(MessageType::FleetRelease,
                                                  controlSend(Bytes(payload, n.value())));
   return sent.ok() ? Status(Errc::Ok) : Status(sent.error());
+}
+
+bool FleetSession::ready() const {
+  return state() == ConnState::Connected &&
+         advertisedEpoch_.load(std::memory_order_acquire) == connection_->sessionEpoch();
+}
+
+Errc FleetSession::sendGate(std::int64_t player) const {
+  if (!carries(player)) return Errc::NotCarried;
+  return ready() ? Errc::Ok : Errc::NotConnected;
 }
 
 bool FleetSession::carries(std::int64_t playerGameTokenId) const {
@@ -359,7 +439,7 @@ std::size_t FleetSession::carriedCount() const {
 // ---------------------------------------------------------------------------
 
 Result<std::uint8_t> FleetSession::sendActorUpdate(std::int64_t player, const SpatialSend& p) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendLongSpatial(MessageType::ActorUpdateRequest, p, &player);
 }
 
@@ -369,18 +449,18 @@ Result<std::uint8_t> FleetSession::sendVoxelUpdate(std::int64_t player,
                                                    std::int16_t y, std::int16_t z,
                                                    std::int16_t voxelType, Bytes voxelState,
                                                    std::uint8_t distance, wire::DecayRate decay) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendVoxelUpdateAs(&player, chunk, uuid, x, y, z, voxelType, voxelState,
                                         distance, decay);
 }
 
 Result<std::uint8_t> FleetSession::sendAudio(std::int64_t player, const SpatialSend& p) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendLongSpatial(MessageType::ClientAudioPacket, p, &player);
 }
 
 Result<std::uint8_t> FleetSession::sendVideo(std::int64_t player, const SpatialSend& p) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendLongSpatial(MessageType::ClientVideoPacket, p, &player);
 }
 
@@ -389,13 +469,13 @@ Result<std::size_t> FleetSession::sendVideoFrame(std::int64_t player,
                                                  const core::ActorUuid& uuid, Bytes frame,
                                                  std::uint16_t frameId, std::uint8_t codec,
                                                  std::uint8_t distance, wire::DecayRate decay) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendVideoFrameAs(&player, chunk, uuid, frame, frameId, codec, distance,
                                        decay);
 }
 
 Result<std::uint8_t> FleetSession::sendText(std::int64_t player, const SpatialSend& p) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendLongSpatial(MessageType::ClientTextPacket, p, &player);
 }
 
@@ -404,12 +484,12 @@ Result<std::uint8_t> FleetSession::sendClientEvent(std::int64_t player,
                                                    const core::ActorUuid& uuid,
                                                    std::uint16_t eventType, Bytes state,
                                                    std::uint8_t distance, wire::DecayRate decay) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendClientEventAs(&player, chunk, uuid, eventType, state, distance, decay);
 }
 
 Result<std::uint8_t> FleetSession::sendGenericSpatial(std::int64_t player, const SpatialSend& p) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendLongSpatial(MessageType::GenericSpatial1, p, &player);
 }
 
@@ -417,7 +497,7 @@ Result<std::uint8_t> FleetSession::sendSingleActorMessage(std::int64_t player,
                                                           const wire::ChunkCoord& targetChunk,
                                                           const core::ActorUuid& targetUuid,
                                                           Bytes payload) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendSingleActorMessageAs(&player, targetChunk, targetUuid, payload);
 }
 
@@ -425,14 +505,14 @@ Result<std::uint8_t> FleetSession::sendChannelMessage(std::int64_t player,
                                                       std::int64_t channelId,
                                                       const core::ActorUuid& uuid,
                                                       Bytes payload) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendChannelRequest(MessageType::ChannelMessageRequest, channelId, uuid,
                                          payload, &player);
 }
 
 Result<std::uint8_t> FleetSession::sendChannelAudio(std::int64_t player, std::int64_t channelId,
                                                     const core::ActorUuid& uuid, Bytes payload) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendChannelRequest(MessageType::ChannelAudioRequest, channelId, uuid,
                                          payload, &player);
 }
@@ -443,7 +523,7 @@ Result<std::uint8_t> FleetSession::sendRangedChannelMessage(std::int64_t player,
                                                             Bytes payload,
                                                             const wire::ChunkCoord& origin,
                                                             std::uint32_t maxDistance) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendRangedChannelMessageAs(&player, channelId, uuid, payload, origin,
                                                  maxDistance);
 }
@@ -451,11 +531,12 @@ Result<std::uint8_t> FleetSession::sendRangedChannelMessage(std::int64_t player,
 Result<std::uint8_t> FleetSession::sendHeartbeat(std::int64_t player,
                                                  const wire::ChunkCoord& chunk,
                                                  const core::ActorUuid& uuid) {
-  if (!carries(player)) return Errc::NotCarried;
+  if (const Errc gate = sendGate(player); gate != Errc::Ok) return gate;
   return connection_->sendHeartbeatAs(&player, chunk, uuid);
 }
 
 Result<std::uint8_t> FleetSession::sendHeartbeat() {
+  if (!ready()) return Errc::NotConnected;
   return connection_->sendLongSpatial(MessageType::ClientActorHeartbeat, controlSend(Bytes()));
 }
 
@@ -474,7 +555,7 @@ Status FleetSession::setSpeakers(std::int64_t player, SpeakerList voice, Speaker
     entry.videoSpeakers = video.mode == wire::SpeakerMode::Only
                               ? std::optional<std::vector<core::ActorUuid>>(video.names)
                               : std::nullopt;
-  if (state() != ConnState::Connected) return Errc::Ok;
+  if (!ready()) return Errc::Ok;  // they follow the session's next capabilities
   // One kind a message, as Connection sends them: 32 names of each would not fit one datagram.
   if (voice.mode != wire::SpeakerMode::Keep) {
     const auto sent = connection_->sendSpeakerLists(voice, SpeakerList::keep(), &player);
@@ -497,6 +578,8 @@ void FleetSession::sendSpeakersLocked(std::int64_t id, const Player& player) {
 }
 
 void FleetSession::onAdvertised() {
+  // This session's capabilities have left: from here its other messages may.
+  advertisedEpoch_.store(connection_->sessionEpoch(), std::memory_order_release);
   // The lists live with the session on the server, as the capabilities do. A player being
   // carried again gets theirs when that carry is confirmed.
   std::lock_guard lock(playersMutex_);
@@ -581,7 +664,7 @@ void FleetSession::onCarryResult(const wire::FleetCarryResultView& view) {
         if (!entry.videoSpeakers) entry.videoSpeakers = std::move(old.videoSpeakers);
         other = players_.erase(other);
       }
-      if (state() == ConnState::Connected) sendSpeakersLocked(view.playerGameTokenId, entry);
+      if (ready()) sendSpeakersLocked(view.playerGameTokenId, entry);
     }
   }
   report(result, done);
@@ -606,24 +689,25 @@ void FleetSession::onReleased(const wire::FleetReleasedView& view) {
 }
 
 void FleetSession::onDelivery(const wire::FleetDeliveryView& view) {
+  // "Only these players": the list is the whole of who may receive the notification.
   std::int64_t ids[wire::fleet::kMaxDeliveryRecipients];
   for (std::size_t i = 0; i < view.count; ++i) ids[i] = view.recipient(i);
-  const FleetRecipients recipients(ids, view.count);
+  const FleetRecipients recipients(std::span<const std::int64_t>(ids, view.count));
 
-  const Bytes inner = view.notification;
-  const std::uint8_t type = inner[0];
-  if (type == static_cast<std::uint8_t>(MessageType::ChannelMessageNotification) ||
-      type == static_cast<std::uint8_t>(MessageType::ChannelAudioNotification)) {
-    const auto ch = wire::parseChannelNotification(inner);
+  // The notification is the unsigned form of what a player's own session is sent; the
+  // receive path has verified the frame around it and parsed it once already.
+  if (view.channel()) {
+    const auto ch = wire::parseFleetDeliveredChannel(view.notification);
     if (!ch.ok()) return;
     const ChannelNotification n{ch->channelId, ch->senderUuid, ch->payload, ch->epochMillis,
                                 ch->sequence};
-    const bool audio = type == static_cast<std::uint8_t>(MessageType::ChannelAudioNotification);
+    const bool audio = view.notification[0] ==
+                       static_cast<std::uint8_t>(MessageType::ChannelAudioNotification);
     if (audio && active_.channelAudio) active_.channelAudio(n, recipients);
     if (!audio && active_.channelMessage) active_.channelMessage(n, recipients);
     return;
   }
-  const auto v = wire::parseLongSpatial(inner);
+  const auto v = wire::parseFleetDeliveredSpatial(view.notification);
   if (!v.ok()) return;
   const SpatialNotification n{v->type,    v->appId,                v->chunk,   v->uuid,
                               v->payload, v->epochMillisOrTokenId, v->sequence};

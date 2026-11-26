@@ -1,17 +1,20 @@
 # CrowdyCPP migration notes
 
-## Unreleased: fleet sessions for an organization's game servers
+## 0.94.0 Fleet sessions for an organization's game servers
 
-Not in a release yet; the release that carries it takes this section's place in the order. A dev-tier preview:
-it needs Application API v2.89.0, realtime servers v0.50.3, and ck-exec 0.25.0. Native first:
-CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
-`exec_wire::ClientFrame::Kind` without a `default`.
+For Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 (for the hub connection). All
+three have been on dev, test, and prod since November 26, 2026. Pinned to CrowdyJS 18.40.0, which carries the
+same feature. Fleet sessions stay off for an organization until Crowded Kingdoms switches them on, and the
+organization also needs org-managed players. Until then, the Application API refuses `fleetSessions().open` with
+`FORBIDDEN`. Every other call works with the Application API releases that 0.93.0 works with. Your code needs no
+change unless it switches over `Errc` or `exec_wire::ClientFrame::Kind` without a `default`.
 
-- **`client.admin().fleetSessions()`** (`crowdy/domains/fleet_sessions.hpp`) wraps the Application API's
+- **`client.fleetSessions()`** (`crowdy/domains/fleet_sessions.hpp`) wraps the Application API's
   `openFleetSession`, `refreshFleetSession`, and `closeFleetSession`: `open(appId)`, `refresh(...)`, and
-  `close(...)`, each with an `...Async` twin. The client's bearer is the organization's org token (`cko_...`,
-  scope `fleet:session`). `open` and `refresh` answer a `FleetSessionResponse` (`token`, `gameTokenId`, `appId`,
-  `expiresAt`, `maxPlayers`, `server`); the fleet token in it signs the realtime session and is never an API
+  `close(...)`, each with an `...Async` twin. `client.admin().fleetSessions()` is the same instance. The
+  client's bearer is the organization's org token (`cko_...`, scope `fleet:session`). `open` and `refresh`
+  answer a `FleetSessionResponse` (`token`, `gameTokenId`, `appId`, `expiresAt`, `maxPlayers`, `server`); the
+  fleet token in it signs the realtime session and is never an API
   bearer. **Refresh and close work only with the org token that opened the session:** another org token of the
   same organization gets `NOT_FOUND` from `refresh` and `false` from `close`. Revoking an org token ends every
   session it opened and closes the hub connections it opened, and a session that is neither refreshed nor
@@ -124,9 +127,31 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   `ClientFrame` gains `player` as its last member.
 - **`Connection` is unchanged** in its behaviour, and its public API gains only `GenericError::verified`. Its
   `UdpSocket` now lets a send from one thread run while the network thread closes and reopens the socket.
-  CrowdyPy binds nothing that changed.
 - **The four documents are written in the headers**, as `PortalAPI`'s are. The published schema this SDK
   generates its operations from does not carry the fields yet; they move to `operations/` when it does.
+- **The schema is the published one of November 25, 2026** (Application API v2.88.0). `crowdy/generated/enums.hpp`
+  gains `gen::ProjectProfileStatus` (`INCOMPLETE`, `WAITING_FOR_REVIEW`, `APPROVED`, `DECLINED`). No operation
+  changed, and this SDK wraps none of the fields that came with it: Studio shows an organization its project
+  profile and compute ceiling, and Crowded Kingdoms' operators set the profile's review and the ceiling.
+- **CrowdyJS 18.40.0 has the same calls under its own names:** `client.fleetSessions`, `FleetSession` from
+  `@crowdedkingdoms/crowdyjs/fleet` (Node), and `exec.connectAsServer` with `callAs`. `docs/parity-matrix.md`
+  maps each of its exports to the name here. One behaviour differs. CrowdyJS refuses a carry for a new player
+  once its table holds the session's `maxPlayers` and 32 more rows (`tableFull`). `FleetSession` has no limit of
+  its own: the realtime server answers a carry past `maxPlayers` with `NoRoom`, and a carry that is refused or
+  times out leaves the table.
+- **CrowdyPy** vendors this repository at a pinned release (0.93.0 on November 26, 2026) and binds `Connection`,
+  `WorldSession`, `Config::onEventsReady`, `IChunkSource`, `IHostElection`, and `WorldSessionServices`. None of
+  those contracts changed. At its next release CrowdyPy does three things:
+  1. It vendors this repository again at `dev/v0.94.0`
+     (`scripts/vendor_crowdycpp.py --crowdycpp ../CrowdyCPP --ref dev/v0.94.0`). The new sources
+     (`src/replication/fleet_session.cpp` among them) build with the library, so its build files need no edit.
+  2. It moves its own CrowdyJS pin to 18.40.0 (`dev/v18.40.0`) in the same change, because its vendor check
+     requires this repository's CrowdyJS pin and its own to be equal.
+  3. It adds what is new on the types it already binds: `GenericError::verified`, `Connection::Stats::wrongApp`
+     and `unsignedNotifications` (both stay 0 on a player's `Connection`), and `Errc::NotCarried` in any table
+     of `Errc` names it keeps.
+
+  A Python `FleetSession` is CrowdyPy's own work for a later release. Nothing in 0.94.0 requires it.
 
 ## 0.93.0 A Studio run survives a dropped read and says what each target holds
 

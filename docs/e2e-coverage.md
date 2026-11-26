@@ -24,7 +24,7 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
-## Fleet sessions live validation (unreleased)
+## 0.94.0 live validation: fleet sessions
 
 On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, and the realtime servers' build
 before `v0.50.1`, which never left dev), about 1.5 minutes a run, and under ThreadSanitizer and under
@@ -39,6 +39,7 @@ API is told within 5 seconds by a signed `COMMAND_SESSION_RELEASED` with reason 
 silence); a refusal arrives verified and `sendRefused` names the player; and a carried player's refreshed
 token (`refreshAppToken`, then `carry` with `replaces`) is carried with the player carried throughout and no
 send refused. `CROWDY_FLEET_REALTIME_MIN=0.50.1` (or later) makes that behaviour required.
+The suite has run on dev only: nobody has run it on test or prod, where the same platform releases have been since that day.
 
 What a run asserted on 2026-11-26, and what it measured:
 

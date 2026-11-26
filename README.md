@@ -31,7 +31,7 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
-**v0.94.0: fleet sessions for an organization's game servers.** `replication::FleetSession` is one realtime session that a game server opens for itself and uses for every player on that server. `client.fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `exec().connectAsServer` opens the server's hub connection, where `callAs` makes a call for one of the organization's players. They need Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 for the hub connection; all three have been on dev, test, and prod since November 26, 2026. Crowded Kingdoms switches fleet sessions on for an organization. See [Game servers: fleet sessions](#game-servers-fleet-sessions) and [MIGRATION.md](MIGRATION.md).
+**v0.94.0: fleet sessions for an organization's game servers.** `replication::FleetSession` is one realtime session that a game server opens for itself and uses for every player on that server. `client.fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `exec().connectAsServer` opens the server's hub connection, where `callAs` makes a call for one of the organization's players. Fleet sessions need Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 for the hub connection; all three have been on dev, test, and prod since November 26, 2026. Crowded Kingdoms switches fleet sessions on for an organization. CrowdyJS 18.40.0 carries the same feature. See [Game servers: fleet sessions](#game-servers-fleet-sessions) and [MIGRATION.md](MIGRATION.md).
 
 **v0.93.0: a Studio run survives a dropped read and says what each target holds.** A dropped build-status read (no answer, an HTTP 5xx or 429 that is not the API's answer, or `PLATFORM_BUSY`) is a missed poll in `CrowdyStudioModRunner`, the controller's build wait, and `exec().waitForModBuild`; a run's other reads get one more try. Each run target reports `state` (what the platform holds when the run ends), `modId`, `enabled`, `running`, and `blocked`; a blocked mod ends the run `Blocked`. `expectedServerModuleName` / `expectedClientModuleName` pin the module names, `createCrowdyStudioModRunner(appToken)` makes a runner on its own app token (`setAppToken` rotates it), and every run reaches `onDone`. See [MIGRATION.md](MIGRATION.md).
 
@@ -716,7 +716,7 @@ app-scoped token):
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage, the live-modding check (`liveModding`) and the model list (`models`, `GET /v1/model/models`). The agent itself runs in a Studio dock, CrowdyJS's `dsh` in a browser or a game's own, against the REST `/v1/model` endpoint; see [A Studio dock in a game](#a-studio-dock-in-a-game) and [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
-| `crowdy::replication::FleetSession` | For an organization's own game servers (dev-tier preview): one realtime session that carries the server's players, with every `Connection` send for a carried player and the players who may receive each communication. `client.admin().fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `client.exec().connectAsServer()` opens the server's hub connection. See [Game servers: fleet sessions](#game-servers-fleet-sessions). |
+| `crowdy::replication::FleetSession` | For an organization's own game servers (0.94.0): one realtime session that carries the server's players, with every `Connection` send for a carried player and the players who may receive each communication. `client.fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `client.exec().connectAsServer()` opens the server's hub connection. See [Game servers: fleet sessions](#game-servers-fleet-sessions). |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: typed clients for the ck-exec starter hubs (`world()`, `matchmaking()`, `sessions()`, `npcs()`, `topology()`), the client conventions (`spectate()`, `emotes()`, `shards()`) and `social()` (parties, guilds and chat over teams and channels); `crowdy/kit/wire.hpp`, `realtime.hpp` and `actions.hpp` stand alone — see [Game Kit](#game-kit-the-starter-hubs-social-helpers-and-wire-codecs). |
 
@@ -960,12 +960,15 @@ A fleet token signs for every player the session carries, so it stays on the ser
 hold the organization's org token and never reaches a player's device. A game that runs on
 a player's device uses `Connection` with that player's own token.
 
-Fleet sessions are a dev-tier preview and are not in a release of this SDK yet. They need
-Application API v2.89.0 and realtime servers v0.50.3, and an operator switches them on for
-an organization.
+CrowdyCPP 0.94.0 is the first release with fleet sessions. Fleet sessions need Application
+API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 for the hub connection. All
+three have been on dev, test, and prod since November 26, 2026. Fleet sessions stay off for
+an organization until Crowded Kingdoms switches them on, and the organization also needs
+org-managed players. Until then, the Application API refuses `fleetSessions().open` with
+`FORBIDDEN`.
 
 The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet
-session with `client.admin().fleetSessions().open(appId)`, which answers a 64-character
+session with `client.fleetSessions().open(appId)`, which answers a 64-character
 fleet token, its `gameTokenId`, and a realtime server. Carrying a player is then one UDP
 message. When the player moves to another of the organization's servers, that server
 carries them and this one is told `CarriedElsewhere`. Neither step calls the Application
@@ -979,7 +982,7 @@ using namespace crowdy::replication;
 // A client for this server, holding the organization's org token (scope fleet:session).
 crowdy::CrowdyClient api(crowdy::ClientConfig{.httpUrl = "https://ck.example.com"});
 api.setToken(orgToken);
-auto& sessions = api.admin().fleetSessions();
+auto& sessions = api.fleetSessions();
 
 auto opened = sessions.open(appId);  // openFleetSession: the token, its id, and the server
 FleetSession fleet(crowdy::domains::fleetConfigOf(opened).value(), crowdy::core::opensslCrypto());
@@ -1169,10 +1172,11 @@ A send past the player's rate budget has no refusal: it is dropped in silence.
 
 ### Opening, refreshing, and closing a session
 
-`client.admin().fleetSessions()` wraps the three Application API calls. Each takes the
-organization's org token (`cko_...`, scope `fleet:session`) as the client's bearer, from
-the server. The fleet token in an answer signs the realtime session. The Application API
-does not accept it as a bearer.
+`client.fleetSessions()` wraps the three Application API calls, and
+`client.admin().fleetSessions()` is the same object. Each call takes the organization's org
+token (`cko_...`, scope `fleet:session`) as the client's bearer, from the server. The fleet
+token in an answer signs the realtime session. The Application API does not accept it as a
+bearer.
 
 | Call | Application API | Answer |
 |---|---|---|

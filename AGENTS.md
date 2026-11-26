@@ -160,8 +160,17 @@ the steps it cannot do for you. A C++ test replays each copy (`exec_test`,
 Some wire vectors are literal in both repos' tests instead of a fixture: the opcode 35
 (channel audio) bytes in `wire_test` are the ones CrowdyJS's
 `test/unit/channel-audio.test.mjs` asserts, so a layout change edits both.
-`docs/compatibility.md` names the pin too and is edited by hand. Five things
-reliably bite when this is done by hand:
+`docs/compatibility.md` names the pin too and is edited by hand. When the new
+CrowdyJS carries surface the matrix does not classify yet, `parity:repin` stops at
+its last step with the pin, the literals and the fixtures already written and a
+failing matrix on disk: classify what `docs/parity-matrix.md` lists under
+"Unclassified failures" and "Stale baseline failures", write it again with
+`node tools/parity/parity.mjs --crowdyjs <path> --strict --write docs/parity-matrix.md`,
+then do the steps the tool would have printed (the `rg`, `check:release`, the build
+dirs). If CrowdyJS's `schema.gql` moved, run `npm run schema:drift` first: 0.94.0
+synced the published SDL in the same change, which left only the fields it does
+not carry yet for a dated group. Five things reliably bite when this is done by
+hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
   CrowdyJS behavior cannot go green until that CrowdyJS commit is fetchable
@@ -379,7 +388,12 @@ the client's sync and async transports and dispatcher, at `gql_->endpoint()`; it
 leaves dangling), checks `isSameEstate` and moves only itself. The runner keeps that `AuthState`
 for `setAppToken`.
 
-## Fleet sessions (unreleased; dev only until Michael says otherwise)
+## Fleet sessions (0.94.0)
+
+0.94.0 (CrowdyJS 18.40.0) is the release that carries them. The platform's parts are on dev, test
+and prod since 21:08 UTC on 2026-11-26 (Application API v2.89.1, realtime servers v0.50.3, ck-exec
+0.25.0), and fleet sessions are off for every organization until Crowded Kingdoms switches them on
+for one, so `open` answers `FORBIDDEN` until then.
 
 `replication::FleetSession` (`crowdy/replication/fleet_session.hpp`) is one realtime session of an
 organization's game server that carries its players (the fleet session design, step F3). An
@@ -527,8 +541,9 @@ CrowdyJS tests against: copy it over again when ck-exec's changes, never edit it
 only this SDK has (a player id past 2^53, an empty key, a multi-byte key) are a table in
 `exec_test`.
 
-The Application API calls are `client.admin().fleetSessions()` (`crowdy/domains/fleet_sessions.hpp`:
-`open`, `refresh`, `close`) and `exec().serverEndpoint` / `connectAsServer`. They are the first
+The Application API calls are `client.fleetSessions()`, the same instance as
+`client.admin().fleetSessions()` as CrowdyJS has both (`crowdy/domains/fleet_sessions.hpp`:
+`open`, `refresh`, `close`), and `exec().serverEndpoint` / `connectAsServer`. They are the first
 wrappers here that only an org token can call: the bearer is whatever the client holds, so a
 game server gives its client the org token with `setToken`. `mintManagedPlayerToken` stays
 unwrapped. **Refresh and close work only with the org token that opened the session**; say so
@@ -536,8 +551,12 @@ wherever these calls are described. The four documents are `R"gql(...)gql"` cons
 headers (the audience gate and the matrix's root-field scan read them there) because
 `schema.gql` is the published SDL and does not carry the fields: cks-game-api's own `schema.gql`
 orders its types differently, so syncing from it rewrites 14,000 lines and brings fields
-unrelated to this. When the SDL is published with v2.89.0, sync as usual, move the four
-documents to `operations/` (`fleet/`, and `exec/Exec.graphql`), and use the generated constants.
+unrelated to this. The snapshot is the published SDL of 2026-11-25 (v2.88.0), synced at the
+0.94.0 re-pin; CrowdyJS 18.40.0's copy is the Application API's dev schema (v2.89.1), so the 14
+fleet fields it has beyond the snapshot are the dated "FLEET SESSIONS" group in `SCHEMA_BASELINE`.
+When the SDL is published with v2.89, sync as usual: every entry of that group goes stale and the
+gate says so. Delete the group, move the four documents to `operations/` (`fleet/`, and
+`exec/Exec.graphql`), and use the generated constants.
 
 `replication::FleetSession` makes no API call. `refreshDue()` (half the token's lifetime gone, or
 `moveOrdered()`) is the only policy it holds, and the caller acts on it: `fleetSessions().refresh(
@@ -545,9 +564,25 @@ session)` names the server the session is on unless a move was ordered, and
 `domains::applyFleetRefresh` hands the answer to `FleetSession::applyRefresh`. A move order
 with no `FleetConfig::reassign` reopens the session at the server it has and sets `moveOrdered()`.
 
-Still to do: the version bump and release, and the CrowdyJS and CrowdyPy mirrors.
-`NATIVE_FIRST_SURFACES` in `tools/parity/parity.mjs` lists the surfaces in the matrix and goes
-stale, on purpose, when CrowdyJS carries one.
+What the 0.94.0 release pass did, and what is left:
+
+- The pin moved to CrowdyJS 18.40.0 (`dev/v18.40.0`, 13ac165), so `NATIVE_FIRST_SURFACES` in
+  `tools/parity/parity.mjs` is empty again (it lists a surface this SDK carries before CrowdyJS
+  does, and goes stale, on purpose, when CrowdyJS carries it). CrowdyJS keeps fleet sessions
+  outside the class scan, so `src/fleet-wire.ts`, `src/fleet/session.ts`, `src/fleet/socket.ts`
+  and `src/server-only.ts` are in `CROSS_CUTTING_EXPORT_MODULES` with every export mapped, and
+  seven `fleet-*` entries in `CROSS_CUTTING_BEHAVIORS` hold the rest. A new export in one of
+  those modules fails the gate at the next re-pin: map it.
+- **One difference is open: the table cap** (`fleet-session-table-cap`). CrowdyJS refuses a carry
+  for a new player once its table holds `maxPlayers` + 32 rows (`'tableFull'`, `tableLimit`,
+  `carriesRefusedTableFull`; its security review's finding E). `FleetSession`'s table has no cap:
+  only the game server's own `carry()` calls add a row, and a refused or timed-out carry removes
+  it. Adding one is behaviour (a `FleetConfig` limit, a refusal from `carry()`, a counter, a
+  test), which the release pass left for Michael to decide. Delete the entry when it lands.
+- `CrowdyClient::fleetSessions()` was added for CrowdyJS's `client.fleetSessions`.
+- CrowdyPy has no fleet session. Its next release re-vendors at `dev/v0.94.0` and moves its own
+  CrowdyJS pin to 18.40.0 in the same change (`MIGRATION.md`, 0.94.0).
+- `e2e_fleet_session` has run on dev only. Nobody has run it on test or prod.
 
 ## Writing tests against `graphql::Json`
 

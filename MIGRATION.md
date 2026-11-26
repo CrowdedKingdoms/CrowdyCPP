@@ -65,10 +65,18 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   verified; an unverified error frame reaches `genericError` with `verified` false and changes nothing in the
   session. A `Connection` acts on `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two
   values still compiles.
-- **When a session ends.** After `closeFleetSession` the realtime server sends the session nothing more, so
-  its sends return `Ok` and are dropped. With `FleetConfig::transport.watchdogSilenceMs` set (45,000, say)
-  the session notices the silence: `moveOrdered()` and `refreshDue()` turn true, and the refresh answers
-  `NOT_FOUND`. The watchdog is off unless you set it.
+- **When a session ends.** The realtime servers send an ended session nothing, so its sends return `Ok` and
+  are dropped. A `FleetConfig` therefore starts with `transport.watchdogSilenceMs` 45,000
+  (`fleetTransportDefaults()`; a player's `Connection` keeps 0): when nothing the server signed has arrived
+  for 45 seconds, `moveOrdered()` and `refreshDue()` turn true. The refresh answers `NOT_FOUND` for a
+  session that was closed or whose org token was revoked. The session keeps its socket and its state
+  meanwhile, and after a refresh that answers a server it carries every player again. With
+  `FleetConfig::reassign` set, the session calls it when the timeout passes. 0 switches the timeout off, a
+  smaller value than 3,000 is 3,000, and `transport.advertiseIntervalMs` is held to at most a third of it.
+- **Nothing but its own.** A fleet session drops a notification that names another app than its own
+  (`Stats::wrongApp`) and a plain notification that nothing signed (`Stats::unsignedNotifications`), and logs
+  each at WARN at the first and each time the count doubles. Both are new members of `Connection::Stats` and
+  stay 0 on a player's `Connection`, which makes neither check.
 - **A send fault is named.** `UdpSocket::lastSendFault()` is the operating system's error code of the last send
   that failed `SocketError`, and `Connection` logs it at WARN at the first such fault and each time their
   count doubles. A full buffer is `WouldBlock`, as before, and is not logged.

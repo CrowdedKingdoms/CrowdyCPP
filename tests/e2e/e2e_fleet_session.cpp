@@ -20,7 +20,11 @@
 //
 // What it leaves on the tier: four managed players of the organization, external ids
 // crowdycpp-fleet-e2e-0 to -3, which a rerun signs in again. It deletes nobody and changes
-// no setting. Every fleet session it opens is closed through the API before it passes.
+// no setting. Every fleet session it opens (four) is closed through the API before it passes.
+//
+// The last step judges the realtime servers, and the SDK only for having counted: every
+// session was sent nothing but its own (no notification of another app, none unsigned, no
+// frame whose HMAC failed). What it prints on a failure is for Crowded Kingdoms.
 //
 // The players stand in chunk (7100, 7100, 0). Each send is retried a few times where UDP may
 // have dropped it; a refusal or a wrong delivery fails the run.
@@ -36,6 +40,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -93,6 +98,7 @@ std::string scrub(std::string text) {
 void say(const std::string& line) { std::printf("%s\n", scrub(line).c_str()); }
 
 [[noreturn]] void fail(const std::string& why) {
+  std::fflush(stdout);  // what was printed so far comes first
   std::fprintf(stderr, "e2e_fleet_session FAILED: %s\n", scrub(why).c_str());
   std::exit(1);
 }
@@ -105,6 +111,36 @@ void say(const std::string& line) { std::printf("%s\n", scrub(line).c_str()); }
 std::int64_t msSince(Clock::time_point from) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count();
 }
+
+const Clock::time_point kRunStart = Clock::now();
+/// The step the run is in, for what a session logs from its network thread.
+std::atomic<const char*> currentStep{"0"};
+
+void step(const char* number, const std::string& title) {
+  currentStep.store(number);
+  std::printf("-- %s. %s\n", number, title.c_str());
+}
+
+/// What a session's SDK logs at WARN and above, with when and in which step: a dropped
+/// notification is named there (the app it named, its message type, its chunk).
+struct SessionLog final : core::ILogger {
+  struct Line {
+    std::int64_t atMs;
+    const char* step;
+    std::string text;
+  };
+  bool enabled(core::LogLevel level) const override { return level >= core::LogLevel::Warn; }
+  void log(core::LogLevel, std::string_view message) const override {
+    std::lock_guard lock(mutex);
+    lines.push_back({msSince(kRunStart), currentStep.load(), std::string(message)});
+  }
+  std::vector<Line> all() const {
+    std::lock_guard lock(mutex);
+    return lines;
+  }
+  mutable std::mutex mutex;
+  mutable std::vector<Line> lines;
+};
 
 std::string str(Bytes bytes) {
   return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
@@ -190,6 +226,8 @@ struct GameServer {
 
   std::string name;
   FleetSessionResponse opened;
+  /// What the session's SDK logged. One per session, and it outlives the session.
+  std::shared_ptr<SessionLog> log = std::make_shared<SessionLog>();
   std::unique_ptr<FleetSession> fleet;
 
   std::vector<Update> updates;
@@ -200,15 +238,24 @@ struct GameServer {
   std::vector<FleetCarryResult> results;
   /// Communications that arrived outside a FLEET_DELIVERY: there must be none.
   int plainCommunications = 0;
+  /// Notifications a handler was given that named another app than the session's: the SDK
+  /// drops those, so there must be none.
+  int ofAnotherApp = 0;
   Clock::time_point lastOwnHeartbeat{};
 
-  void connect(std::int64_t watchdogSilenceMs = 0) {
-    FleetConfig base;
-    base.transport.watchdogSilenceMs = watchdogSilenceMs;
-    auto config = domains::fleetConfigOf(opened, base);
+  void connect() {
+    // The config as fleetConfigOf makes it: the silence timeout on, 45 seconds.
+    auto config = domains::fleetConfigOf(opened);
     FLEET_CHECK(config.ok(), name + ": the open answer makes a FleetConfig");
-    fleet = std::make_unique<FleetSession>(config.value(), core::opensslCrypto());
+    FLEET_CHECK(config.value().transport.watchdogSilenceMs == 45000, "the silence timeout is 45 seconds");
+    fleet.reset();
+    log = std::make_shared<SessionLog>();
+    ofAnotherApp = 0;
+    fleet = std::make_unique<FleetSession>(config.value(), core::opensslCrypto(), core::systemClock(), *log);
     FleetHandlers h;
+    h.any = [this, app = config.value().appId](const SpatialNotification& n, FleetRecipients) {
+      if (n.appId != app) ++ofAnotherApp;
+    };
     h.actorUpdate = [this](const SpatialNotification& n, FleetRecipients r) {
       updates.push_back({n.uuidArray(), str(n.payload), r.forSession()});
     };
@@ -270,7 +317,7 @@ struct Managed {
   Clock::time_point lastInput{};
 };
 
-/// The run: two servers, two more for the ended-session step, four players.
+/// The run: two servers, a third for the ended-session step, four players.
 struct World {
   std::vector<GameServer*> servers;
   std::vector<Managed> players;
@@ -343,6 +390,55 @@ std::string names(const std::vector<std::int64_t>& listed, const World& w) {
     out += (out.empty() ? "" : ", ") + who;
   }
   return out.empty() ? "nobody" : out;
+}
+
+const char* stateName(ConnState s);
+
+/// An actor update `from` sends for `player` must reach `to`: `pose` is sent until it does,
+/// up to ten times three seconds apart (UDP may drop one, and a session's first messages in
+/// a chunk can be refused while its permissions there load). When it never arrives, what
+/// both sessions saw meanwhile is printed with the failure.
+void requireDelivery(World& w, GameServer& from, GameServer& to, const Managed& player,
+                     const std::string& pose, const std::string& what) {
+  const std::size_t errorsBefore = from.errors.size();
+  const auto sentBefore = from.fleet->stats();
+  const auto before = to.fleet->stats();
+  const int updatesBefore = to.updatesFrom(player.uuid);
+  std::map<std::string, int> sends;
+  const bool arrived = w.retry(
+      [&](int) {
+        const auto sent = from.fleet->sendActorUpdate(player.token.gameTokenId, {kChunk, player.uuid, bytesOf(pose)});
+        ++sends[sent.ok() ? "Ok" : errcName(sent.error())];
+        (void)from.fleet->flushSends();
+      },
+      [&] { return to.updatesWith(pose) > 0; }, 10, 3000);
+  if (arrived) return;
+  std::string detail = what + ". " + from.name + "'s sends returned";
+  for (const auto& [name, count] : sends) detail += " " + name + " x" + std::to_string(count);
+  std::map<std::string, int> refusals;
+  for (std::size_t i = errorsBefore; i < from.errors.size(); ++i) {
+    ++refusals["code " + std::to_string(static_cast<int>(from.errors[i].code))];
+  }
+  detail += "; " + from.name + " (" + stateName(from.fleet->state()) + ", carries the player: " +
+            (from.fleet->carries(player.token.gameTokenId) ? "yes" : "no") + ", on server " +
+            from.opened.server.serverId + ") was answered";
+  if (refusals.empty()) detail += " no error frame";
+  for (const auto& [code, count] : refusals) detail += " " + code + " x" + std::to_string(count);
+  const auto sentAfter = from.fleet->stats();
+  detail += " and sent " + std::to_string(sentAfter.messagesSentByType[128] - sentBefore.messagesSentByType[128]) +
+            " actor updates in " + std::to_string(sentAfter.datagramsSent - sentBefore.datagramsSent) +
+            " datagrams (" + std::to_string(sentAfter.sendsFailed - sentBefore.sendsFailed) + " failed)";
+  const auto after = to.fleet->stats();
+  detail += "; " + to.name + " (" + stateName(to.fleet->state()) + ", on server " + to.opened.server.serverId +
+            ") received " + std::to_string(after.messagesReceived - before.messagesReceived) + " messages in " +
+            std::to_string(after.datagramsReceived - before.datagramsReceived) + " datagrams meanwhile, " +
+            std::to_string(to.updatesFrom(player.uuid) - updatesBefore) + " of them updates of this player's actor; it dropped " +
+            std::to_string(after.wrongApp - before.wrongApp) + " of another app, " +
+            std::to_string(after.unsignedNotifications - before.unsignedNotifications) + " unsigned, " +
+            std::to_string(after.hmacFailures - before.hmacFailures) + " for their HMAC, " +
+            std::to_string(after.malformed - before.malformed) + " malformed, " +
+            std::to_string(after.ringDropped - before.ringDropped) + " for a full ring";
+  fail(detail);
 }
 
 bool sameSet(std::vector<std::int64_t> a, std::vector<std::int64_t> b) {
@@ -470,11 +566,20 @@ int run() {
 
   World w;
   w.tag = runSuffix();
-  GameServer X("X"), Y("Y"), Z("Z"), V("V");
-  w.servers = {&X, &Y, &Z, &V};
+  GameServer X("X"), Y("Y"), Z("Z");
+  w.servers = {&X, &Y, &Z};
+  /// What a session that is gone was sent that was not its own: (name, server, stats).
+  struct Retired {
+    std::string name;
+    domains::ServerAssignment server;
+    FleetSession::Stats stats;
+    std::shared_ptr<SessionLog> log;
+    int ofAnotherApp;
+  };
+  std::vector<Retired> retired;
 
   // ---- 1 ----
-  E2E_SUBTEST("1. two game servers open a fleet session each");
+  step("1", "two game servers open a fleet session each");
   const auto wellFormed = [&](GameServer& s) {
     keepSecret(s.opened.token);
     FLEET_CHECK(s.opened.token.size() == 64, s.name + ": the token is 64 characters");
@@ -498,7 +603,7 @@ int run() {
               "the two sessions are two sessions");
 
   // ---- 2 ----
-  E2E_SUBTEST("2. the organization signs four of its players in (mintManagedPlayerToken)");
+  step("2", "the organization signs four of its players in (mintManagedPlayerToken)");
   for (int i = 0; i < 4; ++i) {
     Managed p;
     p.externalId = "crowdycpp-fleet-e2e-" + std::to_string(i);
@@ -538,7 +643,7 @@ int run() {
   }
 
   // ---- 3 ----
-  E2E_SUBTEST("3. both sessions connect to their realtime server");
+  step("3", "both sessions connect to their realtime server");
   for (GameServer* s : {&X, &Y}) {
     const auto start = Clock::now();
     s->connect();
@@ -553,7 +658,7 @@ int run() {
   }
 
   // ---- 4 ----
-  E2E_SUBTEST("4. X carries players 0 and 1, Y carries players 2 and 3");
+  step("4", "X carries players 0 and 1, Y carries players 2 and 3");
   for (int i = 0; i < 4; ++i) {
     GameServer& server = i < 2 ? X : Y;
     Managed& p = w.players[i];
@@ -575,7 +680,7 @@ int run() {
   Managed &p0 = w.players[0], &p1 = w.players[1], &p2 = w.players[2], &p3 = w.players[3];
 
   // ---- 5 ----
-  E2E_SUBTEST("5. state: an actor update arrives once, plain, and a session is not sent its own players'");
+  step("5", "state: an actor update arrives once, plain, and a session is not sent its own players'");
   // Everyone stands in the chunk first (the keepalive's updates); the first messages of a
   // session in a chunk can be refused until its permissions there are loaded.
   FLEET_CHECK(w.until([&] { return Y.updatesFrom(p0.uuid) > 0 && Y.updatesFrom(p1.uuid) > 0 &&
@@ -612,7 +717,7 @@ int run() {
               "Y is not sent its own players' state");
 
   // ---- 6 ----
-  E2E_SUBTEST("6. text: delivered only inside FLEET_DELIVERY, listing who may receive it");
+  step("6", "text: delivered only inside FLEET_DELIVERY, listing who may receive it");
   std::string text;
   FLEET_CHECK(w.retry(
                   [&](int n) {
@@ -639,7 +744,7 @@ int run() {
               "no communication arrives outside a FLEET_DELIVERY");
 
   // ---- 7 ----
-  E2E_SUBTEST("7. a crossing: Y carries player 0, with no Application API request");
+  step("7", "a crossing: Y carries player 0, with no Application API request");
   {
     const int requestsBefore = http->count();
     const std::size_t releasedBefore = X.released.size();
@@ -665,18 +770,11 @@ int run() {
     FLEET_CHECK(http->count() == requestsBefore, "the crossing made no Application API request");
     p0.carrier = &Y;
     // Player 0 is another session's player now, so X is sent its state.
-    const std::string pose = "crossed " + w.tag;
-    FLEET_CHECK(w.retry(
-                    [&](int) {
-                      (void)Y.fleet->sendActorUpdate(p0.token.gameTokenId, {kChunk, p0.uuid, bytesOf(pose)});
-                      (void)Y.fleet->flushSends();
-                    },
-                    [&] { return X.updatesWith(pose) > 0; }),
-                "after the crossing X receives player 0's state from Y");
+    requireDelivery(w, Y, X, p0, "crossed " + w.tag, "after the crossing X receives player 0's state from Y");
   }
 
   // ---- 8 ----
-  E2E_SUBTEST("8. a refusal: player 1 may not send under player 0's actor");
+  step("8", "a refusal: player 1 may not send under player 0's actor");
   {
     std::optional<ErrorSeen> refusal;
     std::string pose;
@@ -709,7 +807,7 @@ int run() {
   }
 
   // ---- 9 ----
-  E2E_SUBTEST("9. refresh: the same token and id, a later expiry, the same server, the carries stand");
+  step("9", "refresh: the same token and id, a later expiry, the same server, the carries stand");
   {
     const TokenInfo before = X.fleet->token();
     const Assignment serverBefore = X.fleet->server();
@@ -730,14 +828,8 @@ int run() {
     FLEET_CHECK(X.fleet->server().ip4 == serverBefore.ip4, "to the same server");
     FLEET_CHECK(X.fleet->stats().messagesSentByType[49] == carriesBefore, "and it sent no FLEET_CARRY");
     FLEET_CHECK(!X.fleet->refreshDue() && !X.fleet->moveOrdered(), "nothing is due");
-    const std::string pose = "after refresh " + w.tag;
-    FLEET_CHECK(w.retry(
-                    [&](int) {
-                      (void)X.fleet->sendActorUpdate(p1.token.gameTokenId, {kChunk, p1.uuid, bytesOf(pose)});
-                      (void)X.fleet->flushSends();
-                    },
-                    [&] { return Y.updatesWith(pose) > 0; }),
-                "a send for the carried player still arrives on the other session");
+    requireDelivery(w, X, Y, p1, "after refresh " + w.tag,
+                    "a send for the carried player still arrives on the other session");
     p1.lastInput = Clock::now();
   }
 
@@ -748,13 +840,16 @@ int run() {
   const std::size_t xReleasedBefore = X.released.size();
 
   // A third server takes player 3 from Y, its session is closed through the API, and its
-  // FleetSession goes on sending for player 3. What the realtime server then sends it is
-  // printed; what is required is that the ended session no longer speaks for the player,
-  // and, with the silence watchdog on, that the session learns it has to refresh.
-  const auto endedSession = [&](GameServer& S, std::int64_t watchdogMs, int observeMs) {
+  // FleetSession goes on sending for player 3. The realtime server sends an ended session
+  // nothing, so what is required is that it no longer speaks for the player, that the
+  // silence timeout makes a refresh due about 45 seconds later, that the refresh answers
+  // NOT_FOUND, and that a new session carries the player again.
+  step("9b", "a session ended through the API: silent, a refresh due in 45 s, NOT_FOUND, a new session");
+  {
+    GameServer& S = Z;
     S.opened = whenNotBusy([&] { return sessions.open(appId); });
     wellFormed(S);
-    S.connect(watchdogMs);
+    S.connect();
     FLEET_CHECK(w.until([&] { return S.fleet->state() == ConnState::Connected; }, 15000),
                 S.name + " is connected");
     const std::size_t yReleasedBefore = Y.released.size();
@@ -765,16 +860,11 @@ int run() {
     say("   " + S.name + " carries player 3 in " + std::to_string(crossed.ms) + " ms (a crossing from Y" +
         (S.opened.server.serverId != Y.opened.server.serverId ? ", to another realtime server)" : ")"));
     p3.carrier = &S;
-    const std::string live = "live " + S.name + " " + w.tag;
-    FLEET_CHECK(w.retry(
-                    [&](int) {
-                      (void)S.fleet->sendActorUpdate(p3.token.gameTokenId, {kChunk, p3.uuid, bytesOf(live)});
-                      (void)S.fleet->flushSends();
-                    },
-                    [&] { return Y.updatesWith(live) > 0; }),
-                S.name + "'s sends for player 3 reach Y before the session is ended");
+    requireDelivery(w, S, Y, p3, "live " + S.name + " " + w.tag,
+                    S.name + "'s sends for player 3 reach Y before the session is ended");
     w.spin(2000);            // some ordinary traffic first, to compare with
     p3.carrier = nullptr;    // from here this step sends for player 3 itself, numbered
+    FLEET_CHECK(!S.fleet->moveOrdered() && !S.fleet->refreshDue(), "nothing is due on a live session");
 
     const auto statsBefore = S.fleet->stats();
     const std::size_t errorsBefore = S.errors.size(), statusesBefore = S.statuses.size(),
@@ -784,8 +874,7 @@ int run() {
     say("   before the close the realtime server had sent " + S.name + " " +
         std::to_string(statsBefore.datagramsReceived) + " datagrams (" +
         std::to_string(statsBefore.boundControlAcks) + " capability acknowledgements). Closed through the API; " +
-        S.name + "'s FleetSession keeps sending for player 3, once a second" +
-        (watchdogMs > 0 ? ", with transport.watchdogSilenceMs " + std::to_string(watchdogMs) : ""));
+        S.name + "'s FleetSession keeps sending for player 3, once a second");
 
     std::map<std::string, int> sendResults;
     int arrivedCount = 0, arrivedLate = 0;
@@ -795,7 +884,7 @@ int run() {
     const auto note = [&](const std::string& what) {
       say("   +" + std::to_string(msSince(closedAt)) + " ms: " + what);
     };
-    for (int n = 0; msSince(closedAt) < observeMs; ++n) {
+    for (int n = 0; msSince(closedAt) < 60000; ++n) {
       const std::string pose = "after " + S.name + " " + w.tag + " " + std::to_string(n);
       const std::int64_t sentMs = msSince(closedAt);
       const auto sent = S.fleet->sendActorUpdate(p3.token.gameTokenId, {kChunk, p3.uuid, bytesOf(pose)});
@@ -850,17 +939,13 @@ int run() {
         ", FLEET_CARRY sent " +
         std::to_string(statsAfter.messagesSentByType[49] - statsBefore.messagesSentByType[49]));
     std::map<std::string, int> errorKinds;
-    std::int64_t firstErrorMs = -1;
     for (std::size_t i = errorsBefore; i < S.errors.size(); ++i) {
       const auto& e = S.errors[i];
-      if (firstErrorMs < 0)
-        firstErrorMs = std::chrono::duration_cast<std::chrono::milliseconds>(e.at - closedAt).count();
       ++errorKinds["code " + std::to_string(static_cast<int>(e.code)) + (e.verified ? " verified" : " unverified")];
     }
     std::string errors;
     for (const auto& [kind, count] : errorKinds) errors += (errors.empty() ? "" : ", ") + kind + " x" + std::to_string(count);
-    say("   error frames handed to genericError: " + (errors.empty() ? std::string("none") : errors) +
-        (firstErrorMs >= 0 ? " (the first " + std::to_string(firstErrorMs) + " ms after the close)" : ""));
+    say("   error frames handed to genericError: " + (errors.empty() ? std::string("none") : errors));
     for (std::size_t i = statusesBefore; i < S.statuses.size(); ++i) {
       say("   status handler: " + std::string(stateName(S.statuses[i].state)) + " at +" +
           std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(S.statuses[i].at - closedAt).count()) +
@@ -870,30 +955,28 @@ int run() {
       say("   released handler: player " + std::to_string(S.released[i].released.playerGameTokenId) + ", reason " +
           std::to_string(S.released[i].released.wireReason));
     }
+    for (const auto& line : S.log->all()) {
+      if (line.text.find("a refresh is due") != std::string::npos) say("   the SDK logged: " + line.text);
+    }
     say(std::string("   at the end: state() ") + stateName(S.fleet->state()) + ", moveOrdered() " +
         (S.fleet->moveOrdered() ? "true" : "false") + ", refreshDue() " +
         (S.fleet->refreshDue() ? "true" : "false") + ", carries(player 3) " +
         (S.fleet->carries(p3.token.gameTokenId) ? "true" : "false"));
 
-    // An ended session no longer speaks for its players, and takes none: a carry it sends
-    // for a player Y carries leaves Y's carry standing.
+    // An ended session no longer speaks for its players.
     FLEET_CHECK(arrivedLate == 0, "nothing an ended session sends for a player is delivered");
-    if (watchdogMs == 0) {
-      const std::size_t yReleased = Y.released.size();
-      const CarryOutcome taken = carry(w, S, p2);
-      say("   a carry of player 2 on the ended session: " + std::string(fleetCarryStatusName(taken.result.status)) +
-          " after " + std::to_string(taken.ms) + " ms");
-      FLEET_CHECK(!taken.result.carried(), "an ended session carries nobody new");
-      w.spin(500);
-      FLEET_CHECK(Y.fleet->carries(p2.token.gameTokenId) && Y.releasedOf(p2.token.gameTokenId, yReleased) == nullptr,
-                  "and the session that carries the player keeps it");
-    }
-    if (watchdogMs > 0) {
-      // Nothing comes back to an ended session, so the silence watchdog is what tells it.
-      FLEET_CHECK(moveOrderedAtMs >= 0 && refreshDueAtMs >= 0,
-                  "with the silence watchdog on, the ended session is told to refresh");
-      FLEET_CHECK(moveOrderedAtMs <= watchdogMs + 20000, "within the watchdog's time and one advertisement");
-    }
+    // (One acknowledgement may have been on its way when the session was closed.)
+    FLEET_CHECK(statsAfter.boundControlAcks - statsBefore.boundControlAcks <= 1 &&
+                    statsAfter.messagesSentByType[29] - statsBefore.messagesSentByType[29] >= 3,
+                "an ended session's capabilities are not acknowledged");
+    // The silence is what tells it: a refresh is due about 45 seconds after the server last
+    // said something, and the session stays as it is meanwhile.
+    FLEET_CHECK(refreshDueAtMs >= 0 && moveOrderedAtMs >= 0,
+                "the silence timeout makes a refresh due on an ended session");
+    FLEET_CHECK(refreshDueAtMs >= 30000 && refreshDueAtMs <= 50000, "about 45 seconds after the close");
+    FLEET_CHECK(statsAfter.reconnects == statsBefore.reconnects && S.fleet->state() == ConnState::Connected,
+                "the session keeps its socket and its state");
+    std::printf("ENDED_SESSION_REFRESH_DUE_MS=%lld\n", static_cast<long long>(refreshDueAtMs));
     // The session is gone at the API: a second close answers false, a refresh NOT_FOUND.
     FLEET_CHECK(!sessions.close(*S.fleet), "a second close answers false");
     bool notFound = false;
@@ -904,27 +987,29 @@ int run() {
       if (!notFound) fail("refreshing an ended session was refused " + e.code() + ", not NOT_FOUND");
     }
     FLEET_CHECK(notFound, "refreshing an ended session is NOT_FOUND");
+    retired.push_back({S.name + " (ended)", S.opened.server, S.fleet->stats(), S.log, S.ofAnotherApp});
     S.fleet->close();
     S.fleet.reset();
 
-    // The ended session's carries ended with it: the player's sign-in still stands, and
-    // another of the organization's servers carries the player.
-    const CarryOutcome back = carry(w, Y, p3);
-    say("   Y carries player 3 again: " + std::string(fleetCarryStatusName(back.result.status)) + ", " +
-        std::to_string(back.ms) + " ms");
+    // So the game server opens a new session and carries its players again.
+    S.opened = whenNotBusy([&] { return sessions.open(appId); });
+    wellFormed(S);
+    S.connect();
+    FLEET_CHECK(w.until([&] { return S.fleet->state() == ConnState::Connected; }, 15000),
+                S.name + "'s new session is connected");
+    const CarryOutcome back = carry(w, S, p3);
+    say("   " + S.name + "'s new session carries player 3 again: " +
+        std::string(fleetCarryStatusName(back.result.status)) + ", " + std::to_string(back.ms) + " ms");
     FLEET_CHECK(back.result.carried() && back.result.userId == p3.userId,
-                "a player an ended session carried is carried again");
-    p3.carrier = &Y;
-  };
-
-  E2E_SUBTEST("9b. a session ended through the API while its FleetSession is open (60 s observed)");
-  endedSession(Z, 0, 60000);
-  E2E_SUBTEST("9b, again with the silence watchdog on (transport.watchdogSilenceMs 20000; 45 s observed)");
-  endedSession(V, 20000, 45000);
+                "a player an ended session carried is carried again by a new session");
+    p3.carrier = &S;
+    requireDelivery(w, S, Y, p3, "again " + S.name + " " + w.tag,
+                    "and its sends for the player reach the other session");
+  }
 
   // ---- 9c ----
   if (idleSeconds > 0) {
-    E2E_SUBTEST("9c. a carried player with no input for the app's idle timeout is released, reason 5");
+    step("9c", "a carried player with no input for the app's idle timeout is released, reason 5");
     FLEET_CHECK(w.until([&] { return X.releasedOf(p1.token.gameTokenId, xReleasedBefore) != nullptr; },
                         std::max(0, idleSeconds * 1000 + 90000 - static_cast<int>(msSince(quietSince)))),
                 "X is told player 1 is released");
@@ -939,12 +1024,12 @@ int run() {
     FLEET_CHECK(X.fleet->state() == ConnState::Connected, "the session itself stays connected");
     p1.carrier = nullptr;
   } else {
-    E2E_SUBTEST("9c. the idle release: skipped (CROWDY_FLEET_IDLE_SECONDS is not set)");
+    step("9c", "the idle release: skipped (CROWDY_FLEET_IDLE_SECONDS is not set)");
     p1.quiet = false;
   }
 
   // ---- 10 ----
-  E2E_SUBTEST("10. the hub connection a game server opens for itself");
+  step("10", "the hub connection a game server opens for itself");
   {
     const std::string skipped = hubStep(apiUrl);
     if (!skipped.empty()) say("   skipped: " + skipped);
@@ -952,7 +1037,7 @@ int run() {
   }
 
   // ---- 11 ----
-  E2E_SUBTEST("11. release every player, close both sessions on the wire and through the API");
+  step("11", "release every player, close every session on the wire and through the API");
   w.tick();
   FLEET_CHECK(X.plainCommunications == 0 && Y.plainCommunications == 0,
               "no communication arrived outside a FLEET_DELIVERY in the whole run");
@@ -964,15 +1049,15 @@ int run() {
     FLEET_CHECK(!p.carrier->fleet->carries(p.token.gameTokenId), "the session no longer carries the player");
     p.carrier = nullptr;
   }
-  for (GameServer* s : {&X, &Y}) {
+  for (GameServer* s : {&X, &Y, &Z}) {
     (void)s->fleet->flushSends();
     const auto stats = s->fleet->stats();
     say("   " + s->name + ": " + std::to_string(stats.messagesSent) + " messages sent, " +
         std::to_string(stats.messagesReceived) + " received, " + std::to_string(stats.signedBundlesReceived) +
-        " signed bundles, " + std::to_string(stats.hmacFailures) + " HMAC failures, " +
-        std::to_string(stats.sendsFailed) + " sends failed, " + std::to_string(stats.reconnects) +
-        " reconnects; capabilities sent " + std::to_string(stats.messagesSentByType[29]) +
-        " times, acknowledged " + std::to_string(stats.boundControlAcks) + "; FLEET_CARRY_RESULT " +
+        " signed bundles, " + std::to_string(stats.sendsFailed) + " sends failed, " +
+        std::to_string(stats.reconnects) + " reconnects; capabilities sent " +
+        std::to_string(stats.messagesSentByType[29]) + " times, acknowledged " +
+        std::to_string(stats.boundControlAcks) + "; FLEET_CARRY_RESULT " +
         std::to_string(stats.messagesReceivedByType[51]) + ", FLEET_RELEASED " +
         std::to_string(stats.messagesReceivedByType[52]) + ", FLEET_DELIVERY " +
         std::to_string(stats.messagesReceivedByType[53]) + ", error frames " +
@@ -980,19 +1065,70 @@ int run() {
     // A live session's every advertisement is acknowledged, so silence means something.
     FLEET_CHECK(stats.boundControlAcks == stats.messagesSentByType[29],
                 s->name + ": every capabilities advertisement was acknowledged");
-    FLEET_CHECK(stats.hmacFailures == 0, s->name + ": every frame's HMAC held");
     FLEET_CHECK(stats.sendsFailed == 0, s->name + ": no send met a socket fault");
+    FLEET_CHECK(!s->fleet->moveOrdered(), s->name + ": a live session was never taken for gone");
   }
   w.spin(300);
-  X.fleet->close();
-  Y.fleet->close();
-  FLEET_CHECK(X.fleet->state() == ConnState::Closed && Y.fleet->state() == ConnState::Closed,
-              "both FleetSessions are closed");
-  for (GameServer* s : {&X, &Y}) {
+  for (GameServer* s : {&X, &Y, &Z}) {
+    s->fleet->close();
+    FLEET_CHECK(s->fleet->state() == ConnState::Closed, s->name + ": the FleetSession is closed");
+  }
+  for (GameServer* s : {&X, &Y, &Z}) {
     FLEET_CHECK(sessions.close(appId, s->opened.gameTokenId), "closeFleetSession ends " + s->name + "'s session (true)");
   }
-  for (GameServer* s : {&X, &Y}) {
+  for (GameServer* s : {&X, &Y, &Z}) {
     FLEET_CHECK(!sessions.close(appId, s->opened.gameTokenId), "a second close of " + s->name + " answers false");
+  }
+
+  // ---- 12 ----
+  // Checked last and by itself, because it judges the realtime servers and not the steps
+  // above: a session is in one app, and everything it is sent is signed. The SDK drops and
+  // counts what is not; this says whether there was any.
+  step("12", "the realtime server sent each session nothing but its own");
+  {
+    std::vector<Retired> judged;
+    for (GameServer* s : {&X, &Y, &Z})
+      judged.push_back({s->name, s->opened.server, s->fleet->stats(), s->log, s->ofAnotherApp});
+    judged.insert(judged.end(), retired.begin(), retired.end());
+    // The SDK's part first: whatever the servers sent, no handler was given another app's.
+    for (const auto& j : judged) {
+      FLEET_CHECK(j.ofAnotherApp == 0, j.name + ": THE SDK gave a handler a notification of another app");
+    }
+    std::vector<std::string> problems;
+    for (const auto& j : judged) {
+      say("   " + j.name + ": another app's " + std::to_string(j.stats.wrongApp) + ", unsigned " +
+          std::to_string(j.stats.unsignedNotifications) + ", HMAC failures " + std::to_string(j.stats.hmacFailures));
+      std::printf("NOT_ITS_OWN %s wrongApp=%llu unsigned=%llu hmacFailures=%llu\n", j.name.c_str(),
+                  static_cast<unsigned long long>(j.stats.wrongApp),
+                  static_cast<unsigned long long>(j.stats.unsignedNotifications),
+                  static_cast<unsigned long long>(j.stats.hmacFailures));
+      if (j.stats.wrongApp == 0 && j.stats.unsignedNotifications == 0 && j.stats.hmacFailures == 0) continue;
+      // Which session, on which server, how many; and from the SDK's log the app each one
+      // named, its message type, its chunk, and when in the run it arrived. The log names
+      // the first and then each doubling of the count.
+      std::string problem = j.name + " (app " + appId + ", on realtime server " + j.server.serverId + " at " +
+                            j.server.ip4 + ":" + std::to_string(j.server.clientPort) + ") was sent " +
+                            std::to_string(j.stats.wrongApp) + " notifications of another app, " +
+                            std::to_string(j.stats.unsignedNotifications) + " that nothing signed and " +
+                            std::to_string(j.stats.hmacFailures) + " frames whose HMAC failed";
+      int shown = 0;
+      for (const auto& line : j.log->all()) {
+        if (line.text.find("dropped a notification") == std::string::npos) continue;
+        if (shown == 0) {
+          problem += ". The first arrived +" + std::to_string(line.atMs) + " ms into the run, in step " + line.step;
+        }
+        std::string named = line.text;
+        if (const auto cut = named.find(". The realtime server"); cut != std::string::npos) named.resize(cut);
+        if (++shown <= 12) problem += "\n      +" + std::to_string(line.atMs) + " ms, step " + line.step + ": " + named;
+      }
+      problems.push_back(std::move(problem));
+    }
+    if (!problems.empty()) {
+      std::string all = "the realtime server sent a session what is not its own. The SDK dropped and counted "
+                        "it, and no handler saw it. NOT THE SDK; for Crowded Kingdoms:";
+      for (const auto& problem : problems) all += "\n   " + problem;
+      fail(all);
+    }
   }
 
   std::puts("e2e_fleet_session OK");

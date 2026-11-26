@@ -1072,14 +1072,16 @@ fleet.close();
 - **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
   and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
 - **When a session ends.** A session ends when you close it, when its org token is
-  revoked, or at its `expiresAt`. Its carries end with it, and another of your sessions
-  can carry each player at once. After a close the realtime server sends the session
-  nothing more: no error frame, and no acknowledgement of its capabilities. Its sends
-  still return `Ok` and are dropped, and it stays `Connected`. To have the session notice,
-  set `FleetConfig::transport.watchdogSilenceMs`, for example to 45,000. A live session's
-  capabilities are acknowledged every 15 seconds, so 45 seconds of silence means the
-  session is gone. `moveOrdered()` and `refreshDue()` then turn true, and the refresh
-  answers `NOT_FOUND`: open a new session and carry your players again.
+  revoked, or at its `expiresAt`. Its carries end with it. The realtime servers send an
+  ended session nothing: no error frame, and no acknowledgement of its capabilities. Its
+  sends still return `Ok` and are dropped. Within about 45 seconds `refreshDue()` turns
+  true, because a live session hears an acknowledgement of its capabilities every 15
+  seconds and an ended one hears none. `refresh` then answers `NOT_FOUND` for a session
+  that was closed or whose org token was revoked. Open a new session and carry your
+  players again. When the refresh answers a server instead, the session was only out of
+  reach: give the answer to `applyFleetRefresh`, and the session carries every player
+  again. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
+  timeout off, and the session sends its capabilities at least three times in it.
 
 ### Security notes
 
@@ -1097,6 +1099,12 @@ fleet.close();
   `refreshDue()` asks for a refresh 12 hours before that can happen. Realtime servers
   v0.50.0 send a refusal such as `UNAUTHORIZED` outside a signed bundle, so it arrives
   with `verified` false.
+- **Nothing but its own.** A fleet session is in one app. A notification that names
+  another app is dropped and counted in `stats().wrongApp`, plain or inside a
+  `FLEET_DELIVERY`, however it was signed. A notification that nothing signed is dropped
+  and counted in `stats().unsignedNotifications`. Neither reaches a handler. Both counts
+  should stay 0. If one moves, tell Crowded Kingdoms: the SDK's log line names the app,
+  the message type, and the chunk.
 - **Replays.** A signed `FLEET_RELEASED` or `FLEET_CARRY_RESULT` carries no time, so a copy
   of one can be sent again later. When a `FLEET_RELEASED` is replayed, the session marks
   the player released, the game server carries the player again, and the realtime server

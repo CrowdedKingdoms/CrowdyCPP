@@ -26,21 +26,21 @@ labels.
 
 ## Fleet sessions live validation (unreleased)
 
-On 2026-11-26 `e2e_fleet_session` passed live on dev (Application API `v2.89.1`, realtime servers `v0.50.0`)
-in about 2.5 minutes, and again under ThreadSanitizer and under AddressSanitizer with
+On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, realtime servers `v0.50.0`),
+about 1.5 minutes a run, and under ThreadSanitizer and under AddressSanitizer with
 UndefinedBehaviorSanitizer, which reported nothing. One org token opened four fleet sessions and signed four
-managed players in. In the two sanitizer runs the two sessions were on different realtime servers, so every
-step below also passed between servers. What the run asserted:
+managed players in. In several runs the sessions were on different realtime servers, so the steps below also
+passed between servers. What a run asserts, and what it measured:
 
 - **Carrying.** Two sessions carried two players each. Every carry ended `Carried` with a user id, 30 to
-  50 ms after `carry()` was called (the suite polls every 10 ms). Every capabilities advertisement was
-  acknowledged.
+  50 ms after `carry()` was called (the suite polls every 10 ms). Every capabilities advertisement of a live
+  session was acknowledged.
 - **State.** Ten actor updates for one player reached the other session once each, plain. Neither session was
   sent its own players' state.
 - **Text.** One player's text reached each session in one `FLEET_DELIVERY`: the other session's listed its two
   players, and the sender's own session's listed the sender and its other player. No communication arrived
   outside a delivery.
-- **A crossing.** The second session carried a player of the first. Its carry ended `Carried` in 40 to 50 ms,
+- **A crossing.** The second session carried a player of the first. Its carry ended `Carried` in 30 to 50 ms,
   the first session was sent `FLEET_RELEASED` reason 1 in the same time, a send for that player on the first
   session returned `NotCarried`, and the crossing made no Application API request.
 - **A refusal.** An actor update for one player under another player's actor was answered `UNAUTHORIZED`. It
@@ -49,18 +49,30 @@ step below also passed between servers. What the run asserted:
   The session stayed connected, sent no `FLEET_CARRY`, and its carried player's next update reached the
   other session.
 - **An ended session.** After `closeFleetSession` the realtime server sent the session nothing in 60 seconds:
-  no error frame, no acknowledgement of four capabilities advertisements. The session stayed `Connected`, 60
-  sends for its carried player returned `Ok`, none reached the other session, and a carry it sent timed out.
-  A second close answered false and a refresh `NOT_FOUND`. Another session then carried the player in 40 ms.
-  With `transport.watchdogSilenceMs` 20,000 the session set `moveOrdered()` and `refreshDue()` 19 to 20
-  seconds after the close.
+  no error frame, no acknowledgement of four capabilities advertisements. Its 60 sends for its carried player
+  returned `Ok`, and none sent 5 seconds or more after the close reached the other session. With the config
+  `fleetConfigOf` makes (the silence timeout on, 45 seconds), `moveOrdered()` and `refreshDue()` turned true
+  44.9 to 45.0 seconds after the close, and the session kept its socket and stayed `Connected`. A second
+  close answered false and the refresh `NOT_FOUND`. A new session then carried the player in 40 to 50 ms.
 - **Idle.** A carried player with no input was released with reason 5 after 60 to 61 seconds (the app's idle
-  timeout is 60 seconds), and its session stayed connected.
+  timeout is 60 seconds). Its session stayed connected, carried nobody for the rest of the run, heard only the
+  acknowledgements of its capabilities, and was never taken for gone.
 - **The hub.** `exec().connectAsServer` opened a server connection to the platform's probe app with another
   organization's org token. The hub saw the server's own call as `Org { player: None }` and the `callAs` as
   `Org { player: Some(id) }`, and the probe's `server` endpoint answered the player the server named.
-- **The end.** Every player was released, both sessions closed, `closeFleetSession` answered true for each
+- **The end.** Every player was released, every session closed, `closeFleetSession` answered true for each
   and false the second time.
+- **Nothing but its own.** The last step requires each session's counts of another app's notifications
+  (`Stats::wrongApp`), unsigned notifications (`Stats::unsignedNotifications`), and HMAC failures to be 0, and
+  that no handler was given a notification of another app. Of ten runs between 04:24 and 04:39 UTC, six
+  passed with every count 0. In three, between 04:25 and 04:31 UTC, a session on one realtime server was
+  sent actor updates (type 130) of another app of the same organization, inside signed bundles that
+  verified: 71, 105 (two sessions), and 508 (two sessions) of them. The SDK dropped and counted each, no
+  handler saw one, and every other step of those runs passed. That is a defect of the realtime servers,
+  and the step fails on it by design. One run in the same minutes failed earlier: a session on another
+  realtime server did not have its player's update delivered to a session on that server within 15 seconds.
+  The suite now waits 30 seconds there and prints what both sessions saw; it did not happen again in four
+  runs.
 
 ## 0.93.0 live validation
 

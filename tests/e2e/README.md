@@ -118,7 +118,11 @@ Run a single suite directly for its per-subtest output:
   deletes nobody and changes no setting. It opens four fleet sessions and closes each
   through the API before it passes; a run that is killed leaves its sessions to end at
   their `expiresAt`, 24 hours later. Its players stand in chunk (7100, 7100, 0). It takes
-  about 2.5 minutes: it watches an ended session for 60 seconds, and another for 45.
+  about 1.5 minutes: it watches an ended session for 60 seconds. Its last step judges the
+  realtime servers: each session's counts of another app's notifications, unsigned
+  notifications and HMAC failures must be 0, and a failure prints the session, its
+  server, the counts, and what the SDK's log named (the app, the message type, the chunk,
+  when in the run).
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.

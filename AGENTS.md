@@ -452,12 +452,30 @@ should keep in mind:
 - The servers send a refusal (`UNAUTHORIZED`) outside a signed bundle, so `GenericError::verified`
   is false for it. A fleet session therefore acts on no error frame these servers send today.
 - A session closed through the API is sent nothing more: no error frame, no 46 for its
-  capabilities, no 52. The session cannot tell by itself: `Connected`, sends `Ok`,
-  `refreshDue()` false until half the token's lifetime. With `transport.watchdogSilenceMs` set
-  it reconnects where it is, sets `moveOrdered()`, and the refresh answers `NOT_FOUND`
-  (`runSilenceAsksForARefreshOnlyWithTheWatchdog` is the offline form). Whether a fleet session
-  should have the watchdog on by default is Michael's decision: every advertisement of a live
-  session is acknowledged, so silence is unambiguous there.
+  capabilities, no 52. So the silence timeout is on by default for a fleet session (Michael,
+  2026-11-26): `FleetConfig::transport` starts from `fleetTransportDefaults()`, 45,000 ms, and
+  a player's `Connection` keeps 0. The rule is `FleetSession::checkSilence`, on the network
+  thread at the end of every housekeeping pass, and `Connection`'s own watchdog is skipped
+  when `fleet_` is set. It counts only what verified (`Connection::lastVerifiedMs_`: a signed
+  bundle, a bound control frame, a frame with its own HMAC, or the assignment itself). It
+  fires once per silence: `moveOrdered()` and `refreshDue()` turn true, the socket and the
+  state stay, and `place()` (setServer, applyRefresh) starts the clock again and carries
+  every player again, the same server included. With `FleetConfig::reassign` it asks for a
+  reassignment instead. Keep these two: the capabilities interval is at most a third of the
+  timeout, and the answer to the advertisement that leaves as the timeout passes has
+  `kAcknowledgementGraceMs` to arrive, so two lost acknowledgements in a row are not silence.
+  `configFor` in `fleet_session_test` switches the timeout off, because those cases read every
+  datagram and move a manual clock past a silent server; `watchedConfigFor` has the default.
+- A fleet session takes nothing that is not its own (`Connection::handleDatagram`, under
+  `fleet_`): a long-spatial notification naming another app is dropped and counted in
+  `Stats::wrongApp`, plain and inside a 53, and a plain one that nothing signed in
+  `Stats::unsignedNotifications` (`countNotOwn` logs each at the first and at every doubling).
+  The dev servers were seen sending a fleet session another app's state inside signed bundles
+  that verify; that is a server defect, and the guard stays whatever the servers do. A
+  player's `Connection` makes neither check today (it dispatches another app's notification,
+  and one with `containsAuth` 0 outside a signed bundle): Michael knows, and adding either
+  there is his call. `e2e_fleet_session`'s last step requires both counts and the HMAC
+  failures to be 0 and prints what the log named when they are not.
 - `Connected` does not wait for the 46: after `sessionReadyWaitMs` (1.5 s) the session is
   `Connected` whether or not the server acknowledged its capabilities.
 

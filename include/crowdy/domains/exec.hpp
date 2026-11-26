@@ -202,8 +202,13 @@ class ExecConnection {
   /// opens for itself, from the gateway, connect token and host the Application API's
   /// `execConnectAsServer` answered. Its plain calls are the server's own
   /// (`Caller::Org { player: None }` in a hub), and `callAs` makes a call for one of the
-  /// organization's players. Like `open` it dials the URL it is given and does not
-  /// reconnect: a connect token lasts about a minute.
+  /// organization's players. Like `open` it dials the URL it is given and never reconnects:
+  /// `ExecConnectOptions::reconnect` is ignored here, because the one connect token it holds
+  /// lasts about a minute and opens one socket. When the socket closes, calls in flight
+  /// fail `Unavailable`. A call made after that dials the same URL once more with the same
+  /// connect token, as on `open`, and a gateway refuses a token that is spent. A server that
+  /// should reconnect uses `connectAsServer` (or `ExecAPI::connectAsServer`), which asks for
+  /// a fresh connect token each time.
   ///
   /// FOR AN ORGANIZATION'S OWN SERVERS. The connect token comes from the org token, which
   /// never reaches a player's device.
@@ -236,9 +241,10 @@ class ExecConnection {
   /// Call a node's endpoint for one of the organization's players, on a server connection
   /// (client frame 0x05). The hub sees `Caller::Org { player: Some(player) }`: the platform
   /// checks the connection is the app's organization's, and the player is the
-  /// organization's word. `player` is the player's user id. Replies, timeouts and the one
-  /// retry after a lost connection or a `Moved` are those of `callRaw`. On any other
-  /// connection nothing is sent and `done` fires `Denied`.
+  /// organization's word. `player` is the player's user id; player 0 is the server's own
+  /// call, as `callRaw` makes it. Replies, timeouts and the one retry after a lost connection
+  /// or a `Moved` are those of `callRaw`. On any other connection nothing is sent and `done`
+  /// fires `Denied`.
   void callAsRaw(std::uint64_t player, std::string nodeType, std::string key, std::string method,
                  std::string payload, ExecReplyCallback done, long timeoutMs = 0);
   /// `callAsRaw` with `args` as MessagePack.

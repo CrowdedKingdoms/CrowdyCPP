@@ -1,5 +1,5 @@
 {
-  "about": "ck-exec client protocol frames (crates/ckx-proto/src/client.rs), one WebSocket binary message each, as hex. crates/ckx-proto/tests/client_golden.rs checks them against the encoder and decoder; client SDKs (CrowdyJS, CrowdyCPP) test their codecs against a copy of this file. The three call-as cases (client frame 0x05, a server connection's call for a player, ck-exec 0.25.0) were written in CrowdyCPP from the fleet session design before ck-exec's copy carried them: rid:u32 player:u64 type:str8 key:str16 method:str8 payload:rest, the player a decimal string because it is a u64. When ck-exec's copy has its own, that copy replaces these.",
+  "about": "ck-exec client protocol frames (crates/ckx-proto/src/client.rs), one WebSocket binary message each, as hex. crates/ckx-proto/tests/client_golden.rs checks them against the encoder and decoder; client SDKs (CrowdyJS, CrowdyCPP, CrowdyPy) test their codecs against a copy of this file. A callAs frame's player is a 64-bit id, written here as a decimal string because it can exceed JavaScript's safe integers; only a server connection may send the frame.",
   "client": [
     {
       "name": "call",
@@ -68,43 +68,43 @@
       "hex": "0478563412"
     },
     {
-      "name": "call-as",
+      "name": "call-as: a server's call for a player",
       "frame": {
         "kind": "callAs",
-        "rid": 7,
-        "player": "4242",
+        "rid": 5,
+        "player": "42",
         "nodeType": "player",
-        "key": "p-4242",
-        "method": "report",
-        "payloadHex": "81a27870cd0100"
+        "key": "42",
+        "method": "grant",
+        "payloadHex": "81a4676f6c640a"
       },
-      "hex": "0507000000921000000000000006706c617965720600702d34323432067265706f727481a27870cd0100"
+      "hex": "05050000002a0000000000000006706c6179657202003432056772616e7481a4676f6c640a"
     },
     {
-      "name": "call-as with the largest player id, no key and no payload",
+      "name": "call-as with a player id past 2^53 and no payload",
       "frame": {
         "kind": "callAs",
         "rid": 4294967295,
-        "player": "18446744073709551615",
+        "player": "18446744073709551614",
         "nodeType": "arena",
-        "key": "",
+        "key": "m1",
         "method": "state",
         "payloadHex": ""
       },
-      "hex": "05ffffffffffffffffffffffff056172656e610000057374617465"
+      "hex": "05fffffffffeffffffffffffff056172656e6102006d31057374617465"
     },
     {
-      "name": "call-as with a player id past 2^53 and a multi-byte key",
+      "name": "call-as for player 0: the server's own call",
       "frame": {
         "kind": "callAs",
-        "rid": 300,
-        "player": "9007199254740993",
-        "nodeType": "mobs",
-        "key": "zone-éè☃",
-        "method": "state",
+        "rid": 6,
+        "player": "0",
+        "nodeType": "lobby",
+        "key": "",
+        "method": "report",
         "payloadHex": "c0"
       },
-      "hex": "052c0100000100000000002000046d6f62730c007a6f6e652dc3a9c3a8e29883057374617465c0"
+      "hex": "05060000000000000000000000056c6f6262790000067265706f7274c0"
     }
   ],
   "server": [

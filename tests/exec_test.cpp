@@ -48,7 +48,8 @@ std::string unhex(std::string_view h) {
   return out;
 }
 
-// ---- the golden frames (ck-exec crates/ckx-proto/tests/client-frames.json) ----
+// ---- the golden frames (ck-exec crates/ckx-proto/tests/client-frames.json, byte for byte:
+// ck-exec 0.25.0, the file CrowdyJS's test/unit/fixtures/exec-client-frames.json also is) ----
 
 void testGoldenFrames() {
   std::ifstream in(std::string(CROWDY_PARITY_FIXTURE_DIR) + "/exec-client-frames.json");
@@ -112,10 +113,43 @@ void testGoldenFrames() {
   // call-as (0x05): rid:u32 player:u64 type:str8 key:str16 method:str8 payload:rest, every
   // integer little endian as in a call. The fixture must carry it.
   int callAsCases = 0;
+  bool playerZero = false;
   fx["client"].forEach([&](graphql::Json e) {
-    if (e["frame"]["kind"].asString() == "callAs") ++callAsCases;
+    if (e["frame"]["kind"].asString() != "callAs") return;
+    ++callAsCases;
+    if (e["frame"]["player"].asString() == "0") playerZero = true;  // the server's own call
   });
-  CHECK(callAsCases >= 3);
+  CHECK_EQ(callAsCases, 3);
+  CHECK(playerZero);
+
+  // Cases ck-exec's file does not hold, computed from the frame's layout by a script (Python
+  // struct.pack) when this SDK's encoder was written: the largest player id, a player id
+  // just past 2^53 with a multi-byte key, and an empty key with an empty payload.
+  struct Extra {
+    std::uint32_t rid;
+    std::uint64_t player;
+    const char* nodeType;
+    const char* key;
+    const char* method;
+    const char* payloadHex;
+    const char* hex;
+  };
+  const Extra extras[] = {
+      {7, 4242ULL, "player", "p-4242", "report", "81a27870cd0100",
+       "0507000000921000000000000006706c617965720600702d34323432067265706f727481a27870cd0100"},
+      {4294967295u, 18446744073709551615ULL, "arena", "", "state", "",
+       "05ffffffffffffffffffffffff056172656e610000057374617465"},
+      {300, 9007199254740993ULL, "mobs", "zone-\xc3\xa9\xc3\xa8\xe2\x98\x83", "state", "c0",
+       "052c0100000100000000002000046d6f62730c007a6f6e652dc3a9c3a8e29883057374617465c0"},
+  };
+  for (const Extra& x : extras) {
+    exec_wire::ClientFrame f{exec_wire::ClientFrame::Kind::CallAs, x.rid, x.nodeType, x.key, x.method,
+                             unhex(x.payloadHex)};
+    f.player = x.player;
+    Result<std::string> encoded = exec_wire::encode(f);
+    CHECK(encoded.ok());
+    CHECK_EQ(hex(encoded.value()), std::string(x.hex));
+  }
   exec_wire::ClientFrame as{exec_wire::ClientFrame::Kind::CallAs, 0x01020304, "t", "k", "m", "\xc0"};
   as.player = 0x1112131415161718ULL;
   Result<std::string> asBytes = exec_wire::encode(as);
@@ -547,6 +581,37 @@ void testServerConnection() {
   CHECK(until(*dispatcher, [&] { return again.has_value(); }));
   CHECK(again->ok());
   redialing->close();
+
+  // openAsServer never reconnects, whatever ExecConnectOptions::reconnect says (as open
+  // does not): the one connect token it holds lasts a minute. A call caught by the lost
+  // socket fails; nothing is dialed until the game server asks for something again.
+  {
+    ExecConnectOptions wantsReconnect = opts;
+    wantsReconnect.reconnect = true;
+    const std::size_t before = transport->count();
+    auto fixed = ExecConnection::openAsServer(
+        transport, dispatcher, ExecEndpoint{"wss://gw.example", "server-token-fixed", "host-f"}, wantsReconnect);
+    CHECK(until(*dispatcher, [&] { return transport->count() == before + 1; }));
+    auto socket = transport->at(before);
+    socket->open();
+    CHECK(until(*dispatcher, [&] { return fixed->connected(); }));
+    std::optional<ExecReply> caught;
+    fixed->callAsRaw(4242, "player", "p-4242", "report", "", [&](ExecReply r) { caught = r; });
+    CHECK(until(*dispatcher, [&] { return socket->frames().size() == 1; }));
+    socket->drop();
+    CHECK(until(*dispatcher, [&] { return caught.has_value(); }));
+    CHECK(caught->status == ExecStatus::Unavailable);  // failed: it is not sent again
+    CHECK(!fixed->connected());
+    // Well past the reconnect delay (10 ms here), nothing was dialed.
+    const auto wait = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+    while (std::chrono::steady_clock::now() < wait) {
+      dispatcher->drain();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK_EQ(transport->count(), before + 1);
+    CHECK(!fixed->connected());
+    fixed->close();
+  }
 }
 
 void testCallTimesOut() {

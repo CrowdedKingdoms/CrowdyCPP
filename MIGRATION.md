@@ -41,7 +41,10 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   (1, also a token of another app), `OtherOrganization` (2), `ProofRefused` (3, also a replay), `NoRoom` (4, also
   no place for the carry), or `TimedOut`. `release(gameTokenId)` sends `FLEET_RELEASE` (50), which has no answer.
   `FleetHandlers::released` reports `FLEET_RELEASED` (52) with `CarriedElsewhere` (1), `SignInEnded` (2), or
-  `Idle` (5).
+  `Idle` (5), only for a player the session holds. Any other reason byte arrives as
+  `FleetReleaseReason::Unknown` with the byte in `FleetReleased::wireReason`. When two or more carries for a
+  player have left, one `ProofRefused` does not end the carry: the session sends one more at once, and the
+  carry ends `ProofRefused` on a second refusal after that one or at the deadline.
 - **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
   player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
   send, with the HMAC keyed by the fleet token. Under its own id the session sends `CLIENT_CAPABILITIES` (29),
@@ -56,6 +59,16 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   `MESSAGE_BUNDLE_SIGNED`. A frame whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`. The
   notification inside a `FLEET_DELIVERY` is the unsigned form. The largest datagram a fleet session is sent is
   1,242 bytes (`wire::fleet::kMaxReceiveDatagramSize`).
+- **`GenericError::verified`** is new, on `Connection` and `FleetSession` alike: true when the error frame
+  arrived inside a signed bundle whose HMAC held. A fleet session acts on `TOKEN_EXPIRED` only when it is
+  verified; an unverified error frame reaches `genericError` with `verified` false and changes nothing in the
+  session. A `Connection` acts on `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two
+  values still compiles.
+- **Replays.** A signed `FLEET_RELEASED` that is sent again makes the session mark the player released; the
+  game server carries the player again, and the realtime server answers that carry. Handle `released` by
+  calling `carry` again when the player is still on your server.
+- **Player tokens in memory.** A session overwrites its copy of a carried player's token with zeros when the
+  player's entry goes and when the session closes (`wire::ScrubbedToken64`, `wire::scrub`).
 - **Coming back.** On the realtime server its carries were made on, a session's carries stand: after a refresh
   it sends its capabilities again and no `FLEET_CARRY`. On another server (a refresh that names one, or a move the
   server ordered) it sends its capabilities, then a new `FLEET_CARRY` for every player, and counts each as carried
@@ -70,11 +83,15 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
 - **`ExecConnection::openAsServer` and `connectAsServer`** open a hub connection for a game server from an
   `execConnectAsServer` result. On it, `callAs(player, type, key, method, args)` and `callAsRaw` send client frame
   0x05 for one of the organization's players, and plain calls are the server's own. On any other connection
-  `callAs` sends nothing and answers `Denied`.
+  `callAs` sends nothing and answers `Denied`. `openAsServer` never reconnects, as `open` never does, and
+  ignores `ExecConnectOptions::reconnect`: its connect token opens one socket. `connectAsServer` reconnects
+  with a new connect token each time.
 - **New enumerators.** A `switch` over `Errc` without a `default` needs `NotCarried` (a `FleetSession` send that
   named a player the session does not carry). A `switch` over `exec_wire::ClientFrame::Kind` needs `CallAs`, and
   `ClientFrame` gains `player` as its last member.
-- **`Connection` is unchanged** in its public API and its behaviour. CrowdyPy binds nothing that changed.
+- **`Connection` is unchanged** in its behaviour, and its public API gains only `GenericError::verified`. Its
+  `UdpSocket` now lets a send from one thread run while the network thread closes and reopens the socket.
+  CrowdyPy binds nothing that changed.
 - **The four documents are written in the headers**, as `PortalAPI`'s are. The published schema this SDK
   generates its operations from does not carry the fields yet; they move to `operations/` when it does.
 

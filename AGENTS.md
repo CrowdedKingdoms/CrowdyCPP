@@ -419,6 +419,23 @@ change here must keep:
 - A new session epoch on the server the carries were made on leaves them standing; another
   server, another fleet token or id, and a session opened again carry every player again with
   `carried` false until each 51 (`recarryAllLocked`).
+- An error frame has no HMAC of its own. With `fleet_` set, `Connection::poll()` acts on
+  `TOKEN_EXPIRED` only when `Event::verified` (the frame came in a verified signed bundle);
+  every error frame reaches `genericError` with `GenericError::verified` saying which. A
+  player's `Connection` acts on either, as it always has (changing that is the operator's
+  call). Anything new a fleet session does on the server's word needs the same check.
+- 51 and 52 carry no time, so a signed one can be replayed. A 52 for a row the table does not
+  hold reports nothing (it is still counted in `messagesReceivedByType`); a 51 with no carry
+  waiting is ignored; a reason byte other than 1, 2 and 5 is `FleetReleaseReason::Unknown`
+  (never a cast). A status 3 while more than one carry has left settles nothing by itself
+  (`Player::proofRefused`, `sentSinceRefusal`): one more carry leaves at once and its answer,
+  or the deadline, ends the carry `ProofRefused`.
+- A row's token is a `wire::ScrubbedToken64`, zeroed by its destructor (a `volatile` byte
+  loop, `wire::scrub`): keep a player's token out of any member that outlives the row.
+- The socket is `connect()`ed to the server, so the kernel drops other sources. `UdpSocket`
+  takes its `gate_` shared in `send()` and `wake()` and exclusively in `open()` and `close()`,
+  because a fleet session's game thread sends while the network thread reopens the socket;
+  `recv` stays on the network thread and takes no lock.
 
 The golden bytes in `wire_test` and `fleet_session_test` (FLEET_CARRY, FLEET_RELEASE, a carried
 player's actor update, and a signed 51, 52 and two 53s) were computed independently in Python
@@ -427,9 +444,13 @@ against: a layout change edits both sides.
 
 `ExecConnection::openAsServer` / `connectAsServer` mark a connection as a server's
 (`Impl::server_`), which is what lets `callAs` send client frame 0x05; the role is how the
-connection was made, never read from the connect token. The three call-as cases in
-`tools/parity/fixtures/exec-client-frames.json` were written here before ck-exec's copy had them:
-when ck-exec 0.25.0's `client-frames.json` carries its own, copy that file over this one.
+connection was made, never read from the connect token. `openAsServer` never reconnects (it
+forces `reconnect` off, as `open` does); `connectAsServer` does, with a dialer.
+`tools/parity/fixtures/exec-client-frames.json` is ck-exec 0.25.0's own
+`crates/ckx-proto/tests/client-frames.json` (branch `dev`), byte for byte, and the same file
+CrowdyJS tests against: copy it over again when ck-exec's changes, never edit it here. Cases
+only this SDK has (a player id past 2^53, an empty key, a multi-byte key) are a table in
+`exec_test`.
 
 The Application API calls are `client.admin().fleetSessions()` (`crowdy/domains/fleet_sessions.hpp`:
 `open`, `refresh`, `close`) and `exec().serverEndpoint` / `connectAsServer`. They are the first

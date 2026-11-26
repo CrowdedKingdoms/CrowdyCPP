@@ -1023,6 +1023,11 @@ fleet.close();
   a burst of 32 (`carriesPerSecond`, `carryBurst`; `fleetConfigOf` raises the burst to the
   session's `maxPlayers`). After you refresh a player's token, call `carry` with the new
   one. Once that carry is confirmed it replaces the entry the same user had.
+  A result does not say which of a player's carries it answers. When two or more have left
+  and a `ProofRefused` arrives, it can be the answer to an earlier carry that reached the
+  server after a later one was accepted. So the session sends one more carry at once and
+  lets the answer to that one settle the result. The carry ends `ProofRefused` when a
+  second refusal follows that carry, or when the 5 seconds run out after a refusal.
 - **Carry results.** `Carried` comes with the player's user id. The four refusals are:
 
   | Status | Meaning |
@@ -1056,13 +1061,41 @@ fleet.close();
     32 in one message. Deliver each to those players only.
 
   `handlers.released` reports a carry that the platform ended: `CarriedElsewhere`,
-  `SignInEnded`, or `Idle`. A refusal of a send (`handlers.genericError`) carries a
-  one-byte sequence number the whole session shares and names no player.
+  `SignInEnded`, or `Idle`. It fires only for a player the session holds. A reason byte
+  this SDK does not know arrives as `Unknown`, with the byte in `FleetReleased::wireReason`,
+  and the carry has ended all the same. A refusal of a send (`handlers.genericError`)
+  carries a one-byte sequence number the whole session shares and names no player.
 - **Your own players' state.** A fleet session is not sent the state its own carried
   players sent. `fleet.setFleetOwnState(true)` (or `FleetConfig::fleetOwnState`) asks for
   it.
 - **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
   and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
+
+### Security notes
+
+- **The socket is connected.** The session's UDP socket is connected to the realtime
+  server's address and port, so the operating system drops a datagram from any other
+  source. A forged message has to carry that server's address and port as its source.
+- **Signed messages.** `FLEET_CARRY_RESULT`, `FLEET_RELEASED`, and `FLEET_DELIVERY` count
+  only with an HMAC keyed by the fleet token: their own, or that of the signed bundle they
+  arrive in. One whose HMAC does not hold is dropped and counted in `Stats::hmacFailures`.
+- **Error frames.** An error frame has no HMAC of its own. `GenericError::verified` is true
+  when the frame arrived inside a signed bundle whose HMAC held. A fleet session follows a
+  `TOKEN_EXPIRED` to a new assignment only when it is verified. An unverified error frame
+  still reaches `handlers.genericError`, with `verified` false, and changes nothing in the
+  session. If the fleet token has expired, refresh or open the session again yourself:
+  `refreshDue()` asks for a refresh 12 hours before that can happen.
+- **Replays.** A signed `FLEET_RELEASED` or `FLEET_CARRY_RESULT` carries no time, so a copy
+  of one can be sent again later. When a `FLEET_RELEASED` is replayed, the session marks
+  the player released, the game server carries the player again, and the realtime server
+  answers that carry, so handle `released` by calling `carry` again when the player is
+  still on your server. A replayed `FLEET_RELEASED` for a player the session no longer
+  holds does nothing, and a replayed `FLEET_CARRY_RESULT` does nothing unless a carry for
+  that player is waiting for its result.
+- **Player tokens in memory.** The session keeps each carried player's token to sign the
+  carries it sends again. It overwrites that copy with zeros when the player's entry goes
+  (a release, a refusal, a timeout, a `FLEET_RELEASED`) and when the session closes. The
+  string you passed to `carry` is yours to clear.
 
 ### Opening, refreshing, and closing a session
 
@@ -1131,8 +1164,12 @@ hub->callAs(playerUserId, "player", key, "report", args, onReply);  // a call fo
 
 `exec().serverEndpoint(appId)` returns the answer without connecting. A server with its
 own HTTP client passes the same three values to `ExecConnection::openAsServer`. A connect
-token lasts one minute and opens one socket. The refusals are those of the table above,
-and revoking the org token closes the connection.
+token lasts one minute and opens one socket, so `openAsServer` never reconnects, whatever
+`ExecConnectOptions::reconnect` says: when its socket closes, the calls in flight answer
+`Unavailable`, and the server opens a new connection with a new connect token. A server
+that wants the SDK to reconnect uses `connectAsServer`, which asks for a new connect
+token each time. The refusals are those of the table above, and revoking the org token
+closes the connection.
 
 A hub sees the first call as `Caller::Org { player: None }` and the second as
 `Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the

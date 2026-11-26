@@ -2587,15 +2587,34 @@ void runOwnedThread() {
   CHECK_EQ(carried.load(), 1);
   CHECK(fleet.carries(kPlayerId));
 
-  // Sends from two threads while the game thread polls a delivery.
+  // Sends from two threads while the game thread polls a delivery. A socket may push back
+  // on a burst (a full buffer: macOS loopback does where Linux does not), and a send that is
+  // pushed back is sent again; any other refusal is a defect, and is named.
   std::atomic<int> sent{0};
+  std::atomic<int> pushedBack{0};
+  std::atomic<int> refused{0};
+  std::atomic<int> firstRefusal{0};
   auto sender = [&] {
     const std::uint8_t pose[] = {1, 2, 3, 4};
     SpatialSend p;
     p.uuid = uuid('a');
     p.payload = Bytes(pose, sizeof(pose));
     for (int i = 0; i < 50; ++i) {
-      if (fleet.sendGenericSpatial(kPlayerId, p).ok()) ++sent;
+      for (int attempt = 0; attempt < 500; ++attempt) {
+        const auto st = fleet.sendGenericSpatial(kPlayerId, p);
+        if (st.ok()) {
+          ++sent;
+          break;
+        }
+        if (st.code != Errc::WouldBlock && st.code != Errc::SocketError) {
+          int none = 0;
+          firstRefusal.compare_exchange_strong(none, static_cast<int>(st.code));
+          ++refused;
+          break;
+        }
+        ++pushedBack;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     }
   };
   std::thread one(sender), two(sender);
@@ -2608,6 +2627,11 @@ void runOwnedThread() {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
   CHECK_EQ(texts.load(), 1);
+  if (refused.load() != 0 || sent.load() != 100) {
+    std::fprintf(stderr, "sends: %d sent, %d pushed back, %d refused (first refusal: %s)\n", sent.load(),
+                 pushedBack.load(), refused.load(), errcName(static_cast<Errc>(firstRefusal.load())));
+  }
+  CHECK_EQ(refused.load(), 0);
   CHECK_EQ(sent.load(), 100);
   CHECK_EQ(fleet.stats().messagesSentByType[140], 100u);
   fleet.close();

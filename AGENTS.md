@@ -382,8 +382,8 @@ for `setAppToken`.
 ## Fleet sessions (unreleased; dev only until Michael says otherwise)
 
 `replication::FleetSession` (`crowdy/replication/fleet_session.hpp`) is one realtime session of an
-organization's game server that carries its players
-(`cks-project-root/project-root-docs/DESIGN-2026-11-fleet-session.md`, step F3). An organization's
+organization's game server that carries its players (the fleet session design, step F3). An
+organization's
 own server is an audience this SDK serves, beside players, developers and org-admins: it holds the
 org token, and nothing here is for a platform operator.
 
@@ -401,8 +401,8 @@ sends from any thread, the resends from the network thread's `tick`, and results
 deadlines from `poll()`, which is also the only thread a callback fires on (after the lock is
 dropped). A carry that is refused or times out removes its row.
 
-The wire is the realtime servers' v0.50.0 as built (the build contract's section 8;
-`cks-project-root/project-root-docs/DESIGN-2026-11-fleet-session.md` for the design). What a
+The wire is the realtime servers' v0.50.0 as built (the docs site's wire formats page has the
+bytes). What a
 change here must keep:
 
 - 51, 52 and 53 are read in both forms, whatever the session advertised: followed by their own

@@ -1763,7 +1763,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     ],
     classification: classification(
       CATEGORY.NATIVE,
-      "NOT MIRRORED in 0.94.0: CrowdyJS refuses a carry for a new player once its table holds maxPlayers + 32 rows ('tableFull', tableLimit, carriesRefusedTableFull). FleetSession's table has no cap of its own: the realtime server answers a carry past the session's maxPlayers FleetCarryStatus::NoRoom, a refused or timed-out carry removes its row, and only the game server's own carry() calls add one. A local cap is behaviour to add in a later release",
+      "0.94.0 does not mirror this: CrowdyJS refuses a carry for a new player once its table holds maxPlayers + 32 rows ('tableFull', tableLimit, carriesRefusedTableFull). FleetSession's table has no cap of its own: the realtime server answers a carry past the session's maxPlayers FleetCarryStatus::NoRoom, a refused or timed-out carry removes its row, and only the game server's own carry() calls add one. A local cap would be new behaviour and is in no release yet",
     ),
   },
   'fleet-session-actor-heartbeats': {

@@ -26,6 +26,7 @@
 // have dropped it; a refusal or a wrong delivery fails the run.
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>

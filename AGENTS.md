@@ -439,6 +439,27 @@ change here must keep:
   takes its `gate_` shared in `send()` and `wake()` and exclusively in `open()` and `close()`,
   because a fleet session's game thread sends while the network thread reopens the socket;
   `recv` stays on the network thread and takes no lock.
+- A full send buffer is `WouldBlock` on every platform (`socket_errors.hpp`: EAGAIN,
+  EWOULDBLOCK, ENOBUFS; macOS loopback gives ENOBUFS on a burst). A test that sends in a burst
+  sends again on `WouldBlock` only: `SocketError` is a fault, `UdpSocket::lastSendFault()` and
+  the WARN line name it, and retrying it in a test would hide it.
+
+`e2e_fleet_session` is the live suite (`CROWDY_FLEET_*`, label `e2e_optional`; its header says
+what it leaves on a tier). It passed on dev on 2026-11-26 against realtime servers v0.50.0 and
+Application API v2.89.1 (`docs/e2e-coverage.md`). What that run showed, which a change here
+should keep in mind:
+
+- The servers send a refusal (`UNAUTHORIZED`) outside a signed bundle, so `GenericError::verified`
+  is false for it. A fleet session therefore acts on no error frame these servers send today.
+- A session closed through the API is sent nothing more: no error frame, no 46 for its
+  capabilities, no 52. The session cannot tell by itself: `Connected`, sends `Ok`,
+  `refreshDue()` false until half the token's lifetime. With `transport.watchdogSilenceMs` set
+  it reconnects where it is, sets `moveOrdered()`, and the refresh answers `NOT_FOUND`
+  (`runSilenceAsksForARefreshOnlyWithTheWatchdog` is the offline form). Whether a fleet session
+  should have the watchdog on by default is Michael's decision: every advertisement of a live
+  session is acknowledged, so silence is unambiguous there.
+- `Connected` does not wait for the 46: after `sessionReadyWaitMs` (1.5 s) the session is
+  `Connected` whether or not the server acknowledged its capabilities.
 
 The golden bytes in `wire_test` and `fleet_session_test` (FLEET_CARRY, FLEET_RELEASE, a carried
 player's actor update, and a signed 51, 52 and two 53s) were computed independently in Python

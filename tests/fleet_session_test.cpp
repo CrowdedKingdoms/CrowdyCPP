@@ -2098,6 +2098,61 @@ void runMoveOrderWaitsForARefresh() {
   CHECK(fleet.carries(a));
 }
 
+// A session the Application API ended is sent nothing more by its realtime server: no error
+// frame, no acknowledgement of its capabilities (seen live against v0.50.0). By default the
+// session cannot tell: it stays Connected and its sends return Ok. With the silence watchdog
+// on (Config::watchdogSilenceMs) it asks for a refresh, as after a move order, and the
+// refresh's answer (NOT_FOUND for an ended session) is what the game server acts on.
+void runSilenceAsksForARefreshOnlyWithTheWatchdog() {
+  const std::uint8_t pose[] = {1, 2, 3};
+  for (const std::int64_t watchdogMs : {std::int64_t{0}, std::int64_t{20'000}}) {
+    FakeServer server;
+    server.start();
+    ManualClock clock;
+    FleetConfig cfg = configFor(server);
+    cfg.transport.watchdogSilenceMs = watchdogMs;
+    FleetSession fleet(cfg, crypto(), clock);
+    openConnected(fleet, server);
+    const std::int64_t a = 711;
+    carryAs(fleet, server, a, 7011, tokenFor(a));  // the server has answered: traffic was received
+
+    // From here the server says nothing. The session goes on sending for its player.
+    for (int second = 1; second <= 30; ++second) {
+      clock.advance(1000);
+      CHECK(fleet.sendActorUpdate(a, {{1, 2, 3}, uuid('a'), Bytes(pose, sizeof(pose))}).ok() ||
+            fleet.state() != ConnState::Connected);
+      fleet.pump(0);
+      fleet.poll();
+      if (watchdogMs == 0 || second * 1000 <= watchdogMs) {
+        CHECK(!fleet.moveOrdered());
+        CHECK(!fleet.refreshDue());
+        CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+      }
+    }
+    if (watchdogMs == 0) {
+      // Nothing told it: the refresh at half the token's lifetime is all it has.
+      CHECK(!fleet.moveOrdered());
+      CHECK(!fleet.refreshDue());
+      CHECK(fleet.carries(a));
+      CHECK_EQ(fleet.stats().reconnects, 0u);
+      continue;
+    }
+    CHECK(fleet.moveOrdered());
+    CHECK(fleet.refreshDue());
+    CHECK_EQ(fleet.stats().reconnects, 1u);
+    pumpUntil(fleet, [&] { return fleet.state() == ConnState::Connected; });
+    CHECK_EQ(fleet.server().clientPort, server.port);  // where it was: nobody named another
+    CHECK(fleet.carries(a));
+    // It sent its capabilities again and no FLEET_CARRY.
+    bool capabilitiesAgain = false;
+    for (auto got = server.tryRecv(60); !got.empty(); got = server.tryRecv(60)) {
+      CHECK(got[0] != 49);
+      if (got[0] == 29) capabilitiesAgain = true;
+    }
+    CHECK(capabilitiesAgain);
+  }
+}
+
 // COMMAND_SESSION_RELEASED ends the session as it ends an ordinary one, and its carries end
 // with it, unannounced. Opened again, it holds none: every player is carried again, on
 // whichever server.
@@ -2720,6 +2775,7 @@ int main() {
   runSetToken();
   runUnverifiedErrorsChangeNothing();
   runProofRefusedConverges();
+  runSilenceAsksForARefreshOnlyWithTheWatchdog();
   runSendFaultIsNamed();
   runSendsWhileTheSessionMoves();
   runOwnedThread();

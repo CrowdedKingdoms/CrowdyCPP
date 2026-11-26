@@ -65,6 +65,13 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   verified; an unverified error frame reaches `genericError` with `verified` false and changes nothing in the
   session. A `Connection` acts on `TOKEN_EXPIRED` as it did before. Code that builds a `GenericError` with two
   values still compiles.
+- **When a session ends.** After `closeFleetSession` the realtime server sends the session nothing more, so
+  its sends return `Ok` and are dropped. With `FleetConfig::transport.watchdogSilenceMs` set (45,000, say)
+  the session notices the silence: `moveOrdered()` and `refreshDue()` turn true, and the refresh answers
+  `NOT_FOUND`. The watchdog is off unless you set it.
+- **A send fault is named.** `UdpSocket::lastSendFault()` is the operating system's error code of the last send
+  that failed `SocketError`, and `Connection` logs it at WARN at the first such fault and each time their
+  count doubles. A full buffer is `WouldBlock`, as before, and is not logged.
 - **Replays.** A signed `FLEET_RELEASED` that is sent again makes the session mark the player released; the
   game server carries the player again, and the realtime server answers that carry. Handle `released` by
   calling `carry` again when the player is still on your server.

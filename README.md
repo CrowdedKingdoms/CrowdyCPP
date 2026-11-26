@@ -1071,6 +1071,15 @@ fleet.close();
   it.
 - **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
   and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
+- **When a session ends.** A session ends when you close it, when its org token is
+  revoked, or at its `expiresAt`. Its carries end with it, and another of your sessions
+  can carry each player at once. After a close the realtime server sends the session
+  nothing more: no error frame, and no acknowledgement of its capabilities. Its sends
+  still return `Ok` and are dropped, and it stays `Connected`. To have the session notice,
+  set `FleetConfig::transport.watchdogSilenceMs`, for example to 45,000. A live session's
+  capabilities are acknowledged every 15 seconds, so 45 seconds of silence means the
+  session is gone. `moveOrdered()` and `refreshDue()` then turn true, and the refresh
+  answers `NOT_FOUND`: open a new session and carry your players again.
 
 ### Security notes
 
@@ -1085,7 +1094,9 @@ fleet.close();
   `TOKEN_EXPIRED` to a new assignment only when it is verified. An unverified error frame
   still reaches `handlers.genericError`, with `verified` false, and changes nothing in the
   session. If the fleet token has expired, refresh or open the session again yourself:
-  `refreshDue()` asks for a refresh 12 hours before that can happen.
+  `refreshDue()` asks for a refresh 12 hours before that can happen. Realtime servers
+  v0.50.0 send a refusal such as `UNAUTHORIZED` outside a signed bundle, so it arrives
+  with `verified` false.
 - **Replays.** A signed `FLEET_RELEASED` or `FLEET_CARRY_RESULT` carries no time, so a copy
   of one can be sent again later. When a `FLEET_RELEASED` is replayed, the session marks
   the player released, the game server carries the player again, and the realtime server

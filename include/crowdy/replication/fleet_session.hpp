@@ -111,8 +111,8 @@ struct FleetCarryResult {
 };
 
 /// Why the server ended a carry (FLEET_RELEASED's reason byte): 1, 2 and 5 are the only
-/// reasons it sends. Treat a value not listed as the carry having ended. When the fleet
-/// session itself ends, its carries end with no FLEET_RELEASED.
+/// reasons it sends. When the fleet session itself ends, its carries end with no
+/// FLEET_RELEASED.
 enum class FleetReleaseReason : std::uint8_t {
   /// Another session carries the player now: they moved to another of your servers.
   CarriedElsewhere = 1,
@@ -122,13 +122,28 @@ enum class FleetReleaseReason : std::uint8_t {
   /// No gameplay input from the player for the app's idle timeout. Voice and video do not
   /// count as input.
   Idle = 5,
+  /// A reason byte this build does not know; FleetReleased::wireReason has it. The carry
+  /// has ended all the same. Never on the wire.
+  Unknown = 255,
 };
+
+inline const char* fleetReleaseReasonName(FleetReleaseReason r) {
+  switch (r) {
+    case FleetReleaseReason::CarriedElsewhere: return "CarriedElsewhere";
+    case FleetReleaseReason::SignInEnded: return "SignInEnded";
+    case FleetReleaseReason::Idle: return "Idle";
+    case FleetReleaseReason::Unknown: return "Unknown";
+  }
+  return "?";
+}
 
 struct FleetReleased {
   std::int64_t playerGameTokenId = 0;
   /// The player's user id when this session knew it; 0 otherwise.
   std::int64_t userId = 0;
-  FleetReleaseReason reason = FleetReleaseReason::SignInEnded;
+  FleetReleaseReason reason = FleetReleaseReason::Unknown;
+  /// The reason byte the server sent.
+  std::uint8_t wireReason = 0;
 };
 
 /// One row of the carried-players table.
@@ -214,6 +229,12 @@ struct FleetHandlers {
   /// message naming a player the server does not count as carried by this session. The
   /// frame carries a one-byte sequence the whole session shares and no player, so count
   /// such refusals; they cannot be tied to a player.
+  ///
+  /// An error frame carries no HMAC of its own. GenericError::verified is true when it
+  /// arrived inside a signed bundle that verified, and false otherwise: an unverified one is
+  /// handed over as information and changes nothing in the session. In particular an
+  /// unverified TOKEN_EXPIRED does not make refreshDue() true, so nobody who can put three
+  /// bytes on the session's flow can make the game server call `refreshFleetSession`.
   std::function<void(const GenericError&)> genericError;
   /// Every spatial notification, before the typed handler.
   std::function<void(const SpatialNotification&, FleetRecipients)> any;
@@ -223,6 +244,11 @@ struct FleetHandlers {
   /// server.
   std::function<void(const FleetCarryResult&)> carryResult;
   /// The server ended a carry: this session no longer carries the player when this fires.
+  /// It fires only for a player the session's table held; a FLEET_RELEASED for any other
+  /// (one sent again after the player's row went, say) is counted in the statistics and
+  /// reports nothing. A FLEET_RELEASED carries nothing that makes it fresh, so a captured
+  /// one sent again releases a player the session carries here: when the player is still on
+  /// this server, carry them again, and the realtime server answers that carry.
   std::function<void(const FleetReleased&)> released;
 };
 
@@ -368,6 +394,12 @@ class FleetSession {
   /// by FleetHandlers::carryResult. Sends for the player are accepted from the moment the
   /// result is Carried.
   ///
+  /// A status 3 (ProofRefused) settles the carry when it answers the carry's only send, or
+  /// its latest. After more than one send, the first status 3 may answer an earlier send
+  /// that reached the server after a later one was accepted (a replay): the session then
+  /// sends once more at once, with a new time and proof, and reports what that send is
+  /// answered, or ProofRefused when the timeout passes without an answer.
+  ///
   /// Call it again with the player's refreshed token: when that carry is confirmed it
   /// replaces the entry the same user had under the older token, whose gameTokenId this
   /// session then refuses. A carry that is refused or times out leaves the player not
@@ -477,12 +509,19 @@ class FleetSession {
   class Endpoint;
 
   struct Player {
-    wire::Token64 token;  ///< the player's key, for the proof of a resend or a carry again
+    /// The player's key, for the proof of a resend or a carry again. Zeroed when the row
+    /// goes (a release, a refusal, close(), the session's destruction).
+    wire::ScrubbedToken64 key;
     std::int64_t userId = 0;
     bool carried = false;
     bool attempt = false;         ///< a FLEET_CARRY waits for its result
     std::int64_t nextSendMs = 0;  ///< monotonic; 0: send at the next pass
     std::int64_t deadlineMs = 0;  ///< monotonic; 0 until the attempt's first send
+    int sends = 0;                ///< FLEET_CARRYs sent in this attempt
+    /// This attempt was answered status 3 after more than one send, and whether a carry has
+    /// left since: the next status 3 after one has settles the carry.
+    bool proofRefused = false;
+    bool sentSinceRefusal = false;
     std::uint64_t order = 0;      ///< which carry() call made or last renewed the entry
     CarryCallback done;
     std::optional<std::vector<core::ActorUuid>> voiceSpeakers;
@@ -495,6 +534,8 @@ class FleetSession {
   /// NotCarried for a player the session does not carry, NotConnected while it is not
   /// ready, Ok when a message for the player may leave.
   Errc sendGate(std::int64_t player) const;
+  /// A new attempt for the row: nothing sent yet, no refusal seen.
+  static void beginAttempt(Player& player);
   void sendCarryLocked(std::int64_t id, Player& player, std::int64_t nowMono);
   /// One FLEET_CARRY's worth of the session's rate, when there is one. playersMutex_ held.
   bool takeCarryTurnLocked(std::int64_t nowMono);

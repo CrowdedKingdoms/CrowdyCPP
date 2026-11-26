@@ -460,6 +460,18 @@ std::vector<std::uint8_t> nextOfType(FakeServer& server, std::uint8_t type) {
   return {};
 }
 
+/// Pump the session until the server has a datagram of FLEET_CARRY's type, and return it.
+std::vector<std::uint8_t> nextOfTypeAfterPump(FleetSession& fleet, FakeServer& server) {
+  for (int i = 0; i < 100; ++i) {
+    fleet.pump(5);
+    fleet.poll();
+    auto got = server.tryRecv(5);
+    if (!got.empty() && got[0] == 49) return got;
+  }
+  CHECK(false);
+  return {};
+}
+
 /// Everything the server has been sent and not read yet.
 std::vector<std::vector<std::uint8_t>> drain(FakeServer& server) {
   std::vector<std::vector<std::uint8_t>> all;
@@ -1258,12 +1270,39 @@ void runReleasedReasons() {
   // The session itself stays.
   CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
 
-  // A release for a player the table does not hold is still reported, without a user.
+  // A FLEET_RELEASED for a player the table does not hold ends nothing and reports nothing:
+  // one for a stranger, and the three above sent again (a captured frame verifies again;
+  // the wire carries nothing that makes it fresh). Each is still counted as received.
   server.send(own(releasedFrame(999, 1)));
-  pumpUntil(fleet, [&] { return seen.released.size() == 4; });
-  CHECK_EQ(seen.released.size(), 4u);
-  CHECK_EQ(seen.released.back().playerGameTokenId, 999);
-  CHECK_EQ(seen.released.back().userId, 0);
+  server.send(own(releasedFrame(a, 1)));
+  server.send(own(releasedFrame(b, 2)));
+  server.send(own(releasedFrame(c, 5)));
+  pumpUntil(fleet, [&] { return fleet.stats().messagesReceivedByType[52] == 7; });
+  settle(fleet);
+  CHECK_EQ(fleet.stats().messagesReceivedByType[52], 7u);
+  CHECK_EQ(seen.released.size(), 3u);
+  CHECK_EQ(fleet.stats().malformed, 0u);
+  CHECK_EQ(fleet.stats().hmacFailures, 0u);
+
+  // A reason byte the platform does not send is handed over as Unknown, with the byte
+  // beside it, and the carry has ended all the same.
+  CHECK_EQ(static_cast<int>(FleetReleaseReason::Unknown), 255);
+  for (std::uint8_t odd : {std::uint8_t{0}, std::uint8_t{3}, std::uint8_t{4}, std::uint8_t{6}, std::uint8_t{255}}) {
+    carryAs(fleet, server, b, 1002, tokenFor(b));
+    const std::size_t before = seen.released.size();
+    server.send(own(releasedFrame(b, odd)));
+    pumpUntil(fleet, [&] { return seen.released.size() == before + 1; });
+    CHECK_EQ(seen.released.size(), before + 1);
+    CHECK_EQ(static_cast<int>(seen.released.back().reason), static_cast<int>(FleetReleaseReason::Unknown));
+    CHECK_EQ(seen.released.back().wireReason, odd);
+    CHECK_EQ(seen.released.back().userId, 1002);
+    CHECK_EQ(std::string(fleetReleaseReasonName(seen.released.back().reason)), std::string("Unknown"));
+    CHECK(!fleet.player(b).has_value());
+  }
+  CHECK_EQ(seen.released[0].wireReason, 1u);
+  CHECK_EQ(seen.released[2].wireReason, 5u);
+  CHECK_EQ(std::string(fleetReleaseReasonName(seen.released[2].reason)), std::string("Idle"));
+  const std::size_t reported = seen.released.size();  // 3 known and 5 unknown
 
   // A crossing back: carried again, then released while a carry with a refreshed token
   // waits. The waiting carry keeps its row and still reports its own result.
@@ -1271,7 +1310,7 @@ void runReleasedReasons() {
   CHECK(fleet.carry({tokenFor(a), a}).ok());
   readCarry(server.recvOne(), tokenFor(a));
   server.send(own(releasedFrame(a, 2)));
-  pumpUntil(fleet, [&] { return seen.released.size() == 5; });
+  pumpUntil(fleet, [&] { return seen.released.size() == reported + 1; });
   CHECK(!fleet.carries(a));
   CHECK(fleet.player(a).has_value());
   CHECK(fleet.player(a)->pending);
@@ -1288,7 +1327,7 @@ void runReleasedReasons() {
   pumpUntil(fleet, [&] { return fleet.stats().hmacFailures == 1; });
   CHECK_EQ(fleet.stats().malformed, 1u);
   CHECK_EQ(fleet.stats().hmacFailures, 1u);
-  CHECK_EQ(seen.released.size(), 5u);
+  CHECK_EQ(seen.released.size(), reported + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -2139,6 +2178,335 @@ void runSetToken() {
 }
 
 // ---------------------------------------------------------------------------
+// An error frame ([3][sequence][code]) carries no HMAC of its own. A fleet session acts on
+// TOKEN_EXPIRED only when the frame arrived inside a verified signed bundle; any other is
+// handed to the application marked unverified and changes nothing, so nobody who can put
+// three bytes on the session's flow can make the game server call refreshFleetSession.
+// ---------------------------------------------------------------------------
+
+void runUnverifiedErrorsChangeNothing() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetSession fleet(configFor(server), crypto(), clock);  // no FleetConfig::reassign
+  Seen seen;
+  fleet.setHandlers(recording(seen));
+  openConnected(fleet, server);
+  carryAs(fleet, server, kPlayerId, 77, kPlayerToken);
+
+  const std::vector<std::uint8_t> expired = {3, 9, 32};       // TOKEN_EXPIRED for sequence 9
+  const std::vector<std::uint8_t> unauthorized = {3, 10, 7};  // UNAUTHORIZED for sequence 10
+
+  // Alone, and inside a plain bundle: nothing vouches for them. A hundred of them.
+  for (int i = 0; i < 50; ++i) {
+    server.send(expired);
+    server.send(plainBundle({expired, unauthorized}));
+  }
+  pumpUntil(fleet, [&] { return seen.errors.size() == 150; });
+  settle(fleet);
+  CHECK_EQ(seen.errors.size(), 150u);
+  for (const GenericError& e : seen.errors) CHECK(!e.verified);
+  CHECK_EQ(static_cast<int>(seen.errors[0].code), 32);
+  CHECK_EQ(seen.errors[0].sequence, 9u);
+  // No state moved: no move order, no refresh due, no reassignment, the carries as they were.
+  CHECK(!fleet.moveOrdered());
+  CHECK(!fleet.refreshDue());
+  CHECK_EQ(fleet.sessionEpoch(), 1u);
+  CHECK_EQ(fleet.stats().reconnects, 0u);
+  CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+  CHECK(fleet.carries(kPlayerId));
+  server.expectNothing();
+
+  // A signed bundle whose HMAC does not hold is dropped whole: its error reaches nobody.
+  auto forged = signedBundle({expired});
+  forged.back() ^= 0x01;
+  server.send(forged);
+  pumpUntil(fleet, [&] { return fleet.stats().hmacFailures == 1; });
+  settle(fleet);
+  CHECK_EQ(seen.errors.size(), 150u);
+  CHECK(!fleet.moveOrdered());
+
+  // Inside a signed bundle that verifies, an UNAUTHORIZED is verified and still only
+  // information; a TOKEN_EXPIRED is acted on: the session asks for its server again.
+  server.send(signedBundle({unauthorized}));
+  pumpUntil(fleet, [&] { return seen.errors.size() == 151; });
+  CHECK(seen.errors.back().verified);
+  CHECK_EQ(static_cast<int>(seen.errors.back().code), 7);
+  CHECK(!fleet.moveOrdered());
+  CHECK_EQ(fleet.sessionEpoch(), 1u);
+
+  server.send(signedBundle({expired}));
+  pumpUntil(fleet, [&] { return fleet.moveOrdered(); });
+  CHECK_EQ(seen.errors.size(), 152u);
+  CHECK(seen.errors.back().verified);
+  CHECK_EQ(static_cast<int>(seen.errors.back().code), 32);
+  CHECK(fleet.moveOrdered());
+  CHECK(fleet.refreshDue());
+  CHECK_EQ(fleet.stats().reconnects, 1u);
+
+  // A player's Connection is as it was: it acts on TOKEN_EXPIRED however it arrives, and
+  // its handler is told which way that was.
+  struct Counting final : ISessionProvider {
+    int port;
+    int assigns = 0;
+    explicit Counting(int p) : port(p) {}
+    Result<Assignment> assignServer() override {
+      ++assigns;
+      return Assignment{"127.0.0.1", "", port};
+    }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  FakeServer other;
+  other.start();
+  Config plain;
+  plain.appId = kAppId;
+  plain.token = TokenInfo{kFleetToken, kFleetId, 0};
+  plain.manualPump = true;
+  plain.sessionReadyWaitMs = 0;
+  plain.bundleSends = false;
+  plain.advertiseCapabilities = false;
+  auto provider = std::make_shared<Counting>(other.port);
+  Connection conn(plain, provider, crypto());
+  std::vector<GenericError> errors;
+  Handlers handlers;
+  handlers.genericError = [&](const GenericError& e) { errors.push_back(e); };
+  conn.setHandlers(std::move(handlers));
+  CHECK(conn.connect().ok());
+  conn.pump(0);
+  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
+  other.recvOne();
+  CHECK_EQ(provider->assigns, 1);
+  other.send(expired);
+  for (int i = 0; i < 100 && provider->assigns < 2; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(provider->assigns, 2);  // unverified, and acted on, as before
+  CHECK_EQ(errors.size(), 1u);
+  CHECK(!errors[0].verified);
+  conn.pump(0);
+  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
+  other.recvOne();
+  other.send(signedBundle({unauthorized}));
+  for (int i = 0; i < 100 && errors.size() < 2; ++i) {
+    conn.pump(20);
+    conn.poll();
+  }
+  CHECK_EQ(errors.size(), 2u);
+  CHECK(errors[1].verified);
+}
+
+// ---------------------------------------------------------------------------
+// A status 3 (a replay) can answer an earlier send that reached the server after a later
+// one was accepted. With more than one carry sent, the first status 3 settles nothing: one
+// more carry leaves, and what answers it settles the carry.
+// ---------------------------------------------------------------------------
+
+void runProofRefusedConverges() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetConfig cfg = configFor(server);
+  FleetSession fleet(cfg, crypto(), clock);
+  Seen seen;
+  fleet.setHandlers(recording(seen));
+  openConnected(fleet, server);
+
+  // Two carries leave, A at 0 ms and B at 250 ms.
+  const auto twoSends = [&](std::vector<FleetCarryResult>& viaCallback) {
+    CHECK(fleet.carry({kPlayerToken, kPlayerId}, [&](const FleetCarryResult& r) {
+                  viaCallback.push_back(r);
+                }).ok());
+    const Carry a = readCarry(server.recvOne(), kPlayerToken);
+    clock.advance(250);
+    fleet.pump(0);
+    const Carry b = readCarry(server.recvOne(), kPlayerToken);
+    CHECK(b.epochMs == a.epochMs + 250);
+    return std::vector<Carry>{a, b};
+  };
+
+  // The reordered answers. The server accepted B and its 51 was lost; A arrived after B, so
+  // it is a replay, and its 51 (status 3) is the only answer the session hears.
+  {
+    std::vector<FleetCarryResult> viaCallback;
+    const auto sent = twoSends(viaCallback);
+    clock.advance(10);
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    pumpUntil(fleet, [&] { return fleet.stats().messagesSentByType[49] == 3; });
+    // Not settled: nothing reported, the row still waits, and one more carry left at once
+    // with a new time and proof.
+    CHECK(viaCallback.empty());
+    CHECK(seen.results.empty());
+    CHECK(fleet.player(kPlayerId).has_value());
+    CHECK(fleet.player(kPlayerId)->pending);
+    const Carry c = readCarry(server.recvOne(), kPlayerToken);
+    CHECK_EQ(c.epochMs, sent[1].epochMs + 10);
+    CHECK(c.proof != sent[0].proof && c.proof != sent[1].proof);
+    // The server carries the player (from B), and answers this newer carry: carried.
+    server.send(own(carryResultFrame(kPlayerId, 77, 0)));
+    pumpUntil(fleet, [&] { return !viaCallback.empty(); });
+    CHECK_EQ(viaCallback.size(), 1u);
+    CHECK(viaCallback[0].carried());
+    CHECK_EQ(viaCallback[0].userId, 77);
+    CHECK_EQ(seen.results.size(), 1u);
+    CHECK(fleet.carries(kPlayerId));
+    // A's late status 3, were it to arrive now, is an answer nobody waits for.
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    settle(fleet);
+    CHECK(fleet.carries(kPlayerId));
+    CHECK_EQ(seen.results.size(), 1u);
+    CHECK(fleet.release(kPlayerId).ok());
+    CHECK_EQ(server.recvOne()[0], 50u);
+  }
+
+  // A proof the server does refuse: the follow-up carry is answered 3 too, and that settles
+  // it, once.
+  {
+    std::vector<FleetCarryResult> viaCallback;
+    twoSends(viaCallback);
+    clock.advance(10);
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    readCarry(nextOfTypeAfterPump(fleet, server), kPlayerToken);
+    CHECK(viaCallback.empty());
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    pumpUntil(fleet, [&] { return !viaCallback.empty(); });
+    CHECK_EQ(viaCallback.size(), 1u);
+    CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::ProofRefused));
+    CHECK_EQ(viaCallback[0].wireStatus, 3u);
+    CHECK(!fleet.player(kPlayerId).has_value());
+    CHECK_EQ(seen.results.size(), 2u);
+    clock.advance(1000);
+    fleet.pump(0);
+    fleet.poll();
+    server.expectNothing();
+    CHECK_EQ(viaCallback.size(), 1u);
+  }
+
+  // After the status 3, no answer at all: the attempts run out, and the carry ends as the
+  // last answer it had, ProofRefused, where one never answered ends TimedOut.
+  {
+    std::vector<FleetCarryResult> viaCallback;
+    twoSends(viaCallback);  // the first send was 250 ms ago
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    readCarry(nextOfTypeAfterPump(fleet, server), kPlayerToken);
+    for (int step = 0; step < 18; ++step) {
+      clock.advance(250);
+      fleet.pump(0);
+      fleet.poll();
+      drain(server);
+      CHECK(viaCallback.empty());
+    }
+    clock.advance(250);  // 5,000 ms after the first send
+    fleet.pump(0);
+    fleet.poll();
+    CHECK_EQ(viaCallback.size(), 1u);
+    CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::ProofRefused));
+    CHECK_EQ(viaCallback[0].wireStatus, 3u);
+    CHECK(!fleet.player(kPlayerId).has_value());
+    drain(server);
+  }
+
+  // A status 3 to a carry's only send is that send's answer: settled on the spot.
+  {
+    std::vector<FleetCarryResult> viaCallback;
+    CHECK(fleet.carry({kPlayerToken, kPlayerId}, [&](const FleetCarryResult& r) {
+                  viaCallback.push_back(r);
+                }).ok());
+    readCarry(server.recvOne(), kPlayerToken);
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    pumpUntil(fleet, [&] { return !viaCallback.empty(); });
+    CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::ProofRefused));
+    server.expectNothing();
+  }
+
+  // A second status 3 that arrives before the follow-up carry could leave (the rate had no
+  // turn for it) answers an earlier send too: it settles nothing either.
+  {
+    FakeServer slow;
+    slow.start();
+    FleetConfig paced = configFor(slow);
+    paced.carryBurst = 2;
+    paced.carriesPerSecond = 1;
+    FleetSession waiting(paced, crypto(), clock);
+    std::vector<FleetCarryResult> results;
+    FleetHandlers h;
+    h.carryResult = [&](const FleetCarryResult& r) { results.push_back(r); };
+    waiting.setHandlers(std::move(h));
+    openConnected(waiting, slow);
+    CHECK(waiting.carry({kPlayerToken, kPlayerId}).ok());
+    readCarry(slow.recvOne(), kPlayerToken);
+    clock.advance(500);
+    waiting.pump(0);  // the second of the burst's two turns (half a turn has come back since)
+    readCarry(slow.recvOne(), kPlayerToken);
+    slow.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    slow.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    pumpUntil(waiting, [&] { return waiting.stats().messagesReceivedByType[51] == 2; });
+    settle(waiting);
+    CHECK(results.empty());
+    CHECK(waiting.player(kPlayerId)->pending);
+    slow.expectNothing();  // no turn yet for the follow-up
+    clock.advance(500);    // the other half of a turn
+    waiting.pump(0);
+    readCarry(slow.recvOne(), kPlayerToken);
+    slow.send(own(carryResultFrame(kPlayerId, 77, 0)));
+    pumpUntil(waiting, [&] { return !results.empty(); });
+    CHECK_EQ(results.size(), 1u);
+    CHECK(results[0].carried());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The game thread sends for its players while the network thread moves the session between
+// realtime servers: the fields the two share are read and written whole (run this under
+// ThreadSanitizer).
+// ---------------------------------------------------------------------------
+
+void runSendsWhileTheSessionMoves() {
+  FakeServer first, second;
+  first.start();
+  second.start();
+  FleetConfig cfg = configFor(first);
+  cfg.transport.manualPump = false;
+  cfg.transport.watchdogSilenceMs = 60'000;  // the watchdog reads what the receive path writes
+  FleetSession fleet(cfg, crypto());
+  CHECK(fleet.open().ok());
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> attempts{0};
+  std::thread sender([&] {
+    const std::uint8_t pose[] = {1, 2, 3, 4};
+    SpatialSend p;
+    p.uuid = uuid('a');
+    p.payload = Bytes(pose, sizeof(pose));
+    while (!stop.load()) {
+      (void)fleet.sendActorUpdate(kPlayerId, p);  // NotCarried or NotConnected, mostly
+      (void)fleet.sendHeartbeat();
+      (void)fleet.carry({kPlayerToken, kPlayerId});
+      (void)fleet.release(kPlayerId);
+      (void)fleet.stats();
+      (void)fleet.refreshDue();
+      ++attempts;
+    }
+  });
+  // The servers answer nothing; the session is moved back and forth under the sender.
+  for (int move = 0; move < 20; ++move) {
+    FakeServer& to = (move % 2 == 0) ? second : first;
+    CHECK(fleet.setServer(Assignment{"127.0.0.1", "", to.port}).ok());
+    const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(30);
+    while (std::chrono::steady_clock::now() < until) {
+      fleet.poll();
+      (void)first.tryRecv(1);
+      (void)second.tryRecv(1);
+    }
+  }
+  stop.store(true);
+  sender.join();
+  CHECK(attempts.load() > 0);
+  CHECK(fleet.stats().reconnects >= 10u);
+  fleet.close();
+}
+
+// ---------------------------------------------------------------------------
 // The owned network thread: carries are sent again by that thread, results reach poll().
 // ---------------------------------------------------------------------------
 
@@ -2225,6 +2593,9 @@ int main() {
   runMoveOrderWaitsForARefresh();
   runSessionReleasedEndsTheCarries();
   runSetToken();
+  runUnverifiedErrorsChangeNothing();
+  runProofRefusedConverges();
+  runSendsWhileTheSessionMoves();
   runOwnedThread();
   std::puts("fleet_session_test OK");
   return 0;

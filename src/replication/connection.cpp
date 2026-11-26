@@ -116,7 +116,7 @@ Status Connection::doAssign() {
   }
 
   readyAtMs_ = clock_.monotonicMillis() + config_.sessionReadyWaitMs;
-  lastRecvMs_ = 0;
+  lastRecvMs_.store(0, std::memory_order_relaxed);
   lastSendMs_.store(0, std::memory_order_relaxed);
   lastCapsMs_ = 0;  // a new server knows nothing about us
   {
@@ -691,7 +691,7 @@ void Connection::handleDatagram(Bytes datagram) {
     ++stats_.datagramsReceived;
     stats_.bytesReceived += datagram.size();
   }
-  lastRecvMs_ = clock_.monotonicMillis();
+  lastRecvMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
 
   // The bound forms (Buddy v0.45.0) carry this assignment's nonce inside their signature, so
   // a verified one cannot be a frame captured earlier: it is final, without the idle guard.
@@ -909,6 +909,7 @@ void Connection::handleDatagram(Bytes datagram) {
     }
     std::memcpy(e.data, message.data(), message.size());
     e.len = static_cast<std::uint16_t>(message.size());
+    e.verified = signedBundle;
     {
       std::lock_guard lock(statsMutex_);
       ++stats_.messagesReceived;
@@ -1022,8 +1023,10 @@ void Connection::housekeeping() {
   }
 
   // Silent-drop watchdog (opt-in).
-  if (config_.watchdogSilenceMs > 0 && state() == ConnState::Connected && lastRecvMs_ > 0 &&
-      lastSendMs_.load(std::memory_order_relaxed) > lastRecvMs_ && nowMono - lastRecvMs_ > config_.watchdogSilenceMs) {
+  const std::int64_t lastRecv = lastRecvMs_.load(std::memory_order_relaxed);
+  if (config_.watchdogSilenceMs > 0 && state() == ConnState::Connected && lastRecv > 0 &&
+      lastSendMs_.load(std::memory_order_relaxed) > lastRecv &&
+      nowMono - lastRecv > config_.watchdogSilenceMs) {
     logger_.log(core::LogLevel::Warn, "watchdog: sends flowing but nothing received; reassigning");
     reconnectRequested_.store(true, std::memory_order_release);
   }
@@ -1192,7 +1195,12 @@ std::size_t Connection::poll(std::size_t maxEvents) {
       case Event::Kind::Error: {
         auto err = wire::parseGenericError(message);
         if (err.ok()) {
-          if (err->code == wire::ErrorCode::TokenExpired) {
+          // An error frame has no HMAC of its own. A fleet session, whose reassignment
+          // makes its game server call the Application API, takes TOKEN_EXPIRED only on a
+          // verified signed bundle's word; one that arrives any other way reaches the
+          // handler marked unverified and changes nothing. A player's connection acts on
+          // either, as it always has.
+          if (err->code == wire::ErrorCode::TokenExpired && (!fleet_ || e.verified)) {
             // Refresh + reassign; the session provider re-mints server-side.
             reconnectRequested_.store(true, std::memory_order_release);
           }
@@ -1201,7 +1209,8 @@ std::size_t Connection::poll(std::size_t maxEvents) {
             pendingWait_.outcome.error = err->code;
             pendingWait_.done = true;
           }
-          if (handlers.genericError) handlers.genericError({err->sequence, err->code});
+          if (handlers.genericError)
+            handlers.genericError({err->sequence, err->code, e.verified});
         }
         break;
       }

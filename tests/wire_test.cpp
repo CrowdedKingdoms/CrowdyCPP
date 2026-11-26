@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cstring>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1260,7 +1261,42 @@ void testFleetSignedServerFrames() {
   }
 }
 
+// A carried player's token is held in a ScrubbedToken64, which zeroes its octets when it
+// is destroyed (FleetSession's row for the player going, or the session closing).
+void testScrubbedToken() {
+  std::uint8_t bytes[16];
+  std::memset(bytes, 0xAB, sizeof(bytes));
+  scrub(bytes + 4, 8);
+  for (std::size_t i = 0; i < sizeof(bytes); ++i) CHECK_EQ(bytes[i], (i >= 4 && i < 12) ? 0x00 : 0xAB);
+  scrub(bytes, 0);
+  CHECK_EQ(bytes[0], 0xAB);
+
+  // Built in storage the test keeps, so the bytes can be read after the object is gone.
+  alignas(ScrubbedToken64) unsigned char storage[sizeof(ScrubbedToken64)];
+  std::memset(storage, 0xEE, sizeof(storage));
+  auto* held = new (storage) ScrubbedToken64();
+  CHECK(!held->assign("short"));
+  CHECK(held->assign(kPlayerToken));
+  CHECK(std::memcmp(held->token.octets, kPlayerToken, kTokenOctets) == 0);
+  // The token is in the storage, and usable as the key it is.
+  CHECK(std::memcmp(storage, kPlayerToken, kTokenOctets) == 0);
+  std::uint8_t proof[kHmacTagSize];
+  CHECK(fleetCarryProof(crypto(), held->token, kFleetId, kPlayerId, kCarryEpochMs, proof));
+  CHECK_EQ(toHex(proof, sizeof(proof)), std::string(kGoldenCarryProof));
+  held->~ScrubbedToken64();
+  for (unsigned char byte : storage) CHECK_EQ(byte, 0u);
+
+  // Assigning over it leaves only the new token; destruction clears that one too.
+  std::memset(storage, 0xEE, sizeof(storage));
+  held = new (storage) ScrubbedToken64(*Token64::fromString(kFleetToken));
+  *held = *Token64::fromString(kPlayerToken);
+  CHECK(std::memcmp(storage, kPlayerToken, kTokenOctets) == 0);
+  held->~ScrubbedToken64();
+  for (unsigned char byte : storage) CHECK_EQ(byte, 0u);
+}
+
 int main() {
+  testScrubbedToken();
   testFleetConstants();
   testFleetCarryGolden();
   testFleetCarriedActorUpdateGolden();

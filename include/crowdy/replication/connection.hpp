@@ -357,6 +357,8 @@ class Connection {
     /// connection inside a FleetSession.
     enum class Kind : std::uint8_t { Spatial, Channel, Error, Status, Fleet } kind = Kind::Spatial;
     ConnState statusValue = ConnState::Idle;
+    /// The message was a member of a MESSAGE_BUNDLE_SIGNED whose HMAC verified.
+    bool verified = false;
     std::uint16_t len = 0;
     // Raw wire bytes of a single (unbundled) message.
     std::uint8_t data[wire::kMaxDatagramSize];
@@ -366,6 +368,7 @@ class Connection {
     Event& operator=(const Event& other) {
       kind = other.kind;
       statusValue = other.statusValue;
+      verified = other.verified;
       len = other.len;
       if (len > 0) std::memcpy(data, other.data, len);
       return *this;
@@ -489,7 +492,10 @@ class Connection {
   std::thread netThread_;
 
   std::int64_t readyAtMs_ = 0;
-  std::int64_t lastRecvMs_ = 0;
+  /// Written where datagrams are received and read by the watchdog in housekeeping. Both
+  /// run on the network thread (or the pump() caller); atomic so a host that pumps from
+  /// more than one thread still reads a whole value.
+  std::atomic<std::int64_t> lastRecvMs_{0};
   std::int64_t lastCapsMs_ = 0;  ///< monotonic ms of the last CLIENT_CAPABILITIES; 0 = none yet
   /// Written by whichever thread sends and read by the watchdog on the network thread.
   std::atomic<std::int64_t> lastSendMs_{0};

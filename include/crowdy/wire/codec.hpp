@@ -43,6 +43,38 @@ struct Token64 {
   Bytes bytes() const { return Bytes(octets, kTokenOctets); }
 };
 
+/// Zero `n` bytes through a volatile pointer, so the compiler may not drop the writes as
+/// dead stores. Best effort: it reaches this copy, and no copy a caller or the crypto
+/// provider made.
+inline void scrub(std::uint8_t* bytes, std::size_t n) noexcept {
+  volatile std::uint8_t* p = bytes;
+  for (; n > 0; --n) *p++ = 0;
+}
+
+/// A Token64 that zeroes its octets when it is destroyed. For a key held only as long as
+/// something else lives: FleetSession keeps each carried player's token in one, so the
+/// token is cleared when the player's row goes and when the session closes.
+struct ScrubbedToken64 {
+  Token64 token;
+
+  ScrubbedToken64() = default;
+  explicit ScrubbedToken64(const Token64& t) : token(t) {}
+  ~ScrubbedToken64() { scrub(token.octets, kTokenOctets); }
+  ScrubbedToken64(const ScrubbedToken64&) = delete;
+  ScrubbedToken64& operator=(const ScrubbedToken64&) = delete;
+  ScrubbedToken64& operator=(const Token64& t) {
+    token = t;
+    return *this;
+  }
+  /// Fill from a 64-character token; false, leaving the octets as they are, for any other
+  /// length.
+  bool assign(std::string_view s) {
+    if (s.size() != kTokenOctets) return false;
+    std::memcpy(token.octets, s.data(), kTokenOctets);
+    return true;
+  }
+};
+
 /// Compute the spatial HMAC tag over `prefix`. `out` must hold 32 bytes.
 ///
 /// Pass `mac` (from ICrypto::makeHmacSha256 for this token) to sign with a

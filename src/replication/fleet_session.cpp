@@ -22,6 +22,16 @@ FleetCarryStatus carryStatusOf(std::uint8_t wireStatus) {
              : FleetCarryStatus::Refused;
 }
 
+/// The reasons the platform sends are 1, 2 and 5; anything else is Unknown, never a cast.
+FleetReleaseReason releaseReasonOf(std::uint8_t wireReason) {
+  switch (wireReason) {
+    case 1: return FleetReleaseReason::CarriedElsewhere;
+    case 2: return FleetReleaseReason::SignInEnded;
+    case 5: return FleetReleaseReason::Idle;
+    default: return FleetReleaseReason::Unknown;
+  }
+}
+
 /// The long-spatial frame of a message that names no place and no actor: chunk (0,0,0),
 /// distance 0, a zero UUID. CLIENT_CAPABILITIES is sent this way.
 SpatialSend controlSend(Bytes payload) {
@@ -262,9 +272,17 @@ bool FleetSession::fleetOwnState() const noexcept {
 // Carrying
 // ---------------------------------------------------------------------------
 
+void FleetSession::beginAttempt(Player& player) {
+  player.attempt = true;
+  player.nextSendMs = 0;
+  player.deadlineMs = 0;  // its timeout starts when it is first sent
+  player.sends = 0;
+  player.proofRefused = false;
+  player.sentSinceRefusal = false;
+}
+
 Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
-  const auto key = wire::Token64::fromString(player.token);
-  if (!key) return Errc::InvalidArgument;
+  if (player.token.size() != wire::kTokenOctets) return Errc::InvalidArgument;
   if (player.gameTokenId == connection_->credentials().gameTokenId) return Errc::InvalidArgument;
   const ConnState s = state();
   if (s != ConnState::Connected && s != ConnState::Connecting && s != ConnState::Reconnecting)
@@ -272,10 +290,9 @@ Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
 
   std::lock_guard lock(playersMutex_);
   Player& entry = players_[player.gameTokenId];
-  entry.token = *key;
-  entry.attempt = true;
-  entry.nextSendMs = 0;
-  entry.deadlineMs = 0;
+  // Straight from the caller's string into the row: no copy of the token is left behind.
+  (void)entry.key.assign(player.token);
+  beginAttempt(entry);
   entry.order = ++carryOrder_;
   entry.done = std::move(done);
   attemptsPending_ = true;
@@ -294,7 +311,7 @@ void FleetSession::sendCarryLocked(std::int64_t id, Player& player, std::int64_t
   // same bytes again are a replay once the first was accepted and its carry ended.
   const std::int64_t fleetId = connection_->credentials().gameTokenId;
   std::uint8_t payload[wire::fleet::kCarryPayloadSize];
-  const auto n = wire::encodeFleetCarryPayload(crypto_, player.token, fleetId, id,
+  const auto n = wire::encodeFleetCarryPayload(crypto_, player.key.token, fleetId, id,
                                                clock_.epochMillis(),
                                                MutableBytes(payload, sizeof(payload)));
   // A send that fails (a full send buffer, a socket between two servers) is tried again at
@@ -304,6 +321,8 @@ void FleetSession::sendCarryLocked(std::int64_t id, Player& player, std::int64_t
                                        controlSend(Bytes(payload, n.value())), &fleetId);
   player.nextSendMs = nowMono + std::max(1, config_.carryResendMs);
   if (player.deadlineMs == 0) player.deadlineMs = nowMono + std::max(0, config_.carryTimeoutMs);
+  ++player.sends;
+  if (player.proofRefused) player.sentSinceRefusal = true;
 }
 
 bool FleetSession::takeCarryTurnLocked(std::int64_t nowMono) {
@@ -350,9 +369,7 @@ void FleetSession::recarryAllLocked() {
     if (!player.attempt && !player.carried) continue;
     // Carried again only when its own result says so.
     player.carried = false;
-    player.attempt = true;
-    player.nextSendMs = 0;
-    player.deadlineMs = 0;  // its timeout starts when it is first sent
+    beginAttempt(player);
     attemptsPending_ = true;
   }
 }
@@ -640,6 +657,21 @@ void FleetSession::onCarryResult(const wire::FleetCarryResultView& view) {
     // player released since.
     if (it == players_.end() || !it->second.attempt) return;
     Player& entry = it->second;
+    if (result.status == FleetCarryStatus::ProofRefused && entry.sends > 1 &&
+        !(entry.proofRefused && entry.sentSinceRefusal)) {
+      // More than one carry has left, and the answer does not say which it answers. A
+      // status 3 can be for an earlier one that reached the server after a later one was
+      // accepted: a replay, while the server carries the player. So the first one settles
+      // nothing: one more carry leaves now, with a new time and proof, and what answers it
+      // settles the carry (a second status 3, once that carry has left, is the refusal).
+      if (!entry.proofRefused) {
+        entry.proofRefused = true;
+        entry.sentSinceRefusal = false;
+        entry.nextSendMs = 0;
+        if (ready()) driveCarriesLocked(clock_.monotonicMillis());
+      }
+      return;
+    }
     done = std::move(entry.done);
     entry.done = nullptr;
     if (!result.carried()) {
@@ -673,17 +705,20 @@ void FleetSession::onCarryResult(const wire::FleetCarryResultView& view) {
 void FleetSession::onReleased(const wire::FleetReleasedView& view) {
   FleetReleased released;
   released.playerGameTokenId = view.playerGameTokenId;
-  released.reason = static_cast<FleetReleaseReason>(view.reason);
+  released.reason = releaseReasonOf(view.reason);
+  released.wireReason = view.reason;
   {
     std::lock_guard lock(playersMutex_);
     const auto it = players_.find(view.playerGameTokenId);
-    if (it != players_.end()) {
-      released.userId = it->second.userId;
-      // A carry still waiting keeps its row until its own result or deadline; the player
-      // is not carried meanwhile.
-      if (it->second.attempt) it->second.carried = false;
-      else players_.erase(it);
-    }
+    // A player the table does not hold: the session carries nobody by that id, so there is
+    // nothing to end and nothing to report (a frame sent again after its row went lands
+    // here). The receive path has counted it.
+    if (it == players_.end()) return;
+    released.userId = it->second.userId;
+    // A carry still waiting keeps its row until its own result or deadline; the player
+    // is not carried meanwhile.
+    if (it->second.attempt) it->second.carried = false;
+    else players_.erase(it);
   }
   if (active_.released) active_.released(released);
 }
@@ -728,7 +763,14 @@ void FleetSession::expireCarries() {
       }
       FleetCarryResult result;
       result.playerGameTokenId = it->first;
-      result.status = FleetCarryStatus::TimedOut;
+      // Out of attempts. When the last answer the carry had was a status 3, that is what
+      // it ends as; otherwise nothing answered it.
+      if (player.proofRefused) {
+        result.status = FleetCarryStatus::ProofRefused;
+        result.wireStatus = static_cast<std::uint8_t>(FleetCarryStatus::ProofRefused);
+      } else {
+        result.status = FleetCarryStatus::TimedOut;
+      }
       expired.emplace_back(result, std::move(player.done));
       it = players_.erase(it);
     }

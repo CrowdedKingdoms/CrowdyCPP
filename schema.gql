@@ -1407,7 +1407,7 @@ type App {
   """
   isTrusted: Boolean!
   """
-  OAuth-style redirect-URI allow-list for the portal handoff. A portal authorization code’s redirect_uri must match one of these by origin; empty disallows browser portal entry to this app.
+  OAuth-style redirect-URI allow-list for the portal handoff. A portal authorization code’s redirect_uri must match one of these by origin; empty disallows browser portal entry to this app. Empty unless the caller holds manage_apps on this app, including an anonymous appBySlug lookup. Hosted sign-in Cancel uses portalReturnAllowed instead of reading this list.
   """
   redirectUris: [String!]!
   """
@@ -1419,7 +1419,7 @@ type App {
   """
   metadata: String
   """
-  Base64-encoded binary blob of the app's persisted runtime/world state; opaque to clients and potentially large. Null when no state has been saved.
+  Base64-encoded binary blob of the app's persisted runtime/world state; opaque to clients and potentially large. Null when no state has been saved, and null unless the caller holds manage_apps on this app.
   """
   state: String
   """Numeric user id of the account that created the app."""
@@ -1457,7 +1457,7 @@ type App {
   """
   runtimeStatus: String!
   """
-  When runtimeStatus is not "active", why the runtime is gated: "insufficient_funds", "spend_cap", "subscription_lapsed", or "payment_method_required" (the free-tier card requirement applies to the organization and it has no saved card and no exemption). Null when active. Historical rows may carry "free_allowance", which the gate no longer produces -- an app over its allowance with no way to pay is denied as "insufficient_funds".
+  When runtimeStatus is not "active", why the runtime is gated: "insufficient_funds", "spend_cap", "subscription_lapsed", or "payment_method_required" (the free-tier card requirement applies to the organization and it has no saved card and no exemption). Null when active, and null unless the caller is a member of the app's organization (a super admin counts). Historical rows may carry "free_allowance", which the gate no longer produces -- an app over its allowance with no way to pay is denied as "insufficient_funds".
   """
   runtimeDenialReason: String
   """
@@ -2863,7 +2863,9 @@ enum FreeTierLevel {
   A member has confirmed an email address at the domain the organization gives as its own; free email providers' domains do not count. 100 GB.
   """
   DOMAIN
-  """The organization has completed its project profile. 200 GB."""
+  """
+  The organization has completed its project profile and Crowded Kingdoms has approved it. 200 GB.
+  """
   PROFILE
   """
   One of the organization's apps had at least 10 different player accounts play on at least 3 of the last 7 UTC days; the organization's own members do not count. 500 GB.
@@ -2939,6 +2941,8 @@ type OrgFreeTier {
   earnedLevel: FreeTierLevel!
   """DOMAIN, PROFILE and MEASURED, with whether each is met now."""
   conditions: [OrgFreeTierCondition!]!
+  """Where the project profile stands. PROFILE is met while it is APPROVED."""
+  profileStatus: ProjectProfileStatus!
   """The domain the organization gives as its own."""
   ownDomain: String
   """
@@ -2952,20 +2956,48 @@ type OrgFreeTier {
 }
 
 """
-The organization's six-question project profile. Complete, it earns the PROFILE free tier level.
+Where an organization's project profile stands. The PROFILE free tier level needs it APPROVED.
+"""
+enum ProjectProfileStatus {
+  """An answer is missing (anythingElse is optional)."""
+  INCOMPLETE
+  """Every answer is in, and Crowded Kingdoms has not decided yet."""
+  WAITING_FOR_REVIEW
+  """
+  Crowded Kingdoms approved it: the PROFILE level applies from the start of the next month.
+  """
+  APPROVED
+  """
+  Crowded Kingdoms declined it: the organization has the level its other conditions give it.
+  """
+  DECLINED
+}
+
+"""
+The organization's project profile: seven questions, the last optional. Complete and approved by Crowded Kingdoms, it earns the PROFILE free tier level.
 """
 type OrgProjectProfile {
   orgId: BigInt!
-  """What the game is."""
+  """
+  What the organization is building: a game, an experience or another application.
+  """
   whatBuilding: String
   worldShape: ProjectWorldShape
   """Players in one world at launch."""
   playersPerWorldLaunch: Int
-  """Players each one sees at launch."""
+  """AI agents that act in one world at launch."""
+  agentsPerWorldLaunch: Int
+  """
+  Players and AI agents that see or interact with each other at once, at launch.
+  """
   playersInViewLaunch: Int
   """Players in one world a year on."""
   playersPerWorldYear1: Int
-  """Players each one sees a year on."""
+  """AI agents that act in one world a year on."""
+  agentsPerWorldYear1: Int
+  """
+  Players and AI agents that see or interact with each other at once, a year on.
+  """
   playersInViewYear1: Int
   stage: ProjectStage
   """The planned launch date."""
@@ -2977,16 +3009,34 @@ type OrgProjectProfile {
   currentNetworking: String
   """What that networking costs a month, in US cents."""
   currentNetworkingMonthlyCostCents: Int
-  """Whether Crowded Kingdoms may name the studio as a reference."""
+  """
+  True when the organization is starting from scratch, with no networking to replace. It answers the networking question in place of currentNetworking and its cost.
+  """
+  startingFromScratch: Boolean
+  """
+  Whether Crowded Kingdoms may name the organization as a customer at launch.
+  """
   referenceConsent: Boolean
-  """When every answer was in; null while any is missing."""
+  """
+  Anything else the organization wants Crowded Kingdoms to know. Optional.
+  """
+  anythingElse: String
+  """
+  When every answer was in; null while any is missing. anythingElse is optional.
+  """
   completedAt: DateTime
+  """
+  INCOMPLETE, WAITING_FOR_REVIEW, APPROVED or DECLINED. Crowded Kingdoms reviews a complete profile before the PROFILE level applies, and promises no time for it.
+  """
+  status: ProjectProfileStatus!
+  """
+  When Crowded Kingdoms approved or declined the profile; null while it waits.
+  """
+  reviewedAt: DateTime
   updatedAt: DateTime
 }
 
-"""
-Whether the game is one world with everyone in it or many copies of a small one.
-"""
+"""Whether the project is one shared world or many copies of a small one."""
 enum ProjectWorldShape {
   ONE_WORLD
   MANY_COPIES
@@ -3003,7 +3053,7 @@ enum ProjectStage {
 }
 
 """
-Where the game's logic runs: on the clients, in light server code, or in a full server simulation.
+Where the project's logic runs: on the clients, in light server code, or in a full server simulation.
 """
 enum ProjectLogicLocation {
   CLIENTS
@@ -7121,6 +7171,38 @@ type ExecRestartResult {
 }
 
 """
+What each of an organization's apps may run of compute modules in one datacenter once the organization is funded: the platform's default, or a ceiling an operator set for this organization. Each app has the whole of it in each datacenter.
+"""
+type OrgComputeCeiling {
+  """The organization (BigInt as a decimal string)."""
+  orgId: BigInt!
+  """Instances one of its apps may have placed at once in one datacenter."""
+  maxInstances: Int!
+  """
+  Memory, in MB, one of its apps' instances may reserve at once in one datacenter (each instance reserves its type's memory limit times its copies).
+  """
+  maxReservedMb: Int!
+  """
+  True when an operator set these for this organization; false when they are the platform's default for a funded organization.
+  """
+  operatorSet: Boolean!
+  """
+  Whether the organization is funded now (a spendable wallet balance, automatic billing or a billing exemption). While it is not, its apps keep the free tier limits whatever this says; execAppStatus reports what an app has.
+  """
+  funded: Boolean!
+  """The platform's default instances for a funded organization."""
+  defaultMaxInstances: Int!
+  """
+  The platform's default reserved memory, in MB, for a funded organization.
+  """
+  defaultMaxReservedMb: Int!
+  """Why the operator set it. Null for the default."""
+  reason: String
+  """When the operator set it. Null for the default."""
+  updatedAt: DateTime
+}
+
+"""
 The CLIENT half of a mod: browser WASM built from a crowdy-client-sdk crate and attached to the mod, which the mod’s grid serves to visitors who consent to it.
 """
 type ExecModClient {
@@ -8206,7 +8288,7 @@ type Query {
     filter: AppMarketplaceFilterInput
   ): AppsConnection!
   """
-  Look up a single app by its org slug + app slug (the marketplace URL path). PUBLIC: no authentication required, and NOT filtered by visibility/status, so it can resolve unlisted or draft apps when the exact slugs are known. Returns null if no matching app exists.
+  Look up a single app by its org slug + app slug (the marketplace URL path). PUBLIC: no authentication required, and NOT filtered by visibility/status, so it can resolve unlisted or draft apps when the exact slugs are known. Returns null if no matching app exists. redirectUris and state are empty unless the caller holds manage_apps; runtimeDenialReason is null unless the caller is a member of the app's organization. launchUrl is returned to every caller.
   """
   appBySlug(
     """
@@ -8217,7 +8299,7 @@ type Query {
     appSlug: String!
   ): App
   """
-  Fetch a single app by its numeric id. Requires authentication (any signed-in user); does NOT enforce org/app permissions, so it can read apps the caller does not own, of any visibility/status. Returns null if the id does not exist. Prefer appBySlug for slug-based marketplace lookups.
+  Fetch a single app by its numeric id. Requires authentication (any signed-in user) and does not require org membership, so it can name apps the caller does not own, of any visibility/status. Returns null if the id does not exist. redirectUris and state are empty unless the caller holds manage_apps; runtimeDenialReason is null unless the caller is a member of the app's organization. Prefer appBySlug for slug-based marketplace lookups.
   """
   app(
     """Numeric id of the app to fetch."""
@@ -8228,7 +8310,7 @@ type Query {
   """
   myApps: [App!]!
   """
-  All apps belonging to an organization, identified by the org's slug, regardless of visibility or status (includes drafts and archived). Requires authentication; intended for org dashboards. Ordered newest-first. Returns an empty list for an unknown slug.
+  All apps belonging to an organization, identified by the org's slug, regardless of visibility or status (includes drafts and archived). Requires authentication and an active membership of that organization (super admins pass). Ordered newest-first. Returns an empty list for an unknown slug. A known organization the caller is not a member of is FORBIDDEN.
   """
   appsForOrg(
     """URL slug of the organization whose apps to list."""
@@ -8266,6 +8348,19 @@ type Query {
     """
     appId: BigInt!
   ): PortalConsentState!
+  """
+  Whether redirectUri is a return address this app registered: its origin matches a redirect URI or the launch URL, and on the games host the path must match too. Studio's hosted sign-in Cancel calls this so a decline can send the player back without the allow-list being readable. Any signed-in session. An unknown app or an unregistered address is false. Requires a SESSION token.
+  """
+  portalReturnAllowed(
+    """
+    Numeric id of the app the decline would return from (BigInt as a decimal string).
+    """
+    appId: BigInt!
+    """
+    The authorize request's redirect_uri. Checked by origin (and by path on the games host) against the app's redirect URIs and launch URL. The list itself is not returned.
+    """
+    redirectUri: String!
+  ): Boolean!
   """
   The calling user's active app authorizations ("connected apps"). Requires a SESSION token.
   """
@@ -9329,6 +9424,13 @@ type Query {
     """The app whose ck-exec code this is about."""
     appId: BigInt!
   ): ExecAppStatus! @requiresPermission(scope: "app", permission: "view_compute_diagnostics", scopeArg: "appId")
+  """
+  What each of the organization's apps may run of compute modules in one datacenter once it is funded: instances placed at once and the memory they reserve, and whether an operator set them for this organization. Requires view_compute_diagnostics on the org (super-admins and operators bypass). Read-only.
+  """
+  orgComputeCeiling(
+    """The organization (BigInt as a decimal string)."""
+    orgId: BigInt!
+  ): OrgComputeCeiling!
   """
   The starter packs, which replace the compute templates: ckx-sdk hub crates for a root world, matchmaking, game sessions, NPCs and mobs, game genres (leaderboards, cards, tactics, waves, duels, private runs, arenas, races, territory), and the economy (a player's own hub, markets), to pass to `execBuild`, with a manifest for `execDeploy`. `starters` has one entry per node type, so a crate that serves two types appears twice: build it once. Requires the org 'manage_compute' permission.
   """
@@ -10905,7 +11007,7 @@ type Mutation {
     reason: String!
   ): OrgCardRequirement! @requiresPermission(scope: "operator", permission: "is_operator")
   """
-  Saves answers to the organization's project profile. An omitted field keeps its answer; null clears it. When every answer is in, the profile is complete and next month's free tier level is checked again at once (PROFILE). Requires the 'manage_billing' org permission.
+  Saves answers to the organization's project profile. An omitted field keeps its answer; null clears it. When every answer but anythingElse is in, the profile is complete and waits for Crowded Kingdoms' review; approved, it earns the PROFILE free tier level from the start of the next month. Next month's level is checked again at once. Requires the 'manage_billing' org permission.
   """
   setOrgProjectProfile(input: SetOrgProjectProfileInput!): OrgProjectProfile! @requiresPermission(scope: "org", permission: "manage_billing", scopeArg: "input.orgId")
   """
@@ -10925,6 +11027,10 @@ type Mutation {
   Operator only. Records a written agreement for a larger free allowance, for whole months starting next month or later, or revokes one (revoke: true with its startMonth). Recorded in billing_rate_changes (scope SHARED, metric free_tier_agreement); next month's level is checked again at once.
   """
   setOrgFreeTierAgreement(input: SetOrgFreeTierAgreementInput!): OrgFreeTier! @requiresPermission(scope: "operator", permission: "is_operator")
+  """
+  Operator only. Records Crowded Kingdoms' decision on an organization's project profile (APPROVED or DECLINED), or clears it (WAITING_FOR_REVIEW). The business side decides in its CRM, whose webhook records the same; this is the operator's path. Recorded in billing_rate_changes (scope SHARED, metric free_tier_profile_review); next month's level is checked again at once.
+  """
+  setOrgProjectProfileReview(input: SetOrgProjectProfileReviewInput!): OrgProjectProfile! @requiresPermission(scope: "operator", permission: "is_operator")
   """
   Operator only. Runs the daily free tier check now, for one organization or all of them, writing next month's levels.
   """
@@ -11798,6 +11904,10 @@ type Mutation {
     """The instance key within `nodeType`."""
     key: String
   ): ExecConnection! @requiresPermission(scope: "app", permission: "manage_compute", scopeArg: "appId")
+  """
+  Operator only. Give an organization its own compute ceiling in place of the platform's default for a funded organization (16,384 instances reserving 65,536 MB for each app in each datacenter), or remove it with clear: true. Each of the organization's apps takes the change within about a minute. Lowering a ceiling stops nothing that runs, and nothing more is placed past it. It applies only while the organization is funded. Reserved memory is billed as before (meteredRateCard).
+  """
+  setOrgComputeCeiling(input: SetOrgComputeCeilingInput!): OrgComputeCeiling! @requiresPermission(scope: "operator", permission: "is_operator")
   """
   Build ck-exec modules from Rust source: each crate is compiled with the platform's pinned toolchain and `ckx-sdk`, for wasm32-unknown-unknown, and checked against the guest ABI. Returns at once with the build queued; poll `execBuildStatus`, then pass its id to `execDeploy`. Requires the org 'manage_compute' permission.
   """
@@ -13262,17 +13372,23 @@ input SetFreeTierCardRequirementInput {
 }
 
 """
-Answers to the project profile. An omitted field keeps its answer; null clears it. Complete when every answer is in.
+Answers to the project profile. An omitted field keeps its answer; null clears it. Complete when every answer but anythingElse is in; startingFromScratch true answers the networking question.
 """
 input SetOrgProjectProfileInput {
   """Organization id."""
   orgId: BigInt!
-  """What the game is (2,000 characters at most)."""
+  """
+  What the organization is building: a game, an experience or another application (2,000 characters at most).
+  """
   whatBuilding: String
   worldShape: ProjectWorldShape
   playersPerWorldLaunch: Int
+  """AI agents that act in one world at launch; 0 when none do."""
+  agentsPerWorldLaunch: Int
   playersInViewLaunch: Int
   playersPerWorldYear1: Int
+  """AI agents that act in one world a year on; 0 when none do."""
+  agentsPerWorldYear1: Int
   playersInViewYear1: Int
   stage: ProjectStage
   launchDate: DateTime
@@ -13283,7 +13399,13 @@ input SetOrgProjectProfileInput {
   currentNetworking: String
   """US cents a month, 0 to 2,000,000,000."""
   currentNetworkingMonthlyCostCents: Int
+  """
+  True when starting from scratch: it answers the networking question in place of currentNetworking and its cost.
+  """
+  startingFromScratch: Boolean
   referenceConsent: Boolean
+  """Optional; 2,000 characters at most."""
+  anythingElse: String
 }
 
 """
@@ -13315,6 +13437,20 @@ input SetOrgFreeTierAgreementInput {
   gigabytes: Int
   """True revokes the agreement that starts at startMonth."""
   revoke: Boolean
+  """Why, for the audit (billing_rate_changes)."""
+  reason: String!
+}
+
+"""
+Operator only: Crowded Kingdoms' decision on an organization's project profile, or back to waiting for review.
+"""
+input SetOrgProjectProfileReviewInput {
+  """Organization id."""
+  orgId: BigInt!
+  """
+  APPROVED or DECLINED, or WAITING_FOR_REVIEW to clear the decision. INCOMPLETE is refused.
+  """
+  status: ProjectProfileStatus!
   """Why, for the audit (billing_rate_changes)."""
   reason: String!
 }
@@ -14175,6 +14311,28 @@ input ExecArtifactInput {
   digest: String!
   """The WASM module (wasm32-unknown-unknown, built with ckx-sdk), base64."""
   wasmBase64: String!
+}
+
+"""
+An organization's own compute ceiling, or its return to the platform's default.
+"""
+input SetOrgComputeCeilingInput {
+  """The organization (BigInt as a decimal string)."""
+  orgId: BigInt!
+  """
+  Instances one of its apps may have placed at once in one datacenter, 1 to 1,048,576. Required unless clear is true.
+  """
+  maxInstances: Int
+  """
+  Memory, in MB, one of its apps' instances may reserve at once in one datacenter, 1 to 4,194,304. Required unless clear is true.
+  """
+  maxReservedMb: Int
+  """
+  True to remove the organization's own ceiling, so its apps go back to the platform's default.
+  """
+  clear: Boolean
+  """Why, kept with the ceiling."""
+  reason: String!
 }
 
 """Sources to build into ck-exec modules."""

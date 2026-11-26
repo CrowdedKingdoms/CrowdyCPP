@@ -76,6 +76,54 @@ const SCHEMA_BASELINE = {
   // carries the same operations, so every one of them went stale, exactly as
   // the block said it would. A future server release that lands here before it
   // lands in the pinned CrowdyJS gets a new, dated group in their place.
+
+  // FLEET SESSIONS (CrowdyCPP 0.94.0, Application API v2.89.1, 2026-11-26). This group is
+  // the other way round: the pinned CrowdyJS 18.40.0 copies its schema from the Application
+  // API's dev branch, and this snapshot is the published SDL, which stops at v2.88.0 and
+  // does not carry the fleet fields yet. The four root fields are implemented here
+  // (FleetSessionsAPI and ExecAPI, their documents written in the headers, which the root
+  // scan reads), so they are covered. The three settings are an operator's: neither SDK
+  // wraps setOrgManagedPlayerSettings or selects them. The schema sync that brings v2.89
+  // turns every entry stale and the gate says so: delete the group then, and move the four
+  // documents to operations/ (AGENTS.md, "Fleet sessions").
+  ...classifySchema(
+    [
+      'type:Mutation.closeFleetSession',
+      'type:Mutation.execConnectAsServer',
+      'type:Mutation.openFleetSession',
+      'type:Mutation.refreshFleetSession',
+    ],
+    CATEGORY.COVERED,
+    'fleet sessions and the hub server connection (Application API v2.89.1), implemented in admin().fleetSessions() and exec().serverEndpoint / connectAsServer from documents written in the headers; the published SDL this snapshot is synced from does not carry them yet',
+    'member-only',
+    'CrowdyJS',
+  ),
+  ...classifySchema(
+    [
+      'input:CloseFleetSessionInput',
+      'input:OpenFleetSessionInput',
+      'input:RefreshFleetSessionInput',
+      'type:FleetSession',
+    ],
+    CATEGORY.COVERED,
+    'the inputs and the answer of the fleet session calls (Application API v2.89.1): FleetSessionsAPI builds the inputs and domains::FleetSessionResponse reads the answer; the published SDL this snapshot is synced from does not carry them yet',
+    'definition-only',
+    'CrowdyJS',
+  ),
+  ...classifySchema(
+    [
+      'input:SetOrgManagedPlayerSettingsInput.fleetSessionsEnabled',
+      'input:SetOrgManagedPlayerSettingsInput.maxFleetPlayers',
+      'input:SetOrgManagedPlayerSettingsInput.maxFleetSessions',
+      'type:OrgManagedPlayerSettings.fleetSessionsEnabled',
+      'type:OrgManagedPlayerSettings.maxFleetPlayers',
+      'type:OrgManagedPlayerSettings.maxFleetSessions',
+    ],
+    CATEGORY.BROWSER,
+    "an operator switches fleet sessions on for an organization and sets its limits (setOrgManagedPlayerSettings, Application API v2.89.1), which neither SDK wraps or selects; the published SDL this snapshot is synced from does not carry them yet",
+    'member-only',
+    'CrowdyJS',
+  ),
 };
 
 const ROOT_CLASSIFICATIONS = {
@@ -436,6 +484,31 @@ const ROOT_CLASSIFICATIONS = {
     ['eraseAccount', 'recordParentalConsentWithdrawal'],
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // Application API v2.87.1 and v2.88.0, picked up when the pin moved to CrowdyJS 18.40.0 and
+  // the snapshot to the published SDL of 2026-11-25 (CrowdyCPP 0.94.0). An operator records
+  // Crowded Kingdoms' decision on a project profile and sets an organization's compute
+  // ceiling: on tests/parity/sdk-audience.test.mjs's platform-only list, as on CrowdyJS's.
+  ...classifyNames(
+    'Mutation',
+    ['setOrgComputeCeiling', 'setOrgProjectProfileReview'],
+    CATEGORY.BROWSER,
+    'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
+  ),
+  // The two reads that came with them. orgComputeCeiling is an organization's own read
+  // (view_compute_diagnostics) that Studio shows beside the setter above; portalReturnAllowed
+  // is asked by Studio's hosted sign-in when a player cancels. CrowdyJS 18.40.0 wraps neither.
+  ...classifyNames(
+    'Query',
+    ['orgComputeCeiling'],
+    CATEGORY.BROWSER,
+    "an organization's compute ceiling as Studio shows it; CrowdyJS does not wrap it",
+  ),
+  ...classifyNames(
+    'Query',
+    ['portalReturnAllowed'],
+    CATEGORY.BROWSER,
+    "asked by Studio's hosted sign-in page when a player cancels; CrowdyJS does not wrap it",
   ),
   // Subscription.udpNotifications is deliberately NOT classified. It used to be
   // a native waiver — the native Connection receives the gameplay notifications
@@ -1188,6 +1261,202 @@ const CROSS_CUTTING_EXPORT_MODULES = {
     CATEGORY.BROWSER,
     'glue that instantiates player WASM inside the browser Web Worker (CLIENT ABI imports, ck_fuel, watchdog); a native sandbox implements CLIENT ABI kExecClientAbiVersion itself',
   ),
+  // CrowdyJS 18.40.0 / CrowdyCPP 0.94.0: fleet sessions, for an organization's own game
+  // servers. CrowdyJS keeps them in three modules outside the class scan (the wire codecs in
+  // the root entry, the session and its socket in the Node entry `/fleet`); here they are
+  // one class over Connection. FleetSessionsAPI and the ExecAPI / ExecConnection server
+  // calls are in src/domains, so the class scan lists them.
+  'src/fleet-wire.ts': exportModule(
+    [
+      'FLEET_CARRY_CLOCK_TOLERANCE_MS',
+      'FLEET_CARRY_PAYLOAD_BYTES',
+      'FLEET_CARRY_PROOF_LABEL',
+      'FLEET_CARRY_RESULT_BYTES',
+      'FLEET_MAX_DATAGRAM_BYTES',
+      'FLEET_MAX_DELIVERY_PLAYERS',
+      'FLEET_RELEASED_BYTES',
+      'FLEET_TOKEN_CHARS',
+      'FleetCarryInput',
+      'FleetCarryResultFrame',
+      'FleetCarryStatus',
+      'FleetDatagram',
+      'FleetDeliveryFrame',
+      'FleetId',
+      'FleetInbound',
+      'FleetParseOptions',
+      'FleetReleaseReason',
+      'FleetReleasedFrame',
+      'SessionReleaseReason',
+      'carriedPlayerContext',
+      'createFleetSignContext',
+      'fleetCarryProof',
+      'parseFleetCarryResult',
+      'parseFleetDatagram',
+      'parseFleetDelivery',
+      'parseFleetReleased',
+      'serializeFleetCarry',
+      'serializeFleetRelease',
+    ],
+    CATEGORY.NATIVE,
+    'the wire of messages 49 to 53 is namespace wire::fleet in crowdy/wire/protocol.hpp and the fleet codecs in crowdy/wire/codec.hpp (golden bytes in wire_test); a sign context is the game token id and the Token64 every encoder takes, and a whole datagram is read by FleetSession, which verifies it (verifySignedBundle, verifyFleetFrame, verifyBoundControl) and hands it to FleetHandlers',
+    {
+      FLEET_CARRY_CLOCK_TOLERANCE_MS: 'kCarryClockToleranceMs',
+      FLEET_CARRY_PAYLOAD_BYTES: 'kCarryPayloadSize',
+      FLEET_CARRY_PROOF_LABEL: 'kCarryProofLabel',
+      FLEET_CARRY_RESULT_BYTES: 'kCarryResultSize',
+      FLEET_MAX_DATAGRAM_BYTES: 'kMaxReceiveDatagramSize',
+      FLEET_MAX_DELIVERY_PLAYERS: 'kMaxDeliveryRecipients',
+      FLEET_RELEASED_BYTES: 'kReleasedSize',
+      FLEET_TOKEN_CHARS: 'kTokenOctets',
+      FleetCarryInput: 'encodeFleetCarryPayload',
+      FleetCarryResultFrame: 'FleetCarryResultView',
+      FleetCarryStatus: 'FleetCarryStatus',
+      FleetDatagram: 'Stats',
+      FleetDeliveryFrame: 'FleetDeliveryView',
+      FleetId: 'int64_t',
+      FleetInbound: 'FleetHandlers',
+      FleetParseOptions: 'verifyBoundControl',
+      FleetReleaseReason: 'FleetReleaseReason',
+      FleetReleasedFrame: 'FleetReleasedView',
+      SessionReleaseReason: 'ReleaseReason',
+      carriedPlayerContext: 'encodeLongSpatial',
+      createFleetSignContext: 'Token64',
+      fleetCarryProof: 'fleetCarryProof',
+      parseFleetCarryResult: 'parseFleetCarryResult',
+      parseFleetDatagram: 'verifyFleetFrame',
+      parseFleetDelivery: 'parseFleetDelivery',
+      parseFleetReleased: 'parseFleetReleased',
+      serializeFleetCarry: 'encodeFleetCarryPayload',
+      serializeFleetRelease: 'encodeFleetReleasePayload',
+    },
+    {
+      FLEET_CARRY_CLOCK_TOLERANCE_MS: 'include/crowdy/wire/protocol.hpp',
+      FLEET_CARRY_PAYLOAD_BYTES: 'include/crowdy/wire/protocol.hpp',
+      FLEET_CARRY_PROOF_LABEL: 'include/crowdy/wire/protocol.hpp',
+      FLEET_CARRY_RESULT_BYTES: 'include/crowdy/wire/protocol.hpp',
+      FLEET_MAX_DATAGRAM_BYTES: 'include/crowdy/wire/protocol.hpp',
+      FLEET_MAX_DELIVERY_PLAYERS: 'include/crowdy/wire/protocol.hpp',
+      FLEET_RELEASED_BYTES: 'include/crowdy/wire/protocol.hpp',
+      FLEET_TOKEN_CHARS: 'include/crowdy/wire/protocol.hpp',
+      FleetCarryInput: 'include/crowdy/wire/codec.hpp',
+      FleetCarryResultFrame: 'include/crowdy/wire/codec.hpp',
+      FleetCarryStatus: 'include/crowdy/replication/fleet_session.hpp',
+      FleetDatagram: 'include/crowdy/replication/fleet_session.hpp',
+      FleetDeliveryFrame: 'include/crowdy/wire/codec.hpp',
+      FleetId: 'include/crowdy/replication/fleet_session.hpp',
+      FleetInbound: 'include/crowdy/replication/fleet_session.hpp',
+      FleetParseOptions: 'include/crowdy/wire/codec.hpp',
+      FleetReleaseReason: 'include/crowdy/replication/fleet_session.hpp',
+      FleetReleasedFrame: 'include/crowdy/wire/codec.hpp',
+      SessionReleaseReason: 'include/crowdy/wire/protocol.hpp',
+      carriedPlayerContext: 'include/crowdy/wire/codec.hpp',
+      createFleetSignContext: 'include/crowdy/wire/codec.hpp',
+      fleetCarryProof: 'include/crowdy/wire/codec.hpp',
+      parseFleetCarryResult: 'include/crowdy/wire/codec.hpp',
+      parseFleetDatagram: 'include/crowdy/wire/codec.hpp',
+      parseFleetDelivery: 'include/crowdy/wire/codec.hpp',
+      parseFleetReleased: 'include/crowdy/wire/codec.hpp',
+      serializeFleetCarry: 'include/crowdy/wire/codec.hpp',
+      serializeFleetRelease: 'include/crowdy/wire/codec.hpp',
+    },
+  ),
+  'src/fleet/session.ts': exportModule(
+    [
+      'FLEET_TABLE_MARGIN',
+      'FleetCarryOutcome',
+      'FleetCarryResult',
+      'FleetHandlers',
+      'FleetNotCarriedError',
+      'FleetPlayer',
+      'FleetPlayerToken',
+      'FleetPlayers',
+      'FleetReleased',
+      'FleetSession',
+      'FleetSessionConfig',
+      'FleetSessionGrant',
+      'FleetSessionStats',
+      'FleetSessionStatus',
+      'FleetSpeakerChange',
+    ],
+    CATEGORY.NATIVE,
+    'replication::FleetSession (crowdy/replication/fleet_session.hpp) is the same session over Connection: carry, release, every send for a carried player, refreshDue and applyRefresh, with results and notifications delivered from poll(). A send for a player who is not carried returns Errc::NotCarried. The table has no cap of its own (see fleet-session-table-cap below)',
+    {
+      FLEET_TABLE_MARGIN: 'NoRoom',
+      FleetCarryOutcome: 'FleetCarryStatus',
+      FleetCarryResult: 'FleetCarryResult',
+      FleetHandlers: 'FleetHandlers',
+      FleetNotCarriedError: 'NotCarried',
+      FleetPlayer: 'FleetPlayer',
+      FleetPlayerToken: 'PlayerToken',
+      FleetPlayers: 'FleetRecipients',
+      FleetReleased: 'FleetReleased',
+      FleetSession: 'FleetSession',
+      FleetSessionConfig: 'FleetConfig',
+      FleetSessionGrant: 'FleetSessionResponse',
+      FleetSessionStats: 'Stats',
+      FleetSessionStatus: 'ConnState',
+      FleetSpeakerChange: 'SpeakerList',
+    },
+    {
+      FLEET_TABLE_MARGIN: 'include/crowdy/replication/fleet_session.hpp',
+      FleetCarryOutcome: 'include/crowdy/replication/fleet_session.hpp',
+      FleetCarryResult: 'include/crowdy/replication/fleet_session.hpp',
+      FleetHandlers: 'include/crowdy/replication/fleet_session.hpp',
+      FleetNotCarriedError: 'include/crowdy/core/result.hpp',
+      FleetPlayer: 'include/crowdy/replication/fleet_session.hpp',
+      FleetPlayerToken: 'include/crowdy/replication/fleet_session.hpp',
+      FleetPlayers: 'include/crowdy/replication/fleet_session.hpp',
+      FleetReleased: 'include/crowdy/replication/fleet_session.hpp',
+      FleetSession: 'include/crowdy/replication/fleet_session.hpp',
+      FleetSessionConfig: 'include/crowdy/replication/fleet_session.hpp',
+      FleetSessionGrant: 'include/crowdy/domains/types.hpp',
+      FleetSessionStats: 'include/crowdy/replication/fleet_session.hpp',
+      FleetSessionStatus: 'include/crowdy/replication/types.hpp',
+      FleetSpeakerChange: 'include/crowdy/replication/types.hpp',
+    },
+  ),
+  'src/fleet/socket.ts': exportModule(
+    [
+      'FleetServer',
+      'FleetSocket',
+      'FleetSocketEvents',
+      'FleetSocketFactory',
+      'NodeFleetSocketOptions',
+      'assertFleetRuntime',
+      'fleetServerAddress',
+      'nodeFleetSocket',
+    ],
+    CATEGORY.NATIVE,
+    "a fleet session's UDP socket is Connection's UdpSocket (crowdy/replication/udp_socket.hpp), connected to the Assignment's address with the buffer sizes in FleetConfig::transport; every native build has UDP, so there is no runtime to assert and no socket to inject (fleet_session_test talks to a loopback server)",
+    {
+      FleetServer: 'Assignment',
+      FleetSocket: 'UdpSocket',
+      FleetSocketEvents: 'UdpSocket',
+      FleetSocketFactory: 'UdpSocket',
+      NodeFleetSocketOptions: 'socketRecvBufferBytes',
+      assertFleetRuntime: 'UdpSocket',
+      fleetServerAddress: 'Assignment',
+      nodeFleetSocket: 'UdpSocket',
+    },
+    {
+      FleetServer: 'include/crowdy/replication/types.hpp',
+      FleetSocket: 'include/crowdy/replication/udp_socket.hpp',
+      FleetSocketEvents: 'include/crowdy/replication/udp_socket.hpp',
+      FleetSocketFactory: 'include/crowdy/replication/udp_socket.hpp',
+      NodeFleetSocketOptions: 'include/crowdy/replication/types.hpp',
+      assertFleetRuntime: 'include/crowdy/replication/udp_socket.hpp',
+      fleetServerAddress: 'include/crowdy/replication/types.hpp',
+      nodeFleetSocket: 'include/crowdy/replication/udp_socket.hpp',
+    },
+  ),
+  // The guard CrowdyJS puts in front of every org-token call: it refuses in a browser page
+  // or a page's worker. A native program is neither, and the Application API refuses an org
+  // token sent with an Origin header whatever the client says about itself.
+  'src/server-only.ts': exportModule(
+    ['RuntimeScope', 'assertOrganizationServer', 'organizationServerRefusal'],
+    CATEGORY.BROWSER,
+    "refuses an org-token call made from a browser page or a page's worker by reading the JavaScript runtime's globals; a native program has no page to be in, and admin().fleetSessions() says where the org token belongs",
+  ),
 };
 
 const STRICT_NATIVE_EXPORT_MODULES = new Set([
@@ -1417,6 +1686,97 @@ const CROSS_CUTTING_BEHAVIORS = {
       'wire::ErrorCode::AppPaused (33) arrives in GenericError like every UDP refusal; pair it with isAppPaused(AppTokenResponse::runtimeGate) (0.60.0)',
     ),
   },
+  // CrowdyJS 18.40.0 / CrowdyCPP 0.94.0: what of fleet sessions sits outside the class scan
+  // and the three modules in CROSS_CUTTING_EXPORT_MODULES.
+  'fleet-message-types': {
+    path: 'src/binary-wire.ts',
+    markers: [
+      'FLEET_CARRY: 49,',
+      'FLEET_RELEASE: 50,',
+      'FLEET_CARRY_RESULT: 51,',
+      'FLEET_RELEASED: 52,',
+      'FLEET_DELIVERY: 53,',
+      'FLEET_OWN_STATE: 8,',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'wire::MessageType::FleetCarry (49), FleetRelease (50), FleetCarryResult (51), FleetReleased (52) and FleetDelivery (53), and wire::ClientCapability::kFleetOwnState (bit 3), in crowdy/wire/protocol.hpp (0.94.0)',
+    ),
+  },
+  'fleet-wire-building-blocks': {
+    path: 'src/binary-wire.ts',
+    markers: [
+      'export async function signWithToken(',
+      'export async function verifyWithToken(',
+      'export async function verifyControlHmac(',
+      'export async function serializeLongSpatial(',
+      'export function serializeActorHeartbeat(',
+      'export function parseNotification(bytes: Uint8Array): UdpNotification | null {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'CrowdyJS 18.40.0 exports the signing and parsing a fleet session is built from; crowdy/wire/codec.hpp has always been an installed header: spatialHmac, encodeLongSpatial (heartbeats and capabilities use its layout), verifyLongSpatial, verifySignedBundle, verifyBoundControl, parseLongSpatial, parseChannelNotification and parseGenericError',
+    ),
+  },
+  'fleet-node-entry-package': {
+    path: 'package.json',
+    packageExport: './fleet',
+    classification: classification(
+      CATEGORY.NATIVE,
+      'CrowdyJS keeps the session in a Node entry of its own because it opens a UDP socket (node:dgram); here it is in the one library, crowdy/replication/fleet_session.hpp, which crowdy/crowdy.hpp includes',
+    ),
+  },
+  'fleet-sessions-client-accessor': {
+    path: 'src/crowdy-client.ts',
+    markers: ['readonly fleetSessions: FleetSessionsAPI;'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'CrowdyClient::fleetSessions() is the same FleetSessionsAPI as admin().fleetSessions(), as client.fleetSessions is client.admin.fleetSessions in CrowdyJS (0.94.0)',
+    ),
+  },
+  'fleet-session-refusal-readers': {
+    path: 'src/errors.ts',
+    markers: [
+      "export const ORG_TOKEN_REQUIRED_CODE = 'ORG_TOKEN_REQUIRED';",
+      "export const FLEET_SESSION_LIMIT_CODE = 'FLEET_SESSION_LIMIT';",
+      "export const NOT_FOUND_CODE = 'NOT_FOUND';",
+      "export const PLATFORM_BUSY_CODE = 'PLATFORM_BUSY';",
+      'export function orgTokenRequiredOf(value: unknown): boolean {',
+      'export function fleetSessionLimitOf(value: unknown): boolean {',
+      'export function fleetSessionNotFoundOf(value: unknown): boolean {',
+      'export function platformBusyOf(value: unknown): { retryAfterMs: number } | null {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      'graphql::orgTokenRequiredOf, fleetSessionLimitOf, fleetSessionNotFoundOf and platformBusyOf (PlatformBusy::retryAfterMs), with kOrgTokenRequiredCode, kFleetSessionLimitCode, kNotFoundCode and kPlatformBusyCode, in crowdy/graphql/errors.hpp (0.94.0)',
+    ),
+  },
+  // A difference, kept visible: CrowdyJS bounds its table and CrowdyCPP does not. The markers
+  // go stale if CrowdyJS changes the cap; delete this entry when FleetSession carries one.
+  'fleet-session-table-cap': {
+    path: 'src/fleet/session.ts',
+    markers: [
+      'export const FLEET_TABLE_MARGIN = 32;',
+      "| 'tableFull'",
+      'carriesRefusedTableFull: number;',
+      'get tableLimit(): number {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "NOT MIRRORED in 0.94.0: CrowdyJS refuses a carry for a new player once its table holds maxPlayers + 32 rows ('tableFull', tableLimit, carriesRefusedTableFull). FleetSession's table has no cap of its own: the realtime server answers a carry past the session's maxPlayers FleetCarryStatus::NoRoom, a refused or timed-out carry removes its row, and only the game server's own carry() calls add one. A local cap is behaviour to add in a later release",
+    ),
+  },
+  'fleet-session-actor-heartbeats': {
+    path: 'src/fleet/session.ts',
+    markers: [
+      'actorHeartbeatMs?: number;',
+      'forgetActor(player: FleetId, uuid: string): void {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "FleetSession keeps no timer per actor: the game server calls sendHeartbeat(player, chunk, uuid) from its own loop for an idle actor, as a player's game calls Connection::sendHeartbeat, so there is nothing to forget; the session's own keepalive is sendHeartbeat() and the capabilities advertisement",
+    ),
+  },
   'grid-host-call-voxel-bounds': {
     path: 'src/grid-mods/grid-host-calls.ts',
     markers: ['voxelBounds?: GridVoxelBounds;', 'export const DEFAULT_GRID_VOXEL_BOUNDS'],
@@ -1435,65 +1795,11 @@ const STRICT_NATIVE_SURFACE_GAPS = [];
 // yet: once CrowdyJS carries the surface the entry is stale, the gate says so, and the
 // entry is deleted so the class scan and CROSS_CUTTING_BEHAVIORS take over.
 const NATIVE_FIRST_SURFACES = {
-  'fleet-session': {
-    native: [
-      {
-        path: 'include/crowdy/replication/fleet_session.hpp',
-        markers: [
-          'class FleetSession',
-          'Status carry(const PlayerToken& player',
-          'Status release(std::int64_t playerGameTokenId)',
-          'void setFleetOwnState(bool on)',
-          'struct FleetHandlers',
-          'bool refreshDue() const',
-        ],
-      },
-      {
-        path: 'include/crowdy/domains/fleet_sessions.hpp',
-        markers: [
-          'class FleetSessionsAPI',
-          'openFleetSession(input: $input)',
-          'refreshFleetSession(input: $input)',
-          'closeFleetSession(input: $input)',
-          'fleetConfigOf(',
-          'applyFleetRefresh(',
-        ],
-      },
-      {
-        path: 'include/crowdy/wire/protocol.hpp',
-        markers: [
-          'FleetCarry = 49',
-          'FleetRelease = 50',
-          'FleetCarryResult = 51',
-          'FleetReleased = 52',
-          'FleetDelivery = 53',
-          'kFleetOwnState = 1u << 3',
-        ],
-      },
-    ],
-    crowdyjs: { path: 'src/binary-wire.ts', absent: ['FLEET_CARRY', 'FleetCarry'] },
-    note:
-      'replication::FleetSession: one realtime session of an organization\'s game server that carries its players (FLEET_CARRY 49, FLEET_RELEASE 50, FLEET_CARRY_RESULT 51, FLEET_RELEASED 52, FLEET_DELIVERY 53, capability bit 3 FLEET_OWN_STATE), with every Connection send for a carried player. It is for an organization\'s own servers; a fleet token stays off players\' devices. admin().fleetSessions() wraps openFleetSession, refreshFleetSession and closeFleetSession with the organization\'s org token (refresh and close work only with the org token that opened the session); their documents are written in the header until the published schema carries the fields. CrowdyJS and CrowdyPy to follow (fleet session design, step F7)',
-  },
-  'exec-server-connection': {
-    native: [
-      {
-        path: 'include/crowdy/domains/exec.hpp',
-        markers: [
-          'openAsServer(',
-          'connectAsServer(',
-          'void callAs(',
-          'void callAsRaw(',
-          'enum class Kind { Call, Subscribe, Unsubscribe, Ping, CallAs }',
-          'execConnectAsServer(appId: $appId, nodeType: $nodeType, key: $key)',
-          'serverEndpoint(',
-        ],
-      },
-    ],
-    crowdyjs: { path: 'src/domains/exec.ts', absent: ['callAs(', 'connectAsServer(', 'openAsServer('] },
-    note:
-      'ExecConnection::openAsServer / connectAsServer and callAs / callAsRaw: a game server\'s own hub connection and its calls for a player (client frame 0x05, ck-exec 0.25.0). exec().serverEndpoint and connectAsServer wrap execConnectAsServer with the organization\'s org token. CrowdyJS and CrowdyPy to follow (fleet session design, step F7)',
-  },
+  // Empty since the pin moved to CrowdyJS 18.40.0 (CrowdyCPP 0.94.0): `fleet-session` and
+  // `exec-server-connection` were here while this SDK carried fleet sessions first. CrowdyJS
+  // carries them now, so the class scan lists FleetSessionsAPI, ExecAPI and ExecConnection,
+  // CROSS_CUTTING_EXPORT_MODULES maps src/fleet-wire.ts and src/fleet/, and
+  // CROSS_CUTTING_BEHAVIORS holds the rest.
 };
 
 if (!existsSync(join(crowdyjsPath, 'schema.gql'))) {

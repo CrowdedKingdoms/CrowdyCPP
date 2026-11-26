@@ -2606,9 +2606,9 @@ void runOwnedThread() {
           ++sent;
           break;
         }
-        if (st.code != Errc::WouldBlock && st.code != Errc::SocketError) {
+        if (st.error() != Errc::WouldBlock && st.error() != Errc::SocketError) {
           int none = 0;
-          firstRefusal.compare_exchange_strong(none, static_cast<int>(st.code));
+          firstRefusal.compare_exchange_strong(none, static_cast<int>(st.error()));
           ++refused;
           break;
         }

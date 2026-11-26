@@ -415,11 +415,27 @@ connection was made, never read from the connect token. The three call-as cases 
 `tools/parity/fixtures/exec-client-frames.json` were written here before ck-exec's copy had them:
 when ck-exec 0.25.0's `client-frames.json` carries its own, copy that file over this one.
 
-Still to do: wrappers for `openFleetSession`, `refreshFleetSession`, `closeFleetSession` and
-`execConnectAsServer` once the schema is published (an `ISessionProvider`-shaped seam already
-exists as `FleetConfig::reassign`), the version bump and release, and the CrowdyJS and CrowdyPy
-mirrors. `NATIVE_FIRST_SURFACES` in `tools/parity/parity.mjs` lists both surfaces in the matrix and
-goes stale, on purpose, when CrowdyJS carries either.
+The Application API calls are `client.admin().fleetSessions()` (`crowdy/domains/fleet_sessions.hpp`:
+`open`, `refresh`, `close`) and `exec().serverEndpoint` / `connectAsServer`. They are the first
+wrappers here that only an org token can call: the bearer is whatever the client holds, so a
+game server gives its client the org token with `setToken`. `mintManagedPlayerToken` stays
+unwrapped. **Refresh and close work only with the org token that opened the session**; say so
+wherever these calls are described. The four documents are `R"gql(...)gql"` constants in the
+headers (the audience gate and the matrix's root-field scan read them there) because
+`schema.gql` is the published SDL and does not carry the fields: cks-game-api's own `schema.gql`
+orders its types differently, so syncing from it rewrites 14,000 lines and brings fields
+unrelated to this. When the SDL is published with v2.89.0, sync as usual, move the four
+documents to `operations/` (`fleet/`, and `exec/Exec.graphql`), and use the generated constants.
+
+`replication::FleetSession` makes no API call. `refreshDue()` (half the token's lifetime gone, or
+`moveOrdered()`) is the only policy it holds, and the caller acts on it: `fleetSessions().refresh(
+session)` names the server the session is on unless a move was ordered, and
+`domains::applyFleetRefresh` hands the answer to `FleetSession::applyRefresh`. A move order
+with no `FleetConfig::reassign` reopens the session at the server it has and sets `moveOrdered()`.
+
+Still to do: the version bump and release, and the CrowdyJS and CrowdyPy mirrors.
+`NATIVE_FIRST_SURFACES` in `tools/parity/parity.mjs` lists the surfaces in the matrix and goes
+stale, on purpose, when CrowdyJS carries one.
 
 ## Writing tests against `graphql::Json`
 

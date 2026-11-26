@@ -22,7 +22,9 @@
 ///
 /// The game server signs each player in once (`mintManagedPlayerToken`), opens one fleet
 /// session (the Application API's `openFleetSession`, which answers the fleet token, its
-/// gameTokenId and a realtime server), and then:
+/// gameTokenId and a realtime server; client.admin().fleetSessions() in
+/// crowdy/domains/fleet_sessions.hpp wraps it and builds this class's FleetConfig from the
+/// answer), and then:
 ///
 ///   FleetSession fleet(config, crypto);
 ///   fleet.open();
@@ -37,6 +39,10 @@
 /// would send, with the tail's game token id the player's and the HMAC keyed with the fleet
 /// token. The session's own messages (its capabilities, the carry and release messages, its
 /// own heartbeat) carry the fleet session's gameTokenId.
+///
+/// This class makes no Application API call. It takes the token and the server it is given,
+/// so a server with its own HTTP client uses it as it is; refreshDue() says when to call
+/// `refreshFleetSession`, and applyRefresh() takes the answer.
 ///
 /// Threading is Connection's: by default the session owns one network thread and you call
 /// poll() from your game thread; with FleetConfig::transport.manualPump you call pump()

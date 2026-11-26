@@ -714,7 +714,7 @@ app-scoped token):
 | `client.subscriptions()` | Generic `graphql-transport-ws` operations with RAII cancellation, reconnect/replay notification, and game-thread delivery from `poll()`. |
 | `client.crowdyStudioAgent()` | Agentic Studio policy, provider-data consent, metered model usage, the live-modding check (`liveModding`) and the model list (`models`, `GET /v1/model/models`). The agent itself runs in a Studio dock, CrowdyJS's `dsh` in a browser or a game's own, against the REST `/v1/model` endpoint; see [A Studio dock in a game](#a-studio-dock-in-a-game) and [native agent API](docs/native-agent-api.md). |
 | `client.replication()` | **Native UDP** replication: connect/assign, spatial sends, notifications, channel publish, single-actor messages, heartbeats. |
-| `crowdy::replication::FleetSession` | For an organization's own game servers (dev-tier preview): one realtime session that carries the server's players, with every `Connection` send for a carried player and the players who may receive each communication. See [Game servers: fleet sessions](#game-servers-fleet-sessions). |
+| `crowdy::replication::FleetSession` | For an organization's own game servers (dev-tier preview): one realtime session that carries the server's players, with every `Connection` send for a carried player and the players who may receive each communication. `client.admin().fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `client.exec().connectAsServer()` opens the server's hub connection. See [Game servers: fleet sessions](#game-servers-fleet-sessions). |
 | `crowdy::session::WorldSession` | SDK-managed game state: your actor with a fixed-Hz send loop, remote-actor registry with staleness + interpolation history, chunk/voxel cache, inboxes, host tracking — see [the session layer](#the-session-layer-data-structures-that-do-the-bookkeeping). |
 | `crowdy::kit::makeKit(client, appId)` | Game Kit: typed clients for the ck-exec starter hubs (`world()`, `matchmaking()`, `sessions()`, `npcs()`, `topology()`), the client conventions (`spectate()`, `emotes()`, `shards()`) and `social()` (parties, guilds and chat over teams and channels); `crowdy/kit/wire.hpp`, `realtime.hpp` and `actions.hpp` stand alone — see [Game Kit](#game-kit-the-starter-hubs-social-helpers-and-wire-codecs). |
 
@@ -722,7 +722,9 @@ Studio-admin surface (privileged; drive with an org/admin token from a trusted
 context): `client.admin().organizations() / apps()` (including player-code
 admission policy, an app's required documents and its recording state) `/ appAccess() / billing() /
 payments() / quotas() / usage() / sharedEnvironment() / moderation()` (an app's safety reports
-for its `moderate_safety` holders, also `client.moderation()`). The SDK carries
+for its `moderate_safety` holders, also `client.moderation()`) `/ fleetSessions()` (an
+organization's game servers, with its org token; see
+[Game servers: fleet sessions](#game-servers-fleet-sessions)). The SDK carries
 org-admin features but nothing only a super-admin or a platform operator can
 call; platform tooling calls those fields directly. The SDK never relaxes
 server-side authorization — these are typed wrappers; the caller still needs
@@ -961,22 +963,24 @@ Application API v2.89.0 and realtime servers that carry fleet sessions, and an o
 switches them on for an organization.
 
 The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet
-session with the Application API's `openFleetSession`, which answers a 64-character fleet
-token, its `gameTokenId`, and a realtime server. Carrying a player is then one UDP message.
-When the player moves to another of the organization's servers, that server carries them
-and this one is told `CarriedElsewhere`. Neither step calls the Application API.
+session with `client.admin().fleetSessions().open(appId)`, which answers a 64-character
+fleet token, its `gameTokenId`, and a realtime server. Carrying a player is then one UDP
+message. When the player moves to another of the organization's servers, that server
+carries them and this one is told `CarriedElsewhere`. Neither step calls the Application
+API.
 
 ```cpp
-#include "crowdy/replication/fleet_session.hpp"
+#include <crowdy/crowdy.hpp>
 
 using namespace crowdy::replication;
 
-FleetConfig config;
-config.appId = appId;
-config.token = TokenInfo{fleetToken, fleetGameTokenId, fleetExpiresAtMs};  // openFleetSession
-config.server = Assignment{ip4, ip6, clientPort};                          // openFleetSession
+// A client for this server, holding the organization's org token (scope fleet:session).
+crowdy::CrowdyClient api(crowdy::ClientConfig{.httpUrl = "https://ck.example.com"});
+api.setToken(orgToken);
+auto& sessions = api.admin().fleetSessions();
 
-FleetSession fleet(config, crowdy::core::opensslCrypto());
+auto opened = sessions.open(appId);  // openFleetSession: the token, its id, and the server
+FleetSession fleet(crowdy::domains::fleetConfigOf(opened).value(), crowdy::core::opensslCrypto());
 
 FleetHandlers handlers;
 handlers.actorUpdate = [&](const SpatialNotification& n, FleetRecipients) {
@@ -1000,6 +1004,14 @@ fleet.sendActorUpdate(playerGameTokenId, update);  // Connection's sends, the pl
 
 // The player left the game:
 fleet.release(playerGameTokenId);
+
+// Now and then: keep the session, and follow it to another realtime server.
+if (fleet.refreshDue())
+  crowdy::domains::applyFleetRefresh(fleet, sessions.refresh(fleet));
+
+// The server stops:
+sessions.close(fleet);
+fleet.close();
 ```
 
 - **Carrying.** `carry` sends `FLEET_CARRY` (49) with a proof that the server holds the
@@ -1027,30 +1039,73 @@ fleet.release(playerGameTokenId);
 - **Your own players' state.** A fleet session is not sent the state its own carried
   players sent. `fleet.setFleetOwnState(true)` (or `FleetConfig::fleetOwnState`) asks for
   it.
-- **The session's token and server.** A fleet token lasts 24 hours. Renew it with
-  `refreshFleetSession` and pass the answer to `setToken`. If the answer names another
-  realtime server, `setServer` moves the session there and carries its players again.
-  `FleetConfig::reassign` is called when the realtime server asks the session to move.
 - **Threads.** As for `Connection`: `poll()` on the game thread, sends from any thread,
   and `FleetConfig::transport.manualPump` for an engine that pumps the network itself.
 
-This SDK does not wrap `openFleetSession`, `refreshFleetSession`, or `closeFleetSession`
-yet. Call them with the organization's org token and pass their answers in.
+### Opening, refreshing, and closing a session
+
+`client.admin().fleetSessions()` wraps the three Application API calls. Each takes the
+organization's org token (`cko_...`, scope `fleet:session`) as the client's bearer, from
+the server. The fleet token in an answer signs the realtime session. The Application API
+does not accept it as a bearer.
+
+| Call | Application API | Answer |
+|---|---|---|
+| `open(appId)` | `openFleetSession` | `FleetSessionResponse`: `token`, `gameTokenId`, `appId`, `expiresAt` (24 hours away), `maxPlayers`, `server` |
+| `refresh(session)` or `refresh(appId, gameTokenId, currentIp4, currentClientPort)` | `refreshFleetSession` | The same token and id, with `expiresAt` moved to 24 hours from now |
+| `close(session)` or `close(appId, gameTokenId)` | `closeFleetSession` | `true` when a session was ended |
+
+Every call has an `...Async` twin whose callback receives the outcome and the answer.
+
+- **The org token that opened a session keeps it and ends it.** Another org token of the
+  same organization gets `NOT_FOUND` from `refresh` and `false` from `close`. Revoking an
+  org token ends every session it opened and closes the hub connections it opened. A
+  session that is neither refreshed nor closed ends at its `expiresAt`.
+- **From an answer to the session.** `fleetConfigOf(opened)` is the `FleetConfig` for a new
+  session. `applyFleetRefresh(fleet, answer)` gives a live session its new expiry. When the
+  answer names another realtime server, the session reconnects there and carries its
+  players again.
+- **When to refresh.** `fleet.refreshDue()` is true once 12 of the token's 24 hours have
+  passed, and at once after a realtime server tells the session to move
+  (`fleet.moveOrdered()`). `refresh(session)` names the server the session is on, so it
+  stays there while that server still serves the app. After a move order it names no
+  server, and the answer's `server` is the next one. The SDK makes no call on its own:
+  ask `refreshDue()` from your loop. `FleetConfig::reassign` is the other way to answer a
+  move order: the session calls it on its network thread and connects to the server it
+  returns.
+- **Without this client.** `FleetSession` needs only the token, its id, and the server. A
+  server that calls the Application API with its own HTTP client fills `FleetConfig`
+  itself and passes a refresh to `fleet.applyRefresh(token, server)`.
+
+Refusals arrive as GraphQL errors. The throwing calls raise `CrowdyGraphQLError`, and the
+async calls deliver them in the outcome's `errors`. `crowdy/graphql/errors.hpp` reads each:
+
+| `extensions.code` | Meaning | Reader |
+|---|---|---|
+| `ORG_TOKEN_REQUIRED` | The bearer is not an org token, or the request came from a browser | `orgTokenRequiredOf` |
+| `FLEET_SESSION_LIMIT` | `open`: the organization holds as many sessions as it may (512 unless an operator set another number) | `fleetSessionLimitOf` |
+| `NOT_FOUND` | `refresh`: the session expired, was closed, or was opened with another org token. Open a new one | `fleetSessionNotFoundOf` |
+| `PLATFORM_BUSY` | The platform is shedding load. Wait `retryAfterMs`, then call again | `platformBusyOf` |
+| `ORG_LEGAL_ACCEPTANCE_REQUIRED` | An admin has not accepted the current Org-Managed Players Addendum | `orgLegalAcceptanceRequiredOf` |
+| `FORBIDDEN` | Fleet sessions are not switched on for the organization, the org token lacks the scope, or the app is not in its app list | `errorWithCode` |
 
 ### Hub calls from a game server
 
-A game server opens one hub connection for itself in the same way. The Application API's
-`execConnectAsServer` answers a gateway, a connect token, and a host, and
-`ExecConnection::openAsServer` opens the connection from them. `connectAsServer` takes a
-dialer instead and reconnects with a fresh connect token. Both need ck-exec 0.25.0.
+A game server opens one hub connection for itself in the same way, with the same org
+token. `exec().connectAsServer(appId)` asks the Application API (`execConnectAsServer`)
+for a gateway, a connect token, and a host, opens the connection, and reconnects with a
+fresh connect token when it drops. It needs ck-exec 0.25.0.
 
 ```cpp
-using crowdy::domains::ExecConnection;
-
-auto hub = ExecConnection::openAsServer(transport, dispatcher, {gatewayUrl, connectToken, host});
+auto hub = api.exec().connectAsServer(appId);
 hub->call("world", "", "tick", args, onReply);                      // the server's own call
 hub->callAs(playerUserId, "player", key, "report", args, onReply);  // a call for one player
 ```
+
+`exec().serverEndpoint(appId)` returns the answer without connecting. A server with its
+own HTTP client passes the same three values to `ExecConnection::openAsServer`. A connect
+token lasts one minute and opens one socket. The refusals are those of the table above,
+and revoking the org token closes the connection.
 
 A hub sees the first call as `Caller::Org { player: None }` and the second as
 `Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the

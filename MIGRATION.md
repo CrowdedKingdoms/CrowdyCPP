@@ -7,12 +7,33 @@ it needs Application API v2.89.0, realtime servers that carry fleet sessions, an
 CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
 `exec_wire::ClientFrame::Kind` without a `default`.
 
+- **`client.admin().fleetSessions()`** (`crowdy/domains/fleet_sessions.hpp`) wraps the Application API's
+  `openFleetSession`, `refreshFleetSession`, and `closeFleetSession`: `open(appId)`, `refresh(...)`, and
+  `close(...)`, each with an `...Async` twin. The client's bearer is the organization's org token (`cko_...`,
+  scope `fleet:session`). `open` and `refresh` answer a `FleetSessionResponse` (`token`, `gameTokenId`, `appId`,
+  `expiresAt`, `maxPlayers`, `server`); the fleet token in it signs the realtime session and is never an API
+  bearer. **Refresh and close work only with the org token that opened the session:** another org token of the
+  same organization gets `NOT_FOUND` from `refresh` and `false` from `close`. Revoking an org token ends every
+  session it opened and closes the hub connections it opened, and a session that is neither refreshed nor
+  closed ends at its `expiresAt`, 24 hours after it was opened or last refreshed.
+- **From an answer to the session.** `domains::fleetConfigOf(opened)` is the `FleetConfig` for a new
+  `FleetSession`, and `domains::applyFleetRefresh(session, answer)` gives a live session its new expiry and, when
+  the answer names another realtime server, moves it there. `FleetSession::refreshDue()` is true once half of the
+  token's lifetime has passed (12 of 24 hours) or a realtime server told the session to move
+  (`moveOrdered()`). `FleetSession::applyRefresh(token, server)` takes a refresh without this client. The
+  session makes no Application API call of its own.
+- **`exec().connectAsServer(appId)`** asks `execConnectAsServer` for a game server's own hub connection with the
+  same org token and opens it; `exec().serverEndpoint(appId)` returns the answer for
+  `ExecConnection::openAsServer`.
+- **Refusals** are GraphQL errors, read by `graphql::orgTokenRequiredOf` (`ORG_TOKEN_REQUIRED`),
+  `fleetSessionLimitOf` (`FLEET_SESSION_LIMIT`), `fleetSessionNotFoundOf` (`NOT_FOUND` on a refresh), and
+  `platformBusyOf` (`PLATFORM_BUSY`, with `retryAfterMs`), beside `orgLegalAcceptanceRequiredOf`.
+
 - **`replication::FleetSession`** (`crowdy/replication/fleet_session.hpp`) is one realtime session that an
   organization's game server opens for itself and uses for every player on that server. It is for an
   organization's own servers: the fleet token signs for every player the session carries and never reaches a
   player's device. `FleetConfig` holds the fleet token (64 characters), its `gameTokenId`, the app, and the realtime
-  server, all from the Application API's `openFleetSession`. `setToken` takes a refreshed token and `setServer` a
-  new realtime server.
+  server, all from `openFleetSession`. `setToken` takes a refreshed token and `setServer` a new realtime server.
 - **Carrying.** `carry({token, gameTokenId}, callback)` sends `FLEET_CARRY` (49) every 250 ms until
   `FLEET_CARRY_RESULT` (51) arrives, for at most 5 seconds. The result is a `FleetCarryStatus`: `Carried` (with the
   user id), `NoLiveToken`, `OtherOrganizationOrApp`, `ProofFailed`, `SessionFull`, or `TimedOut`.
@@ -39,8 +60,8 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   named a player the session does not carry). A `switch` over `exec_wire::ClientFrame::Kind` needs `CallAs`, and
   `ClientFrame` gains `player` as its last member.
 - **`Connection` is unchanged** in its public API and its behaviour. CrowdyPy binds nothing that changed.
-- **Not wrapped yet:** `openFleetSession`, `refreshFleetSession`, `closeFleetSession`, and `execConnectAsServer`.
-  Call them with the organization's org token and pass their answers in.
+- **The four documents are written in the headers**, as `PortalAPI`'s are. The published schema this SDK
+  generates its operations from does not carry the fields yet; they move to `operations/` when it does.
 
 ## 0.93.0 A Studio run survives a dropped read and says what each target holds
 

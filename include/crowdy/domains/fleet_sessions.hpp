@@ -19,8 +19,9 @@
 /// calls open it, keep it and end it. Each takes the organization's ORG TOKEN (`cko_...`,
 /// scope `fleet:session`) as the client's bearer, from the server and never from a browser
 /// or a player's device: build a client for the server and give it the org token with
-/// CrowdyClient::setToken. The fleet token an answer carries signs the realtime session; it
-/// is not a bearer for this API.
+/// CrowdyClient::setToken. Leave that client's ClientConfig::tokenStore unset, so the org
+/// token is kept only where the server keeps its secrets. The fleet token an answer carries
+/// signs the realtime session; it is not a bearer for this API.
 ///
 /// **The org token that opened a session is the one that keeps and ends it.** Another org
 /// token of the same organization gets NOT_FOUND from refresh() and `false` from close().

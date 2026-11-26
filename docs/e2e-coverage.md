@@ -27,8 +27,10 @@ labels.
 ## Fleet sessions live validation (unreleased)
 
 On 2026-11-26 `e2e_fleet_session` passed live on dev (Application API `v2.89.1`, realtime servers `v0.50.0`)
-in about 2.5 minutes. One org token opened four fleet sessions and signed four managed players in. What the
-run asserted:
+in about 2.5 minutes, and again under ThreadSanitizer and under AddressSanitizer with
+UndefinedBehaviorSanitizer, which reported nothing. One org token opened four fleet sessions and signed four
+managed players in. In the two sanitizer runs the two sessions were on different realtime servers, so every
+step below also passed between servers. What the run asserted:
 
 - **Carrying.** Two sessions carried two players each. Every carry ended `Carried` with a user id, 30 to
   50 ms after `carry()` was called (the suite polls every 10 ms). Every capabilities advertisement was
@@ -50,8 +52,6 @@ run asserted:
   no error frame, no acknowledgement of four capabilities advertisements. The session stayed `Connected`, 60
   sends for its carried player returned `Ok`, none reached the other session, and a carry it sent timed out.
   A second close answered false and a refresh `NOT_FOUND`. Another session then carried the player in 40 ms.
-  In an earlier run that day the session that was ended was on another realtime server than the one the
-  player came from, and the crossing and the delivery between the two servers passed the same way.
   With `transport.watchdogSilenceMs` 20,000 the session set `moveOrdered()` and `refreshDue()` 19 to 20
   seconds after the close.
 - **Idle.** A carried player with no input was released with reason 5 after 60 to 61 seconds (the app's idle

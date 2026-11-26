@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -35,7 +36,7 @@
 /// A player who moves to another of the organization's servers is carried by that server's
 /// session; this one hears FleetHandlers::released with FleetReleaseReason::CarriedElsewhere.
 ///
-/// What goes on the wire (realtime servers v0.50.0):
+/// What goes on the wire (realtime servers v0.50.1):
 ///
 ///  - For a carried player: the message that player's own session would send, with the
 ///    tail's game token id the player's and the HMAC keyed with the fleet token. The
@@ -61,6 +62,11 @@ namespace crowdy::replication {
 struct PlayerToken {
   std::string token;  ///< 64 characters
   std::int64_t gameTokenId = 0;
+  /// After `refreshAppToken`: the gameTokenId this session carries the same player under
+  /// now. 0 (the default) for a player's first carry. With it the player stays carried
+  /// throughout and the session switches the player's sends to the new id when the new
+  /// FLEET_CARRY leaves (FleetSession::carry). It must name the same player.
+  std::int64_t replaces = 0;
 };
 
 /// How a carry ended. 0 to 4 are FLEET_CARRY_RESULT's status byte.
@@ -68,7 +74,9 @@ enum class FleetCarryStatus : std::uint8_t {
   /// The session carries the player; FleetCarryResult::userId says who they are.
   Carried = 0,
   /// The realtime servers know no live token by that gameTokenId in the session's app: it
-  /// expired, the player's sign-in ended, or it is a token of another app.
+  /// expired, the player's sign-in ended, or it is a token of another app. A token made a
+  /// moment ago may not have reached the server yet, so the session asks once more before
+  /// a carry ends this way.
   NoLiveToken = 1,
   /// The token belongs to another organization's player.
   OtherOrganization = 2,
@@ -144,6 +152,81 @@ struct FleetReleased {
   FleetReleaseReason reason = FleetReleaseReason::Unknown;
   /// The reason byte the server sent.
   std::uint8_t wireReason = 0;
+};
+
+/// Why the realtime server ended the session (COMMAND_SESSION_RELEASED's reason byte).
+enum class FleetSessionReleaseReason : std::uint8_t {
+  /// The fleet token is no longer authorized: the session was closed through the
+  /// Application API, its org token was revoked, or fleet sessions were switched off.
+  Deauthorized = 0,
+  /// The server holds a newer session of the same token.
+  Stale = 1,
+  /// The fleet token expired.
+  TokenExpired = 2,
+  /// The server is shedding load.
+  Overload = 3,
+  /// The server is moving the session to another realtime server.
+  Move = 4,
+  /// A reason byte this build does not know; FleetSessionReleased::wireReason has it. The
+  /// session has ended all the same. Never on the wire.
+  Unknown = 255,
+};
+
+inline const char* fleetSessionReleaseReasonName(FleetSessionReleaseReason r) {
+  switch (r) {
+    case FleetSessionReleaseReason::Deauthorized: return "Deauthorized";
+    case FleetSessionReleaseReason::Stale: return "Stale";
+    case FleetSessionReleaseReason::TokenExpired: return "TokenExpired";
+    case FleetSessionReleaseReason::Overload: return "Overload";
+    case FleetSessionReleaseReason::Move: return "Move";
+    case FleetSessionReleaseReason::Unknown: return "Unknown";
+  }
+  return "?";
+}
+
+/// FleetHandlers::sessionReleased.
+struct FleetSessionReleased {
+  FleetSessionReleaseReason reason = FleetSessionReleaseReason::Unknown;
+  /// The reason byte the server sent.
+  std::uint8_t wireReason = 0;
+};
+
+/// FleetHandlers::sendRefused: a verified refusal of one send for a carried player.
+///
+/// The session changes no carry on a refusal, because most reasons are not about the carry:
+///
+///  - TOKEN_EXPIRED (32): the send landed just before the PLAYER's token expired. Refresh
+///    the player's token (`refreshAppToken`) and carry the player again with
+///    PlayerToken::replaces. Without a new carry FLEET_RELEASED, reason 2, follows.
+///  - UNAUTHORIZED (7), one of:
+///      the player is no longer carried here (released, idle, sign-in ended, carried by
+///        another session; that session's FLEET_RELEASED can be lost or arrive up to about
+///        6 seconds late, so this refusal is the sign): carry again if you mean to;
+///      the send named the player's previous token id after a refreshed token's carry took
+///        effect: carry with PlayerToken::replaces and the session names the new id itself;
+///      a permission is missing (access, voice, video, text, direct message, voxel write):
+///        fix the grant;
+///      the region's permissions were still loading, or the actor lookup did not answer in
+///        2 seconds: send again;
+///      the actor is another player's: do not send under it;
+///      a communication rule refused it (a minor's direct message, a scope switched off):
+///        nothing to do;
+///      the player's access to the app is suspended or ended: stop serving the player.
+///  - APP_PAUSED (33): the app is paused; nothing the player did.
+///
+/// Not refused at all, so never here: a send past the player's rate budget is dropped in
+/// silence.
+struct FleetSendRefused {
+  /// The gameTokenId the refused message named: the carried player's.
+  std::int64_t playerGameTokenId = 0;
+  /// The player's user id when the session still holds the player; 0 otherwise.
+  std::int64_t userId = 0;
+  /// The sequence number the send returned.
+  std::uint8_t sequence = 0;
+  wire::ErrorCode code = wire::ErrorCode::UnknownError;
+
+  /// The player's own token expired: refresh it and carry again with PlayerToken::replaces.
+  bool playerTokenExpired() const { return code == wire::ErrorCode::TokenExpired; }
 };
 
 /// One row of the carried-players table.
@@ -225,17 +308,33 @@ struct FleetHandlers {
   std::function<void(const SpatialNotification&, FleetRecipients)> singleActorMessage;
   std::function<void(const ChannelNotification&, FleetRecipients)> channelMessage;
   std::function<void(const ChannelNotification&, FleetRecipients)> channelAudio;
-  /// A refusal of one send, by its sequence number: wire::ErrorCode::Unauthorized for a
-  /// message naming a player the server does not count as carried by this session. The
-  /// frame carries a one-byte sequence the whole session shares and no player, so count
-  /// such refusals; they cannot be tied to a player.
+  /// A refusal of one send, by its sequence number: every error frame the session is sent.
+  /// The frame carries a one-byte sequence the whole session shares and names no player;
+  /// `sendRefused` below names the player when the session can tell.
   ///
-  /// An error frame carries no HMAC of its own. GenericError::verified is true when it
-  /// arrived inside a signed bundle that verified, and false otherwise: an unverified one is
-  /// handed over as information and changes nothing in the session. In particular an
-  /// unverified TOKEN_EXPIRED does not make refreshDue() true, so nobody who can put three
-  /// bytes on the session's flow can make the game server call `refreshFleetSession`.
+  /// Realtime servers v0.50.1 send a fleet session its refusals inside its signed bundles,
+  /// so GenericError::verified is true for them. A lone three-byte frame has no HMAC and
+  /// arrives with `verified` false: anyone who can put three bytes on the session's flow
+  /// could have sent it, so take it as a hint. Verified or not, an error frame changes
+  /// nothing in the session: no carry ends on it, and none makes refreshDue() true. The
+  /// signed word that the session itself ended is `sessionReleased`.
   std::function<void(const GenericError&)> genericError;
+  /// A VERIFIED refusal of a send for a carried player, when the sequence number it echoes
+  /// can only be that player's (FleetSendRefused). After `genericError`, which has fired for
+  /// the same frame. The session changes no carry on it: FleetSendRefused says what the
+  /// code means and what to do.
+  std::function<void(const FleetSendRefused&)> sendRefused;
+  /// The realtime server ended the session, in a frame signed with the fleet token
+  /// (COMMAND_SESSION_RELEASED, 28, or 45 bound to this connection), for any reason but
+  /// idleness: the Application API closed it, its org token was revoked or fleet sessions
+  /// were switched off (0), the server lets it go (1, 3, 4), or the fleet token expired (2).
+  /// Its carries ended with it, unannounced. When this fires moveOrdered() and refreshDue()
+  /// are already true and the session carries nobody: sends return NotCarried. Call
+  /// `refreshFleetSession`. NOT_FOUND means the session has ended: open a new one and carry
+  /// your players again. An answer goes to applyRefresh(), and the session then carries
+  /// every player in its table again. (The idle reason, 5, ends the session as it ends a
+  /// player's: ConnState::Inactive, through `status`.)
+  std::function<void(const FleetSessionReleased&)> sessionReleased;
   /// Every spatial notification, before the typed handler.
   std::function<void(const SpatialNotification&, FleetRecipients)> any;
   std::function<void(ConnState)> status;
@@ -251,6 +350,11 @@ struct FleetHandlers {
   /// this server, carry them again, and the realtime server answers that carry.
   std::function<void(const FleetReleased&)> released;
 };
+
+/// How long after a send a refusal of it can still arrive: the realtime servers hold a send
+/// up to 2 seconds before they refuse it. FleetHandlers::sendRefused names a player only
+/// when no send for another player used the same sequence number in this time.
+inline constexpr std::int64_t kFleetRefusalWindowMs = 3'000;
 
 /// How long a fleet session lets its realtime server say nothing that verifies before it
 /// takes the session for gone (FleetConfig::transport.watchdogSilenceMs).
@@ -310,10 +414,11 @@ struct FleetConfig {
   /// session's CLIENT_CAPABILITIES is what binds it to its address.
   ///
   /// `watchdogSilenceMs` is the session's silence timeout, and here it is ON BY DEFAULT:
-  /// 45,000 (kFleetSilenceTimeoutMs), where a player's Connection has 0. A realtime server
-  /// sends a session that has ended nothing at all (a session closed with
-  /// `closeFleetSession`, one whose org token was revoked, one that expired), so silence is
-  /// the only sign. When nothing the server signed has arrived for this long, moveOrdered()
+  /// 45,000 (kFleetSilenceTimeoutMs), where a player's Connection has 0. The realtime
+  /// servers tell a session that it ended once (FleetHandlers::sessionReleased), and that
+  /// one datagram can be lost; a session that was never authorized on its server is sent
+  /// nothing at all. Silence is the sign that is left. When nothing the server signed has
+  /// arrived for this long, moveOrdered()
   /// and refreshDue() turn true: call `refreshFleetSession`, which answers NOT_FOUND for a
   /// session that has ended. The session keeps its socket meanwhile, so one whose server
   /// was only out of reach goes on when it is heard again. When the refresh answers a
@@ -330,7 +435,21 @@ struct FleetConfig {
 
 class FleetSession {
  public:
-  using Stats = Connection::Stats;
+  /// Connection's statistics, and the session's own.
+  struct Stats : Connection::Stats {
+    /// Carries answered "no live token" (status 1) that were asked once more before they
+    /// settled.
+    std::uint64_t noLiveTokenRetries = 0;
+    /// FLEET_CARRY_RESULT and FLEET_RELEASED frames that named a gameTokenId the session has
+    /// replaced with the same player's newer one (PlayerToken::replaces), or is replacing.
+    /// They are late words about the old token and change nothing.
+    std::uint64_t replacedIdFrames = 0;
+    /// Verified COMMAND_SESSION_RELEASED frames with a reason other than idleness: each
+    /// made a refresh due (FleetHandlers::sessionReleased).
+    std::uint64_t sessionReleases = 0;
+    /// Verified refusals FleetHandlers::sendRefused could name a player for.
+    std::uint64_t sendRefusalsNamed = 0;
+  };
   using CarryCallback = std::function<void(const FleetCarryResult&)>;
 
   FleetSession(FleetConfig config, const core::ICrypto& crypto,
@@ -392,12 +511,13 @@ class FleetSession {
   /// or a port. domains::applyFleetRefresh() calls this with the Application API's answer.
   Status applyRefresh(const TokenInfo& token, const Assignment& server);
 
-  /// True when the realtime server told the session to move (COMMAND_RECONNECT, 22 or 44,
-  /// signed with the fleet token), answered TOKEN_EXPIRED, or the silence watchdog fired,
-  /// and no FleetConfig::reassign answered it: the session opened again at the server it
-  /// has. Call `refreshFleetSession` without a `currentServer` and apply the answer;
-  /// setServer and applyRefresh clear it. COMMAND_SESSION_RELEASED (28 or 45) is handled as
-  /// Connection handles it: the idle reason ends the session (ConnState::Inactive).
+  /// True when the session needs a server from the game server and no FleetConfig::reassign
+  /// answered: the realtime server told it to move (COMMAND_RECONNECT, 22 or 44, signed
+  /// with the fleet token), ended it (COMMAND_SESSION_RELEASED, 28 or 45, with any reason
+  /// but idleness; FleetHandlers::sessionReleased), or said nothing that verifies for the
+  /// silence timeout. Call `refreshFleetSession` without a `currentServer` and apply the
+  /// answer; setServer and applyRefresh clear it. No error frame sets it, TOKEN_EXPIRED
+  /// included: that one is about a carried player's token.
   bool moveOrdered() const;
   /// True when it is time to call `refreshFleetSession`: a move was ordered (moveOrdered()),
   /// or less than half of the token's lifetime is left, counted from when this session was
@@ -434,18 +554,42 @@ class FleetSession {
   /// The carry then ends as whatever else answers it, or ProofRefused when the timeout
   /// passes.
   ///
-  /// Call it again with the player's refreshed token: when that carry is confirmed it
-  /// replaces the entry the same user had under the older token, whose gameTokenId this
-  /// session then refuses. A carry that is refused or times out leaves the player not
-  /// carried under that gameTokenId. A carry repeated before its result reports once, to
-  /// the newer callback.
+  /// A status 1 (NoLiveToken) is asked about once more: a token minted or refreshed a
+  /// moment ago may not have reached the realtime server yet. The session sends the carry
+  /// again FleetConfig::carryResendMs later, with a new time and proof, and a status 1 that
+  /// arrives after that settles the carry (Stats::noLiveTokenRetries counts the retries).
+  ///
+  /// AFTER `refreshAppToken` FOR A CARRIED PLAYER, call it with the new token and
+  /// `replaces` set to the gameTokenId the player is carried under:
+  ///
+  ///   fleet.carry({newToken, newGameTokenId, oldGameTokenId}, done);
+  ///
+  /// The player stays carried throughout, with their speaker lists: the carry made with the
+  /// old token stands until the new one takes effect, and FleetHandlers::released does not
+  /// fire. From the moment the new FLEET_CARRY leaves, every send for the player names the
+  /// new id on the wire, whichever of the two ids you pass to the send; the realtime server
+  /// holds those sends behind the carry. (A send that named the old id after the new carry
+  /// took effect would be refused.) When the result is Carried, the old id names nothing in
+  /// this session: sends for it return NotCarried, and a late FLEET_RELEASED or
+  /// FLEET_CARRY_RESULT about it is ignored and counted (Stats::replacedIdFrames). When the
+  /// new carry is refused, the player stays carried under the old id and its sends name the
+  /// old id again. When it times out, the session cannot know which id the server holds: it
+  /// sends FLEET_RELEASE for both and the player is carried no more.
+  ///
+  /// Without `replaces` the session learns that two tokens are one player only from the
+  /// new carry's result: until then sends for the new id return NotCarried and sends for
+  /// the old one name the old id. When that carry is confirmed it replaces the entry the
+  /// same user had under the older token, whose gameTokenId this session then refuses.
+  ///
+  /// A carry that is refused or times out leaves the player not carried under that
+  /// gameTokenId. A carry repeated before its result reports once, to the newer callback.
   ///
   /// InvalidArgument for a token that is not 64 characters or a gameTokenId that is the
   /// session's own; NotConnected before open() and after close().
   Status carry(const PlayerToken& player, CarryCallback done = {});
 
   /// The player left the game: sends FLEET_RELEASE and takes them out of the carried table
-  /// at once. Their actors leave as when a session ends. A carry still waiting for the
+  /// at once (for both ids while a refreshed token's carry waits). Their actors leave as when a session ends. A carry still waiting for the
   /// player reports nothing. The message is sent whether or not the table had the player.
   /// It has no answer and is safe to repeat; one that is lost leaves the carry until the
   /// player idles out or is carried elsewhere. NotConnected, with the player out of the
@@ -453,6 +597,7 @@ class FleetSession {
   Status release(std::int64_t playerGameTokenId);
 
   /// True when the server confirmed a carry of this gameTokenId and nothing ended it.
+  /// While a refreshed token's carry waits (PlayerToken::replaces), true for both ids.
   bool carries(std::int64_t playerGameTokenId) const;
   std::optional<FleetPlayer> player(std::int64_t playerGameTokenId) const;
   /// Every row of the table: carried players and carries still waiting.
@@ -535,7 +680,7 @@ class FleetSession {
 
   /// Connection's counters for this session's socket. messagesSentByType[49] and [50] count
   /// carries and releases; messagesReceivedByType[51], [52] and [53] count their answers.
-  Stats stats() const { return connection_->stats(); }
+  Stats stats() const;
   /// How many times this session has started: open() and every reconnection count one.
   std::uint64_t sessionEpoch() const { return connection_->sessionEpoch(); }
 
@@ -556,8 +701,21 @@ class FleetSession {
     /// Status 3 answers this attempt has had. It ends ProofRefused when they are as many as
     /// its sends (every carry that left was refused), or at its deadline when there is one.
     int refusals = 0;
+    /// A status 1 is asked about once more: Waiting while that carry is due, Retried once
+    /// it left. Only a status 1 that comes after it settles the carry.
+    enum class NoLiveToken : std::uint8_t { None, Waiting, Retried } noLiveToken = NoLiveToken::None;
     std::uint64_t order = 0;      ///< which carry() call made or last renewed the entry
     CarryCallback done;
+    /// The gameTokenId this player's sends name on the wire: the row's own, except while a
+    /// refreshed token's carry has not left yet, when it is still `previousId`.
+    std::int64_t sendId = 0;
+    /// While a refreshed token's carry waits (PlayerToken::replaces): the id and the key the
+    /// player is carried under on the server, which a refused carry goes back to; and the
+    /// reason of a FLEET_RELEASED for that id that arrived meanwhile (0: none).
+    std::int64_t previousId = 0;
+    wire::ScrubbedToken64 previousKey;
+    std::uint8_t previousEnded = 0;
+    bool previousEndedSet = false;
     std::optional<std::vector<core::ActorUuid>> voiceSpeakers;
     std::optional<std::vector<core::ActorUuid>> videoSpeakers;
   };
@@ -570,9 +728,23 @@ class FleetSession {
   void checkSilence();
   /// setServer(), saying whether it sent the capabilities itself.
   Status place(const Assignment& server, bool& advertised);
-  /// NotCarried for a player the session does not carry, NotConnected while it is not
-  /// ready, Ok when a message for the player may leave.
-  Errc sendGate(std::int64_t player) const;
+  /// One send for a carried player, from the check that it may leave to its transmission.
+  /// `gate` is NotCarried for a player the session does not carry, NotConnected while it
+  /// is not ready, and Ok when the message may leave under `tailId`, the gameTokenId the
+  /// player's sends name now. While one is open a refreshed token's FLEET_CARRY waits for
+  /// it, so no message names the old id after that carry has left.
+  class SendScope;
+  using Table = std::unordered_map<std::int64_t, Player>;
+  /// The row a gameTokenId names: its own, or the one a waiting replacement moved it to.
+  Table::iterator rowOfLocked(std::int64_t id);
+  Table::const_iterator rowOfLocked(std::int64_t id) const;
+  /// carry() with PlayerToken::replaces: the row moves to the refreshed token's id.
+  Table::iterator supersedeLocked(Table::iterator row, const PlayerToken& player);
+  /// `id` was replaced by the same player's newer token: late frames naming it are ignored.
+  void retireLocked(std::int64_t id);
+  bool retiredLocked(std::int64_t id) const;
+  /// The row stops being a replacement: it is carried, or to be carried, under its own id.
+  void dropPreviousLocked(Player& player, std::int64_t id);
   /// A new attempt for the row: nothing sent yet, no refusal seen.
   static void beginAttempt(Player& player);
   void sendCarryLocked(std::int64_t id, Player& player, std::int64_t nowMono);
@@ -592,6 +764,15 @@ class FleetSession {
   void onCarryResult(const wire::FleetCarryResultView& result);
   void onReleased(const wire::FleetReleasedView& released);
   void onDelivery(const wire::FleetDeliveryView& delivery);
+  /// A verified COMMAND_SESSION_RELEASED that is not the idle one. Network thread.
+  void onSessionReleased(std::uint8_t reason);
+  /// A message left under `sequence` for the carried player `player` (0: the session's own).
+  void onSent(std::uint8_t sequence, std::int64_t player);
+  /// The carried player a verified refusal's sequence number can only be, or 0.
+  std::int64_t refusedPlayer(std::uint8_t sequence);
+  void onGenericError(const GenericError& error);
+  /// FLEET_RELEASE for `id`, under the session's own id.
+  Status sendRelease(std::int64_t id);
   void expireCarries();
   void report(const FleetCarryResult& result, const CarryCallback& done);
 
@@ -621,12 +802,37 @@ class FleetSession {
   std::int64_t carryTurnsAtMs_ = 0;
   bool carryTurnsPrimed_ = false;
   std::vector<std::pair<std::int64_t, std::int64_t>> dueScratch_;  ///< (nextSendMs, id)
+  /// A player's previous gameTokenId, while the carry that replaces it waits: id -> row key.
+  std::unordered_map<std::int64_t, std::int64_t> aliases_;
+  /// Ids a newer token of the same player replaced, and when (monotonic ms): a late
+  /// FLEET_CARRY_RESULT or FLEET_RELEASED about one is ignored. Kept for a minute.
+  std::unordered_map<std::int64_t, std::int64_t> retired_;
+  /// The realtime server ended the session: no FLEET_CARRY leaves until the game server
+  /// places the session again (setServer, applyRefresh, another token, open()).
+  bool carriesHeld_ = false;
+  /// Sends for carried players between their check and their transmission (SendScope).
+  std::atomic<int> sendsInFlight_{0};
+  /// For each sequence number: the carried player the last message under it was for (0:
+  /// the session's own), when it left, and when a message for anyone else last left under
+  /// it (monotonic ms; 0: never). What FleetHandlers::sendRefused names a player from.
+  struct SentAs {
+    std::int64_t player = 0;
+    std::int64_t atMs = 0;
+    std::int64_t otherAtMs = 0;
+  };
+  std::mutex sentMutex_;
+  std::array<SentAs, 256> sentBySequence_{};
+  std::atomic<std::uint64_t> noLiveTokenRetries_{0};
+  std::atomic<std::uint64_t> replacedIdFrames_{0};
+  std::atomic<std::uint64_t> sessionReleases_{0};
+  std::atomic<std::uint64_t> sendRefusalsNamed_{0};
   /// open() started a session anew (after Idle, Closed, Failed or Inactive): the server
   /// holds none of the table's carries, whichever server it is.
   std::atomic<bool> sessionRestarted_{false};
-  /// The silence timeout passed: the server the game server next places the session on may
-  /// hold none of its carries, the one it is on included.
-  std::atomic<bool> silenceTripped_{false};
+  /// The silence timeout passed, or the server ended the session: the server the game
+  /// server next places the session on may hold none of its carries, the one it is on
+  /// included.
+  std::atomic<bool> carriesLost_{false};
   /// The session epoch whose capabilities have been advertised (0: none yet).
   std::atomic<std::uint64_t> advertisedEpoch_{0};
   /// Epoch millis when the session was last given its token: where refreshDue() counts the

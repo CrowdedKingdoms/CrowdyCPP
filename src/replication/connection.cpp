@@ -223,6 +223,17 @@ Status Connection::sendDatagram(const std::uint8_t* data, std::size_t len) {
   return st;
 }
 
+void Connection::fleetSessionReleased(std::uint8_t reason) {
+  if (fleet_->sessionReleased) fleet_->sessionReleased(reason);
+  Event e;
+  e.kind = Event::Kind::Fleet;
+  e.data[0] = static_cast<std::uint8_t>(MessageType::CommandSessionReleasedBound);
+  e.data[1] = reason;
+  e.len = 2;
+  e.verified = true;
+  if (ring_.tryPush(e)) signalEvents();
+}
+
 void Connection::countNotOwn(bool wrongApp, const wire::LongSpatialView& view) {
   std::uint64_t count = 0;
   {
@@ -383,6 +394,8 @@ Result<std::uint8_t> Connection::sendLongSpatial(MessageType type, const Spatial
   Status st = transmit(buf, n.value());
   if (!st.ok()) return st.code;
   noteGameplaySend(type, p);
+  if (fleet_ && fleet_->sent)
+    fleet_->sent(params.sequence, params.gameTokenId != creds.gameTokenId ? params.gameTokenId : 0);
   return params.sequence;
 }
 
@@ -572,6 +585,8 @@ Result<std::uint8_t> Connection::sendChannelRequest(MessageType type, std::int64
   Status st = transmit(buf, n.value());
   if (!st.ok()) return st.code;
   noteGameplaySend(type, SpatialSend{});
+  if (fleet_ && fleet_->sent)
+    fleet_->sent(params.sequence, params.gameTokenId != creds.gameTokenId ? params.gameTokenId : 0);
   return params.sequence;
 }
 
@@ -609,6 +624,8 @@ Result<std::uint8_t> Connection::sendRangedChannelMessageAs(Sender as, std::int6
   Status st = transmit(buf, n.value());
   if (!st.ok()) return st.code;
   noteGameplaySend(MessageType::ChannelMessageRangedRequest, SpatialSend{});
+  if (fleet_ && fleet_->sent)
+    fleet_->sent(params.sequence, params.gameTokenId != creds.gameTokenId ? params.gameTokenId : 0);
   return params.sequence;
 }
 
@@ -762,6 +779,11 @@ void Connection::handleDatagram(Bytes datagram) {
         reconnectRequested_.store(true, std::memory_order_release);
       } else if (reason == static_cast<std::uint8_t>(wire::ReleaseReason::Idle)) {
         idleReleased_.store(true, std::memory_order_release);
+      } else if (fleet_) {
+        // The server ended this fleet session (its token was deauthorized or expired, or
+        // the server lets it go): a refresh is due now. A player's connection keeps to the
+        // watchdog or the next reassignment for these reasons, as before.
+        fleetSessionReleased(reason);
       }
     } else {
       std::lock_guard lock(statsMutex_);
@@ -828,6 +850,11 @@ void Connection::handleDatagram(Bytes datagram) {
       } else {
         idleReleased_.store(true, std::memory_order_release);
       }
+    } else if (fleet_) {
+      // As the bound form above: any other reason ends a fleet session, and a refresh is
+      // due now. (Once the server acknowledged the bound forms this legacy form is dropped
+      // before it gets here: it signs fixed bytes, so one captured earlier would verify.)
+      fleetSessionReleased(reason.value());
     }
     return;
   }
@@ -1260,12 +1287,12 @@ std::size_t Connection::poll(std::size_t maxEvents) {
       case Event::Kind::Error: {
         auto err = wire::parseGenericError(message);
         if (err.ok()) {
-          // An error frame has no HMAC of its own. A fleet session, whose reassignment
-          // makes its game server call the Application API, takes TOKEN_EXPIRED only on a
-          // verified signed bundle's word; one that arrives any other way reaches the
-          // handler marked unverified and changes nothing. A player's connection acts on
-          // either, as it always has.
-          if (err->code == wire::ErrorCode::TokenExpired && (!fleet_ || e.verified)) {
+          // A player's connection takes TOKEN_EXPIRED as its own token's, verified or not,
+          // as it always has. To a fleet session the frame answers one send for a carried
+          // player and is about that player's token (the fleet token's own expiry is a
+          // signed COMMAND_SESSION_RELEASED, reason 2): it changes nothing here, whatever
+          // its code, and FleetSession tells the application whose send it was.
+          if (err->code == wire::ErrorCode::TokenExpired && !fleet_) {
             // Refresh + reassign; the session provider re-mints server-side.
             reconnectRequested_.store(true, std::memory_order_release);
           }

@@ -417,6 +417,13 @@ class Connection {
     std::function<void()> tick;
     /// The net thread or pump(), after each capabilities advertisement.
     std::function<void()> advertised;
+    /// The net thread or pump(): a COMMAND_SESSION_RELEASED (28, or 45 bound to this
+    /// assignment) that verified, with any reason but the idle one. The same frame then
+    /// reaches `message` from poll() as the two bytes [45][reason].
+    std::function<void(std::uint8_t reason)> sessionReleased;
+    /// Any sending thread: a message left with this sequence number, for the carried player
+    /// `player` (the game token id its tail names), or 0 for one of the session's own.
+    std::function<void(std::uint8_t sequence, std::int64_t player)> sent;
     /// Flags added to every CLIENT_CAPABILITIES (ClientCapability::kFleetOwnState).
     std::atomic<std::uint32_t> capabilities{0};
   };
@@ -520,6 +527,9 @@ class Connection {
   /// unsignedNotifications): count it, and name it in the log at the first and at every
   /// doubling of the count. Network thread.
   void countNotOwn(bool wrongApp, const wire::LongSpatialView& view);
+  /// A fleet session's realtime server released it for a reason that is not idleness: tell
+  /// the session now (network thread) and queue the frame for its handler (poll()).
+  void fleetSessionReleased(std::uint8_t reason);
   std::int64_t lastCapsMs_ = 0;  ///< monotonic ms of the last CLIENT_CAPABILITIES; 0 = none yet
   /// Written by whichever thread sends and read by the watchdog on the network thread.
   std::atomic<std::int64_t> lastSendMs_{0};

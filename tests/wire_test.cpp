@@ -1295,8 +1295,75 @@ void testScrubbedToken() {
   for (unsigned char byte : storage) CHECK_EQ(byte, 0u);
 }
 
+// ---------------------------------------------------------------------------
+// Realtime servers v0.50.1: a refusal to a fleet session that advertised BUNDLE_SIGNED is a
+// member of its MESSAGE_BUNDLE_SIGNED, so the three bytes [3][sequence][code] are verified
+// with everything else in the datagram. The bundle's HMAC is the tail's:
+//
+//   HMAC-SHA256(key = fleet token, message = every byte before the HMAC || fleet token)
+//
+// Computed with this script, independently of the code under test (the fleet token above):
+//
+//   import hmac, hashlib
+//   fleet = b"fleet-token-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"
+//   def bundle(members):
+//       body = bytes([30]) + b"".join(len(m).to_bytes(2, "little") + m for m in members)
+//       return body + hmac.new(fleet, body + fleet, hashlib.sha256).digest()
+//   one = bundle([bytes([3, 42, 7])])                       # UNAUTHORIZED for sequence 42
+//   two = bundle([bytes([3, 43, 32]), bytes([3, 44, 7])])   # TOKEN_EXPIRED 43, UNAUTHORIZED 44
+//
+// fleet_session_test sends FleetSession the same bytes.
+// ---------------------------------------------------------------------------
+
+// 1 + (2 + 3) + 32: 38 bytes.
+const char kGoldenSignedBundleRefusal[] =
+    "1e0300032a077cbee1f7148389389ea17c7838dca341e38abcb4ba132b565587681f7421c8cc";
+// 1 + (2 + 3) + (2 + 3) + 32: 43 bytes.
+const char kGoldenSignedBundleTwoRefusals[] =
+    "1e0300032b200300032c07a5f9c60c0cce601e55629c62fb6d5a0d65c6f8bd0a3a1f23e8fcd45ff46a660d";
+
+void testSignedBundleOfRefusals() {
+  const Token64 fleetToken = *Token64::fromString(kFleetToken);
+  struct Expected {
+    std::uint8_t sequence;
+    ErrorCode code;
+  };
+  const auto members = [&](const char* hex, std::size_t size) {
+    const std::vector<std::uint8_t> bytes = fromHex(hex);
+    CHECK_EQ(bytes.size(), size);
+    const Bytes all(bytes.data(), bytes.size());
+    CHECK(verifySignedBundle(crypto(), all, fleetToken).ok());
+    std::vector<Expected> seen;
+    CHECK(forEachMessage(all, [&](Bytes m) {
+            CHECK_EQ(m.size(), 3u);  // the member is the three bytes: no HMAC of its own
+            const auto error = parseGenericError(m);
+            CHECK(error.ok());
+            seen.push_back({error->sequence, error->code});
+          }).ok());
+    // Signed with another key, or changed in flight, it is no bundle of this session's.
+    CHECK_EQ(static_cast<int>(verifySignedBundle(crypto(), all, *Token64::fromString(kPlayerToken)).code),
+             static_cast<int>(Errc::HmacMismatch));
+    std::vector<std::uint8_t> changed = bytes;
+    changed[5] ^= 0x01;  // the first refusal's code
+    CHECK_EQ(static_cast<int>(verifySignedBundle(crypto(), Bytes(changed.data(), changed.size()), fleetToken).code),
+             static_cast<int>(Errc::HmacMismatch));
+    return seen;
+  };
+  const auto one = members(kGoldenSignedBundleRefusal, 38);
+  CHECK_EQ(one.size(), 1u);
+  CHECK_EQ(one[0].sequence, 42u);
+  CHECK_EQ(static_cast<int>(one[0].code), static_cast<int>(ErrorCode::Unauthorized));
+  const auto two = members(kGoldenSignedBundleTwoRefusals, 43);
+  CHECK_EQ(two.size(), 2u);
+  CHECK_EQ(two[0].sequence, 43u);
+  CHECK_EQ(static_cast<int>(two[0].code), static_cast<int>(ErrorCode::TokenExpired));
+  CHECK_EQ(two[1].sequence, 44u);
+  CHECK_EQ(static_cast<int>(two[1].code), static_cast<int>(ErrorCode::Unauthorized));
+}
+
 int main() {
   testScrubbedToken();
+  testSignedBundleOfRefusals();
   testFleetConstants();
   testFleetCarryGolden();
   testFleetCarriedActorUpdateGolden();

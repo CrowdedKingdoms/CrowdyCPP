@@ -168,9 +168,9 @@ failing matrix on disk: classify what `docs/parity-matrix.md` lists under
 `node tools/parity/parity.mjs --crowdyjs <path> --strict --write docs/parity-matrix.md`,
 then do the steps the tool would have printed (the `rg`, `check:release`, the build
 dirs). If CrowdyJS's `schema.gql` moved, run `npm run schema:drift` first: 0.94.0
-synced the published SDL in the same change, which left only the fields it does
-not carry yet for a dated group. Five things reliably bite when this is done by
-hand:
+synced the published SDL in the same change, which left only the fields it did
+not carry yet for a dated group, and 0.94.1 is what that group cost the same day
+("Fleet sessions"). Five things reliably bite when this is done by hand:
 
 - **The two repos have a merge order.** A CrowdyCPP change that mirrors new
   CrowdyJS behavior cannot go green until that CrowdyJS commit is fetchable
@@ -547,16 +547,24 @@ The Application API calls are `client.fleetSessions()`, the same instance as
 wrappers here that only an org token can call: the bearer is whatever the client holds, so a
 game server gives its client the org token with `setToken`. `mintManagedPlayerToken` stays
 unwrapped. **Refresh and close work only with the org token that opened the session**; say so
-wherever these calls are described. The four documents are `R"gql(...)gql"` constants in the
-headers (the audience gate and the matrix's root-field scan read them there) because
-`schema.gql` is the published SDL and does not carry the fields: cks-game-api's own `schema.gql`
-orders its types differently, so syncing from it rewrites 14,000 lines and brings fields
-unrelated to this. The snapshot is the published SDL of 2026-11-25 (v2.88.0), synced at the
-0.94.0 re-pin; CrowdyJS 18.40.0's copy is the Application API's dev schema (v2.89.1), so the 14
-fleet fields it has beyond the snapshot are the dated "FLEET SESSIONS" group in `SCHEMA_BASELINE`.
-When the SDL is published with v2.89, sync as usual: every entry of that group goes stale and the
-gate says so. Delete the group, move the four documents to `operations/` (`fleet/`, and
-`exec/Exec.graphql`), and use the generated constants.
+wherever these calls are described. Since 0.94.1 the four documents are generated
+(`operations/fleetSessions/FleetSessions.graphql`, CrowdyJS's directory name, and
+`operations/exec/Exec.graphql`), byte for byte what 0.94.0 wrote as `R"gql(...)gql"` constants in
+its headers; `FleetSessionsAPI::k...Document` and `ExecAPI::kExecConnectAsServerDocument` are
+aliases of the generated constants, kept because 0.94.0 published them.
+
+**0.94.1 is what a dated `SCHEMA_BASELINE` group costs when the published SDL moves.** 0.94.0
+synced `schema.gql` to the published SDL of 2026-11-25 (v2.88.0) and listed the 14 fleet fields
+CrowdyJS 18.40.0's copy had beyond it (the Application API's dev schema, v2.89.1) as a dated
+group. The SDL was published with v2.89.1 at 21:44 UTC that day, seven minutes after that sync
+and 43 minutes before the tag; nothing on `dev` noticed, because CI's schema gate is offline,
+and `promote.mjs` to test was refused at
+`parity:repin` with `stale=14`. The fix was the sync, the group's removal and the documents'
+move, and because generated headers ship, a patch version. So: before a release that carries
+such a group, and again before promoting it, run `npm run schema:drift`. If the SDL has caught
+up, sync first and release without the group. The published SDL now orders its types as the
+Application API's own schema does, so that sync rewrote the snapshot's 14,000 lines once; the
+matrix compares by meaning.
 
 `replication::FleetSession` makes no API call. `refreshDue()` (half the token's lifetime gone, or
 `moveOrdered()`) is the only policy it holds, and the caller acts on it: `fleetSessions().refresh(
@@ -564,7 +572,7 @@ session)` names the server the session is on unless a move was ordered, and
 `domains::applyFleetRefresh` hands the answer to `FleetSession::applyRefresh`. A move order
 with no `FleetConfig::reassign` reopens the session at the server it has and sets `moveOrdered()`.
 
-What the 0.94.0 release pass did, and what is left:
+What the 0.94.0 release pass did, and what is left (0.94.1 changed none of it):
 
 - The pin moved to CrowdyJS 18.40.0 (`dev/v18.40.0`, 13ac165), so `NATIVE_FIRST_SURFACES` in
   `tools/parity/parity.mjs` is empty again (it lists a surface this SDK carries before CrowdyJS
@@ -580,8 +588,8 @@ What the 0.94.0 release pass did, and what is left:
   it. Adding one is behaviour (a `FleetConfig` limit, a refusal from `carry()`, a counter, a
   test), which the release pass left for Michael to decide. Delete the entry when it lands.
 - `CrowdyClient::fleetSessions()` was added for CrowdyJS's `client.fleetSessions`.
-- CrowdyPy has no fleet session. Its next release re-vendors at `dev/v0.94.0` and moves its own
-  CrowdyJS pin to 18.40.0 in the same change (`MIGRATION.md`, 0.94.0).
+- CrowdyPy has no fleet session. Its next release re-vendors at `dev/v0.94.1` and moves its own
+  CrowdyJS pin to 18.40.0 in the same change (`MIGRATION.md`, 0.94.0 and 0.94.1).
 - `e2e_fleet_session` has run on dev only. Nobody has run it on test or prod.
 
 ## Writing tests against `graphql::Json`

@@ -1,5 +1,25 @@
 # CrowdyCPP migration notes
 
+## 0.94.1 The fleet session documents come from the published schema
+
+For the platform releases 0.94.0 needs; pinned to CrowdyJS 18.40.0. Your code needs no change: no call, type, or
+behaviour changed. The headers this SDK generates changed, which is why the release has a number of its own.
+
+- **The four documents are generated from `operations/`.** The published schema has carried Application API
+  v2.89.1 since November 26, 2026, so the documents 0.94.0 wrote in its headers moved. `OpenFleetSession`,
+  `RefreshFleetSession`, and `CloseFleetSession` are in `operations/fleetSessions/FleetSessions.graphql`
+  (`gen::fleetSessions` in `crowdy/generated/operations.hpp`), and `ExecConnectAsServer` is in
+  `operations/exec/Exec.graphql` (`gen::exec`). Each generated document is byte for byte the one 0.94.0 sent.
+  `FleetSessionsAPI::kOpenFleetSessionDocument`, `kRefreshFleetSessionDocument`, `kCloseFleetSessionDocument`,
+  `ExecAPI::kExecConnectAsServerDocument`, and `kExecConnectAsServerOperationName` keep their names and values.
+- **`schema.gql` is the published schema of November 26, 2026** (Application API v2.89.1). Beyond 0.94.0's
+  snapshot it has `FleetSession`, the three fleet session inputs, the four mutations above, and three fleet
+  settings on an organization's managed-player settings, which Crowded Kingdoms' operators set. The published
+  schema also lists its types in a new order, so the snapshot's text moved throughout. `crowdy/domains/exec.hpp`
+  and `fleet_sessions.hpp` now include `crowdy/generated/operations.hpp`.
+- **CrowdyPy** vendors this release: `dev/v0.94.1` takes the place of `dev/v0.94.0` in the three steps listed
+  under 0.94.0 below.
+
 ## 0.94.0 Fleet sessions for an organization's game servers
 
 For Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 (for the hub connection). All

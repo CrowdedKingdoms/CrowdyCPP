@@ -1023,11 +1023,12 @@ fleet.close();
   a burst of 32 (`carriesPerSecond`, `carryBurst`; `fleetConfigOf` raises the burst to the
   session's `maxPlayers`). After you refresh a player's token, call `carry` with the new
   one. Once that carry is confirmed it replaces the entry the same user had.
-  A result does not say which of a player's carries it answers. When two or more have left
-  and a `ProofRefused` arrives, it can be the answer to an earlier carry that reached the
-  server after a later one was accepted. So the session sends one more carry at once and
-  lets the answer to that one settle the result. The carry ends `ProofRefused` when a
-  second refusal follows that carry, or when the 5 seconds run out after a refusal.
+  A result does not say which of a player's carries it answers. A `ProofRefused` that
+  arrives while another carry for the player has no answer yet can be the answer to an
+  earlier carry that reached the server after a later one was accepted. So it ends
+  nothing: at the first, the session sends one more carry at once, and it goes on sending
+  every 250 ms. The carry ends `ProofRefused` once every carry the session sent for the
+  player has been refused, or when the 5 seconds run out after a refusal.
 - **Carry results.** `Carried` comes with the player's user id. The four refusals are:
 
   | Status | Meaning |

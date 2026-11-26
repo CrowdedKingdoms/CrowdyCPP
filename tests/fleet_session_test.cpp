@@ -2298,8 +2298,9 @@ void runUnverifiedErrorsChangeNothing() {
 
 // ---------------------------------------------------------------------------
 // A status 3 (a replay) can answer an earlier send that reached the server after a later
-// one was accepted. With more than one carry sent, the first status 3 settles nothing: one
-// more carry leaves, and what answers it settles the carry.
+// one was accepted, and a result does not say which send it answers. While a carry that
+// left has no answer, a status 3 settles nothing: at the first, one more carry leaves. The
+// carry ends ProofRefused when every carry that left was refused, or at its deadline.
 // ---------------------------------------------------------------------------
 
 void runProofRefusedConverges() {
@@ -2359,22 +2360,59 @@ void runProofRefusedConverges() {
     CHECK_EQ(server.recvOne()[0], 50u);
   }
 
-  // A proof the server does refuse: the follow-up carry is answered 3 too, and that settles
-  // it, once.
+  // Two earlier carries arrive late. The server accepted the third carry, C, and its 51 was
+  // lost; A and B reached it after C, so each is answered 3. The second status 3 arrives
+  // after the follow-up carry left, and still settles nothing: that carry has no answer yet.
   {
     std::vector<FleetCarryResult> viaCallback;
     twoSends(viaCallback);
+    clock.advance(250);
+    fleet.pump(0);
+    readCarry(server.recvOne(), kPlayerToken);  // C
     clock.advance(10);
-    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
-    readCarry(nextOfTypeAfterPump(fleet, server), kPlayerToken);
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));  // A's
+    readCarry(nextOfTypeAfterPump(fleet, server), kPlayerToken);  // the follow-up, D
+    const auto heard = fleet.stats().messagesReceivedByType[51];
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));  // B's
+    pumpUntil(fleet, [&] { return fleet.stats().messagesReceivedByType[51] == heard + 1; });
+    settle(fleet);
     CHECK(viaCallback.empty());
+    CHECK(fleet.player(kPlayerId)->pending);
+    server.expectNothing();  // one follow-up, at the first status 3 only
+    server.send(own(carryResultFrame(kPlayerId, 77, 0)));  // D's: the server carries the player
+    pumpUntil(fleet, [&] { return !viaCallback.empty(); });
+    CHECK_EQ(viaCallback.size(), 1u);
+    CHECK(viaCallback[0].carried());
+    CHECK(fleet.carries(kPlayerId));
+    CHECK(fleet.release(kPlayerId).ok());
+    CHECK_EQ(server.recvOne()[0], 50u);
+  }
+
+  // A proof the server does refuse: every carry that left is answered 3, the follow-up
+  // too, and the last of those answers settles it, once.
+  {
+    std::vector<FleetCarryResult> viaCallback;
+    const std::size_t before = seen.results.size();
+    const auto sent = twoSends(viaCallback);
+    // The first refusal arrives in the millisecond the second carry left. The follow-up is
+    // dated the next millisecond: the same time would make it the same bytes, a replay.
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    const Carry follow = readCarry(nextOfTypeAfterPump(fleet, server), kPlayerToken);
+    CHECK_EQ(follow.epochMs, sent[1].epochMs + 1);
+    CHECK(follow.proof != sent[1].proof);
+    CHECK(viaCallback.empty());
+    const auto heard = fleet.stats().messagesReceivedByType[51];
+    server.send(own(carryResultFrame(kPlayerId, 0, 3)));
+    pumpUntil(fleet, [&] { return fleet.stats().messagesReceivedByType[51] == heard + 1; });
+    settle(fleet);
+    CHECK(viaCallback.empty());  // two refusals, three carries
     server.send(own(carryResultFrame(kPlayerId, 0, 3)));
     pumpUntil(fleet, [&] { return !viaCallback.empty(); });
     CHECK_EQ(viaCallback.size(), 1u);
     CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::ProofRefused));
     CHECK_EQ(viaCallback[0].wireStatus, 3u);
     CHECK(!fleet.player(kPlayerId).has_value());
-    CHECK_EQ(seen.results.size(), 2u);
+    CHECK_EQ(seen.results.size(), before + 1);
     clock.advance(1000);
     fleet.pump(0);
     fleet.poll();
@@ -2419,8 +2457,9 @@ void runProofRefusedConverges() {
     server.expectNothing();
   }
 
-  // A second status 3 that arrives before the follow-up carry could leave (the rate had no
-  // turn for it) answers an earlier send too: it settles nothing either.
+  // Both of two carries are answered 3 before the follow-up could leave (the rate had no
+  // turn for it): every carry that left was refused, so that settles it, and the follow-up
+  // never leaves.
   {
     FakeServer slow;
     slow.start();
@@ -2439,19 +2478,20 @@ void runProofRefusedConverges() {
     waiting.pump(0);  // the second of the burst's two turns (half a turn has come back since)
     readCarry(slow.recvOne(), kPlayerToken);
     slow.send(own(carryResultFrame(kPlayerId, 0, 3)));
-    slow.send(own(carryResultFrame(kPlayerId, 0, 3)));
-    pumpUntil(waiting, [&] { return waiting.stats().messagesReceivedByType[51] == 2; });
+    pumpUntil(waiting, [&] { return waiting.stats().messagesReceivedByType[51] == 1; });
     settle(waiting);
-    CHECK(results.empty());
+    CHECK(results.empty());  // one refusal, two carries
     CHECK(waiting.player(kPlayerId)->pending);
     slow.expectNothing();  // no turn yet for the follow-up
-    clock.advance(500);    // the other half of a turn
-    waiting.pump(0);
-    readCarry(slow.recvOne(), kPlayerToken);
-    slow.send(own(carryResultFrame(kPlayerId, 77, 0)));
+    slow.send(own(carryResultFrame(kPlayerId, 0, 3)));
     pumpUntil(waiting, [&] { return !results.empty(); });
     CHECK_EQ(results.size(), 1u);
-    CHECK(results[0].carried());
+    CHECK_EQ(static_cast<int>(results[0].status), static_cast<int>(FleetCarryStatus::ProofRefused));
+    CHECK(!waiting.player(kPlayerId).has_value());
+    clock.advance(2000);
+    waiting.pump(0);
+    waiting.poll();
+    slow.expectNothing();
   }
 }
 

@@ -427,9 +427,12 @@ change here must keep:
 - 51 and 52 carry no time, so a signed one can be replayed. A 52 for a row the table does not
   hold reports nothing (it is still counted in `messagesReceivedByType`); a 51 with no carry
   waiting is ignored; a reason byte other than 1, 2 and 5 is `FleetReleaseReason::Unknown`
-  (never a cast). A status 3 while more than one carry has left settles nothing by itself
-  (`Player::proofRefused`, `sentSinceRefusal`): one more carry leaves at once and its answer,
-  or the deadline, ends the carry `ProofRefused`.
+  (never a cast). A 51 does not say which carry it answers, so a status 3 settles the carry
+  only when every carry that left has had one (`Player::refusals == sends`); until then the
+  first sends one more carry at once, the resends go on, and the deadline ends the carry
+  `ProofRefused`. Do not settle on "the second status 3": two late carries, or a follow-up
+  sent in the millisecond of the carry before it (the same bytes, a replay), each give one
+  while the server carries the player.
 - A row's token is a `wire::ScrubbedToken64`, zeroed by its destructor (a `volatile` byte
   loop, `wire::scrub`): keep a player's token out of any member that outlives the row.
 - The socket is `connect()`ed to the server, so the kernel drops other sources. `UdpSocket`

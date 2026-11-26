@@ -394,11 +394,14 @@ class FleetSession {
   /// by FleetHandlers::carryResult. Sends for the player are accepted from the moment the
   /// result is Carried.
   ///
-  /// A status 3 (ProofRefused) settles the carry when it answers the carry's only send, or
-  /// its latest. After more than one send, the first status 3 may answer an earlier send
-  /// that reached the server after a later one was accepted (a replay): the session then
-  /// sends once more at once, with a new time and proof, and reports what that send is
-  /// answered, or ProofRefused when the timeout passes without an answer.
+  /// A result does not say which send it answers. A status 3 (ProofRefused) settles the
+  /// carry when every FLEET_CARRY sent for it has been answered status 3, the carry's only
+  /// send included: then the latest one's answer is a refusal for certain. While a send is
+  /// still unanswered, a status 3 may answer an earlier send that reached the server after
+  /// a later one was accepted (a replay), so it settles nothing: after the first, the
+  /// session sends once more at once, with a new time and proof, and goes on resending.
+  /// The carry then ends as whatever else answers it, or ProofRefused when the timeout
+  /// passes.
   ///
   /// Call it again with the player's refreshed token: when that carry is confirmed it
   /// replaces the entry the same user had under the older token, whose gameTokenId this
@@ -517,11 +520,11 @@ class FleetSession {
     bool attempt = false;         ///< a FLEET_CARRY waits for its result
     std::int64_t nextSendMs = 0;  ///< monotonic; 0: send at the next pass
     std::int64_t deadlineMs = 0;  ///< monotonic; 0 until the attempt's first send
-    int sends = 0;                ///< FLEET_CARRYs sent in this attempt
-    /// This attempt was answered status 3 after more than one send, and whether a carry has
-    /// left since: the next status 3 after one has settles the carry.
-    bool proofRefused = false;
-    bool sentSinceRefusal = false;
+    std::int64_t lastCarryMs = 0; ///< the time in the last FLEET_CARRY; the next is later
+    int sends = 0;                ///< FLEET_CARRYs that left in this attempt
+    /// Status 3 answers this attempt has had. It ends ProofRefused when they are as many as
+    /// its sends (every carry that left was refused), or at its deadline when there is one.
+    int refusals = 0;
     std::uint64_t order = 0;      ///< which carry() call made or last renewed the entry
     CarryCallback done;
     std::optional<std::vector<core::ActorUuid>> voiceSpeakers;

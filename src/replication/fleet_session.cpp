@@ -277,8 +277,7 @@ void FleetSession::beginAttempt(Player& player) {
   player.nextSendMs = 0;
   player.deadlineMs = 0;  // its timeout starts when it is first sent
   player.sends = 0;
-  player.proofRefused = false;
-  player.sentSinceRefusal = false;
+  player.refusals = 0;
 }
 
 Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
@@ -308,21 +307,25 @@ Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
 void FleetSession::sendCarryLocked(std::int64_t id, Player& player, std::int64_t nowMono) {
   // One read of the session's id for the proof and the tail, so a token change between
   // them cannot make the two disagree. The time and the proof are new at every send: the
-  // same bytes again are a replay once the first was accepted and its carry ended.
+  // same bytes again are a replay once the first was accepted and its carry ended. Two
+  // sends in one millisecond would be the same bytes, so the second is dated the next one.
   const std::int64_t fleetId = connection_->credentials().gameTokenId;
+  const std::int64_t when = std::max(clock_.epochMillis(), player.lastCarryMs + 1);
+  player.lastCarryMs = when;
   std::uint8_t payload[wire::fleet::kCarryPayloadSize];
-  const auto n = wire::encodeFleetCarryPayload(crypto_, player.key.token, fleetId, id,
-                                               clock_.epochMillis(),
+  const auto n = wire::encodeFleetCarryPayload(crypto_, player.key.token, fleetId, id, when,
                                                MutableBytes(payload, sizeof(payload)));
   // A send that fails (a full send buffer, a socket between two servers) is tried again at
-  // the next interval like one that was lost.
-  if (n.ok())
-    (void)connection_->sendLongSpatial(MessageType::FleetCarry,
-                                       controlSend(Bytes(payload, n.value())), &fleetId);
+  // the next interval like one that was lost. Only a carry that left can be answered, so
+  // only those count.
+  if (n.ok() && connection_
+                    ->sendLongSpatial(MessageType::FleetCarry,
+                                      controlSend(Bytes(payload, n.value())), &fleetId)
+                    .ok()) {
+    ++player.sends;
+  }
   player.nextSendMs = nowMono + std::max(1, config_.carryResendMs);
   if (player.deadlineMs == 0) player.deadlineMs = nowMono + std::max(0, config_.carryTimeoutMs);
-  ++player.sends;
-  if (player.proofRefused) player.sentSinceRefusal = true;
 }
 
 bool FleetSession::takeCarryTurnLocked(std::int64_t nowMono) {
@@ -657,16 +660,15 @@ void FleetSession::onCarryResult(const wire::FleetCarryResultView& view) {
     // player released since.
     if (it == players_.end() || !it->second.attempt) return;
     Player& entry = it->second;
-    if (result.status == FleetCarryStatus::ProofRefused && entry.sends > 1 &&
-        !(entry.proofRefused && entry.sentSinceRefusal)) {
-      // More than one carry has left, and the answer does not say which it answers. A
-      // status 3 can be for an earlier one that reached the server after a later one was
-      // accepted: a replay, while the server carries the player. So the first one settles
-      // nothing: one more carry leaves now, with a new time and proof, and what answers it
-      // settles the carry (a second status 3, once that carry has left, is the refusal).
-      if (!entry.proofRefused) {
-        entry.proofRefused = true;
-        entry.sentSinceRefusal = false;
+    if (result.status == FleetCarryStatus::ProofRefused && ++entry.refusals < entry.sends) {
+      // An answer does not say which carry it answers, and a carry that left has not been
+      // answered yet. This status 3 can be for an earlier one that reached the server after
+      // a later one was accepted (a replay, while the server carries the player), so it
+      // settles nothing. The latest carry's answer is a status 3 for certain only when
+      // every carry that left has had one. After the first, one more carry leaves now with
+      // a new time and proof; the resends go on, and the deadline ends the carry
+      // ProofRefused if nothing else answers.
+      if (entry.refusals == 1) {
         entry.nextSendMs = 0;
         if (ready()) driveCarriesLocked(clock_.monotonicMillis());
       }
@@ -763,9 +765,9 @@ void FleetSession::expireCarries() {
       }
       FleetCarryResult result;
       result.playerGameTokenId = it->first;
-      // Out of attempts. When the last answer the carry had was a status 3, that is what
-      // it ends as; otherwise nothing answered it.
-      if (player.proofRefused) {
+      // Out of attempts. A carry whose only answers were status 3 ends as that; one that
+      // nothing answered ends TimedOut.
+      if (player.refusals > 0) {
         result.status = FleetCarryStatus::ProofRefused;
         result.wireStatus = static_cast<std::uint8_t>(FleetCarryStatus::ProofRefused);
       } else {

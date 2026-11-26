@@ -42,9 +42,10 @@ CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over 
   no place for the carry), or `TimedOut`. `release(gameTokenId)` sends `FLEET_RELEASE` (50), which has no answer.
   `FleetHandlers::released` reports `FLEET_RELEASED` (52) with `CarriedElsewhere` (1), `SignInEnded` (2), or
   `Idle` (5), only for a player the session holds. Any other reason byte arrives as
-  `FleetReleaseReason::Unknown` with the byte in `FleetReleased::wireReason`. When two or more carries for a
-  player have left, one `ProofRefused` does not end the carry: the session sends one more at once, and the
-  carry ends `ProofRefused` on a second refusal after that one or at the deadline.
+  `FleetReleaseReason::Unknown` with the byte in `FleetReleased::wireReason`. A `ProofRefused` that arrives
+  while another carry for the player has no answer yet does not end the carry: at the first, the session sends
+  one more at once, and the carry ends `ProofRefused` once every carry sent for the player has been refused, or
+  at the deadline.
 - **Sending for a player.** Every send `Connection` offers has a `FleetSession` form that takes the carried
   player's `gameTokenId` first, `setSpeakers` included. The message is the one that player's own session would
   send, with the HMAC keyed by the fleet token. Under its own id the session sends `CLIENT_CAPABILITIES` (29),

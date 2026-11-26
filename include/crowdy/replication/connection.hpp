@@ -496,6 +496,8 @@ class Connection {
   /// run on the network thread (or the pump() caller); atomic so a host that pumps from
   /// more than one thread still reads a whole value.
   std::atomic<std::int64_t> lastRecvMs_{0};
+  /// Sends the socket refused with a fault (Errc::SocketError), for the log's pacing.
+  std::atomic<std::uint64_t> socketFaults_{0};
   std::int64_t lastCapsMs_ = 0;  ///< monotonic ms of the last CLIENT_CAPABILITIES; 0 = none yet
   /// Written by whichever thread sends and read by the watchdog on the network thread.
   std::atomic<std::int64_t> lastSendMs_{0};

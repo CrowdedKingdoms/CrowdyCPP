@@ -199,11 +199,25 @@ Status Connection::sendDatagram(const std::uint8_t* data, std::size_t len) {
   // A deferred datagram never reached the wire, so it must not advance
   // lastSendMs_: the silence watchdog reassigns when sends are flowing and
   // nothing comes back, and backpressure is not traffic going out.
-  std::lock_guard lock(statsMutex_);
-  if (st.code == Errc::WouldBlock) {
-    ++stats_.sendsDeferred;
-  } else {
-    ++stats_.sendsFailed;
+  {
+    std::lock_guard lock(statsMutex_);
+    if (st.code == Errc::WouldBlock) {
+      ++stats_.sendsDeferred;
+    } else {
+      ++stats_.sendsFailed;
+    }
+  }
+  // A fault the socket reported (not a full buffer, and not a socket that is closed between
+  // two servers) is named, with the operating system's code, at the first and then at every
+  // doubling of their count: enough to say which fault it is without a line per datagram.
+  if (st.code == Errc::SocketError) {
+    const std::uint64_t faults = socketFaults_.fetch_add(1, std::memory_order_relaxed) + 1;
+    if ((faults & (faults - 1)) == 0 && logger_.enabled(core::LogLevel::Warn)) {
+      logger_.log(core::LogLevel::Warn,
+                  "a datagram could not be sent: SocketError, system error " +
+                      std::to_string(socket_.lastSendFault()) + " (" + std::to_string(faults) +
+                      " so far)");
+    }
   }
   return st;
 }

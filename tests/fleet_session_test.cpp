@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -2496,6 +2497,56 @@ void runProofRefusedConverges() {
 }
 
 // ---------------------------------------------------------------------------
+// A send the socket refuses for a real fault is not a full buffer: it comes back
+// SocketError, is counted in sendsFailed, and the log names the system's error code. The
+// fault here is the one a closed port gives a connected UDP socket (ECONNREFUSED on the
+// send after the refusal came back).
+// ---------------------------------------------------------------------------
+
+struct RecordingLogger final : core::ILogger {
+  mutable std::mutex mutex;
+  mutable std::vector<std::string> lines;
+  bool enabled(core::LogLevel level) const override { return level >= core::LogLevel::Warn; }
+  void log(core::LogLevel, std::string_view message) const override {
+    std::lock_guard lock(mutex);
+    lines.emplace_back(message);
+  }
+};
+
+void runSendFaultIsNamed() {
+  RecordingLogger logger;
+  ManualClock clock;
+  auto server = std::make_unique<FakeServer>();
+  server->start();
+  FleetSession fleet(configFor(*server), crypto(), clock, logger);
+  openConnected(fleet, *server);
+  CHECK_EQ(fleet.stats().sendsFailed, 0u);
+  server.reset();  // the port is closed: the next datagram is refused, and the send after it fails
+
+  Errc seen = Errc::Ok;
+  for (int i = 0; i < 400 && seen == Errc::Ok; ++i) {
+    const auto st = fleet.sendHeartbeat();
+    if (!st.ok()) seen = st.error();
+    else std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  CHECK_EQ(seen, Errc::SocketError);  // a fault, and not WouldBlock: sending again would hide it
+  const auto stats = fleet.stats();
+  CHECK_EQ(stats.sendsFailed, 1u);
+  CHECK_EQ(stats.sendsDeferred, 0u);
+  std::lock_guard lock(logger.mutex);
+  const std::string expected = "system error " + std::to_string(ECONNREFUSED) + " (1 so far)";
+  bool named = false;
+  for (const auto& line : logger.lines) {
+    if (line.find("SocketError") != std::string::npos && line.find(expected) != std::string::npos)
+      named = true;
+  }
+  if (!named) {
+    for (const auto& line : logger.lines) std::fprintf(stderr, "logged: %s\n", line.c_str());
+  }
+  CHECK(named);
+}
+
+// ---------------------------------------------------------------------------
 // The game thread sends for its players while the network thread moves the session between
 // realtime servers: the fields the two share are read and written whole (run this under
 // ThreadSanitizer).
@@ -2588,8 +2639,10 @@ void runOwnedThread() {
   CHECK(fleet.carries(kPlayerId));
 
   // Sends from two threads while the game thread polls a delivery. A socket may push back
-  // on a burst (a full buffer: macOS loopback does where Linux does not), and a send that is
-  // pushed back is sent again; any other refusal is a defect, and is named.
+  // on a burst (a full buffer, which the library reports as WouldBlock: macOS loopback does
+  // where Linux does not), and a send that is pushed back is sent again. Any other refusal
+  // is a defect and is named. SocketError is one of those: a fault the socket reported, which
+  // sending again would hide.
   std::atomic<int> sent{0};
   std::atomic<int> pushedBack{0};
   std::atomic<int> refused{0};
@@ -2606,7 +2659,7 @@ void runOwnedThread() {
           ++sent;
           break;
         }
-        if (st.error() != Errc::WouldBlock && st.error() != Errc::SocketError) {
+        if (st.error() != Errc::WouldBlock) {
           int none = 0;
           firstRefusal.compare_exchange_strong(none, static_cast<int>(st.error()));
           ++refused;
@@ -2627,12 +2680,20 @@ void runOwnedThread() {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
   CHECK_EQ(texts.load(), 1);
-  if (refused.load() != 0 || sent.load() != 100) {
-    std::fprintf(stderr, "sends: %d sent, %d pushed back, %d refused (first refusal: %s)\n", sent.load(),
-                 pushedBack.load(), refused.load(), errcName(static_cast<Errc>(firstRefusal.load())));
+  const auto stats = fleet.stats();
+  if (refused.load() != 0 || sent.load() != 100 || stats.sendsFailed != 0) {
+    std::fprintf(stderr,
+                 "sends: %d sent, %d pushed back, %d refused (first refusal: %s); the session "
+                 "counts %llu deferred and %llu failed\n",
+                 sent.load(), pushedBack.load(), refused.load(),
+                 errcName(static_cast<Errc>(firstRefusal.load())),
+                 static_cast<unsigned long long>(stats.sendsDeferred),
+                 static_cast<unsigned long long>(stats.sendsFailed));
   }
   CHECK_EQ(refused.load(), 0);
   CHECK_EQ(sent.load(), 100);
+  // No send of the session's, these or its own, met a socket fault.
+  CHECK_EQ(stats.sendsFailed, 0u);
   CHECK_EQ(fleet.stats().messagesSentByType[140], 100u);
   fleet.close();
 }
@@ -2659,6 +2720,7 @@ int main() {
   runSetToken();
   runUnverifiedErrorsChangeNothing();
   runProofRefusedConverges();
+  runSendFaultIsNamed();
   runSendsWhileTheSessionMoves();
   runOwnedThread();
   std::puts("fleet_session_test OK");

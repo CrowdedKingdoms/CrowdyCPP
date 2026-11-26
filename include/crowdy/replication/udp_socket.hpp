@@ -63,6 +63,12 @@ class UdpSocket {
   /// True when wake() can interrupt a blocked receive on this socket.
   bool canWake() const;
 
+  /// The operating system's error code (errno; WSAGetLastError on Windows) of the last send
+  /// that failed with Errc::SocketError, or 0 when none has since the socket was opened. A
+  /// full buffer (Errc::WouldBlock) is not a fault and does not set it. For diagnostics: it
+  /// says which fault a SocketError was.
+  int lastSendFault() const { return lastSendFault_.load(std::memory_order_relaxed); }
+
   /// Underlying descriptor (a SOCKET on Windows), or -1 when closed. For
   /// diagnostics and tests — reading socket options back, for instance. The
   /// socket remains owned by this object; do not close or reconfigure it.
@@ -75,6 +81,7 @@ class UdpSocket {
   /// closed, so a sender on another thread never uses one that is going away.
   mutable std::shared_mutex gate_;
   std::atomic<long long> fd_{-1};
+  std::atomic<int> lastSendFault_{0};
 #ifndef _WIN32
   // Self-pipe polled alongside the socket so wake() can end a blocked poll().
   int wakeFds_[2] = {-1, -1};

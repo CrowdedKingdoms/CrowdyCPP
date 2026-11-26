@@ -102,6 +102,7 @@ Status UdpSocket::open(const std::string& host, int port, int recvBufferBytes,
   }
 #endif
 
+  lastSendFault_.store(0, std::memory_order_relaxed);
   fd_.store(static_cast<long long>(fd), std::memory_order_release);
 
 #ifndef _WIN32
@@ -196,7 +197,12 @@ Status UdpSocket::send(Bytes datagram) {
   // WSAEWOULDBLOCK here rather than waiting for room.
   const int n = ::send(static_cast<SOCKET>(fd), reinterpret_cast<const char*>(datagram.data()),
                        static_cast<int>(datagram.size()), 0);
-  if (n < 0) return detail::sendErrcFromNativeError(WSAGetLastError());
+  if (n < 0) {
+    const int native = WSAGetLastError();
+    const Errc code = detail::sendErrcFromNativeError(native);
+    if (code == Errc::SocketError) lastSendFault_.store(native, std::memory_order_relaxed);
+    return code;
+  }
   if (n != static_cast<int>(datagram.size())) return Errc::SocketError;
 #else
   // MSG_DONTWAIT for the same reason recv uses it: the caller may be a game
@@ -204,7 +210,12 @@ Status UdpSocket::send(Bytes datagram) {
   // socket blocks here instead of reporting WouldBlock.
   const ssize_t n =
       ::send(static_cast<int>(fd), datagram.data(), datagram.size(), MSG_DONTWAIT);
-  if (n < 0) return detail::sendErrcFromNativeError(errno);
+  if (n < 0) {
+    const int native = errno;
+    const Errc code = detail::sendErrcFromNativeError(native);
+    if (code == Errc::SocketError) lastSendFault_.store(native, std::memory_order_relaxed);
+    return code;
+  }
   if (n != static_cast<ssize_t>(datagram.size())) return Errc::SocketError;
 #endif
   return Errc::Ok;

@@ -633,6 +633,49 @@ class ExecAPI : public DomainBase {
   void connectAsDeveloperAsync(std::string appId, ExecConnectOptions options,
                                std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const;
 
+  // ---- an organization's game server ----
+  //
+  // `execConnectAsServer` (Application API v2.89.0, ck-exec 0.25.0) takes the organization's
+  // ORG TOKEN (`cko_...`, scope `fleet:session`) as this client's bearer, from the server and
+  // never from a browser or a player's device. The checks of `openFleetSession` apply (fleet
+  // sessions switched on for the organization, the app its own, the addendum accepted), and
+  // the refusals are those `admin().fleetSessions()` lists: ORG_TOKEN_REQUIRED, FORBIDDEN,
+  // ORG_LEGAL_ACCEPTANCE_REQUIRED, PLATFORM_BUSY with `retryAfterMs`. Revoking the org token
+  // closes the hub connections it opened.
+
+  /// The document `serverEndpoint` and `connectAsServer` send. Written here because the
+  /// published schema this SDK generates its operations from does not carry the field yet.
+  static constexpr std::string_view kExecConnectAsServerDocument =
+      R"gql(mutation ExecConnectAsServer($appId: BigInt!, $nodeType: String, $key: String) {
+  execConnectAsServer(appId: $appId, nodeType: $nodeType, key: $key) {
+    gatewayUrl
+    token
+    host
+    expiresAt
+  }
+})gql";
+
+  static constexpr std::string_view kExecConnectAsServerOperationName = "ExecConnectAsServer";
+
+  /// A host and a server connect token for `appId` (`execConnectAsServer`), blocking: what
+  /// `ExecConnection::openAsServer` takes. The token lasts a minute and opens one socket;
+  /// ask again to connect again. `nodeType` and `key` put the connection on the host running
+  /// that instance, placing it if needed.
+  Result<ExecEndpoint> serverEndpoint(std::string appId, std::string nodeType = {}, std::string key = {}) const;
+  void serverEndpointAsync(std::string appId, std::string nodeType, std::string key,
+                           std::function<void(Result<ExecEndpoint>)> done) const;
+  /// The same, with the whole outcome: a refusal's code and `retryAfterMs` are in
+  /// `outcome.errors`, and `endpoint` is filled when `outcome.ok()`.
+  void serverEndpointAsync(std::string appId, std::string nodeType, std::string key,
+                           std::function<void(graphql::GraphQLOutcome outcome, ExecEndpoint endpoint)> done) const;
+  /// Connect the organization's game server to the app's hubs as itself: one connection for
+  /// each game server. Its plain calls are the server's own and `callAs` makes a call for
+  /// one of the organization's players. The same connection as `connect`: pinned to the
+  /// Application API's estate, and reconnecting with a fresh server connect token.
+  std::shared_ptr<ExecConnection> connectAsServer(std::string appId, ExecConnectOptions options = {}) const;
+  void connectAsServerAsync(std::string appId, ExecConnectOptions options,
+                            std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const;
+
   /// Guest log lines (`execLogs`), newest first, kept for 24 hours: an array of
   /// `{ id, nodeType, key, level, host, at, text, flow }`. `flow` is the call the line was
   /// written in (32 lowercase hex digits, shared by everything it caused), null outside a
@@ -689,7 +732,9 @@ class ExecAPI : public DomainBase {
   void restartTypeAsync(std::string appId, std::string nodeType, graphql::GraphQLCallback done) const;
 
  private:
-  ExecDial dialer(std::string appId, std::string nodeType, std::string key, bool developer = false) const;
+  /// Who a dialer asks for a connect token as.
+  enum class DialAs { Player, Developer, Server };
+  ExecDial dialer(std::string appId, std::string nodeType, std::string key, DialAs as = DialAs::Player) const;
   /// A connection over `dial` that dials only gateways the Game API this client talks to may name.
   std::shared_ptr<ExecConnection> pinned(ExecDial dial, ExecConnectOptions options) const;
   static graphql::JVal deployVariables(std::string appId, std::string root, const std::vector<ExecNodeType>& types,

@@ -1156,15 +1156,21 @@ void ExecAPI::endpointAsync(std::string appId, std::string nodeType, std::string
             });
 }
 
-ExecDial ExecAPI::dialer(std::string appId, std::string nodeType, std::string key, bool developer) const {
+ExecDial ExecAPI::dialer(std::string appId, std::string nodeType, std::string key, DialAs as) const {
   // Everything the dialer needs is copied in, so a connection may reconnect long
   // after the call that made it returned.
   auto gql = gql_;
   return [gql, appId = std::move(appId), nodeType = std::move(nodeType), key = std::move(key),
-          developer](std::function<void(Result<ExecEndpoint>)> found) {
-    const auto doc = developer ? gen::exec::kExecConnectAsDeveloperIsolatedDocument : gen::exec::kExecConnectIsolatedDocument;
-    const auto op = developer ? gen::exec::kExecConnectAsDeveloperOperationName : gen::exec::kExecConnectOperationName;
-    const char* field = developer ? "execConnectAsDeveloper" : "execConnect";
+          as](std::function<void(Result<ExecEndpoint>)> found) {
+    const std::string_view doc = as == DialAs::Server      ? kExecConnectAsServerDocument
+                                 : as == DialAs::Developer ? gen::exec::kExecConnectAsDeveloperIsolatedDocument
+                                                           : gen::exec::kExecConnectIsolatedDocument;
+    const std::string_view op = as == DialAs::Server      ? kExecConnectAsServerOperationName
+                                : as == DialAs::Developer ? gen::exec::kExecConnectAsDeveloperOperationName
+                                                          : gen::exec::kExecConnectOperationName;
+    const char* field = as == DialAs::Server      ? "execConnectAsServer"
+                        : as == DialAs::Developer ? "execConnectAsDeveloper"
+                                                  : "execConnect";
     gql->requestAsync(doc, connectVariables(appId, nodeType, key), op,
                       [found = std::move(found), field](graphql::GraphQLOutcome out) {
                         if (!out.ok()) return found(out.status.ok() ? Errc::Rejected : out.status.code);
@@ -1216,7 +1222,7 @@ void ExecAPI::developerEndpointAsync(std::string appId, std::string nodeType, st
 }
 
 std::shared_ptr<ExecConnection> ExecAPI::connectAsDeveloper(std::string appId, ExecConnectOptions options) const {
-  auto dial = dialer(std::move(appId), options.nodeType, options.key, true);
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, DialAs::Developer);
   auto conn = pinned(std::move(dial), std::move(options));
   conn->connect();
   return conn;
@@ -1224,8 +1230,57 @@ std::shared_ptr<ExecConnection> ExecAPI::connectAsDeveloper(std::string appId, E
 
 void ExecAPI::connectAsDeveloperAsync(std::string appId, ExecConnectOptions options,
                                       std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const {
-  auto dial = dialer(std::move(appId), options.nodeType, options.key, true);
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, DialAs::Developer);
   auto conn = pinned(std::move(dial), std::move(options));
+  conn->connect([conn, done = std::move(done)](Status s) {
+    if (!s.ok()) return done(s.code);
+    done(conn);
+  });
+}
+
+// ---- an organization's game server ----
+
+Result<ExecEndpoint> ExecAPI::serverEndpoint(std::string appId, std::string nodeType, std::string key) const {
+  return endpointFrom(exec(kExecConnectAsServerDocument, "execConnectAsServer",
+                           connectVariables(appId, nodeType, key), kExecConnectAsServerOperationName));
+}
+
+void ExecAPI::serverEndpointAsync(std::string appId, std::string nodeType, std::string key,
+                                  std::function<void(Result<ExecEndpoint>)> done) const {
+  execAsync(kExecConnectAsServerDocument, "execConnectAsServer", connectVariables(appId, nodeType, key),
+            kExecConnectAsServerOperationName, [done = std::move(done)](graphql::GraphQLOutcome out) {
+              if (!out.ok()) return done(out.status.ok() ? Errc::Rejected : out.status.code);
+              done(endpointFrom(out.data));
+            });
+}
+
+void ExecAPI::serverEndpointAsync(
+    std::string appId, std::string nodeType, std::string key,
+    std::function<void(graphql::GraphQLOutcome outcome, ExecEndpoint endpoint)> done) const {
+  execAsync(kExecConnectAsServerDocument, "execConnectAsServer", connectVariables(appId, nodeType, key),
+            kExecConnectAsServerOperationName, [done = std::move(done)](graphql::GraphQLOutcome out) {
+              ExecEndpoint endpoint;
+              if (out.ok()) {
+                Result<ExecEndpoint> parsed = endpointFrom(out.data);
+                if (parsed.ok()) endpoint = std::move(parsed.value());
+              }
+              done(std::move(out), std::move(endpoint));
+            });
+}
+
+std::shared_ptr<ExecConnection> ExecAPI::connectAsServer(std::string appId, ExecConnectOptions options) const {
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, DialAs::Server);
+  auto conn = pinned(std::move(dial), std::move(options));
+  conn->impl_->markServer();
+  conn->connect();
+  return conn;
+}
+
+void ExecAPI::connectAsServerAsync(std::string appId, ExecConnectOptions options,
+                                   std::function<void(Result<std::shared_ptr<ExecConnection>>)> done) const {
+  auto dial = dialer(std::move(appId), options.nodeType, options.key, DialAs::Server);
+  auto conn = pinned(std::move(dial), std::move(options));
+  conn->impl_->markServer();
   conn->connect([conn, done = std::move(done)](Status s) {
     if (!s.ok()) return done(s.code);
     done(conn);

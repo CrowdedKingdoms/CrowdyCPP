@@ -595,6 +595,9 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "ExecConnectAsDeveloper")
       return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":")" + gatewayUrl +
                        R"(","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
+    if (op == "ExecConnectAsServer")
+      return {200, R"({"data":{"execConnectAsServer":{"gatewayUrl":")" + gatewayUrl +
+                       R"(","token":"server-1","host":"h3","expiresAt":"2026-11-26T00:01:00.000Z"}}})"};
     if (op == "ExecStarters")
       return {200, R"({"data":{"execStarters":{"manifestJson":"{\"root\":\"world\"}","starters":[{"crate":"world-tick","nodeType":"world","description":"d","files":[{"path":"Cargo.toml","content":"c"}]}]}}})"};
     const std::string build = R"({"buildId":"b1","log":null,"sdkVersion":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
@@ -728,6 +731,134 @@ void testOperations() {
   CHECK_EQ(dev.value().token, std::string("dev-1"));
   CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsDeveloper"));
   CHECK_EQ(http->requests.back()["variables"]["key"].asString(), std::string("k"));
+}
+
+// execConnectAsServer: the organization's game server asks for its own hub connection with
+// its org token. The request, the answer, the refusals, and the connection made from it.
+void testServerEndpoint() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto auth = std::make_shared<graphql::AuthState>();
+  auth->setToken("cko_" + std::string(48, 'o'));
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      auth);
+  auto transport = std::make_shared<FakeTransport>();
+  ExecAPI exec(gql, transport);
+
+  auto server = exec.serverEndpoint("77", "world", "k");
+  CHECK(server.ok());
+  CHECK_EQ(server.value().token, std::string("server-1"));
+  CHECK_EQ(server.value().host, std::string("h3"));
+  CHECK_EQ(server.value().gatewayUrl, http->gatewayUrl);
+  auto sent = http->requests.back();
+  CHECK_EQ(sent["operationName"].asString(), std::string("ExecConnectAsServer"));
+  const std::string query = sent["query"].asString();
+  CHECK(query.find("mutation ExecConnectAsServer($appId: BigInt!, $nodeType: String, $key: String)") !=
+        std::string::npos);
+  CHECK(query.find("execConnectAsServer(appId: $appId, nodeType: $nodeType, key: $key)") != std::string::npos);
+  for (const char* field : {"gatewayUrl", "token", "host", "expiresAt"}) CHECK(query.find(field) != std::string::npos);
+  CHECK_EQ(sent["variables"].dump(), std::string(R"({"appId":"77","key":"k","nodeType":"world"})"));
+  // No node type: the app alone, as execConnect sends it.
+  CHECK(exec.serverEndpoint("77").ok());
+  CHECK_EQ(http->requests.back()["variables"].dump(), std::string(R"({"appId":"77"})"));
+
+  // The async twins: the endpoint, and the whole outcome.
+  std::optional<Result<ExecEndpoint>> got;
+  exec.serverEndpointAsync("77", "", "", [&](Result<ExecEndpoint> r) { got = std::move(r); });
+  CHECK(got.has_value() && got->ok());
+  CHECK_EQ(got->value().token, std::string("server-1"));
+  bool called = false;
+  exec.serverEndpointAsync("77", "world", "k", [&](graphql::GraphQLOutcome out, ExecEndpoint endpoint) {
+    called = true;
+    CHECK(out.ok());
+    CHECK_EQ(endpoint.token, std::string("server-1"));
+    CHECK_EQ(endpoint.host, std::string("h3"));
+  });
+  CHECK(called);
+
+  // Refusals: the code and the wait are in the outcome; the endpoint form reports Rejected.
+  const auto refuse = [&](const std::string& code, const std::string& extra = {}) {
+    http->drops["ExecConnectAsServer"].push_back([code, extra]() -> graphql::HttpResponse {
+      return {200, R"({"errors":[{"message":"refused","extensions":{"code":")" + code + R"(")" + extra +
+                       R"(}}],"data":null})"};
+    });
+  };
+  refuse("ORG_TOKEN_REQUIRED");
+  called = false;
+  exec.serverEndpointAsync("77", "", "", [&](graphql::GraphQLOutcome out, ExecEndpoint endpoint) {
+    called = true;
+    CHECK(!out.ok());
+    CHECK(graphql::orgTokenRequiredOf(out.errors));
+    CHECK(endpoint.token.empty());
+  });
+  CHECK(called);
+  refuse("PLATFORM_BUSY", R"(,"blame":"PLATFORM","retryable":true,"retryAfterMs":750)");
+  called = false;
+  exec.serverEndpointAsync("77", "", "", [&](graphql::GraphQLOutcome out, ExecEndpoint) {
+    called = true;
+    const auto busy = graphql::platformBusyOf(out.errors);
+    CHECK(busy.has_value());
+    CHECK(busy->retryAfterMs == std::optional<std::int64_t>(750));
+  });
+  CHECK(called);
+  refuse("FORBIDDEN");
+  got.reset();
+  exec.serverEndpointAsync("77", "", "", [&](Result<ExecEndpoint> r) { got = std::move(r); });
+  CHECK(got.has_value() && !got->ok());
+  CHECK(got->error() == Errc::Rejected);
+#ifndef CROWDY_NO_EXCEPTIONS
+  refuse("ORG_LEGAL_ACCEPTANCE_REQUIRED");
+  bool threw = false;
+  try {
+    exec.serverEndpoint("77");
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    threw = true;
+    CHECK(graphql::orgLegalAcceptanceRequiredOf(e.errors()));
+  }
+  CHECK(threw);
+#endif
+
+  // connectAsServer: a server connection over that answer. callAs is its to send, and a
+  // reconnect asks for a fresh server connect token.
+  http->gatewayUrl = "ws://test/gw";
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+  const std::size_t asked = http->requests.size();
+  auto conn = exec.connectAsServer("77", opts);
+  CHECK(conn->isServer());
+  CHECK_EQ(transport->count(), 1u);
+  CHECK_EQ(http->requests.size(), asked + 1);
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsServer"));
+  auto c1 = transport->at(0);
+  CHECK_EQ(c1->url, std::string("ws://test/gw/v1/connect?token=server-1"));
+  c1->open();
+  std::optional<ExecReply> reply1;
+  conn->callAsRaw(4242, "player", "p-4242", "report", "", [&](ExecReply r) { reply1 = r; });
+  CHECK_EQ(c1->frames().size(), 1u);
+  CHECK_EQ(static_cast<int>(static_cast<std::uint8_t>(c1->frames()[0][0])), 0x05);
+  c1->deliver(reply(1, 0, ""));
+  CHECK(reply1.has_value() && reply1->ok());
+  c1->drop();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  while (transport->count() < 2 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  CHECK_EQ(transport->count(), 2u);
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsServer"));
+  conn->close();
+
+  bool connected = false;
+  exec.connectAsServerAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r) {
+    connected = r.ok() && r.value()->isServer();
+    if (r.ok()) r.value()->close();
+  });
+  CHECK_EQ(transport->count(), 3u);
+  transport->at(2)->open();
+  CHECK(connected);
+
+  // A player's connection from the same client is not a server's.
+  auto player = exec.connect("77", opts);
+  CHECK(!player->isServer());
+  player->close();
 }
 
 void testBuilds() {
@@ -1673,6 +1804,7 @@ int main() {
   testAccessEnded();
   testRemoveListener();
   testOperations();
+  testServerEndpoint();
   testBuilds();
   testMods();
 #ifndef CROWDY_NO_EXCEPTIONS

@@ -401,8 +401,9 @@ sends from any thread, the resends from the network thread's `tick`, and results
 deadlines from `poll()`, which is also the only thread a callback fires on (after the lock is
 dropped). A carry that is refused or times out removes its row.
 
-The wire is the realtime servers' v0.50.1 as built (the docs site's wire formats page has the
-bytes). v0.50.1 replaced a build that never left dev: name v0.50.1 in anything public. What a
+The wire is the realtime servers' v0.50.3 as built (the docs site's wire formats page has the
+bytes). v0.50.3 is the first release with fleet sessions to leave dev: name v0.50.3 in anything
+public. (The two wire changes below date from v0.50.1, which never left dev either.) What a
 change here must keep:
 
 - 51, 52 and 53 are read in both forms, whatever the session advertised: followed by their own
@@ -475,7 +476,9 @@ what it leaves on a tier). It passed on dev on 2026-11-26 against the realtime s
 before v0.50.1 and Application API v2.89.1 (`docs/e2e-coverage.md`). Three of its steps
 differ on v0.50.1 (a closed session is told, a refusal is verified, a refreshed token's carry
 has no refused send): each prints what it saw, and `CROWDY_FLEET_REALTIME_MIN=0.50.1` makes
-the v0.50.1 behaviour required. It has not run against v0.50.1 from here yet. What the runs
+that behaviour required. It ran so on dev on 2026-11-26 against v0.50.1 and against v0.50.3
+(exit 0: a closed session told after 10 ms, refusals verified, no send refused across a refreshed
+token's carry, no notification of another app and none unsigned). What the runs
 showed, which a change here should keep in mind:
 
 - That earlier build sent a refusal (`UNAUTHORIZED`) outside a signed bundle, so

@@ -32,12 +32,13 @@ AddressSanitizer with UndefinedBehaviorSanitizer, which reported nothing. One or
 sessions and signed four managed players in. In several runs the sessions were on different realtime servers,
 so the steps below also passed between servers.
 
-Since then the suite follows realtime servers `v0.50.1`, and it has not run against them from here yet.
-Three steps differ there, and each prints which behaviour it saw: a session closed through the Application
+Since then the suite follows realtime servers `v0.50.3` (the first release with fleet sessions to leave dev). It
+ran against them on dev the same day with `CROWDY_FLEET_REALTIME_MIN=0.50.1` and passed every step, the hub step
+included. Three steps differ from the earlier build, and each prints which behaviour it saw: a session closed through the Application
 API is told within 5 seconds by a signed `COMMAND_SESSION_RELEASED` with reason 0 (before, 45 seconds of
 silence); a refusal arrives verified and `sendRefused` names the player; and a carried player's refreshed
 token (`refreshAppToken`, then `carry` with `replaces`) is carried with the player carried throughout and no
-send refused. `CROWDY_FLEET_REALTIME_MIN=0.50.1` makes the `v0.50.1` behaviour required.
+send refused. `CROWDY_FLEET_REALTIME_MIN=0.50.1` (or later) makes that behaviour required.
 
 What a run asserted on 2026-11-26, and what it measured:
 

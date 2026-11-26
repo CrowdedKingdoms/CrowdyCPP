@@ -959,7 +959,7 @@ hold the organization's org token and never reaches a player's device. A game th
 a player's device uses `Connection` with that player's own token.
 
 Fleet sessions are a dev-tier preview and are not in a release of this SDK yet. They need
-Application API v2.89.0 and realtime servers v0.50.1, and an operator switches them on for
+Application API v2.89.0 and realtime servers v0.50.3, and an operator switches them on for
 an organization.
 
 The game server signs each player in once (`mintManagedPlayerToken`). It opens one fleet

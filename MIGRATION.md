@@ -3,7 +3,7 @@
 ## Unreleased: fleet sessions for an organization's game servers
 
 Not in a release yet; the release that carries it takes this section's place in the order. A dev-tier preview:
-it needs Application API v2.89.0, realtime servers v0.50.1, and ck-exec 0.25.0. Native first:
+it needs Application API v2.89.0, realtime servers v0.50.3, and ck-exec 0.25.0. Native first:
 CrowdyJS and CrowdyPy follow. Your code needs no change unless it switches over `Errc` or
 `exec_wire::ClientFrame::Kind` without a `default`.
 

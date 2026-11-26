@@ -41,7 +41,7 @@
 /// server. Around a crossing the new session can receive a few state updates the previous
 /// session sent for the player just before: treat state for a player you carry as stale.
 ///
-/// What goes on the wire (realtime servers v0.50.1):
+/// What goes on the wire (realtime servers v0.50.3):
 ///
 ///  - For a carried player: the message that player's own session would send, with the
 ///    tail's game token id the player's and the HMAC keyed with the fleet token. The
@@ -317,7 +317,7 @@ struct FleetHandlers {
   /// The frame carries a one-byte sequence the whole session shares and names no player;
   /// `sendRefused` below names the player when the session can tell.
   ///
-  /// Realtime servers v0.50.1 send a fleet session its refusals inside its signed bundles,
+  /// Realtime servers v0.50.3 send a fleet session its refusals inside its signed bundles,
   /// so GenericError::verified is true for them. A lone three-byte frame has no HMAC and
   /// arrives with `verified` false: anyone who can put three bytes on the session's flow
   /// could have sent it, so take it as a hint. Verified or not, an error frame changes

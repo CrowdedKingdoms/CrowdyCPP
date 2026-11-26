@@ -221,6 +221,10 @@ void testEndpointNormalization() {
            "wss://game.invalid/root/stream");
   CHECK_EQ(relativeEndpoints.subscriptions().endpoint(),
            "wss://game.invalid/root/stream");
+
+  // client.fleetSessions() is admin().fleetSessions(), as CrowdyJS's client.fleetSessions is
+  // client.admin.fleetSessions.
+  CHECK(&relativeEndpoints.fleetSessions() == &relativeEndpoints.admin().fleetSessions());
 }
 
 void testSynchronousGameplayRefresh() {

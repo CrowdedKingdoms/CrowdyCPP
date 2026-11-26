@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -47,7 +48,8 @@ std::string unhex(std::string_view h) {
   return out;
 }
 
-// ---- the golden frames (ck-exec crates/ckx-proto/tests/client-frames.json) ----
+// ---- the golden frames (ck-exec crates/ckx-proto/tests/client-frames.json, byte for byte:
+// ck-exec 0.25.0, the file CrowdyJS's test/unit/fixtures/exec-client-frames.json also is) ----
 
 void testGoldenFrames() {
   std::ifstream in(std::string(CROWDY_PARITY_FIXTURE_DIR) + "/exec-client-frames.json");
@@ -64,13 +66,17 @@ void testGoldenFrames() {
       c.kind = exec_wire::ClientFrame::Kind::Ping;
       c.rid = static_cast<std::uint32_t>(f["nonce"].asInt64());
     } else {
+      const bool call = kind == "call" || kind == "callAs";
       c.kind = kind == "call" ? exec_wire::ClientFrame::Kind::Call
+               : kind == "callAs" ? exec_wire::ClientFrame::Kind::CallAs
                : kind == "subscribe" ? exec_wire::ClientFrame::Kind::Subscribe
                                      : exec_wire::ClientFrame::Kind::Unsubscribe;
       c.rid = static_cast<std::uint32_t>(f["rid"].asInt64());
+      // A u64, so the fixture writes it as a decimal string.
+      if (kind == "callAs") c.player = std::strtoull(f["player"].asString().c_str(), nullptr, 10);
       c.nodeType = f["nodeType"].asString();
       c.key = f["key"].asString();
-      c.method = kind == "call" ? f["method"].asString() : f["topic"].asString();
+      c.method = call ? f["method"].asString() : f["topic"].asString();
       c.payload = unhex(f["payloadHex"].asString());
     }
     Result<std::string> bytes = exec_wire::encode(c);
@@ -103,6 +109,58 @@ void testGoldenFrames() {
   CHECK(!exec_wire::decode(unhex("99")).ok());
   exec_wire::ClientFrame tooLong{exec_wire::ClientFrame::Kind::Call, 1, std::string(256, 'x'), "", "m", ""};
   CHECK(!exec_wire::encode(tooLong).ok());
+
+  // call-as (0x05): rid:u32 player:u64 type:str8 key:str16 method:str8 payload:rest, every
+  // integer little endian as in a call. The fixture must carry it.
+  int callAsCases = 0;
+  bool playerZero = false;
+  fx["client"].forEach([&](graphql::Json e) {
+    if (e["frame"]["kind"].asString() != "callAs") return;
+    ++callAsCases;
+    if (e["frame"]["player"].asString() == "0") playerZero = true;  // the server's own call
+  });
+  CHECK_EQ(callAsCases, 3);
+  CHECK(playerZero);
+
+  // Cases ck-exec's file does not hold, computed from the frame's layout by a script (Python
+  // struct.pack) when this SDK's encoder was written: the largest player id, a player id
+  // just past 2^53 with a multi-byte key, and an empty key with an empty payload.
+  struct Extra {
+    std::uint32_t rid;
+    std::uint64_t player;
+    const char* nodeType;
+    const char* key;
+    const char* method;
+    const char* payloadHex;
+    const char* hex;
+  };
+  const Extra extras[] = {
+      {7, 4242ULL, "player", "p-4242", "report", "81a27870cd0100",
+       "0507000000921000000000000006706c617965720600702d34323432067265706f727481a27870cd0100"},
+      {4294967295u, 18446744073709551615ULL, "arena", "", "state", "",
+       "05ffffffffffffffffffffffff056172656e610000057374617465"},
+      {300, 9007199254740993ULL, "mobs", "zone-\xc3\xa9\xc3\xa8\xe2\x98\x83", "state", "c0",
+       "052c0100000100000000002000046d6f62730c007a6f6e652dc3a9c3a8e29883057374617465c0"},
+  };
+  for (const Extra& x : extras) {
+    exec_wire::ClientFrame f{exec_wire::ClientFrame::Kind::CallAs, x.rid, x.nodeType, x.key, x.method,
+                             unhex(x.payloadHex)};
+    f.player = x.player;
+    Result<std::string> encoded = exec_wire::encode(f);
+    CHECK(encoded.ok());
+    CHECK_EQ(hex(encoded.value()), std::string(x.hex));
+  }
+  exec_wire::ClientFrame as{exec_wire::ClientFrame::Kind::CallAs, 0x01020304, "t", "k", "m", "\xc0"};
+  as.player = 0x1112131415161718ULL;
+  Result<std::string> asBytes = exec_wire::encode(as);
+  CHECK(asBytes.ok());
+  CHECK_EQ(hex(asBytes.value()), "05" "04030201" "1817161514131211" "0174" "01006b" "016d" "c0");
+  // The same call as the server's own (0x01) is those bytes without the player.
+  as.kind = exec_wire::ClientFrame::Kind::Call;
+  CHECK_EQ(hex(exec_wire::encode(as).value()), "01" "04030201" "0174" "01006b" "016d" "c0");
+  as.kind = exec_wire::ClientFrame::Kind::CallAs;
+  as.method = std::string(256, 'x');
+  CHECK(!exec_wire::encode(as).ok());
 }
 
 void testStatusesAndDigests() {
@@ -404,6 +462,158 @@ void testConnection() {
   CHECK_EQ(transport->count(), 3u);
 }
 
+// ---- a server connection (ck-exec 0.25.0): the organization's own calls, and call-as ----
+
+void testServerConnection() {
+  auto transport = std::make_shared<FakeTransport>();
+  auto dispatcher = std::make_shared<graphql::Dispatcher>();
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+
+  // From an execConnectAsServer result: the gateway, the connect token and the host.
+  auto server = ExecConnection::openAsServer(
+      transport, dispatcher, ExecEndpoint{"wss://gw.example", "server-token", "host-s"}, opts);
+  CHECK(server->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 1; }));
+  auto c1 = transport->at(0);
+  CHECK_EQ(c1->url, "wss://gw.example/v1/connect?token=server-token");
+  c1->open();
+  CHECK(until(*dispatcher, [&] { return server->connected(); }));
+  CHECK_EQ(server->host(), "host-s");
+
+  // callAsRaw: client frame 0x05, the player between the request id and the names.
+  std::optional<ExecReply> asReply;
+  const std::string payload = unhex("81a27870cd0100");
+  server->callAsRaw(4242, "player", "p-4242", "report", payload, [&](ExecReply r) { asReply = r; });
+  CHECK(until(*dispatcher, [&] { return !c1->frames().empty(); }));
+  CHECK_EQ(c1->frames().size(), 1u);
+  const std::string sent = c1->frames()[0];
+  // rid 1 (the connection's first request), player 4242, "player", "p-4242", "report".
+  CHECK_EQ(hex(sent), "05" "01000000" "9210000000000000" "06706c61796572" "0600702d34323432" "067265706f7274"
+                      "81a27870cd0100");
+  // Answered like any call, by its request id.
+  c1->deliver(reply(1, 0, graphql::Json::parse(R"({"ok":true})").toMsgpack()));
+  CHECK(until(*dispatcher, [&] { return asReply.has_value(); }));
+  CHECK(asReply->ok());
+  CHECK(asReply->value()["ok"].asBool());
+
+  // callAs: the arguments as MessagePack, and a refusal with the hub's message.
+  std::optional<ExecReply> denied;
+  server->callAs(18446744073709551615ULL, "arena", "", "state",
+                 graphql::JVal::object({{"weapon", graphql::JVal(2)}}), [&](ExecReply r) { denied = r; });
+  CHECK(until(*dispatcher, [&] { return c1->frames().size() == 2; }));
+  const std::string second = c1->frames()[1];
+  CHECK_EQ(hex(second.substr(0, 13)), "05" "02000000" "ffffffffffffffff");
+  CHECK_EQ(hex(second.substr(13, 14)), "056172656e61" "0000" "057374617465");
+  CHECK_EQ(graphql::Json::fromMsgpack(second.substr(27))["weapon"].asInt64(), 2);
+  c1->deliver(reply(2, 6, "built for an earlier ABI"));
+  CHECK(until(*dispatcher, [&] { return denied.has_value(); }));
+  CHECK(denied->status == ExecStatus::Denied);
+  CHECK_EQ(denied->message(), "built for an earlier ABI");
+
+  // A plain call on the same connection is the server's own: frame 0x01, no player.
+  std::optional<ExecReply> own;
+  server->callRaw("arena", "m1", "state", "", [&](ExecReply r) { own = r; });
+  CHECK(until(*dispatcher, [&] { return c1->frames().size() == 3; }));
+  CHECK_EQ(hex(c1->frames()[2]), "01" "03000000" "056172656e61" "02006d31" "057374617465");
+  c1->deliver(reply(3, 0, ""));
+  CHECK(until(*dispatcher, [&] { return own.has_value(); }));
+  CHECK(own->ok());
+
+  // A name longer than its length prefix is refused before anything is sent.
+  std::optional<ExecReply> tooLong;
+  server->callAsRaw(1, std::string(256, 'x'), "", "m", "", [&](ExecReply r) { tooLong = r; });
+  CHECK(until(*dispatcher, [&] { return tooLong.has_value(); }));
+  CHECK(tooLong->status == ExecStatus::BadRequest);
+  CHECK_EQ(c1->frames().size(), 3u);
+  server->close();
+
+  // On a player's connection callAs is refused here: nothing is sent, and the reply says why.
+  auto player = ExecConnection::open(transport, dispatcher, ExecEndpoint{"wss://gw.example", "player-token", "host-p"},
+                                     opts);
+  CHECK(!player->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 2; }));
+  auto c2 = transport->at(1);
+  c2->open();
+  CHECK(until(*dispatcher, [&] { return player->connected(); }));
+  std::optional<ExecReply> refused;
+  player->callAsRaw(4242, "player", "p-4242", "report", payload, [&](ExecReply r) { refused = r; });
+  CHECK(until(*dispatcher, [&] { return refused.has_value(); }));
+  CHECK(refused->status == ExecStatus::Denied);
+  CHECK(refused->message().find("server connection") != std::string::npos);
+  std::optional<ExecReply> refusedJson;
+  player->callAs(4242, "player", "p-4242", "report", graphql::JVal::object({}), [&](ExecReply r) { refusedJson = r; });
+  CHECK(until(*dispatcher, [&] { return refusedJson.has_value(); }));
+  CHECK(refusedJson->status == ExecStatus::Denied);
+  CHECK(c2->frames().empty());
+  // Its plain calls still go.
+  player->callRaw("arena", "m1", "state", "", {});
+  CHECK(until(*dispatcher, [&] { return c2->frames().size() == 1; }));
+  CHECK_EQ(static_cast<int>(static_cast<std::uint8_t>(c2->frames()[0][0])), 0x01);
+  player->close();
+
+  // Over a dialer the server connection reconnects with a fresh connect token, and a call-as
+  // caught by the lost connection goes again once, as a call does.
+  std::atomic<int> dials{0};
+  ExecDial dial = [&dials](std::function<void(Result<ExecEndpoint>)> found) {
+    const int n = ++dials;
+    found(ExecEndpoint{"wss://gw.example", "server-token-" + std::to_string(n), "host-" + std::to_string(n)});
+  };
+  auto redialing = ExecConnection::connectAsServer(transport, dispatcher, dial, opts);
+  CHECK(redialing->isServer());
+  CHECK(until(*dispatcher, [&] { return transport->count() == 3; }));
+  auto c3 = transport->at(2);
+  CHECK_EQ(c3->url, "wss://gw.example/v1/connect?token=server-token-1");
+  c3->open();
+  std::optional<ExecReply> again;
+  redialing->callAsRaw(77, "player", "p-77", "report", "", [&](ExecReply r) { again = r; });
+  CHECK(until(*dispatcher, [&] { return c3->frames().size() == 1; }));
+  CHECK_EQ(hex(c3->frames()[0].substr(0, 13)), "05" "01000000" "4d00000000000000");
+  c3->drop();
+  CHECK(until(*dispatcher, [&] { return transport->count() == 4; }));
+  auto c4 = transport->at(3);
+  CHECK_EQ(c4->url, "wss://gw.example/v1/connect?token=server-token-2");
+  c4->open();
+  CHECK(until(*dispatcher, [&] { return c4->frames().size() == 1; }));
+  CHECK_EQ(hex(c4->frames()[0]), hex(c3->frames()[0]));
+  c4->deliver(reply(1, 0, ""));
+  CHECK(until(*dispatcher, [&] { return again.has_value(); }));
+  CHECK(again->ok());
+  redialing->close();
+
+  // openAsServer never reconnects, whatever ExecConnectOptions::reconnect says (as open
+  // does not): the one connect token it holds lasts a minute. A call caught by the lost
+  // socket fails; nothing is dialed until the game server asks for something again.
+  {
+    ExecConnectOptions wantsReconnect = opts;
+    wantsReconnect.reconnect = true;
+    const std::size_t before = transport->count();
+    auto fixed = ExecConnection::openAsServer(
+        transport, dispatcher, ExecEndpoint{"wss://gw.example", "server-token-fixed", "host-f"}, wantsReconnect);
+    CHECK(until(*dispatcher, [&] { return transport->count() == before + 1; }));
+    auto socket = transport->at(before);
+    socket->open();
+    CHECK(until(*dispatcher, [&] { return fixed->connected(); }));
+    std::optional<ExecReply> caught;
+    fixed->callAsRaw(4242, "player", "p-4242", "report", "", [&](ExecReply r) { caught = r; });
+    CHECK(until(*dispatcher, [&] { return socket->frames().size() == 1; }));
+    socket->drop();
+    CHECK(until(*dispatcher, [&] { return caught.has_value(); }));
+    CHECK(caught->status == ExecStatus::Unavailable);  // failed: it is not sent again
+    CHECK(!fixed->connected());
+    // Well past the reconnect delay (10 ms here), nothing was dialed.
+    const auto wait = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+    while (std::chrono::steady_clock::now() < wait) {
+      dispatcher->drain();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK_EQ(transport->count(), before + 1);
+    CHECK(!fixed->connected());
+    fixed->close();
+  }
+}
+
 void testCallTimesOut() {
   auto transport = std::make_shared<FakeTransport>();
   auto dispatcher = std::make_shared<graphql::Dispatcher>();
@@ -450,6 +660,9 @@ class RecordingHttp final : public graphql::IHttpTransport {
     if (op == "ExecConnectAsDeveloper")
       return {200, R"({"data":{"execConnectAsDeveloper":{"gatewayUrl":")" + gatewayUrl +
                        R"(","token":"dev-1","host":"h2","expiresAt":"2026-09-25T00:01:00.000Z"}}})"};
+    if (op == "ExecConnectAsServer")
+      return {200, R"({"data":{"execConnectAsServer":{"gatewayUrl":")" + gatewayUrl +
+                       R"(","token":"server-1","host":"h3","expiresAt":"2026-11-26T00:01:00.000Z"}}})"};
     if (op == "ExecStarters")
       return {200, R"({"data":{"execStarters":{"manifestJson":"{\"root\":\"world\"}","starters":[{"crate":"world-tick","nodeType":"world","description":"d","files":[{"path":"Cargo.toml","content":"c"}]}]}}})"};
     const std::string build = R"({"buildId":"b1","log":null,"sdkVersion":null,"createdAt":"t","startedAt":null,"finishedAt":null,"artifacts":[)";
@@ -583,6 +796,134 @@ void testOperations() {
   CHECK_EQ(dev.value().token, std::string("dev-1"));
   CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsDeveloper"));
   CHECK_EQ(http->requests.back()["variables"]["key"].asString(), std::string("k"));
+}
+
+// execConnectAsServer: the organization's game server asks for its own hub connection with
+// its org token. The request, the answer, the refusals, and the connection made from it.
+void testServerEndpoint() {
+  auto http = std::make_shared<RecordingHttp>();
+  auto auth = std::make_shared<graphql::AuthState>();
+  auth->setToken("cko_" + std::string(48, 'o'));
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      auth);
+  auto transport = std::make_shared<FakeTransport>();
+  ExecAPI exec(gql, transport);
+
+  auto server = exec.serverEndpoint("77", "world", "k");
+  CHECK(server.ok());
+  CHECK_EQ(server.value().token, std::string("server-1"));
+  CHECK_EQ(server.value().host, std::string("h3"));
+  CHECK_EQ(server.value().gatewayUrl, http->gatewayUrl);
+  auto sent = http->requests.back();
+  CHECK_EQ(sent["operationName"].asString(), std::string("ExecConnectAsServer"));
+  const std::string query = sent["query"].asString();
+  CHECK(query.find("mutation ExecConnectAsServer($appId: BigInt!, $nodeType: String, $key: String)") !=
+        std::string::npos);
+  CHECK(query.find("execConnectAsServer(appId: $appId, nodeType: $nodeType, key: $key)") != std::string::npos);
+  for (const char* field : {"gatewayUrl", "token", "host", "expiresAt"}) CHECK(query.find(field) != std::string::npos);
+  CHECK_EQ(sent["variables"].dump(), std::string(R"({"appId":"77","key":"k","nodeType":"world"})"));
+  // No node type: the app alone, as execConnect sends it.
+  CHECK(exec.serverEndpoint("77").ok());
+  CHECK_EQ(http->requests.back()["variables"].dump(), std::string(R"({"appId":"77"})"));
+
+  // The async twins: the endpoint, and the whole outcome.
+  std::optional<Result<ExecEndpoint>> got;
+  exec.serverEndpointAsync("77", "", "", [&](Result<ExecEndpoint> r) { got = std::move(r); });
+  CHECK(got.has_value() && got->ok());
+  CHECK_EQ(got->value().token, std::string("server-1"));
+  bool called = false;
+  exec.serverEndpointAsync("77", "world", "k", [&](graphql::GraphQLOutcome out, ExecEndpoint endpoint) {
+    called = true;
+    CHECK(out.ok());
+    CHECK_EQ(endpoint.token, std::string("server-1"));
+    CHECK_EQ(endpoint.host, std::string("h3"));
+  });
+  CHECK(called);
+
+  // Refusals: the code and the wait are in the outcome; the endpoint form reports Rejected.
+  const auto refuse = [&](const std::string& code, const std::string& extra = {}) {
+    http->drops["ExecConnectAsServer"].push_back([code, extra]() -> graphql::HttpResponse {
+      return {200, R"({"errors":[{"message":"refused","extensions":{"code":")" + code + R"(")" + extra +
+                       R"(}}],"data":null})"};
+    });
+  };
+  refuse("ORG_TOKEN_REQUIRED");
+  called = false;
+  exec.serverEndpointAsync("77", "", "", [&](graphql::GraphQLOutcome out, ExecEndpoint endpoint) {
+    called = true;
+    CHECK(!out.ok());
+    CHECK(graphql::orgTokenRequiredOf(out.errors));
+    CHECK(endpoint.token.empty());
+  });
+  CHECK(called);
+  refuse("PLATFORM_BUSY", R"(,"blame":"PLATFORM","retryable":true,"retryAfterMs":750)");
+  called = false;
+  exec.serverEndpointAsync("77", "", "", [&](graphql::GraphQLOutcome out, ExecEndpoint) {
+    called = true;
+    const auto busy = graphql::platformBusyOf(out.errors);
+    CHECK(busy.has_value());
+    CHECK(busy->retryAfterMs == std::optional<std::int64_t>(750));
+  });
+  CHECK(called);
+  refuse("FORBIDDEN");
+  got.reset();
+  exec.serverEndpointAsync("77", "", "", [&](Result<ExecEndpoint> r) { got = std::move(r); });
+  CHECK(got.has_value() && !got->ok());
+  CHECK(got->error() == Errc::Rejected);
+#ifndef CROWDY_NO_EXCEPTIONS
+  refuse("ORG_LEGAL_ACCEPTANCE_REQUIRED");
+  bool threw = false;
+  try {
+    exec.serverEndpoint("77");
+  } catch (const graphql::CrowdyGraphQLError& e) {
+    threw = true;
+    CHECK(graphql::orgLegalAcceptanceRequiredOf(e.errors()));
+  }
+  CHECK(threw);
+#endif
+
+  // connectAsServer: a server connection over that answer. callAs is its to send, and a
+  // reconnect asks for a fresh server connect token.
+  http->gatewayUrl = "ws://test/gw";
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  opts.initialReconnectDelayMs = 10;
+  const std::size_t asked = http->requests.size();
+  auto conn = exec.connectAsServer("77", opts);
+  CHECK(conn->isServer());
+  CHECK_EQ(transport->count(), 1u);
+  CHECK_EQ(http->requests.size(), asked + 1);
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsServer"));
+  auto c1 = transport->at(0);
+  CHECK_EQ(c1->url, std::string("ws://test/gw/v1/connect?token=server-1"));
+  c1->open();
+  std::optional<ExecReply> reply1;
+  conn->callAsRaw(4242, "player", "p-4242", "report", "", [&](ExecReply r) { reply1 = r; });
+  CHECK_EQ(c1->frames().size(), 1u);
+  CHECK_EQ(static_cast<int>(static_cast<std::uint8_t>(c1->frames()[0][0])), 0x05);
+  c1->deliver(reply(1, 0, ""));
+  CHECK(reply1.has_value() && reply1->ok());
+  c1->drop();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  while (transport->count() < 2 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  CHECK_EQ(transport->count(), 2u);
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("ExecConnectAsServer"));
+  conn->close();
+
+  bool connected = false;
+  exec.connectAsServerAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r) {
+    connected = r.ok() && r.value()->isServer();
+    if (r.ok()) r.value()->close();
+  });
+  CHECK_EQ(transport->count(), 3u);
+  transport->at(2)->open();
+  CHECK(connected);
+
+  // A player's connection from the same client is not a server's.
+  auto player = exec.connect("77", opts);
+  CHECK(!player->isServer());
+  player->close();
 }
 
 void testBuilds() {
@@ -1521,12 +1862,14 @@ int main() {
   testGoldenFrames();
   testStatusesAndDigests();
   testConnection();
+  testServerConnection();
   testCallTimesOut();
   testGatewayRefusal();
   testRefusedUpgrade();
   testAccessEnded();
   testRemoveListener();
   testOperations();
+  testServerEndpoint();
   testBuilds();
   testMods();
 #ifndef CROWDY_NO_EXCEPTIONS

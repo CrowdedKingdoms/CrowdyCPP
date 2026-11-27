@@ -16,7 +16,7 @@ pin, and the wrappers that wait for the next Application API schema. Your code n
 What changed:
 
 - **A player's connection takes only what the realtime server signed for its app.** A long-spatial notification
-  (actor and voxel updates, voice, video, text, events, single-actor messages, actor left, chunk changed) is
+  (actor and voxel updates, voice, video, text, events, single-actor messages, actor left, and chunk changed) is
   delivered when it carries its own HMAC that verifies with the player's token, or when it is a member of a
   signed bundle that verifies. One that nothing signed is dropped and counted in
   `Connection::Stats::unsignedNotifications`. One that names another app than `Config::appId` is dropped and
@@ -38,10 +38,12 @@ What changed:
   the new token. It asks nothing when `Config::refreshLeadMs` is 0. Either kind still reaches
   `Handlers::genericError` and still settles the `*AndWait` whose sequence number it names.
   `Stats::unverifiedTokenExpired` counts the unverified ones.
-- **Receiving is as fast as it was in 0.93.0.** 0.94.0 read the clock once for every verified notification and
-  handled a fleet session's frames on the path every notification takes. `benchmarks/bench_receive.cpp` measures
-  a connection that reads, verifies, and dispatches bundles of 6 signed actor updates on one pinned core: 2.07 to
-  2.16 million notifications a second in 0.93.0, 1.72 to 1.82 million in 0.94.1, and 2.02 to 2.07 million now.
+- **Receiving is within 4 % of 0.93.0 again.** 0.94.0 read the clock once for every verified notification and
+  handled a fleet session's frames on the path every notification takes, which cost a player's connection 15 to
+  17 %. `benchmarks/bench_receive.cpp` measures one connection that reads, verifies, and dispatches loopback
+  bundles of 6 signed actor updates of 64 bytes on one pinned core of our build machine (Release build, the
+  fastest of 300 rounds of 1,000 datagrams, 5 runs): 2.07 to 2.16 million notifications a second in 0.93.0, 1.72
+  to 1.82 million in 0.94.1, and 2.02 to 2.07 million now. `benchmarks/README.md` has the table.
 - **`disconnect()` and `pump()` return whatever is arriving.** A receive pass used to end only when the socket was
   empty. While datagrams arrived faster than the connection verified them, `pump()` did not return and
   `disconnect()` waited for a network thread that never stopped. A pass now reads 1,024 datagrams at most

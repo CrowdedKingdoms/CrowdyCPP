@@ -1358,6 +1358,155 @@ void runCarriesArePaced() {
 }
 
 // ---------------------------------------------------------------------------
+// The table holds the session's maxPlayers and 32 more rows. A carry for a new player past
+// that ends TableFull with nothing sent; a carry for a player the table holds, and one that
+// replaces such a player's token, are never refused that way (CrowdyJS's `tableFull`).
+// ---------------------------------------------------------------------------
+
+void runTheTableIsCapped() {
+  CHECK_EQ(kFleetTableMargin, 32u);
+  CHECK_EQ(kFleetMaxPlayersCeiling, 1024u);
+  CHECK_EQ(static_cast<int>(FleetCarryStatus::TableFull), 253);
+  CHECK_EQ(std::string(fleetCarryStatusName(FleetCarryStatus::TableFull)), std::string("TableFull"));
+  {
+    // No number named, and one above the ceiling: the ceiling and the margin.
+    FakeServer idle;
+    idle.start();
+    FleetConfig none = configFor(idle);
+    CHECK_EQ(none.maxPlayers, 0);
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+    none.maxPlayers = 5000;
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+    none.maxPlayers = -1;
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+  }
+
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetConfig cfg = configFor(server);
+  cfg.maxPlayers = 2;
+  FleetSession fleet(cfg, crypto(), clock);
+  Seen seen;
+  fleet.setHandlers(recording(seen));
+  openConnected(fleet, server);
+  CHECK_EQ(fleet.tableLimit(), 34u);
+
+  // 34 new players: every one gets a row (the realtime server is the one that says which
+  // two it carries; here it answers nothing yet).
+  const std::int64_t first = 3000;
+  for (int i = 0; i < 34; ++i) CHECK(fleet.carry({tokenFor(first + i), first + i}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 0u);
+
+  // The 35th: accepted as a call, ended at once, reported from poll() like every result,
+  // and never on the wire.
+  const std::int64_t extra = first + 34;
+  std::vector<FleetCarryResult> viaCallback;
+  CHECK(fleet.carry({tokenFor(extra), extra}, [&](const FleetCarryResult& r) { viaCallback.push_back(r); }).ok());
+  CHECK(viaCallback.empty());
+  CHECK(seen.results.empty());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 1u);
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(!fleet.player(extra).has_value());
+  fleet.poll();
+  CHECK_EQ(viaCallback.size(), 1u);
+  CHECK_EQ(seen.results.size(), 1u);
+  CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::TableFull));
+  CHECK_EQ(viaCallback[0].playerGameTokenId, extra);
+  CHECK(!viaCallback[0].carried());
+  CHECK_EQ(viaCallback[0].userId, 0);
+  CHECK_EQ(viaCallback[0].wireStatus, 255u);
+  CHECK_EQ(static_cast<int>(seen.results[0].status), static_cast<int>(FleetCarryStatus::TableFull));
+  fleet.poll();
+  CHECK_EQ(viaCallback.size(), 1u);  // once
+  SpatialSend p;
+  p.uuid = uuid('a');
+  CHECK_EQ(static_cast<int>(fleet.sendActorUpdate(extra, p).error()), static_cast<int>(Errc::NotCarried));
+  // A `replaces` that names nobody the table holds is a new player too.
+  CHECK(fleet.carry({tokenFor(extra + 1), extra + 1, 999'999}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), 2u);
+  CHECK_EQ(seen.results[1].playerGameTokenId, extra + 1);
+
+  // On the wire: a FLEET_CARRY for each of the 34 (the burst at once, the rest in their
+  // turn), and none for the two that were refused.
+  std::vector<int> carries(36, 0);
+  const auto read = [&] {
+    for (const auto& d : drain(server)) {
+      CHECK_EQ(d[0], 49u);
+      const std::int64_t id = le::readI64(d.data() + wire::offsets::kPayload);
+      CHECK(id >= first && id < first + 36);
+      ++carries[static_cast<std::size_t>(id - first)];
+    }
+  };
+  read();
+  clock.advance(100);
+  fleet.pump(0);
+  read();
+  for (int i = 0; i < 34; ++i) CHECK(carries[static_cast<std::size_t>(i)] >= 1);
+  CHECK_EQ(carries[34], 0);
+  CHECK_EQ(carries[35], 0);
+
+  // A player the table holds is carried again without question: the same token (a carry
+  // repeated before its result), and a new token under the same id.
+  const std::size_t resultsBefore = seen.results.size();
+  CHECK(fleet.carry({tokenFor(first), first}).ok());
+  std::string renewed = tokenFor(first + 1);
+  renewed[0] = 'q';
+  CHECK(fleet.carry({renewed, first + 1}).ok());
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), resultsBefore);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  CHECK_EQ(fleet.players().size(), 34u);
+
+  // The server carries two of them and has no room for the rest: their rows leave.
+  for (int i = 0; i < 34; ++i) {
+    const std::int64_t id = first + i;
+    server.send(own(carryResultFrame(id, i < 2 ? 9000 + id : 0, i < 2 ? std::uint8_t{0} : std::uint8_t{4})));
+  }
+  pumpUntil(fleet, [&] { return seen.results.size() == resultsBefore + 34; });
+  CHECK_EQ(seen.results.size(), resultsBefore + 34);
+  CHECK_EQ(fleet.players().size(), 2u);
+  CHECK_EQ(fleet.carriedCount(), 2u);
+  (void)drain(server);
+
+  // Full again, with a carried player among the rows: a refreshed token for that player
+  // (`replaces`) moves the row and is not a new player.
+  for (int i = 0; i < 32; ++i) CHECK(fleet.carry({tokenFor(4000 + i), 4000 + i}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  const std::int64_t refreshedId = 5000;
+  CHECK(fleet.carry({tokenFor(refreshedId), refreshedId, first}).ok());
+  fleet.poll();
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(fleet.player(refreshedId).has_value());
+  CHECK(fleet.carries(first) && fleet.carries(refreshedId));  // carried throughout
+  // A new player still is.
+  CHECK(fleet.carry({tokenFor(6000), 6000}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 3u);
+
+  // A release makes room for one, and a larger maxPlayers (a refresh's answer) for more.
+  CHECK(fleet.release(4000).ok());
+  CHECK_EQ(fleet.players().size(), 33u);
+  CHECK(fleet.carry({tokenFor(6000), 6000}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(fleet.carry({tokenFor(6001), 6001}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 4u);
+  fleet.setMaxPlayers(3);
+  CHECK_EQ(fleet.tableLimit(), 35u);
+  CHECK(fleet.carry({tokenFor(6001), 6001}).ok());
+  CHECK_EQ(fleet.players().size(), 35u);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 4u);
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), resultsBefore + 34 + 2);  // the two TableFull since
+  for (std::size_t i = resultsBefore + 34; i < seen.results.size(); ++i) {
+    CHECK_EQ(static_cast<int>(seen.results[i].status), static_cast<int>(FleetCarryStatus::TableFull));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Each FLEET_CARRY_RESULT status.
 // ---------------------------------------------------------------------------
 
@@ -2417,6 +2566,61 @@ void runSilenceTimeoutDefaults() {
   }
 }
 
+// Every allowed timeout fires, within one capabilities interval of its value, when the
+// server says nothing from the start (OI-2026-11-27-001: at the minimum the capabilities
+// interval is a third of the timeout, 1,000 ms, which was also how long the check waited for
+// the acknowledgement of the capabilities that last left; an advertisement left every time
+// that wait was over, so a timeout of 3,000 to about 3,300 never fired). The session is
+// pumped every 10 ms, as a game's loop would.
+void runEverySilenceTimeoutFires() {
+  struct Case {
+    std::int64_t asked, timeoutMs, intervalMs;
+  };
+  for (const Case c : {Case{3'000, 3'000, 1'000},      // the minimum
+                       Case{1, 3'000, 1'000},          // below it: raised to it
+                       Case{3'002, 3'002, 1'000},
+                       Case{3'300, 3'300, 1'100},
+                       Case{4'500, 4'500, 1'500},
+                       Case{45'000, 45'000, 15'000}}) {  // the default
+    FakeServer server;
+    server.start();
+    ManualClock clock;
+    FleetConfig cfg = watchedConfigFor(server);
+    cfg.transport.watchdogSilenceMs = c.asked;
+    FleetSession fleet(cfg, crypto(), clock);
+    server.serves(fleet);
+    CHECK(fleet.open().ok());
+    const std::int64_t start = clock.monotonicMillis();
+    std::int64_t firedAtMs = -1;
+    for (int step = 0; step <= 7'000 && firedAtMs < 0; ++step) {  // 70 seconds at most
+      fleet.pump(0);
+      fleet.poll();
+      if (fleet.moveOrdered()) {
+        firedAtMs = clock.monotonicMillis() - start;
+        CHECK(fleet.refreshDue());
+      } else {
+        clock.advance(10);
+      }
+    }
+    if (firedAtMs < 0) {
+      std::fprintf(stderr, "a silence timeout of %lld ms did not fire in 70 seconds\n",
+                   static_cast<long long>(c.asked));
+    }
+    // After its value, and no later than the first pass a capabilities interval after it.
+    CHECK(firedAtMs > c.timeoutMs);
+    CHECK(firedAtMs <= c.timeoutMs + c.intervalMs + 10);
+    // Every advertisement on the way was the session's own, a capabilities interval apart.
+    int advertisements = 0;
+    for (const auto& got : sentSoFar(server)) {
+      CHECK_EQ(got[0], 29u);
+      ++advertisements;
+    }
+    CHECK_EQ(advertisements, static_cast<int>(firedAtMs / c.intervalMs) + 1);
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+  }
+}
+
 // A live session that carries nobody, with nothing in range, hears only the acknowledgements
 // of its capabilities. Ten minutes of that never make a refresh due.
 void runAnIdleSessionIsNeverTakenForGone() {
@@ -3130,8 +3334,9 @@ void runErrorFramesChangeNothing() {
   CHECK(fleet.carries(kPlayerId));
   server.expectNothing();
 
-  // A player's Connection is as it was: it acts on TOKEN_EXPIRED however it arrives, and
-  // its handler is told which way that was.
+  // A player's Connection reassigns on a verified TOKEN_EXPIRED only (0.95.0; it used to
+  // on either), and its handler is told which way a frame arrived
+  // (player_connection_checks_test has the rest).
   struct Counting final : ISessionProvider {
     int port;
     int assigns = 0;
@@ -3163,16 +3368,15 @@ void runErrorFramesChangeNothing() {
   other.recvOne();
   CHECK_EQ(provider->assigns, 1);
   other.send(expired);
-  for (int i = 0; i < 100 && provider->assigns < 2; ++i) {
+  for (int i = 0; i < 100 && errors.empty(); ++i) {
     conn.pump(20);
     conn.poll();
   }
-  CHECK_EQ(provider->assigns, 2);  // unverified, and acted on, as before
+  conn.pump(0);
+  CHECK_EQ(provider->assigns, 1);  // unverified: no reassignment
+  CHECK_EQ(conn.stats().unverifiedTokenExpired, 1u);
   CHECK_EQ(errors.size(), 1u);
   CHECK(!errors[0].verified);
-  conn.pump(0);
-  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
-  other.recvOne();
   other.send(signedBundle({unauthorized}));
   for (int i = 0; i < 100 && errors.size() < 2; ++i) {
     conn.pump(20);
@@ -3180,6 +3384,189 @@ void runErrorFramesChangeNothing() {
   }
   CHECK_EQ(errors.size(), 2u);
   CHECK(errors[1].verified);
+}
+
+// ---------------------------------------------------------------------------
+// A carried player's keepalive, refused (for realtime servers v0.51.0: a keepalive is
+// accepted only where the player's actor update would be, so where the player has no access
+// every keepalive is answered UNAUTHORIZED, inside the session's signed bundle). The
+// session tells the game server once per player, actor and place (notPresent), keeps the
+// report readable, ends it once, and changes nothing else: the carry stands, nothing is
+// carried again, no refresh comes due, and sendRefused is not called every few seconds.
+// ---------------------------------------------------------------------------
+
+void runARefusedKeepaliveOfACarriedPlayer() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetSession fleet(configFor(server), crypto(), clock);
+  Seen seen;
+  std::vector<FleetSendRefused> refused;
+  std::vector<ActorNotPresent> made;
+  std::vector<std::pair<ActorNotPresent, NotPresentEnd>> ended;
+  FleetHandlers h = recording(seen);
+  h.sendRefused = [&](const FleetSendRefused& r) { refused.push_back(r); };
+  h.notPresent = [&](const ActorNotPresent& r) { made.push_back(r); };
+  h.notPresentEnded = [&](const ActorNotPresent& r, NotPresentEnd why) { ended.emplace_back(r, why); };
+  fleet.setHandlers(std::move(h));
+  openConnected(fleet, server);
+  const std::int64_t a = 901, b = 902;
+  carryAs(fleet, server, a, 9011, tokenFor(a));
+  carryAs(fleet, server, b, 9012, tokenFor(b));
+  const wire::ChunkCoord here{7, 0, 7};
+  const wire::ChunkCoord there{8, 0, 7};
+
+  // Everything the session sends from here on is a keepalive, an update or its
+  // capabilities: never a carry, a release or anything a refusal could have caused.
+  const auto read = [&] {
+    for (const auto& got : sentSoFar(server)) CHECK(got[0] == 26 || got[0] == 128 || got[0] == 29);
+  };
+  const auto beat = [&](std::int64_t player, const wire::ChunkCoord& chunk, const core::ActorUuid& actor) {
+    const auto seq = fleet.sendHeartbeat(player, chunk, actor);
+    CHECK(seq.ok());
+    read();
+    return seq.value();
+  };
+  const auto refuse = [&](std::uint8_t sequence, bool signedByTheServer = true) {
+    const std::size_t before = seen.errors.size();
+    const std::vector<std::uint8_t> frame = {3, sequence, 7};
+    server.send(signedByTheServer ? signedBundle({frame}) : frame);
+    pumpUntil(fleet, [&] { return seen.errors.size() == before + 1; });
+    CHECK_EQ(seen.errors.size(), before + 1);
+    CHECK_EQ(seen.errors.back().verified, signedByTheServer);
+  };
+  const auto unchanged = [&] {
+    CHECK(fleet.carries(a) && fleet.carries(b));
+    CHECK(!fleet.moveOrdered() && !fleet.refreshDue());
+    CHECK(seen.released.empty());
+    CHECK_EQ(fleet.sessionEpoch(), 1u);
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+  };
+
+  // The first refused keepalive of a's actor: one report, naming the player.
+  const std::uint8_t first = beat(a, here, uuid('a'));
+  refuse(first);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 1u);
+  CHECK_EQ(made[0].playerGameTokenId, a);
+  CHECK(made[0].uuid == uuid('a'));
+  CHECK(made[0].chunk == here);
+  CHECK_EQ(made[0].sequence, first);
+  CHECK(made[0].verified);
+  CHECK(refused.empty());  // a keepalive's UNAUTHORIZED is told by notPresent
+  CHECK(fleet.notPresent(a, uuid('a')).has_value());
+  CHECK(!fleet.notPresent(b, uuid('a')).has_value());
+  unchanged();
+
+  // The game server keeps the keepalives going, and each is refused: told once.
+  for (int i = 0; i < 10; ++i) {
+    clock.advance(2000);
+    refuse(beat(a, here, uuid('a')));
+    CHECK(seen.errors.back().keepalive);
+  }
+  CHECK_EQ(made.size(), 1u);
+  CHECK(ended.empty());
+  CHECK(refused.empty());
+  CHECK_EQ(fleet.stats().keepalivesRefused, 11u);
+  CHECK_EQ(fleet.stats().notPresentReports, 1u);
+  CHECK_EQ(fleet.stats().sendRefusalsNamed, 0u);
+  unchanged();
+
+  // Three bytes that nothing signed make no report, whatever number they carry.
+  const std::uint8_t unsignedFor = beat(b, here, uuid('b'));
+  refuse(unsignedFor, /*signedByTheServer=*/false);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 1u);
+  CHECK(!fleet.notPresent(b, uuid('b')).has_value());
+  refuse(unsignedFor);
+  CHECK_EQ(made.size(), 2u);
+  CHECK_EQ(made[1].playerGameTokenId, b);
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+
+  // A refused update is still a refused send, named by sendRefused each time.
+  const std::uint8_t pose[] = {1, 2, 3};
+  const SpatialSend update{here, uuid('a'), Bytes(pose, sizeof(pose))};
+  auto updated = fleet.sendActorUpdate(a, update);
+  CHECK(updated.ok());
+  read();
+  refuse(updated.value());
+  CHECK(!seen.errors.back().keepalive);
+  CHECK_EQ(refused.size(), 1u);
+  CHECK_EQ(refused[0].playerGameTokenId, a);
+  CHECK_EQ(made.size(), 2u);
+
+  // The session's own keepalive registers no actor: its refusal is nobody's report.
+  const auto own = fleet.sendHeartbeat();
+  CHECK(own.ok());
+  read();
+  refuse(own.value());
+  CHECK_EQ(made.size(), 2u);
+  CHECK_EQ(refused.size(), 1u);
+
+  // a is given access: the next keepalive has no refusal, and 3,000 ms later the report
+  // ends.
+  clock.advance(2000);
+  beat(a, here, uuid('a'));
+  clock.advance(kKeepaliveAnswerWaitMs - 1);
+  settle(fleet);
+  CHECK(ended.empty());
+  clock.advance(1);
+  settle(fleet);
+  read();
+  CHECK_EQ(ended.size(), 1u);
+  CHECK_EQ(ended[0].first.playerGameTokenId, a);
+  CHECK_EQ(static_cast<int>(ended[0].second), static_cast<int>(NotPresentEnd::Accepted));
+  CHECK(!fleet.notPresent(a, uuid('a')).has_value());
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+
+  // b's actor moves: its next keepalive names another chunk.
+  beat(b, there, uuid('b'));
+  settle(fleet);
+  read();
+  CHECK_EQ(ended.size(), 2u);
+  CHECK_EQ(ended[1].first.playerGameTokenId, b);
+  CHECK(ended[1].first.chunk == here);
+  CHECK_EQ(static_cast<int>(ended[1].second), static_cast<int>(NotPresentEnd::Moved));
+
+  // A sequence number is one byte for the whole session. A refusal under a number that a
+  // send for another player also left under, within the time a refusal can take, makes no
+  // first report (as it names no player for sendRefused).
+  clock.advance(kFleetRefusalWindowMs + 1);
+  std::uint8_t last = fleet.sendActorUpdate(a, update).value();
+  const auto fillTo = [&](std::uint8_t sequence) {
+    while (static_cast<std::uint8_t>(last + 1) != sequence) last = fleet.sendActorUpdate(a, update).value();
+    read();
+  };
+  const std::uint8_t shared = static_cast<std::uint8_t>(last + 1);
+  last = fleet.sendActorUpdate(a, update).value();  // a's, under `shared`
+  fillTo(shared);
+  const std::uint8_t ambiguous = beat(b, there, uuid('b'));  // b's keepalive, 256 sends later
+  CHECK_EQ(ambiguous, shared);
+  last = ambiguous;
+  refuse(ambiguous);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 2u);
+  CHECK(!fleet.notPresent(b, uuid('b')).has_value());
+  // Once a's send is too old to be the one refused, the number is b's keepalive's alone.
+  clock.advance(kFleetRefusalWindowMs + 1);
+  refuse(beat(b, there, uuid('b')));
+  CHECK_EQ(made.size(), 3u);
+  CHECK(made[2].chunk == there);
+  // A report that stands is kept standing by a refusal under a shared number too: the
+  // keepalive it may answer is not taken as accepted.
+  last = fleet.sendActorUpdate(a, update).value();
+  const std::uint8_t again = static_cast<std::uint8_t>(last + 1);
+  last = fleet.sendActorUpdate(a, update).value();
+  fillTo(again);
+  CHECK_EQ(beat(b, there, uuid('b')), again);
+  refuse(again);
+  clock.advance(kKeepaliveAnswerWaitMs);
+  settle(fleet);
+  read();
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+  CHECK_EQ(ended.size(), 2u);
+  unchanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -4271,6 +4658,7 @@ int main() {
   runOnlyFourMessagesUnderTheSessionsId();
   runCarryResendAndDeadline();
   runCarriesArePaced();
+  runTheTableIsCapped();
   runCarryStatuses();
   runReleasedReasons();
   runRefreshedTokenReplacesEntry();
@@ -4286,6 +4674,7 @@ int main() {
   runErrorFramesChangeNothing();
   runProofRefusedConverges();
   runSilenceTimeoutDefaults();
+  runEverySilenceTimeoutFires();
   runAnIdleSessionIsNeverTakenForGone();
   runTwoLostAcknowledgementsAreNotSilence();
   runSilenceMakesARefreshDue();
@@ -4296,6 +4685,7 @@ int main() {
   runSendFaultIsNamed();
   runOnlyTheSessionsOwnAppIsDispatched();
   runVerifiedRefusals();
+  runARefusedKeepaliveOfACarriedPlayer();
   runARefreshedTokenKeepsThePlayerCarried();
   if (const char* reorders = std::getenv("FLEET_TEST_LOOPBACK_REORDERS"); reorders && reorders[0] == '1') {
     std::puts("runSendsInFlightSwitchWithTheCarry left out: FLEET_TEST_LOOPBACK_REORDERS=1");

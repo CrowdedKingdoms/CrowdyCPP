@@ -1337,9 +1337,9 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'FleetSpeakerChange',
     ],
     CATEGORY.NATIVE,
-    'replication::FleetSession (crowdy/replication/fleet_session.hpp) is the same session over Connection: carry, release, every send for a carried player, refreshDue and applyRefresh, with results and notifications delivered from poll(). A send for a player who is not carried returns Errc::NotCarried. The table has no cap of its own (see fleet-session-table-cap below)',
+    'replication::FleetSession (crowdy/replication/fleet_session.hpp) is the same session over Connection: carry, release, every send for a carried player, refreshDue and applyRefresh, with results and notifications delivered from poll(). A send for a player who is not carried returns Errc::NotCarried, and the table has CrowdyJS\'s cap (fleet-session-table-cap below)',
     {
-      FLEET_TABLE_MARGIN: 'NoRoom',
+      FLEET_TABLE_MARGIN: 'kFleetTableMargin',
       FleetCarryOutcome: 'FleetCarryStatus',
       FleetCarryResult: 'FleetCarryResult',
       FleetHandlers: 'FleetHandlers',
@@ -1709,8 +1709,8 @@ const CROSS_CUTTING_BEHAVIORS = {
       'graphql::orgTokenRequiredOf, fleetSessionLimitOf, fleetSessionNotFoundOf and platformBusyOf (PlatformBusy::retryAfterMs), with kOrgTokenRequiredCode, kFleetSessionLimitCode, kNotFoundCode and kPlatformBusyCode, in crowdy/graphql/errors.hpp (0.94.0)',
     ),
   },
-  // A difference, kept visible: CrowdyJS bounds its table and CrowdyCPP does not. The markers
-  // go stale if CrowdyJS changes the cap; delete this entry when FleetSession carries one.
+  // The table cap. A difference until 0.95.0 (CrowdyJS bounded its table from 18.40.0, on its
+  // security review's word); the same cap since.
   'fleet-session-table-cap': {
     path: 'src/fleet/session.ts',
     markers: [
@@ -1721,7 +1721,7 @@ const CROSS_CUTTING_BEHAVIORS = {
     ],
     classification: classification(
       CATEGORY.NATIVE,
-      "0.94.0 does not mirror this: CrowdyJS refuses a carry for a new player once its table holds maxPlayers + 32 rows ('tableFull', tableLimit, carriesRefusedTableFull). FleetSession's table has no cap of its own: the realtime server answers a carry past the session's maxPlayers FleetCarryStatus::NoRoom, a refused or timed-out carry removes its row, and only the game server's own carry() calls add one. A local cap would be new behaviour and is in no release yet",
+      "FleetSession holds the same cap: a carry for a new player while the table holds tableLimit() rows (FleetConfig::maxPlayers, or kFleetMaxPlayersCeiling 1,024, and kFleetTableMargin 32 more) ends FleetCarryStatus::TableFull with nothing sent, reported from poll() and counted in Stats::carriesRefusedTableFull; a carry for a player the table holds and a `replaces` carry are never refused that way, and applyFleetRefresh passes a refresh's maxPlayers to setMaxPlayers (fleet_session_test runTheTableIsCapped, 0.95.0)",
     ),
   },
   'fleet-session-actor-heartbeats': {

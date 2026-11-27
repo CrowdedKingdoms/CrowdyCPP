@@ -1,5 +1,134 @@
 # CrowdyCPP migration notes
 
+## Unreleased (0.95.0)
+
+These changes are on `dev` and have no release yet. The release adds the platform versions it needs, the CrowdyJS
+pin, and the wrappers that wait for the next Application API schema. Your code needs a change in six cases:
+
+- It sends a `Connection` notifications from a server of your own that does not sign them. Sign them, or set
+  `Config::verifyNotifications = false`.
+- It set `Config::refreshLeadMs = 0` and relied on the connection to reassign on `TOKEN_EXPIRED`. Call
+  `connection.requestReassignment()` from `Handlers::genericError` when the code is `TokenExpired`, after your
+  own token refresh.
+- It expects one `pump()` to read everything that is waiting. Call `pump()` until it returns less than 1,024.
+- It switches over `FleetCarryStatus` without a `default`. Add `TableFull`.
+- It reads a carried player's refused keepalive from `FleetHandlers::sendRefused`. Read it from
+  `FleetHandlers::notPresent`, which is called once for the player, the actor, and the place.
+- It counts on `WorldSession::errors()` holding every refused keepalive. It now holds the first one of each
+  report, as a `SendKind::Heartbeat` error. `WorldSessionConfig::onNotPresent` and `notPresent()` say the rest.
+
+What changed:
+
+- **A player's connection takes only what the realtime server signed for its app.** A long-spatial notification
+  (actor and voxel updates, voice, video, text, events, single-actor messages, actor left, and chunk changed) is
+  delivered when it carries its own HMAC that verifies with the player's token, or when it is a member of a
+  signed bundle that verifies. One that nothing signed is dropped and counted in
+  `Connection::Stats::unsignedNotifications`. One that names another app than `Config::appId` is dropped and
+  counted in `Stats::wrongApp`, however it was signed. A dropped notification reaches no handler, counts as no
+  received message, and answers no `*AndWait`. The realtime servers sign every long-spatial notification they
+  send a session and send a session only its own app's, so both counts stay 0. If one moves, tell Crowded
+  Kingdoms: the SDK's log line names the app, the message type, and the chunk. `FleetSession` has made both
+  checks since 0.94.0, under the same names.
+- **What a connection still delivers.** Channel messages, channel audio, and error frames have no room for an HMAC
+  of their own, so they arrive as before, alone or in either kind of bundle. With `Config::verifyNotifications`
+  off, a notification that nothing signed is delivered, as one with a wrong HMAC is. A connection whose
+  `Config::appId` is 0 compares no app, and a notification that names app 0 is delivered.
+- **`TOKEN_EXPIRED` reassigns only when it is verified.** An error frame is 3 bytes with no HMAC, and the realtime
+  servers send a player's session every one alone, so `GenericError::verified` is false for it. Until now a
+  connection reassigned on any `TOKEN_EXPIRED`, which let anyone who could put 3 bytes on the session's flow move
+  the player to another server. Now only a `TOKEN_EXPIRED` inside a signed bundle that verifies reassigns. For an
+  unverified one, the connection asks its session provider for a fresh token (`refreshToken`), at most once every
+  30 seconds (`kTokenCheckIntervalMs`), and reassigns only if the answer says the current server does not know
+  the new token. It asks nothing when `Config::refreshLeadMs` is 0. Either kind still reaches
+  `Handlers::genericError` and still settles the `*AndWait` whose sequence number it names.
+  `Stats::unverifiedTokenExpired` counts the unverified ones.
+- **Receiving is within 4 % of 0.93.0 again.** 0.94.0 read the clock once for every verified notification and
+  handled a fleet session's frames on the path every notification takes, which cost a player's connection 15 to
+  17 %. `benchmarks/bench_receive.cpp` measures one connection that reads, verifies, and dispatches loopback
+  bundles of 6 signed actor updates of 64 bytes on one pinned core of our build machine (Release build, the
+  fastest of 300 rounds of 1,000 datagrams, 5 runs): 2.07 to 2.16 million notifications a second in 0.93.0, 1.72
+  to 1.82 million in 0.94.1, and 2.02 to 2.07 million now. `benchmarks/README.md` has the table.
+- **`disconnect()` and `pump()` return whatever is arriving.** A receive pass used to end only when the socket was
+  empty. While datagrams arrived faster than the connection verified them, `pump()` did not return and
+  `disconnect()` waited for a network thread that never stopped. A pass now reads 1,024 datagrams at most
+  (`kReceivePassDatagrams`), and the network thread stops at the 16 it has in hand (`kReceiveBatchDatagrams`)
+  once `disconnect()` is called. `disconnect()` returns within 100 milliseconds unless the session provider is
+  in the middle of a call.
+- **A fleet session's silence timeout fires at every value.** `FleetConfig::transport.watchdogSilenceMs` from
+  3,000 to about 3,300 never fired, because the acknowledgement of each capabilities message restarted the wait.
+  Every value from 3,000 up now fires between the timeout and one capabilities interval later.
+- **A fleet session's table has a limit.** `FleetSession::tableLimit()` is `maxPlayers` and 32 more rows
+  (`kFleetTableMargin`), as in CrowdyJS. A carry for a new player while the table is full ends
+  `FleetCarryStatus::TableFull` at the next `poll()`, with nothing sent, and
+  `Stats::carriesRefusedTableFull` counts it. A carry for a player the table already holds, and a carry whose
+  `replaces` names one, are never refused this way. `FleetConfig::maxPlayers` holds the number
+  (`fleetConfigOf` sets it from `openFleetSession`'s answer, and 0 means 1,024), and `setMaxPlayers` takes a
+  refresh's (`applyFleetRefresh` calls it). Release the players who left, or open another session.
+- **A refused keepalive is reported once.** For realtime servers v0.51.0, which are on the dev tier since
+  November 27, 2026, with test and production to follow. From v0.51.0 a keepalive
+  (`Connection::sendHeartbeat`, `CLIENT_ACTOR_HEARTBEAT`) is accepted only where the player's actor update would
+  be. Where the player has no `access`, the server answers every keepalive `UNAUTHORIZED`: 3 unsigned bytes to a
+  player's session, or a member of a fleet session's signed bundle. The actor is not present there, other
+  players are not told of it, and the session is sent nothing of the place. The session stays connected.
+  The SDK now makes one report for the actor and the place, an `ActorNotPresent` (`uuid`, `chunk`, `sequence`,
+  `verified`, and for a fleet session `playerGameTokenId`):
+  - `Handlers::notPresent` is called once, at the first refused keepalive. `Connection::notPresent(uuid)` returns
+    the report while it stands. `Handlers::notPresentEnded` is called once when it ends, with the reason:
+    `Accepted` (a keepalive there had no refusal for 3 seconds, or the actor's own update came back from the
+    server), `Moved` (the actor's next keepalive or update named another chunk), or `Stopped` (no keepalive was
+    sent for the actor there for 30 seconds).
+  - `Handlers::genericError` still receives every refusal, and `GenericError::keepalive` is true for one that
+    answers a keepalive. `Stats::keepalivesRefused` counts them, and `Stats::notPresentReports` counts reports.
+  - Nothing else changes on such a refusal: the connection's state, its server, and its token stay as they are.
+    A player's session is sent the refusal unsigned, so anyone who can reach the session's socket could send
+    one. The report is all it can cause.
+  - Keep sending keepalives at the rate you send them now: never faster, and never stop. Once access is
+    granted, the next keepalive is accepted within about 6 seconds, with no new sign-in. `LocalActorStore`
+    already keeps its rate whatever the server answers. Access that is removed takes effect at the session's
+    next token refresh, at most 30 minutes later, as it does for updates.
+  - `WorldSessionConfig::onNotPresent` and `onNotPresentEnded` forward the two calls, and
+    `WorldSession::notPresent()` reads the report for the session's own actor. `errors()` records the first
+    refused keepalive of a report as a `SendKind::Heartbeat` error. Until now it recorded every one, each as an
+    error of unknown kind, and passed each to the actor store and the chunk store, which could take it for the
+    refusal of an update or an edit that used the same sequence number 256 sends earlier.
+  - `FleetHandlers::notPresent` and `notPresentEnded` do the same for a carried player's keepalive
+    (`FleetSession::sendHeartbeat(player, ...)`), and `FleetSession::notPresent(player, uuid)` reads the report.
+    A fleet session reports only a refusal that verified. The first report also needs a sequence number that
+    only that keepalive can have used in the last 3 seconds, as `sendRefused` does. A keepalive's `UNAUTHORIZED`
+    no longer reaches `sendRefused`. The carry stands, and the session carries nobody again because of it.
+  - The server does not count a refused keepalive as gameplay input for the idle timeout, or as data in.
+    Unchanged: apps where every region is open, paused apps (a keepalive is still accepted wherever the player
+    has access), an idle player's first keepalive after a move or a reconnect, and a fleet session's own
+    keepalive.
+- **The SDK waits 30 seconds at most on a server's `retryAfterMs`.** The platform's own hints run from 200 ms to
+  10 s. `kMaxRetryAfterWaitMs` is 30,000: three times the longest of them, and half of the 60 seconds one API
+  request may take by default. `retryWaitMs(hint)` is the function every such wait goes through: 0 for a hint
+  of 0 or below, the hint up to 30,000, and 30,000 for anything longer. It bounds the wait between
+  `startGameSession`'s attempts (`connectRetryWaitMs`), the Studio runner's, the Studio runtime's, and
+  `exec().waitForModBuild`'s wait before a dropped build-status read is read again, and the kit runtime's hold
+  after a rate-limit refusal. `ApiFailure::retryAfterMs` and `ExecReply::retryAfterMs()` are bounded the same
+  way. `GraphQLErrorDetail::retryAfterMs` and `platformBusyOf` still hold what the API sent: pass it through
+  `retryWaitMs` before you wait on it. `GameSessionOptions::sleep` replaces the thread sleep between attempts.
+- **A server's text is logged short and on one line.** The log lines for a failed assignment, a failed
+  reassignment, and a failed token refresh, `ApiFailure::code` and `message`, and the message of a failed hub
+  dial pass through `serverText()`: control characters and runs of whitespace become one space, and the text is
+  cut at 500 bytes (64 for a code), never inside a UTF-8 character. Show such text to a person. Do not act on
+  it.
+- **A refused server assignment says why.** `connect()` still answers one `Errc`.
+  `Connection::lastAssignmentFailure()`, `ReplicationClient::ConnectResult::failure`, and `GameSession::failure`
+  now hold an `ApiFailure`: the Application API's refusal `code`, its `retryAfterMs`, and its `message`.
+  `failure.platformBusy()` means the platform was shedding load: wait `retryAfterMs`, then connect again.
+  `startGameSession` waits that long between its attempts when it is longer than `connectRetryDelayMs`. A session
+  provider of your own reports the same through `ISessionProvider::assignServerOrSayWhy`, whose default forwards
+  to `assignServer`. `serverStatus().serverWithLeastClientsOutcome` and `graphql::apiFailureOf` are the two
+  pieces it is made of.
+- **A refused hub connection says why.** `ExecConnection::lastConnectFailure()` holds the same `ApiFailure` for
+  `execConnect`, `execConnectAsDeveloper`, and `execConnectAsServer`. A call that waited on the connection still
+  fails `Unavailable`, and its message now names the code and the wait: `ExecReply::platformBusy()` is true for
+  `PLATFORM_BUSY`, and `retryAfterMs()` reads the wait. `connectAsync`, `connectAsDeveloperAsync`, and
+  `connectAsServerAsync` each have an overload whose callback also receives the failure. A connection over an
+  `ExecDial` of your own learns it through `explainDialFailures`.
+
 ## 0.94.1 The fleet session documents come from the published schema
 
 For the platform releases 0.94.0 needs; pinned to CrowdyJS 18.40.0. Your code needs no change: no call, type, or

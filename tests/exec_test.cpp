@@ -14,6 +14,7 @@
 #include "crowdy/core/base64.hpp"
 #include "crowdy/domains/exec.hpp"
 #include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/dropped_read.hpp"
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/graphql/http.hpp"
@@ -185,6 +186,53 @@ void testStatusesAndDigests() {
   CHECK(!full.retryAfterMs().has_value());
   CHECK((ExecReply{ExecStatus::RateLimited, "slow down"}.rateLimited()));
   CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in soon"}.retryAfterMs().has_value()));
+  // A gateway's wait is a server's word: it counts up to kMaxRetryAfterWaitMs (30 s), which
+  // is what the kit's runtime then holds its calls for at most.
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 30000 ms"}.retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 30001 ms"}.retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 86400000000 ms"}.retryAfterMs()) ==
+        std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 99999999999999999999999999999999999 ms"}
+             .retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 0 ms"}.retryAfterMs()) == std::optional<long>(0));
+  CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in -5 ms"}.retryAfterMs().has_value()));
+  CHECK((ExecReply{ExecStatus::Unavailable, "no host for this app: PLATFORM_BUSY, retry in 86400000000 ms: busy"}
+             .retryAfterMs()) == std::optional<long>(30000));
+  {
+    // The waits the Studio runner, the Studio runtime and waitForModBuild read a dropped
+    // build-status read again after come from these two, bounded the same way.
+    const auto busyFor = [](std::int64_t ms) {
+      graphql::GraphQLOutcome out;
+      out.kind = graphql::GraphQLErrorKind::GraphQL;
+      graphql::GraphQLErrorDetail busy;
+      busy.code = "PLATFORM_BUSY";
+      busy.blame = "PLATFORM";
+      busy.retryAfterMs = ms;
+      out.errors.push_back(busy);
+      return out;
+    };
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(750)), 750);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(86'400'000'000LL)), kMaxRetryAfterWaitMs);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(INT64_MAX)), kMaxRetryAfterWaitMs);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(0)), 0);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(-1)), 0);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(INT64_MIN)), 0);
+#ifndef CROWDY_NO_EXCEPTIONS
+    const std::pair<std::int64_t, std::int64_t> hints[] = {
+        {750, 750}, {86'400'000'000LL, kMaxRetryAfterWaitMs}, {0, 0}, {-1, 0}};
+    for (const auto& [asked, waited] : hints) {
+      std::int64_t wait = -7;
+      bool dropped = false;
+      try {
+        throw graphql::CrowdyGraphQLError(busyFor(asked).errors);
+      } catch (...) {
+        dropped = graphql::detail::isDroppedReadException(&wait);
+      }
+      CHECK(dropped);
+      CHECK_EQ(wait, waited);
+    }
+#endif
+  }
   CHECK(!(ExecReply{ExecStatus::Denied, refusal}.rateLimited()));
   CHECK_EQ(execSha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   CHECK_EQ(execSha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
@@ -924,6 +972,186 @@ void testServerEndpoint() {
   auto player = exec.connect("77", opts);
   CHECK(!player->isServer());
   player->close();
+}
+
+// 0.95.0: a refused connect call keeps the Application API's code and its retryAfterMs. A
+// game server used to see "Unavailable: no host for this app" for PLATFORM_BUSY (wait and
+// call again) and for a refusal alike.
+void testARefusedConnectKeepsItsCodeAndItsWait() {
+  auto http = std::make_shared<RecordingHttp>();
+  http->gatewayUrl = "ws://test/gw";
+  auto auth = std::make_shared<graphql::AuthState>();
+  auth->setToken("cko_" + std::string(48, 'o'));
+  auto gql = std::make_shared<graphql::GraphQLClient>(graphql::GraphQLClientConfig{"http://test/graphql", 1000}, http,
+                                                      auth);
+  auto transport = std::make_shared<FakeTransport>();
+  ExecAPI exec(gql, transport);
+  ExecConnectOptions opts;
+  opts.callTimeoutMs = 2000;
+  const auto refuse = [&](const std::string& op, const std::string& code, const std::string& extra = {}) {
+    http->drops[op].push_back([code, extra]() -> graphql::HttpResponse {
+      return {200, R"({"errors":[{"message":"refused","extensions":{"code":")" + code + R"(")" + extra +
+                       R"(}}],"data":null})"};
+    });
+  };
+  const std::string busyFor750 = R"(,"blame":"PLATFORM","retryable":true,"retryAfterMs":750)";
+
+  // The async form that says why: PLATFORM_BUSY, and how long to wait.
+  refuse("ExecConnectAsServer", "PLATFORM_BUSY", busyFor750);
+  int answers = 0;
+  exec.connectAsServerAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r, ExecConnectFailure why) {
+    ++answers;
+    CHECK(!r.ok());
+    CHECK(r.error() == Errc::Rejected);  // as the form without `why` answers
+    CHECK(why.failed());
+    CHECK(why.error == Errc::Rejected);
+    CHECK(why.platformBusy());
+    CHECK_EQ(why.code, std::string("PLATFORM_BUSY"));
+    CHECK_EQ(why.retryAfterMs, 750);
+    CHECK_EQ(why.message, std::string("refused"));
+  });
+  CHECK_EQ(answers, 1);
+  CHECK_EQ(transport->count(), 0u);  // no gateway was dialed
+
+  // A refusal: its code, and no wait.
+  refuse("ExecConnectAsServer", "FORBIDDEN");
+  exec.connectAsServerAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r, ExecConnectFailure why) {
+    ++answers;
+    CHECK(!r.ok());
+    CHECK_EQ(why.code, std::string("FORBIDDEN"));
+    CHECK_EQ(why.retryAfterMs, 0);
+    CHECK(!why.platformBusy());
+  });
+  CHECK_EQ(answers, 2);
+
+  // The form that answers an Errc alone is as it was.
+  refuse("ExecConnectAsServer", "PLATFORM_BUSY", busyFor750);
+  exec.connectAsServerAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r) {
+    ++answers;
+    CHECK(!r.ok() && r.error() == Errc::Rejected);
+  });
+  CHECK_EQ(answers, 3);
+
+  // connectAsServer returns the connection at once: it knows why its dial failed, and a
+  // call that waited on it says so in the words a reply has for it.
+  refuse("ExecConnectAsServer", "PLATFORM_BUSY", busyFor750);
+  auto conn = exec.connectAsServer("77", opts);
+  ExecConnectFailure why = conn->lastConnectFailure();
+  CHECK(why.platformBusy());
+  CHECK_EQ(why.retryAfterMs, 750);
+  auto last = conn->lastFailure();
+  CHECK(last.has_value());
+  CHECK(last->status == ExecStatus::Unavailable);  // as before
+  CHECK_EQ(last->message(), std::string("no host for this app: PLATFORM_BUSY, retry in 750 ms: refused"));
+  CHECK(last->platformBusy());
+  CHECK(last->retryable());
+  CHECK(last->retryAfterMs() == std::optional<long>(750));
+  CHECK(!last->rateLimited());
+  // A call made now dials again. Refused once more, it fails with the refusal's words.
+  refuse("ExecConnectAsServer", "PLATFORM_BUSY", R"(,"retryAfterMs":40)");
+  std::optional<ExecReply> waited;
+  conn->callRaw("world", "", "tick", "", [&](ExecReply r) { waited = r; });
+  CHECK(waited.has_value());
+  CHECK(waited->status == ExecStatus::Unavailable);
+  CHECK(waited->platformBusy());
+  CHECK(waited->retryAfterMs() == std::optional<long>(40));
+  CHECK_EQ(conn->lastConnectFailure().retryAfterMs, 40);
+  // The dial that finds a host leaves no failure behind.
+  waited.reset();
+  conn->callRaw("world", "", "tick", "", [&](ExecReply r) { waited = r; });
+  CHECK_EQ(transport->count(), 1u);
+  CHECK(!conn->lastConnectFailure().failed());
+  transport->at(0)->open();
+  transport->at(0)->deliver(reply(2, 0, ""));  // the connection's second call: the first never left
+  CHECK(waited.has_value() && waited->ok());
+  conn->close();
+
+  // A refusal that is not "busy": no wait to read, and platformBusy() is false.
+  refuse("ExecConnectAsServer", "ORG_TOKEN_REQUIRED");
+  auto refused = exec.connectAsServer("77", opts);
+  CHECK_EQ(refused->lastConnectFailure().code, std::string("ORG_TOKEN_REQUIRED"));
+  last = refused->lastFailure();
+  CHECK(last.has_value());
+  CHECK_EQ(last->message(), std::string("no host for this app: ORG_TOKEN_REQUIRED: refused"));
+  CHECK(!last->platformBusy());
+  CHECK(!last->retryAfterMs().has_value());
+  refused->close();
+
+  // A player's connection and a developer's carry it the same way.
+  refuse("ExecConnect", "PLATFORM_BUSY", R"(,"retryAfterMs":300)");
+  exec.connectAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r, ExecConnectFailure because) {
+    ++answers;
+    CHECK(!r.ok());
+    CHECK(because.platformBusy());
+    CHECK_EQ(because.retryAfterMs, 300);
+  });
+  refuse("ExecConnectAsDeveloper", "FORBIDDEN");
+  exec.connectAsDeveloperAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r, ExecConnectFailure because) {
+    ++answers;
+    CHECK(!r.ok());
+    CHECK_EQ(because.code, std::string("FORBIDDEN"));
+  });
+  CHECK_EQ(answers, 5);
+
+  // No answer of the API's: no code, and the transport's account in the message.
+  http->drops["ExecConnect"].push_back([]() -> graphql::HttpResponse { return {503, "upstream unavailable"}; });
+  auto unanswered = exec.connect("77", opts);
+  why = unanswered->lastConnectFailure();
+  CHECK(why.failed());
+  CHECK(why.code.empty());
+  CHECK_EQ(why.retryAfterMs, 0);
+  CHECK(!why.message.empty());
+  last = unanswered->lastFailure();
+  CHECK(last.has_value());
+  CHECK(last->message().rfind("no host for this app", 0) == 0);
+  CHECK(!last->platformBusy());
+  unanswered->close();
+
+  // The connection that opens answers a failure that has not failed.
+  std::size_t before = transport->count();
+  bool opened = false;
+  exec.connectAsync("77", opts, [&](Result<std::shared_ptr<ExecConnection>> r, ExecConnectFailure because) {
+    opened = r.ok() && !because.failed();
+    if (r.ok()) r.value()->close();
+  });
+  CHECK_EQ(transport->count(), before + 1);
+  transport->at(before)->open();
+  CHECK(opened);
+
+  // A connection over a dial of your own explains its failures through explainDialFailures.
+  ExecDial dial = [](std::function<void(Result<ExecEndpoint>)> found) { found(Errc::Rejected); };
+  auto own = std::make_shared<ExecConnection>(transport, nullptr, dial, opts);
+  own->explainDialFailures([] { return ExecConnectFailure{Errc::Rejected, "PLATFORM_BUSY", 120, "busy"}; });
+  {
+    // What an explanation hands over is bounded before it is kept or put in a message: a
+    // wait of days is 30 s, and the text is short and on one line.
+    auto hostile = std::make_shared<ExecConnection>(transport, nullptr, dial, opts);
+    hostile->explainDialFailures([] {
+      return ExecConnectFailure{Errc::Rejected, "PLATFORM_BUSY", 86'400'000'000LL,
+                                "busy\n\x1b[2Jforged " + std::string(5000, 'm')};
+    });
+    hostile->connect();
+    const ExecConnectFailure kept = hostile->lastConnectFailure();
+    CHECK_EQ(kept.retryAfterMs, kMaxRetryAfterWaitMs);
+    CHECK_EQ(kept.message.size(), kServerTextMaxChars);
+    const auto said = hostile->lastFailure();
+    CHECK(said.has_value());
+    CHECK(said->message().rfind("no host for this app: PLATFORM_BUSY, retry in 30000 ms: busy [2Jforged mmm", 0) == 0);
+    CHECK(said->message().size() < 600);
+    CHECK(said->retryAfterMs() == std::optional<long>(30000));
+    for (const char c : said->message()) CHECK(static_cast<unsigned char>(c) >= 0x20);
+  }
+  std::optional<Status> done;
+  own->connect([&](Status s) { done = s; });
+  CHECK(done.has_value() && done->code == Errc::Rejected);
+  CHECK(own->lastConnectFailure().platformBusy());
+  CHECK_EQ(own->lastConnectFailure().retryAfterMs, 120);
+  // Without it the failure is the dial's Errc alone.
+  auto bare = std::make_shared<ExecConnection>(transport, nullptr, dial, opts);
+  bare->connect();
+  CHECK(bare->lastConnectFailure().error == Errc::Rejected);
+  CHECK(bare->lastConnectFailure().code.empty());
+  CHECK_EQ(bare->lastFailure()->message(), std::string("no host for this app"));
 }
 
 void testBuilds() {
@@ -1870,6 +2098,7 @@ int main() {
   testRemoveListener();
   testOperations();
   testServerEndpoint();
+  testARefusedConnectKeepsItsCodeAndItsWait();
   testBuilds();
   testMods();
 #ifndef CROWDY_NO_EXCEPTIONS

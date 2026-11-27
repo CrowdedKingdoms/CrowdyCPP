@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,6 +30,9 @@ class AssignmentHttp final : public graphql::IHttpTransport {
   std::vector<graphql::HttpRequest> requests;
   int refuseFirst = 0;
   int assignments = 0;
+  /// What a refused assignment answers; the default names no wait.
+  std::string refusal =
+      R"({"errors":[{"message":"No available servers found","extensions":{"code":"UNAVAILABLE"}}]})";
 
   graphql::HttpResponse send(const graphql::HttpRequest& request) override {
     requests.push_back(request);
@@ -35,8 +40,7 @@ class AssignmentHttp final : public graphql::IHttpTransport {
       ++assignments;
       if (refuseFirst > 0) {
         --refuseFirst;
-        return {200,
-                R"({"errors":[{"message":"No available servers found","extensions":{"code":"UNAVAILABLE"}}]})"};
+        return {200, refusal};
       }
       return {200,
               R"({"data":{"serverWithLeastClients":{"serverId":"server-1","ip4":"127.0.0.1","ip6":"","clientPort":39001,"status":"READY","peers":[],"clients":"0","cpuPeakPct":0,"updatedAt":"","createdAt":""}}})"};
@@ -215,6 +219,112 @@ void testAssignmentRetriesAndFailures() {
   CHECK(failed.connection != nullptr);
   CHECK(failed.connection->state() == replication::ConnState::Failed);
   CHECK_EQ(refusing->assignments, 1);
+  // The refusal keeps its code (0.95.0); this one named no wait.
+  CHECK(failed.failure.failed());
+  CHECK_EQ(static_cast<int>(failed.failure.error), static_cast<int>(failed.status.code));
+  CHECK_EQ(failed.failure.code, std::string("UNAVAILABLE"));
+  CHECK_EQ(failed.failure.retryAfterMs, 0);
+  CHECK_EQ(failed.failure.message, std::string("No available servers found"));
+  CHECK(!failed.failure.platformBusy());
+  CHECK(!retried.failure.failed());  // the attempt that succeeded leaves none
+
+  // PLATFORM_BUSY with a wait: the caller is told to wait, how long, and that it may try
+  // again. With attempts left, the next one waits as long as the API asked.
+  auto busy = std::make_shared<AssignmentHttp>();
+  busy->refuseFirst = 5;
+  busy->refusal =
+      R"({"errors":[{"message":"The platform is busy. Try again shortly.","extensions":{"code":"PLATFORM_BUSY","retryable":true,"blame":"PLATFORM","retryAfterMs":250}}]})";
+  GameSession told = startGameSession(appToken(), manualOptions(busy));
+  CHECK(!told.ok());
+  CHECK(told.failure.platformBusy());
+  CHECK_EQ(told.failure.code, std::string("PLATFORM_BUSY"));
+  CHECK_EQ(told.failure.retryAfterMs, 250);
+  CHECK_EQ(told.connection->lastAssignmentFailure().retryAfterMs, 250);
+  // The game server does what it was told, on the connection it was left.
+  busy->refuseFirst = 0;
+  CHECK(told.connection->connect().ok());
+  CHECK(!told.connection->lastAssignmentFailure().failed());
+
+  auto waited = std::make_shared<AssignmentHttp>();
+  waited->refuseFirst = 1;
+  waited->refusal = busy->refusal;
+  GameSessionOptions patient = manualOptions(waited);
+  patient.connectAttempts = 2;
+  patient.connectRetryDelayMs = 1;
+  const auto asked = std::chrono::steady_clock::now();
+  GameSession second = startGameSession(appToken(), std::move(patient));
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - asked);
+  CHECK(second.ok());
+  CHECK_EQ(waited->assignments, 2);
+  CHECK(took.count() >= 250);  // the API's wait, where the caller's own was 1 ms
+  CHECK(!second.failure.failed());
+
+  // The API's wait is a server's word, so it counts up to a ceiling (kMaxRetryAfterWaitMs,
+  // 30 s) and no further. A hint of days, of nothing, and below nothing: the waits a retry
+  // makes are recorded instead of slept, so the first case does not take 30 s.
+  struct Hint {
+    const char* retryAfterMs;  // as the answer's JSON carries it
+    std::int64_t reported;     // GameSession::failure.retryAfterMs
+    std::int64_t waited;       // with connectRetryDelayMs 7
+  };
+  for (const Hint& hint : {Hint{"86400000000", kMaxRetryAfterWaitMs, kMaxRetryAfterWaitMs},
+                           Hint{"9223372036854775807", kMaxRetryAfterWaitMs, kMaxRetryAfterWaitMs},
+                           Hint{"18446744073709551615", kMaxRetryAfterWaitMs, kMaxRetryAfterWaitMs},
+                           Hint{"1e300", kMaxRetryAfterWaitMs, kMaxRetryAfterWaitMs},
+                           Hint{"-1e300", 0, 7},
+                           Hint{"250.9", 250, 250},
+                           Hint{"30001", kMaxRetryAfterWaitMs, kMaxRetryAfterWaitMs},
+                           Hint{"30000", 30000, 30000},
+                           Hint{"10000", 10000, 10000},
+                           Hint{"0", 0, 7},
+                           Hint{"-1", 0, 7},
+                           Hint{"-86400000000", 0, 7}}) {
+    auto hinting = std::make_shared<AssignmentHttp>();
+    hinting->refuseFirst = 2;
+    hinting->refusal =
+        std::string(R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY","retryable":true,"blame":"PLATFORM","retryAfterMs":)") +
+        hint.retryAfterMs + "}}]}";
+    GameSessionOptions bounded = manualOptions(hinting);
+    bounded.connectAttempts = 3;
+    bounded.connectRetryDelayMs = 7;
+    std::vector<std::int64_t> waits;
+    bounded.sleep = [&waits](std::int64_t ms) { waits.push_back(ms); };
+    const auto began = std::chrono::steady_clock::now();
+    GameSession session = startGameSession(appToken(), std::move(bounded));
+    const auto spent =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began);
+    CHECK(session.ok());
+    CHECK_EQ(hinting->assignments, 3);
+    CHECK_EQ(waits.size(), 2u);
+    for (const std::int64_t wait : waits) CHECK_EQ(wait, hint.waited);
+    CHECK(spent.count() < 20000);  // nothing slept on the hint itself
+
+    // What the caller is handed is bounded the same way.
+    hinting->assignments = 0;
+    hinting->refuseFirst = 5;
+    GameSession refusedOnce = startGameSession(appToken(), manualOptions(hinting));
+    CHECK(!refusedOnce.ok());
+    CHECK_EQ(refusedOnce.failure.retryAfterMs, hint.reported);
+    CHECK_EQ(refusedOnce.connection->lastAssignmentFailure().retryAfterMs, hint.reported);
+  }
+  // The function the wait is made with, and the one under it.
+  replication::AssignmentFailure handMade;
+  handMade.retryAfterMs = 86'400'000'000LL;  // a provider of the caller's own, unbounded
+  CHECK_EQ(connectRetryWaitMs(2000, handMade), kMaxRetryAfterWaitMs);
+  handMade.retryAfterMs = -5;
+  CHECK_EQ(connectRetryWaitMs(2000, handMade), 2000);
+  CHECK_EQ(connectRetryWaitMs(-3, handMade), 0);
+  handMade.retryAfterMs = 0;
+  CHECK_EQ(connectRetryWaitMs(40000, handMade), 40000);  // the caller's own delay is the caller's
+  CHECK_EQ(kMaxRetryAfterWaitMs, 30000);
+  CHECK_EQ(retryWaitMs(0), 0);
+  CHECK_EQ(retryWaitMs(-1), 0);
+  CHECK_EQ(retryWaitMs(INT64_MIN), 0);
+  CHECK_EQ(retryWaitMs(1), 1);
+  CHECK_EQ(retryWaitMs(200), 200);
+  CHECK_EQ(retryWaitMs(30000), 30000);
+  CHECK_EQ(retryWaitMs(30001), 30000);
+  CHECK_EQ(retryWaitMs(INT64_MAX), 30000);
 
   // Not ready in time: Timeout, with everything kept.
   auto slow = std::make_shared<AssignmentHttp>();

@@ -444,9 +444,8 @@ change here must keep:
   `FleetHooks::sent` hook in Connection's three send workers) keeps, per number, the last
   player and when a message for anyone else last left under it, and a player is named only
   when nothing for anyone else left under the number in `kFleetRefusalWindowMs`. A player's
-  `Connection` acts on `TOKEN_EXPIRED` verified or not, as it always has (changing that is
-  the operator's call). Anything new a fleet session does on the server's word needs a
-  verified frame.
+  `Connection` reassigns on a verified `TOKEN_EXPIRED` only (0.95.0, below). Anything new a
+  fleet session or a connection does on the server's word needs a verified frame.
 - A verified COMMAND_SESSION_RELEASED (45, or 28 before the bound forms are acknowledged)
   with any reason but 5 ends the session's carries (`FleetHooks::sessionReleased`, on the
   network thread; the handler fires from `poll()` through a two-byte `Fleet` event). Rows
@@ -510,7 +509,10 @@ before calling it fixed**: four green macOS jobs can be chance. Two things about
   about a 2 ms window; it did not come back in 70 more runs, 30 of them under CPU load, so
   nothing was changed for it). `replication_test` fails under jitter, at checks that read two
   datagrams sent in one pass in the order they arrive. No loopback reorders, so it was left
-  as it is; give it this harness if it ever fails on macOS.
+  as it is; give it this harness if it ever fails on macOS. `session_test`'s first case
+  (`run`) does the same and fails under jitter in the same way (5 of 8 on 2026-11-27); its
+  two keepalive cases keep one datagram in flight at a time and held, as the whole file
+  does under a plain 5 ms delay (8 of 8).
 
 `e2e_fleet_session` is the live suite (`CROWDY_FLEET_*`, label `e2e_optional`; its header says
 what it leaves on a tier). It passed on dev on 2026-11-26 against the realtime servers' build
@@ -538,6 +540,11 @@ showed, which a change here should keep in mind:
   reassignment instead. Keep these two: the capabilities interval is at most a third of the
   timeout, and the answer to the advertisement that leaves as the timeout passes has
   `kAcknowledgementGraceMs` to arrive, so two lost acknowledgements in a row are not silence.
+  That wait is the smaller of `kAcknowledgementGraceMs` and the capabilities interval, counted
+  from the last advertisement (0.95.0): at a timeout of 3,000 the interval is 1,000 ms, as long
+  as the grace, so the check always found a fresh advertisement to wait for and never fired.
+  `runEverySilenceTimeoutFires` holds 3,000, 3,002, 3,300, 4,500 and 45,000 to "after the
+  timeout, and no later than one interval after it".
   `configFor` in `fleet_session_test` switches the timeout off, because those cases read every
   datagram and move a manual clock past a silent server; `watchedConfigFor` has the default.
 - A fleet session takes nothing that is not its own (`Connection::handleDatagram`, under
@@ -546,10 +553,9 @@ showed, which a change here should keep in mind:
   `Stats::unsignedNotifications` (`countNotOwn` logs each at the first and at every doubling).
   The dev servers were seen sending a fleet session another app's state inside signed bundles
   that verify; that is a server defect, and the guard stays whatever the servers do. A
-  player's `Connection` makes neither check today (it dispatches another app's notification,
-  and one with `containsAuth` 0 outside a signed bundle): Michael knows, and adding either
-  there is his call. `e2e_fleet_session`'s last step requires both counts and the HMAC
-  failures to be 0 and prints what the log named when they are not.
+  player's `Connection` makes both checks since 0.95.0 ("A player's connection", below).
+  `e2e_fleet_session`'s last step requires both counts and the HMAC failures to be 0 and
+  prints what the log named when they are not.
 - `Connected` does not wait for the 46: after `sessionReadyWaitMs` (1.5 s) the session is
   `Connected` whether or not the server acknowledged its capabilities.
 
@@ -608,16 +614,157 @@ What the 0.94.0 release pass did, and what is left (0.94.1 changed none of it):
   and `src/server-only.ts` are in `CROSS_CUTTING_EXPORT_MODULES` with every export mapped, and
   seven `fleet-*` entries in `CROSS_CUTTING_BEHAVIORS` hold the rest. A new export in one of
   those modules fails the gate at the next re-pin: map it.
-- **One difference is open: the table cap** (`fleet-session-table-cap`). CrowdyJS refuses a carry
-  for a new player once its table holds `maxPlayers` + 32 rows (`'tableFull'`, `tableLimit`,
-  `carriesRefusedTableFull`; its security review's finding E). `FleetSession`'s table has no cap:
-  only the game server's own `carry()` calls add a row, and a refused or timed-out carry removes
-  it. Adding one is behaviour (a `FleetConfig` limit, a refusal from `carry()`, a counter, a
-  test), which the release pass left for Michael to decide. Delete the entry when it lands.
+- **The table cap is CrowdyJS's since 0.95.0** (`fleet-session-table-cap` in
+  `CROSS_CUTTING_BEHAVIORS` now says so). `tableLimit()` is `maxPlayers` (1,024 when
+  `FleetConfig::maxPlayers` is 0 or above it) and `kFleetTableMargin` (32) more rows. `carry()`
+  for a new player at the limit sends nothing, makes no row and returns `Ok`: the result,
+  `FleetCarryStatus::TableFull`, waits in `endedHere_` for the next `poll()`, where every other
+  result is reported (`expireCarries`), and `Stats::carriesRefusedTableFull` counts it. A carry
+  for a player in the table, and one whose `replaces` names a row, pass (`supersedeLocked`
+  runs before the check). `fleetConfigOf` and `applyFleetRefresh` carry `maxPlayers`.
 - `CrowdyClient::fleetSessions()` was added for CrowdyJS's `client.fleetSessions`.
 - CrowdyPy has no fleet session. Its next release re-vendors at `dev/v0.94.1` and moves its own
   CrowdyJS pin to 18.40.0 in the same change (`MIGRATION.md`, 0.94.0 and 0.94.1).
 - `e2e_fleet_session` has run on dev only. Nobody has run it on test or prod.
+
+## A player's connection (0.95.0)
+
+What `Connection::handleDatagram` does for a connection with no `fleet_`, and why
+(`tests/player_connection_checks_test.cpp` holds every line of it; OI-2026-11-26-005):
+
+- **Dropped and counted, never dispatched:** a long-spatial notification that nothing signed
+  (`containsAuth` 0 outside a signed bundle whose HMAC held) in `Stats::unsignedNotifications`,
+  unless `Config::verifyNotifications` is off; and one that names another app than
+  `Config::appId` in `Stats::wrongApp`, however it was signed. The signature is read first, so
+  an unsigned notification of another app counts once, as unsigned. `countNotOwn` is the one
+  place both are counted and logged, for a fleet session too.
+- **Still delivered, on purpose:** each of the 11 notification types with its own HMAC (alone
+  or in a plain bundle), as a member of a signed bundle, and a frame too large for a bundle
+  alone with its own HMAC; channel notifications (18, 36) and error frames (3) in any form,
+  because their layouts have no HMAC; anything when `Config::appId` is 0 or the notification
+  names app 0 (0 is no app, so it names no other); an unsigned one when
+  `verifyNotifications` is off. Those are the forms the realtime servers send a player's
+  session, per the public wire formats. A new form the servers start sending needs a case in
+  `runWhatACorrectServerSendsArrives` before a check that could drop it.
+- **`TOKEN_EXPIRED`:** `poll()` reassigns on a verified one. An unverified one sets
+  `tokenCheckRequested_`, and housekeeping runs the proactive refresh's own code for it
+  (`provider_->refreshToken(&current)`), at most once in `kTokenCheckIntervalMs` and only with
+  `refreshLeadMs` above 0 and the state `Connected`. A refresh that fails changes nothing. The
+  realtime servers send a player's session every error frame alone, so today every
+  `TOKEN_EXPIRED` takes the unverified path. Do not add a reassignment, or any other state
+  change, on an unverified frame: 3 bytes on the flow would move the player.
+- **Still settled by an unverified refusal:** the awaited send it names (`pendingWait_`), and
+  what `WorldSession` and `ChunkStore` do with a `GenericError` (an optimistic edit rolled
+  back). That is how the servers refuse a player's send, so it cannot wait for a signature.
+
+**A refused keepalive makes one report** (realtime servers v0.51.0, on dev since 2026-11-27;
+test and prod follow). What a client can see, and all this repo may say of it: a keepalive
+(26) is accepted only where the player's actor update would be; where the player has no
+`access` every keepalive is answered `[3][seq][7]`, unsigned to a player's session and inside
+a fleet session's signed bundle; the session stays connected; access granted later admits
+the next keepalive within about 6 seconds. So the SDK must keep the keepalives going at the
+same rate, change no connection state on the refusal, and tell the game once.
+
+- `Connection` remembers each keepalive under its sequence number (`keepalivesSent_`, written
+  only by a keepalive send). `sendNumber_` is 32 bits, the wire's sequence number its low
+  byte, so `keepaliveAnswered` can tell that no later message took the number (fewer than
+  257 sends since) without any other send writing anything. An answer more than
+  `kKeepaliveAnswerWaitMs` (3 s) after the keepalive is not its answer.
+- `poll()` sets `GenericError::keepalive`, counts `Stats::keepalivesRefused`, and on
+  `UNAUTHORIZED` makes or sustains the report (`keepaliveRefused`, `notPresent_` keyed by
+  carried player and actor; `Handlers::notPresent` at the first). `presencePass` at the end
+  of `poll()` ends reports: `Accepted` when a keepalive there has gone 3 s without a
+  refusal, `Stopped` after `kNotPresentIdleMs` (30 s) without a keepalive. A keepalive or an
+  update that names another chunk ends it `Moved` from the sending thread, and `poll()`
+  hands that over. The actor's own update coming back from that chunk ends it `Accepted`
+  (a player's connection only: that echo is signed, where the refusal is not).
+- The 3 s is longer than the 2 s between two of `LocalActorStore`'s keepalives on purpose:
+  one lost refusal is answered for by the next keepalive's, and the report does not flap.
+  A new assignment forgets which keepalives wait for an answer (`presenceRestart`), since
+  the server the connection left answers nothing.
+- A player's session is sent the refusal unsigned. The report, the two counters and the
+  `keepalive` flag are all it may change. Do not add a reconnect, a token check, a change
+  of rate or anything else to that path: 3 forged bytes would then drive it.
+- `WorldSession` keeps a keepalive's refusal away from `LocalActorStore::recordError` and
+  `ChunkStore::ingestError` (it used to pass every refusal to both, by sequence number
+  alone) and records one `SendKind::Heartbeat` error per report in `errors()`. It never
+  recorded keepalive sends, so each refusal used to arrive there as an error of unknown or
+  stale kind. `LocalActorStore` already kept its rate: nothing in `tick()` reads an error.
+  `runKeepalivesKeepTheirRate` (`session_test`) holds that: the same datagrams at the same
+  times over 30 simulated seconds, refused or not. A refused update is still recorded each
+  time, as before; where a player has no access that is one every keyframe (3 s).
+- `FleetSession::onGenericError` makes the report for a carried player. The first one needs
+  a verified refusal and `refusedPlayer(sequence)` naming the keepalive's player, as
+  `sendRefused` does; once a report stands, any verified refusal of that player's keepalive
+  there sustains it, because a busy session (over about 85 messages a second) reuses a
+  number too soon to name anyone, and the report would otherwise end as `Accepted` every
+  3 s. A keepalive's `UNAUTHORIZED` no longer reaches `sendRefused`. Nothing here ends a
+  carry or sends one.
+- Reports are capped at `kMaxNotPresentReports` (4,096); past it no new one is made.
+
+**The SDK waits 30 s at most on a server's word** (`kMaxRetryAfterWaitMs`, `retryWaitMs()`
+in `core/result.hpp`; the security review of a90ca15, medium). Every place a `retryAfterMs`
+or a gateway's "retry in N ms" becomes a wait goes through it: `connectRetryWaitMs`
+(`startGameSession`), `graphql::detail::retryAfterMsOf` and `isDroppedReadException` (the
+Studio runner's timer, the Studio runtime's and `waitForModBuild`'s sleeps),
+`ExecReply::retryAfterMs()` (the kit runtime's `hold`), and `crowdy::bounded()` where an
+`ApiFailure` is made or kept (`apiFailureOf`, `Connection::failAssignment`, the dial's
+explanation). A new wait on anything a server sent uses `retryWaitMs()`; a test of it
+records the wait instead of sleeping (`GameSessionOptions::sleep`). `error_extensions.hpp`
+reads a hint past int64 as the largest int64, where the conversion used to be out of range.
+
+**A server's text is untrusted** (the same review, low). `serverText()` makes it one line
+of 500 bytes at most; `bounded()` applies it to an `ApiFailure`'s code (64) and message.
+Anything new that logs or stores what the Application API or a gateway said passes it
+through one of them first. The gateway's HTTP refusal reason (`kRefusalReasonMaxChars` in
+`exec.cpp`) has its own loop of the same kind.
+
+**The receive path is measured.** `benchmarks/bench_receive.cpp` (and `benchmarks/README.md`
+for the recorded numbers) times `pump()` and `poll()` apart over datagrams sent before the
+clock starts. 0.94.0 cost a player 15 to 17 % there (found by CrowdyPy's benchmark of the
+vendored core): a `clock_.monotonicMillis()` for every verified notification, and the fleet
+frames handled inside the per-message lambda. Keep both off that path: one clock read a
+datagram (`now`, used for `lastRecvMs_` and `lastVerifiedMs_`), and anything only a fleet
+session receives in an out-of-line member (`admitFleetFrame`). Before a change to
+`handleDatagram`, build the tag before it and the change as Release in scratch worktrees, link
+the same `bench_receive.cpp` against each, and run them in turn pinned to one core; this
+builder has no hardware counters and no valgrind, so removing one thing at a time and
+measuring again is the method. Forcing `parseLongSpatial` inline and testing for a
+notification first were both tried and measured no gain.
+
+**A receive pass ends.** `receiveBatch` reads `kReceivePassDatagrams` at most, and the network
+thread leaves it at the batch in hand once `running_` is false, so housekeeping, the bundle
+window and `disconnect()` do not wait on what is arriving. The flood tests do not depend on
+speed: `HookedCrypto` sends two datagrams for every HMAC the connection computes, so the
+socket never drains, and the disconnect test holds the network thread inside a batch until
+`disconnect()`'s debug log line ("disconnect: stopping the network thread") says `running_`
+is false. Keep that log line where it is, between the store and the join: the test's
+ordering hangs on it. "Never drains" holds only where the loopback hands a datagram over
+before `sendto()` returns, so the test asks first (`loopbackIsImmediate`) and makes the
+exact-count checks only then; on macOS, or under netem, it checks that both calls return
+and that `disconnect()` waited for less than one batch. Every other case in the file sends
+through `deliver`, which pumps until `Stats::datagramsReceived` has moved (15 of 15 under
+a 5 ms delay and under 3 ms of jitter, in a namespace of its own).
+
+**Why a connection could not be made.** `ApiFailure` (`core/result.hpp`) is the one type:
+`replication::AssignmentFailure` and `domains::ExecConnectFailure` are aliases of it.
+`ISessionProvider::assignServerOrSayWhy` is what `Connection::doAssign` calls;
+`ClientSessionProvider` fills it from `serverStatus().serverWithLeastClientsOutcome` through
+`graphql::apiFailureOf`. `ExecAPI::dialer` keeps the last refusal in a `DialRefusal` the
+connection reads (`explainDialFailures`), and the dial's failure message carries the code
+and the wait so `ExecReply::platformBusy()` and `retryAfterMs()` can read them. A new call
+that can be refused `PLATFORM_BUSY` on the way to a connection should hand its caller an
+`ApiFailure` the same way.
+
+**What 0.95.0's first pass left for the release pass:** the version in its six places and the
+README's version line; the CrowdyJS pin (18.41.0) with `npm run parity:repin` and the new
+surface it brings mapped; the schema sync (Application API v2.90.0) and the wrappers that
+need it; finishing `MIGRATION.md`'s "Unreleased" section (its title, the platform versions,
+CrowdyPy's re-vendor line); `docs/compatibility.md`'s line for the release; cks-docs, which
+has nothing yet on the refused keepalive or the 30 s ceiling. When the pin moves, look at
+what CrowdyJS does with a refused keepalive and classify the not-present report either way.
+While the sibling CrowdyJS checkout is ahead of the pin, the parity tools refuse it: point
+`CROWDYJS_PATH` at a clone at the pinned commit, built (`npm ci && npm run build`).
 
 ## Writing tests against `graphql::Json`
 

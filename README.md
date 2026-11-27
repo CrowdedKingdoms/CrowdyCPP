@@ -928,6 +928,53 @@ See the [native player-host notes](docs/native-player-host.md) and
   reassignment — see
   [Troubleshooting](https://docs.crowdedkingdoms.com/replication-api/troubleshooting)).
 
+What a connection delivers, from the next release (see `MIGRATION.md`, "Unreleased"):
+
+- **Signed, and for its app.** A long-spatial notification reaches a handler when it
+  carries its own HMAC that verifies with the player's token, or when it is a member of
+  a signed bundle that verifies. One that nothing signed is dropped and counted in
+  `stats().unsignedNotifications`. One that names another app than `Config::appId` is
+  dropped and counted in `stats().wrongApp`, however it was signed. Both counts should
+  stay 0. If one moves, tell Crowded Kingdoms: the SDK's log line names the app, the
+  message type, and the chunk.
+- **Without a signature of their own.** Channel messages, channel audio, and error
+  frames have no room for an HMAC, so they are delivered alone or in either kind of
+  bundle. `GenericError::verified` is true for an error frame that arrived in a signed
+  bundle that verified. The realtime servers send a player's session every error frame
+  alone, so today it is false.
+- **`TOKEN_EXPIRED`.** A verified one reassigns the connection. An unverified one moves
+  nothing by itself: the connection asks its session provider for a fresh token, at
+  most once every 30 seconds, and reassigns only if the answer says the current server
+  does not know the new token. With `Config::refreshLeadMs = 0` it asks nothing, and
+  your `genericError` handler decides.
+- **Switched off.** With `Config::verifyNotifications = false` a notification that
+  nothing signed is delivered. A connection whose `Config::appId` is 0 compares no app.
+- **A refused keepalive.** From realtime servers v0.51.0 a keepalive (`sendHeartbeat`)
+  is accepted only where the player's actor update would be. Where the player has no
+  `access`, every keepalive is answered `UNAUTHORIZED`, every few seconds: the actor is
+  not present there, and the session stays connected. `Handlers::notPresent` is called
+  once for the actor and the place, `connection.notPresent(uuid)` returns the report
+  while it stands, and `Handlers::notPresentEnded` is called once when a keepalive there
+  is accepted (no refusal for 3 seconds), the actor moves to another chunk, or its
+  keepalives stop for 30 seconds. `genericError` still receives every refusal, with
+  `GenericError::keepalive` true. Keep sending keepalives at the same rate: never
+  faster, and never stop. Once access is granted, the next keepalive is accepted within
+  about 6 seconds. The refusal is unsigned, so the report is all it changes.
+
+A failed `connect()` answers one `Errc`. `Connection::lastAssignmentFailure()` (also
+`ConnectResult::failure` and `GameSession::failure`) keeps what the Application API
+said: its refusal `code`, its `retryAfterMs`, and its `message`. When
+`failure.platformBusy()` is true, wait `retryAfterMs` and connect again. The SDK waits
+30 seconds at most on a server's hint (`kMaxRetryAfterWaitMs`), and `retryAfterMs` here
+is never longer. Pass a hint you read yourself (`graphql::platformBusyOf`) through
+`retryWaitMs()` before you wait on it. `code` and `message` are a server's text, kept to
+one line of 64 and 500 bytes: show them, and do not act on them.
+
+`disconnect()` returns within 100 milliseconds whatever is still arriving, unless the
+session provider is in the middle of a call: the network thread stops at the 16
+datagrams it has in hand. One `pump()` reads 1,024 datagrams at most, so a caller that
+wants the socket empty calls it until it returns less.
+
 Two integration modes:
 
 - **Owned net thread** (default): the SDK runs a receive/send thread and hands
@@ -1031,6 +1078,12 @@ fleet.close();
   session's `maxPlayers`). A carry answered `NoLiveToken` is asked once more, 250 ms
   later, before it ends that way: a token made a moment ago may not have reached the
   realtime server yet.
+  The session's table holds `maxPlayers` rows and 32 more (`tableLimit()`), carried
+  players and waiting carries together. A carry for a new player while it is full ends
+  `TableFull` at the next `poll()` with nothing sent (`stats().carriesRefusedTableFull`).
+  A carry for a player the table already holds, and one whose `replaces` names such a
+  player, are never refused this way. Release the players who left, or open another
+  session.
   A result does not say which of a player's carries it answers. A `ProofRefused` that
   arrives while another carry for the player has no answer yet can be the answer to an
   earlier carry that reached the server after a later one was accepted. So it ends
@@ -1112,7 +1165,9 @@ fleet.close();
   session hears an acknowledgement of its capabilities every 15 seconds. After 45 seconds
   with nothing the server signed, `refreshDue()` turns true, and the refresh decides as
   above. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
-  timeout off, and the session sends its capabilities at least three times in it.
+  timeout off, and the session sends its capabilities at least three times in it. The
+  smallest timeout is 3,000 ms, and every value fires between the timeout and one
+  capabilities interval later.
 
 ### Security notes
 
@@ -1171,6 +1226,16 @@ about 85 messages a second reuses a number sooner than that. Then match
 | `APP_PAUSED` (33) | The app is paused | Nothing the player did |
 
 A send past the player's rate budget has no refusal: it is dropped in silence.
+
+A refused keepalive is the exception to this table. From realtime servers v0.51.0 a
+keepalive for a carried player (`sendHeartbeat(player, chunk, uuid)`) is accepted only
+where that player's actor update would be. Where the player has no `access`, every
+keepalive is answered `UNAUTHORIZED` inside the session's signed bundle, every few
+seconds. `handlers.notPresent` is called once for the player, the actor, and the place,
+`session.notPresent(player, uuid)` returns the report while it stands, and
+`handlers.notPresentEnded` is called once when it ends. `handlers.sendRefused` is not
+called for it. The carry stands. Keep the player's keepalives going at the same rate:
+once access is granted, the next one is accepted within about 6 seconds.
 
 ### Opening, refreshing, and closing a session
 
@@ -1247,6 +1312,12 @@ that wants the SDK to reconnect uses `connectAsServer`, which asks for a new con
 token each time. The refusals are those of the table above, and revoking the org token
 closes the connection.
 
+When the connect call is refused, the calls that waited on the connection answer
+`Unavailable`, and `hub->lastConnectFailure()` keeps what the Application API said: its
+refusal `code`, its `retryAfterMs`, and its `message`. For `PLATFORM_BUSY`,
+`ExecReply::platformBusy()` is true and `retryAfterMs()` is the wait. The same holds for
+`exec().connect` and `connectAsDeveloper`.
+
 A hub sees the first call as `Caller::Org { player: None }` and the second as
 `Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the
 app's organization. It does not check which player a call names: the organization vouches
@@ -1291,6 +1362,14 @@ helper for 16×16×16 chunks with one byte per voxel. Voxel positions and types 
 0-255, a position outside 0-15) is kept whole in `ChunkData::overlay` (keyed by
 `voxelKey(x, y, z)`), and `voxelTypeAt` / `voxelStateAt` return it. A game with other addressing
 reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
+
+Where the player has no access, the realtime servers refuse every keepalive (v0.51.0).
+The session tells the game once: `WorldSessionConfig::onNotPresent` when the first
+keepalive there is refused, `session.notPresent()` while the report stands, and
+`onNotPresentEnded` when it ends. `errors()` records that first refusal as a
+`SendKind::Heartbeat` error. The session's actor keeps sending its keepalives every 2
+seconds and its keyframes every 3, as it does anywhere else, so access granted later
+takes effect within about 6 seconds.
 
 Buddy v0.37.0 echoes every accepted voxel edit back to its sender. `ChunkStore::setVoxel` records
 each send (uuid, sequence, voxel) for 10 s and `ingest()` does not apply its echo again, so a local
@@ -1670,7 +1749,8 @@ None of these maintainer gates run during a normal external CMake build.
   ```
 - `benchmarks/` — codec ns/op, the send-path cost breakdown (`bench_send`:
   encode vs MAC vs socket write, with the alternatives for each priced side by
-  side), and end-to-end echo latency against an env-configured deployment. See
+  side), the receive path of a player's connection (`bench_receive`: read and
+  verify, then dispatch), and end-to-end echo latency against an env-configured deployment. See
   [benchmarks/README.md](benchmarks/README.md) for how to run them and the
   recorded results.
 

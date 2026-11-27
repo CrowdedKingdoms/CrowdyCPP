@@ -24,9 +24,10 @@ const portalHpp = readFileSync(
  * symptom is that it fails to recover from something it should have survived.
  */
 // Since 0.92.0 the URLs are the Application API names, with the deprecated gameApi* keys as
-// GraphQL aliases of them (`gameApiUrl: applicationApiUrl`) until January 1, 2027.
+// GraphQL aliases of them (`gameApiUrl: applicationApiUrl`) until January 1, 2027. Since
+// 0.95.0 (Application API v2.90.0) every selection names `userId` after `gameTokenId`.
 const FIELD_LIST =
-  /token gameTokenId appId expiresAt applicationApiUrl applicationApiWsUrl(?: [\w:]+)* launchUrl/gu;
+  /token gameTokenId userId appId expiresAt applicationApiUrl applicationApiWsUrl(?: [\w:]+)* launchUrl/gu;
 
 function selections(source) {
   return [...source.matchAll(FIELD_LIST)].map((match) =>

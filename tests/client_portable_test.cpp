@@ -32,6 +32,9 @@ class PortableTransport final : public graphql::IHttpTransport {
   int refreshCalls = 0;
   bool failRefresh = false;
   bool failReconnect = false;
+  /// When set, every ServerWithLeastClients is answered with this status and body.
+  int assignmentStatus = 0;
+  std::string assignmentBody;
   std::string refreshGameTokenId = "202";
   /// When set, the next AppDiscovery is answered with WRONG_DATACENTER pointing
   /// at this origin, so the client's own redirect handler has to run.
@@ -68,6 +71,7 @@ class PortableTransport final : public graphql::IHttpTransport {
     }
     if (request.body.find("ServerWithLeastClients") != std::string::npos) {
       ++assignmentCalls;
+      if (assignmentStatus != 0) return {assignmentStatus, assignmentBody};
       if (failReconnect && assignmentCalls > 1) {
         return {
             200,
@@ -225,6 +229,112 @@ void testEndpointNormalization() {
   // client.fleetSessions() is admin().fleetSessions(), as CrowdyJS's client.fleetSessions is
   // client.admin.fleetSessions.
   CHECK(&relativeEndpoints.fleetSessions() == &relativeEndpoints.admin().fleetSessions());
+}
+
+// A refused server assignment keeps the Application API's code and its retryAfterMs
+// (0.95.0): a game server can tell PLATFORM_BUSY, "wait this long and try again", from a
+// refusal, where it used to get Errc::Rejected for both.
+void testARefusedAssignmentKeepsItsCodeAndItsWait() {
+  auto transport = std::make_shared<PortableTransport>();
+  CrowdyClient client(portableConfig(transport));
+  client.setToken(kOldToken);
+  replication::Config config;
+  config.appId = 42;
+  config.token = {kOldToken, 101, 0};
+  config.manualPump = true;
+  config.sessionReadyWaitMs = 0;
+
+  // PLATFORM_BUSY, with the wait.
+  transport->assignmentStatus = 200;
+  transport->assignmentBody =
+      R"({"errors":[{"message":"The platform is busy. Try again shortly.","extensions":{"code":"PLATFORM_BUSY","retryable":true,"blame":"PLATFORM","retryAfterMs":750}}],"data":null})";
+  auto busy = client.replication().connectWithStatus(config);
+  CHECK(!busy.ok());
+  CHECK(busy.connection != nullptr);
+  CHECK_EQ(static_cast<int>(busy.status.code), static_cast<int>(Errc::Rejected));  // as before
+  CHECK_EQ(static_cast<int>(busy.failure.error), static_cast<int>(Errc::Rejected));
+  CHECK(busy.failure.failed());
+  CHECK(busy.failure.platformBusy());
+  CHECK_EQ(busy.failure.code, std::string("PLATFORM_BUSY"));
+  CHECK_EQ(busy.failure.retryAfterMs, 750);
+  CHECK_EQ(busy.failure.message, std::string("The platform is busy. Try again shortly."));
+  CHECK(busy.connection->state() == replication::ConnState::Failed);
+  const replication::AssignmentFailure kept = busy.connection->lastAssignmentFailure();
+  CHECK_EQ(kept.code, std::string("PLATFORM_BUSY"));
+  CHECK_EQ(kept.retryAfterMs, 750);
+
+  // A refusal that names no wait: its code, and 0.
+  transport->assignmentBody =
+      R"({"errors":[{"message":"This app is paused.","extensions":{"code":"APP_PAUSED","retryable":false}}]})";
+  CHECK_EQ(static_cast<int>(busy.connection->connect().code), static_cast<int>(Errc::Rejected));
+  replication::AssignmentFailure why = busy.connection->lastAssignmentFailure();
+  CHECK_EQ(why.code, std::string("APP_PAUSED"));
+  CHECK_EQ(why.retryAfterMs, 0);
+  CHECK(!why.platformBusy());
+
+  // A retryAfterMs on a later error of the same answer is still the wait.
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY"}},{"message":"wait","extensions":{"code":"PLATFORM_BUSY","retryAfterMs":40}}]})";
+  CHECK(!busy.connection->connect().ok());
+  CHECK_EQ(busy.connection->lastAssignmentFailure().retryAfterMs, 40);
+
+  // The wait is bounded where the SDK reads it (kMaxRetryAfterWaitMs), and the API's text
+  // is taken as untrusted: a code and a message of any length, with line breaks and escape
+  // sequences in them, are kept (and logged by the provider) short and on one line.
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy\n[crowdy ERROR] forged\u001b[2J )" + std::string(5000, 'm') +
+      R"(","extensions":{"code":"PLATFORM_BUSY\nX)" + std::string(300, 'C') + R"(","retryAfterMs":86400000000}}]})";
+  CHECK(!busy.connection->connect().ok());
+  why = busy.connection->lastAssignmentFailure();
+  CHECK_EQ(why.retryAfterMs, kMaxRetryAfterWaitMs);
+  CHECK_EQ(why.code.size(), kApiFailureCodeMaxChars);
+  CHECK_EQ(why.message.size(), kServerTextMaxChars);
+  CHECK(why.message.rfind("busy [crowdy ERROR] forged [2J mmm", 0) == 0);
+  for (const std::string* text : {&why.code, &why.message}) {
+    for (const char c : *text) CHECK(static_cast<unsigned char>(c) >= 0x20 && c != 0x7f);
+  }
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY","retryAfterMs":-5}}]})";
+  CHECK(!busy.connection->connect().ok());
+  CHECK_EQ(busy.connection->lastAssignmentFailure().retryAfterMs, 0);
+  CHECK(busy.connection->lastAssignmentFailure().platformBusy());
+
+  // No answer of the API's at all: no code, and a message that says what came back.
+  transport->assignmentStatus = 503;
+  transport->assignmentBody = "upstream unavailable";
+  CHECK(!busy.connection->connect().ok());
+  why = busy.connection->lastAssignmentFailure();
+  CHECK(why.failed());
+  CHECK(why.code.empty());
+  CHECK_EQ(why.retryAfterMs, 0);
+  CHECK(!why.message.empty());
+
+  // An answer that names no server.
+  transport->assignmentStatus = 200;
+  transport->assignmentBody =
+      R"({"data":{"serverWithLeastClients":{"serverId":"server-1","ip4":"","ip6":"","clientPort":0,"status":"READY","peers":[],"clients":"0","cpuPeakPct":0,"updatedAt":"","createdAt":""}}})";
+  CHECK(!busy.connection->connect().ok());
+  why = busy.connection->lastAssignmentFailure();
+  CHECK(why.code.empty());
+  CHECK_EQ(why.message, std::string("the answer names no server"));
+
+  // The assignment that succeeds leaves no failure behind.
+  transport->assignmentStatus = 0;
+  CHECK(busy.connection->connect().ok());
+  CHECK(!busy.connection->lastAssignmentFailure().failed());
+  CHECK(busy.connection->lastAssignmentFailure().code.empty());
+
+  // A reassignment that is refused leaves the connection Failed, with the refusal to read.
+  transport->assignmentStatus = 200;
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY","retryAfterMs":1200}}]})";
+  busy.connection->pump(0);
+  busy.connection->requestReassignment();
+  busy.connection->pump(0);
+  CHECK(busy.connection->state() == replication::ConnState::Failed);
+  why = busy.connection->lastAssignmentFailure();
+  CHECK(why.platformBusy());
+  CHECK_EQ(why.retryAfterMs, 1200);
 }
 
 void testSynchronousGameplayRefresh() {
@@ -734,6 +844,7 @@ void testRegionReadsSendTheirInputs() {
 }
 
 int main() {
+  testARefusedAssignmentKeepsItsCodeAndItsWait();
   testRegionReadsSendTheirInputs();
   testAMovedClientIsFullyUsable();
   testQuotasSetRefusesAPlatformGlobalRule();

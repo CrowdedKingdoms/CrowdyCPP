@@ -382,6 +382,30 @@ struct FleetHandlers {
   std::function<void(const FleetReleased&)> released;
 };
 
+/// `refreshFleetSession`'s `currentServer` (0.95.0): the realtime server a fleet session is
+/// connected to, named by the address the session connected to and its port. Exactly one of
+/// `ip4` and `ip6` is set: the Application API refuses both, and neither. Naming an `ip6`
+/// needs Application API v2.90.0; an earlier one takes an `ip4` only.
+struct FleetCurrentServer {
+  std::string ip4;  ///< set when the session connected over IPv4
+  std::string ip6;  ///< set when the session connected over IPv6
+  int clientPort = 0;
+};
+
+/// The `currentServer` that names `server`: the address a session connects to there
+/// (connectAddress(): its `ip4` when it has one, its `ip6` otherwise, or its `ip6` first
+/// with `preferIpv6`) and its `clientPort`. Give it a session answer's server as it is.
+/// Empty for a server with no address or no port. CrowdyJS `fleetCurrentServer`.
+std::optional<FleetCurrentServer> fleetCurrentServer(const Assignment& server, bool preferIpv6 = false);
+
+/// What `refreshFleetSession` takes for one session (FleetSession::refreshInput()).
+struct FleetRefreshInput {
+  std::int64_t appId = 0;
+  std::int64_t gameTokenId = 0;
+  /// The server the session is connected to. Empty asks for a new server.
+  std::optional<FleetCurrentServer> currentServer;
+};
+
 /// How many rows a session's table may hold past its `maxPlayers`: room for the carries that
 /// wait for an answer while the table is full, such as a new player's while one who left is
 /// still to be released. The realtime servers allow a session the same 32 carries past
@@ -552,6 +576,13 @@ class FleetSession {
   Status setServer(const Assignment& server);
   /// The server the session is on, or will open at.
   Assignment server() const;
+  /// What `refreshFleetSession` takes for this session (0.95.0; CrowdyJS
+  /// `FleetSession.refreshInput()`): its app, its gameTokenId and the server it is on, named
+  /// by the one address the session connected to. `currentServer` is empty when the session
+  /// was told to move (moveOrdered()), so the answer names a new server.
+  /// domains::FleetSessionsAPI::refresh(session) sends exactly this; a game server with an
+  /// HTTP client of its own sends it too, and gives the answer to applyRefresh().
+  FleetRefreshInput refreshInput() const;
   /// The app the session is in (FleetConfig::appId).
   std::int64_t appId() const { return config_.appId; }
 

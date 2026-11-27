@@ -453,15 +453,9 @@ const ROOT_CLASSIFICATIONS = {
     CATEGORY.BROWSER,
     'super-admin or operator only; the SDK wraps nothing for platform roles (tooling calls it directly)',
   ),
-  // The two reads that came with them. orgComputeCeiling is an organization's own read
-  // (view_compute_diagnostics) that Studio shows beside the setter above; portalReturnAllowed
-  // is asked by Studio's hosted sign-in when a player cancels. CrowdyJS 18.40.0 wraps neither.
-  ...classifyNames(
-    'Query',
-    ['orgComputeCeiling'],
-    CATEGORY.BROWSER,
-    "an organization's compute ceiling as Studio shows it; CrowdyJS does not wrap it",
-  ),
+  // A read that came with them: portalReturnAllowed is asked by Studio's hosted sign-in when
+  // a player cancels, and CrowdyJS does not wrap it. (orgComputeCeiling was listed here
+  // until CrowdyJS 18.41.0 wrapped it: ExecAPI::orgComputeCeiling since 0.95.0.)
   ...classifyNames(
     'Query',
     ['portalReturnAllowed'],
@@ -705,6 +699,7 @@ const METHOD_ALIASES = {
   'OrganizationsAPI.bySlug': 'getBySlug',
   // `delete` is a C++ keyword.
   'ManagedPlayersAPI.delete': 'remove',
+  'ManagedPlayersAPI.deleteMany': 'removeMany',
   'OrganizationsAPI.setMemberRoles': 'updateMemberRoles',
   'PaymentsAPI.capturePaypal': 'capturePaypalCheckout',
   'PaymentsAPI.create': 'createCheckout',
@@ -1320,6 +1315,7 @@ const CROSS_CUTTING_EXPORT_MODULES = {
   ),
   'src/fleet/session.ts': exportModule(
     [
+      'ActorNotPresent',
       'FLEET_TABLE_MARGIN',
       'FleetCarryOutcome',
       'FleetCarryResult',
@@ -1335,10 +1331,17 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       'FleetSessionStats',
       'FleetSessionStatus',
       'FleetSpeakerChange',
+      'KEEPALIVE_ANSWER_WAIT_MS',
+      'NOT_PRESENT_IDLE_MS',
+      'NotPresentEnd',
     ],
     CATEGORY.NATIVE,
     'replication::FleetSession (crowdy/replication/fleet_session.hpp) is the same session over Connection: carry, release, every send for a carried player, refreshDue and applyRefresh, with results and notifications delivered from poll(). A send for a player who is not carried returns Errc::NotCarried, and the table has CrowdyJS\'s cap (fleet-session-table-cap below)',
     {
+      ActorNotPresent: 'ActorNotPresent',
+      KEEPALIVE_ANSWER_WAIT_MS: 'kKeepaliveAnswerWaitMs',
+      NOT_PRESENT_IDLE_MS: 'kNotPresentIdleMs',
+      NotPresentEnd: 'NotPresentEnd',
       FLEET_TABLE_MARGIN: 'kFleetTableMargin',
       FleetCarryOutcome: 'FleetCarryStatus',
       FleetCarryResult: 'FleetCarryResult',
@@ -1356,6 +1359,10 @@ const CROSS_CUTTING_EXPORT_MODULES = {
       FleetSpeakerChange: 'SpeakerList',
     },
     {
+      ActorNotPresent: 'include/crowdy/replication/types.hpp',
+      KEEPALIVE_ANSWER_WAIT_MS: 'include/crowdy/replication/types.hpp',
+      NOT_PRESENT_IDLE_MS: 'include/crowdy/replication/types.hpp',
+      NotPresentEnd: 'include/crowdy/replication/types.hpp',
       FLEET_TABLE_MARGIN: 'include/crowdy/replication/fleet_session.hpp',
       FleetCarryOutcome: 'include/crowdy/replication/fleet_session.hpp',
       FleetCarryResult: 'include/crowdy/replication/fleet_session.hpp',
@@ -1707,6 +1714,99 @@ const CROSS_CUTTING_BEHAVIORS = {
     classification: classification(
       CATEGORY.NATIVE,
       'graphql::orgTokenRequiredOf, fleetSessionLimitOf, fleetSessionNotFoundOf and platformBusyOf (PlatformBusy::retryAfterMs), with kOrgTokenRequiredCode, kFleetSessionLimitCode, kNotFoundCode and kPlatformBusyCode, in crowdy/graphql/errors.hpp (0.94.0)',
+    ),
+  },
+  // CrowdyJS 18.41.0 / CrowdyCPP 0.95.0: what of that release sits outside the class scan.
+  'retry-wait-ceiling': {
+    path: 'src/errors.ts',
+    markers: [
+      'export const MAX_RETRY_AFTER_WAIT_MS = 30_000;',
+      'export function retryWaitMs(hintMs: number | null | undefined): number {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "crowdy::kMaxRetryAfterWaitMs (30,000) and crowdy::retryWaitMs() in crowdy/core/result.hpp: 0 for a hint of 0 or below, the hint up to the ceiling, the ceiling for anything longer. Every wait the SDK makes on a server's retryAfterMs goes through it (startGameSession, the Studio runner and runtime, exec().waitForModBuild, the kit runtime's hold), and ApiFailure::retryAfterMs and ExecReply::retryAfterMs() are bounded by it; graphql::platformBusyOf still returns what the API sent, as CrowdyJS's does (0.95.0)",
+    ),
+  },
+  'managed-players-delete-many-limit': {
+    path: 'src/domains/managedPlayers.ts',
+    markers: [
+      'export const MANAGED_PLAYERS_DELETE_MAX = 100;',
+      'export type ManagedPlayersDeletion = Omit<',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "ManagedPlayersAPI::kRemoveManyMax (100) is the limit removeMany() refuses past, before any request, with a message that says how many ids it was given and names none; the answer is the graphql::Json of deleteManagedPlayers ({ deleted, notFound, held, players: [{ externalId, outcome }] }), as every ManagedPlayersAPI answer is, with gen::ManagedPlayerDeletion for the outcomes (0.95.0)",
+    ),
+  },
+  'fleet-current-server-one-address': {
+    path: 'src/domains/fleetSessions.ts',
+    markers: [
+      'export type FleetCurrentServer = { ip4: string; clientPort: number } | { ip6: string; clientPort: number };',
+      'export function fleetCurrentServer(server: {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "replication::FleetCurrentServer and replication::fleetCurrentServer(server, preferIpv6) in crowdy/replication/fleet_session.hpp name the one address a session connects to (the ip4 when there is one, the ip6 otherwise, or the ip6 first with Config::preferIpv6, which CrowdyJS has no equivalent of); FleetSession::refreshInput() returns the input, FleetSessionsAPI::refresh(session) sends it, and refresh(appId, gameTokenId, currentServer) refuses both addresses or neither before any request (0.95.0)",
+    ),
+  },
+  'app-token-user-id': {
+    path: 'src/domains/portal.ts',
+    markers: ["'token gameTokenId userId appId expiresAt applicationApiUrl applicationApiWsUrl"],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "AppTokenResponse::userId (and userIdInt64()) in crowdy/domains/types.hpp, selected by every call that answers an app token: mintAppToken, refresh, exchangeCode, completeEntry, exchangeManagedPlayerAssertion and signInWithMinecraft, so those calls need Application API v2.90.0 as CrowdyJS's do; tests/parity/app-token-fields.test.mjs holds the selection to CrowdyJS's field for field (0.95.0)",
+    ),
+  },
+  'fleet-not-present-report': {
+    path: 'src/fleet/session.ts',
+    markers: [
+      "genericError?(notification: Notified<'genericError'>, verified: boolean, keepalive: boolean): void;",
+      'notPresent?(report: ActorNotPresent): void;',
+      'notPresentEnded?(report: ActorNotPresent, end: NotPresentEnd): void;',
+      'notPresent(player: FleetId, uuid: string): ActorNotPresent | null {',
+      'keepalivesRefused: number;',
+      'notPresentReports: number;',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "FleetHandlers::notPresent and notPresentEnded, GenericError::keepalive (a member where CrowdyJS passes a third argument), FleetSession::notPresent(player, uuid), and Stats::keepalivesRefused and notPresentReports: one report for a carried player's actor and place when realtime servers v0.51.0 refuse its keepalive, ended once as Accepted, Moved or Stopped. A player's own Connection and WorldSession make the same report (Handlers::notPresent, Connection::notPresent, WorldSessionConfig::onNotPresent), where CrowdyJS's player client sends no keepalive message of its own (0.95.0)",
+    ),
+  },
+  'fleet-refresh-input': {
+    path: 'src/fleet/session.ts',
+    markers: ['refreshInput(): {'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "FleetSession::refreshInput() returns a replication::FleetRefreshInput (appId, gameTokenId and the optional currentServer, left out when the session was told to move), which FleetSessionsAPI::refresh(session) sends (0.95.0; through 0.94.1 only refresh(session) built it, with the server's ip4)",
+    ),
+  },
+  'player-datagram-checks': {
+    path: 'src/binary-wire.ts',
+    markers: ['export async function parsePlayerDatagram(', 'export interface PlayerDatagram {', 'export interface PlayerInbound {'],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "CrowdyJS 18.41.0 verifies what its binary relay hands a player's client (parsePlayerDatagram: a signed bundle or a long-spatial notification whose HMAC fails is dropped, one that nothing signed is dropped, error frames and channel notifications are delivered marked verified or not). replication::Connection::handleDatagram makes the same checks on its UDP socket (0.95.0: Stats::unsignedNotifications beside hmacFailures and malformed, GenericError::verified), and crowdy/wire/codec.hpp has the pieces (verifySignedBundle, verifyLongSpatial, forEachMessage)",
+    ),
+  },
+  'player-receive-stats': {
+    path: 'src/realtime.ts',
+    markers: [
+      'export interface RealtimeReceiveStats {',
+      'receiveStats(): RealtimeReceiveStats {',
+      'async settled(): Promise<void> {',
+    ],
+    classification: classification(
+      CATEGORY.NATIVE,
+      "Connection::stats() carries the same counts under FleetSession's names (hmacFailures, malformed, unsignedNotifications, wrongApp, messagesReceivedByType[3] for the refusals, unverifiedTokenExpired), and a notification of another app than Config::appId is dropped as CrowdyJS drops one of another app than the subscribed one (0.95.0). settled() waits for CrowdyJS's asynchronous verification; here a datagram is verified on the network thread before it is queued, so poll() has nothing to wait for",
+    ),
+  },
+  'binary-relay-dropped-callback': {
+    path: 'src/binary-relay.ts',
+    markers: ['export interface BinaryRelayDropped {', 'onDropped?(dropped: BinaryRelayDropped): void;', 'settled(): Promise<void> {'],
+    classification: classification(
+      CATEGORY.BROWSER,
+      "the binary relay is a page's WebSocket to the Application API's UDP relay; a native client opens its own UDP socket, and what it drops is counted in Connection::stats() (player-receive-stats)",
     ),
   },
   // The table cap. A difference until 0.95.0 (CrowdyJS bounded its table from 18.40.0, on its

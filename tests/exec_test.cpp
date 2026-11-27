@@ -703,6 +703,8 @@ class RecordingHttp final : public graphql::IHttpTransport {
       return {200, R"({"data":{"execVersions":[{"version":2,"createdBy":"user:1","createdAt":"t","types":1,"active":true,"manifestJson":"{\"root\":\"lobby\",\"types\":{\"lobby\":{\"kind\":\"hub\",\"seed_bytes\":4}}}"},{"version":1,"createdBy":"user:1","createdAt":"t","types":1,"active":false,"manifestJson":null}]}})"};
     if (op == "ExecEndpointStats")
       return {200, R"({"data":{"execEndpointStats":[{"nodeType":"arena","method":"hit","calls":40,"appErrors":1,"busy":3,"denied":0,"deadlineExceeded":0,"otherErrors":0,"timedCalls":37,"latencyMsAvg":1.5,"latencyMsMax":9,"firstMinute":"t0","lastMinute":"t1"}]}})"};
+    if (op == "OrgComputeCeiling")
+      return {200, R"({"data":{"orgComputeCeiling":{"orgId":"9007199254740993","maxInstances":4096,"maxReservedMb":262144,"operatorSet":true,"funded":true,"defaultMaxInstances":1024,"defaultMaxReservedMb":65536,"reason":"load test","updatedAt":"2026-11-25T17:44:00.000Z"}}})"};
     if (op == "ExecSetEnabled") return {200, R"({"data":{"execSetEnabled":)" + status + "}}"};
     if (op == "ExecActivateVersion") return {200, R"({"data":{"execActivateVersion":)" + status + "}}"};
     if (op == "ExecConnectAsDeveloper")
@@ -828,6 +830,29 @@ void testOperations() {
   vars = http->requests.back()["variables"];
   CHECK(vars["nodeType"].isNull());
   CHECK(vars["sinceMinutes"].isNull());
+
+  // 0.95.0 (Application API v2.88.0): the organization's compute ceiling, beside the
+  // diagnostics that say what an app has now.
+  const auto ceiling = exec.orgComputeCeiling("9007199254740993");
+  CHECK_EQ(http->requests.back()["operationName"].asString(), std::string("OrgComputeCeiling"));
+  CHECK_EQ(http->requests.back()["variables"].dump(), std::string(R"({"orgId":"9007199254740993"})"));
+  const std::string ceilingQuery = http->requests.back()["query"].asString();
+  CHECK(ceilingQuery.find("orgComputeCeiling(orgId: $orgId)") != std::string::npos);
+  for (const char* field : {"maxInstances", "maxReservedMb", "operatorSet", "funded", "defaultMaxInstances",
+                            "defaultMaxReservedMb", "reason", "updatedAt"}) {
+    CHECK(ceilingQuery.find(field) != std::string::npos);
+  }
+  CHECK_EQ(ceiling["orgId"].asBigIntString(), std::string("9007199254740993"));
+  CHECK_EQ(ceiling["maxInstances"].asInt64(), 4096);
+  CHECK_EQ(ceiling["maxReservedMb"].asInt64(), 262144);
+  CHECK(ceiling["operatorSet"].asBool());
+  CHECK(ceiling["funded"].asBool());
+  CHECK_EQ(ceiling["reason"].asString(), std::string("load test"));
+  bool ceilingAnswered = false;
+  exec.orgComputeCeilingAsync("3", [&](graphql::GraphQLOutcome out) {
+    ceilingAnswered = out.ok() && out.data["defaultMaxInstances"].asInt64() == 1024;
+  });
+  CHECK(ceilingAnswered);
 
   auto s = exec.setEnabled("77", false, "bare");
   CHECK_EQ(s["disabledTypes"].at(0).asString(), std::string("bare"));
@@ -1898,6 +1923,26 @@ void testGatewayRefusal() {
     CHECK_EQ(conn->lastFailure()->message(), why);
     conn->close();
   }
+
+  // 0.95.0: the refusal names the gateway by its scheme, host and port. Credentials in the
+  // authority, and a path or a query (where a connect token can sit), reach no message.
+  for (const char* leaky :
+       {"wss://user:hunter2@gw.example.org:8443/v1/connect?token=SECRETTOKEN#frag",
+        "ws://ckx-or-1.exec.dev.crowdedkingdoms.com/v1/connect?token=SECRETTOKEN"}) {
+    http->gatewayUrl = leaky;
+    auto conn = exec.connect("77");
+    std::optional<ExecReply> refused;
+    conn->callRaw("arena", "m1", "state", "", [&](ExecReply r) { refused = r; });
+    CHECK(until(*dispatcher, [&] { return refused.has_value(); }));
+    const std::string said = refused->message();
+    CHECK(said.rfind("refusing the gateway ws", 0) == 0);
+    CHECK(said.find("SECRETTOKEN") == std::string::npos);
+    CHECK(said.find("hunter2") == std::string::npos);
+    CHECK(said.find("/v1/connect") == std::string::npos);
+    CHECK(conn->lastConnectFailure().message.find("SECRETTOKEN") == std::string::npos);
+    conn->close();
+  }
+  http->gatewayUrl = "ws://ckx-or-1.exec.dev.crowdedkingdoms.com";
   CHECK_EQ(transport->count(), 0u);
 
   // A gateway on the Game API's estate is dialed.

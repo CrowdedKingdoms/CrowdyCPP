@@ -291,8 +291,7 @@ Status FleetSession::setServer(const Assignment& server) {
 }
 
 Status FleetSession::place(const Assignment& server, bool& advertised) {
-  const std::string& host =
-      (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
+  const std::string& host = connectAddress(server, config_.transport.preferIpv6);
   if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
   // The game server has named the session's server: an order to move is answered, whether
   // or not the answer is the server it is on. The server named has the silence timeout to
@@ -326,11 +325,30 @@ Status FleetSession::place(const Assignment& server, bool& advertised) {
 
 Assignment FleetSession::server() const { return endpoint_->get(); }
 
+std::optional<FleetCurrentServer> fleetCurrentServer(const Assignment& server, bool preferIpv6) {
+  const std::string& address = connectAddress(server, preferIpv6);
+  if (address.empty() || server.clientPort <= 0) return std::nullopt;
+  FleetCurrentServer current;
+  // Exactly one address: the one a session connects to.
+  if (&address == &server.ip6) current.ip6 = address;
+  else current.ip4 = address;
+  current.clientPort = server.clientPort;
+  return current;
+}
+
+FleetRefreshInput FleetSession::refreshInput() const {
+  FleetRefreshInput input;
+  input.appId = config_.appId;
+  input.gameTokenId = token().gameTokenId;
+  // A session told to move asks for a new server by naming none.
+  if (!moveOrdered()) input.currentServer = fleetCurrentServer(server(), config_.transport.preferIpv6);
+  return input;
+}
+
 Status FleetSession::applyRefresh(const TokenInfo& token, const Assignment& server) {
   // Both are checked before either is taken, so a bad answer changes nothing.
   if (token.token.size() != wire::kTokenOctets) return Errc::InvalidArgument;
-  const std::string& host =
-      (config_.transport.preferIpv6 && !server.ip6.empty()) ? server.ip6 : server.ip4;
+  const std::string& host = connectAddress(server, config_.transport.preferIpv6);
   if (host.empty() || server.clientPort <= 0) return Errc::InvalidArgument;
   const bool sameSession = token.gameTokenId == connection_->credentials().gameTokenId;
   const bool stays = sameServer(endpoint_->get(), server);

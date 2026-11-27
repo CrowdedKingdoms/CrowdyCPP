@@ -35,6 +35,15 @@ struct Assignment {
   int clientPort = 0;
 };
 
+/// The address a connection opens its socket to for an assignment: the `ip6` when
+/// `preferIpv6` (Config::preferIpv6) and the server has one, otherwise the `ip4`, and the
+/// `ip6` when the server has no `ip4` (0.95.0; until then a server with an `ip6` alone was
+/// refused unless preferIpv6 was set). Empty for a server with neither.
+inline const std::string& connectAddress(const Assignment& server, bool preferIpv6) {
+  if (preferIpv6 && !server.ip6.empty()) return server.ip6;
+  return server.ip4.empty() ? server.ip6 : server.ip4;
+}
+
 /// Why a server assignment did not happen (Connection::lastAssignmentFailure(), 0.95.0):
 /// the Application API's refusal code and its `retryAfterMs`, which connect()'s one Errc
 /// cannot carry. See ApiFailure.

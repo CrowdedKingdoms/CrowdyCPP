@@ -2417,6 +2417,61 @@ void runSilenceTimeoutDefaults() {
   }
 }
 
+// Every allowed timeout fires, within one capabilities interval of its value, when the
+// server says nothing from the start (OI-2026-11-27-001: at the minimum the capabilities
+// interval is a third of the timeout, 1,000 ms, which was also how long the check waited for
+// the acknowledgement of the capabilities that last left; an advertisement left every time
+// that wait was over, so a timeout of 3,000 to about 3,300 never fired). The session is
+// pumped every 10 ms, as a game's loop would.
+void runEverySilenceTimeoutFires() {
+  struct Case {
+    std::int64_t asked, timeoutMs, intervalMs;
+  };
+  for (const Case c : {Case{3'000, 3'000, 1'000},      // the minimum
+                       Case{1, 3'000, 1'000},          // below it: raised to it
+                       Case{3'002, 3'002, 1'000},
+                       Case{3'300, 3'300, 1'100},
+                       Case{4'500, 4'500, 1'500},
+                       Case{45'000, 45'000, 15'000}}) {  // the default
+    FakeServer server;
+    server.start();
+    ManualClock clock;
+    FleetConfig cfg = watchedConfigFor(server);
+    cfg.transport.watchdogSilenceMs = c.asked;
+    FleetSession fleet(cfg, crypto(), clock);
+    server.serves(fleet);
+    CHECK(fleet.open().ok());
+    const std::int64_t start = clock.monotonicMillis();
+    std::int64_t firedAtMs = -1;
+    for (int step = 0; step <= 7'000 && firedAtMs < 0; ++step) {  // 70 seconds at most
+      fleet.pump(0);
+      fleet.poll();
+      if (fleet.moveOrdered()) {
+        firedAtMs = clock.monotonicMillis() - start;
+        CHECK(fleet.refreshDue());
+      } else {
+        clock.advance(10);
+      }
+    }
+    if (firedAtMs < 0) {
+      std::fprintf(stderr, "a silence timeout of %lld ms did not fire in 70 seconds\n",
+                   static_cast<long long>(c.asked));
+    }
+    // After its value, and no later than the first pass a capabilities interval after it.
+    CHECK(firedAtMs > c.timeoutMs);
+    CHECK(firedAtMs <= c.timeoutMs + c.intervalMs + 10);
+    // Every advertisement on the way was the session's own, a capabilities interval apart.
+    int advertisements = 0;
+    for (const auto& got : sentSoFar(server)) {
+      CHECK_EQ(got[0], 29u);
+      ++advertisements;
+    }
+    CHECK_EQ(advertisements, static_cast<int>(firedAtMs / c.intervalMs) + 1);
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+  }
+}
+
 // A live session that carries nobody, with nothing in range, hears only the acknowledgements
 // of its capabilities. Ten minutes of that never make a refresh due.
 void runAnIdleSessionIsNeverTakenForGone() {
@@ -4286,6 +4341,7 @@ int main() {
   runErrorFramesChangeNothing();
   runProofRefusedConverges();
   runSilenceTimeoutDefaults();
+  runEverySilenceTimeoutFires();
   runAnIdleSessionIsNeverTakenForGone();
   runTwoLostAcknowledgementsAreNotSilence();
   runSilenceMakesARefreshDue();

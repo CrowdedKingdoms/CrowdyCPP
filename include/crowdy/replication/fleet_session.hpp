@@ -434,7 +434,10 @@ struct FleetConfig {
   /// was only out of reach goes on when it is heard again. When the refresh answers a
   /// server, the session carries every player again there, the same server included: a
   /// server that was silent may hold no carry. 0 switches the timeout off; a smaller value
-  /// than 3,000 is raised to 3,000.
+  /// than 3,000 is raised to 3,000. Every value fires between itself and one capabilities
+  /// interval later: the acknowledgement of the advertisement that left as the timeout
+  /// passed has up to 1,000 ms to arrive. (Until 0.95.0 a timeout of 3,000 to about 3,300
+  /// never fired.)
   ///
   /// A live session with nobody in range hears only the acknowledgements of its
   /// capabilities, so `advertiseIntervalMs` (15,000) is held to at most a third of the

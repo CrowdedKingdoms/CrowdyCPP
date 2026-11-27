@@ -15,6 +15,9 @@ namespace {
 
 /// How long the silence check waits for the answer to the capabilities that last left, so
 /// that the acknowledgement of the advertisement sent as the timeout passes still counts.
+/// Never longer than the capabilities interval, and never past the timeout by more than
+/// itself (checkSilence): a wait that started again with every advertisement would, at an
+/// interval as short as itself, never end.
 constexpr std::int64_t kAcknowledgementGraceMs = 1'000;
 
 bool sameServer(const Assignment& a, const Assignment& b) {
@@ -581,8 +584,13 @@ void FleetSession::checkSilence() {
   const std::int64_t now = clock_.monotonicMillis();
   const std::int64_t heard = connection_->lastVerifiedMs_.load(std::memory_order_relaxed);
   if (now - heard <= timeout) return;
-  // The capabilities that just left are still owed their acknowledgement.
-  if (now - connection_->lastCapsMs_ < kAcknowledgementGraceMs) return;
+  // The capabilities that just left are still owed their acknowledgement, for the grace or
+  // one capabilities interval, whichever is shorter, and for no longer than that past the
+  // timeout: at the shortest timeout an advertisement leaves every 1,000 ms, so "the last
+  // one is younger than the grace" was true at every pass and the timeout never fired
+  // (0.95.0). Every timeout now fires within one capabilities interval of its value.
+  const std::int64_t grace = std::min(kAcknowledgementGraceMs, config_.transport.advertiseIntervalMs);
+  if (now - heard < timeout + grace && now - connection_->lastCapsMs_ < grace) return;
   if (connection_->logger_.enabled(core::LogLevel::Warn)) {
     connection_->logger_.log(
         core::LogLevel::Warn,

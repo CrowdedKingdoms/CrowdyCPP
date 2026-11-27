@@ -787,10 +787,11 @@ API v2.90.0, realtime servers v0.51.0 and ck-exec 0.26.1 on every tier that day)
 - `e2e_fleet_session` checks the sign-in's `userId` against the carry's, sends each carried
   player's keepalive where it has access and requires no refusal (step 4b), and its hub step
   takes `CROWDY_FLEET_HUB_NODE_TYPE` / `_KEY` / `_METHOD` for an app without the probe, with
-  the player defaulting to the suite's player 0. It passed on dev on 2026-11-27 **without the
-  hub step**: the libcurl with WebSockets this builder had (`/tmp/curl-ws`) was gone, and the
-  system's is 8.5.0. The hub step's new variables have not run live. Nobody has made a player
-  without access live either: the refused-keepalive report is proven against the fake server.
+  the player defaulting to the suite's player 0. It passed on dev on 2026-11-27, **the hub step
+  included** (ck-exec 0.26.1, `arena` / `m1` / `state`), once a libcurl 8.13.0 was built on this
+  builder at `~/.local/opt/curl-ws` (`/tmp/curl-ws` is a link to it, and `/tmp` does not last:
+  point `CURL_INCLUDE_DIR` / `CURL_LIBRARY` at the first). Nobody has made a player
+  without access live: the refused-keepalive report is proven against the fake server.
 - Left: cks-docs has nothing on the refused keepalive, the 30 s ceiling, `removeMany` or
   `orgComputeCeiling`; CrowdyPy re-vendors at `dev/v0.95.0` with its pin at 18.41.0; the
   promotion to test and prod (`promote.mjs --repo CrowdyCPP`), which needs CrowdyJS 18.41.0 at

@@ -42,7 +42,7 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_FLEET_IDLE_SECONDS` | no | `e2e_fleet_session`: the app's idle timeout when it is short (60, say). The suite then lets one carried player go quiet and requires its release, reason 5 |
 | `CROWDY_FLEET_HUB_APP_ID` / `CROWDY_FLEET_HUB_ORG_TOKEN` | no | `e2e_fleet_session`'s hub step: a ck-exec app running the platform's probe (node types `bare` and `probe`) and an org token of that app's organization with the scope `fleet:session`. It needs the curl WebSocket transport (libcurl 8.13 or newer) |
 | `CROWDY_FLEET_HUB_PLAYER_ID` | no | the user id the hub step's call-as names. Unset, it is the user id of the suite's player 0, as the player's sign-in answered it (`AppTokenResponse::userId`) |
-| `CROWDY_FLEET_HUB_NODE_TYPE` / `CROWDY_FLEET_HUB_KEY` / `CROWDY_FLEET_HUB_METHOD` | no | a hub address of the app's own, for an app that does not run the probe (`arena`, `m1`, `state`, say). The step then requires the server's own call and a call for the player to that address to be answered. Not run live yet |
+| `CROWDY_FLEET_HUB_NODE_TYPE` / `CROWDY_FLEET_HUB_KEY` / `CROWDY_FLEET_HUB_METHOD` | no | a hub address of the app's own, for an app that does not run the probe (`arena`, `m1`, `state`, say). The step then requires the server's own call and a call for the player to that address to be answered |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |

@@ -27,10 +27,10 @@ labels.
 ## 0.95.0 live validation: fleet sessions
 
 On 2026-11-27 `e2e_fleet_session` ran live on dev against Application API `v2.90.0` and realtime servers
-`v0.51.0` (`CROWDY_FLEET_REALTIME_MIN=0.51.0`), 26 seconds a run, and passed every step it ran. **The hub step
-did not run:** this builder's libcurl with WebSockets was gone (the system's is 8.5.0, and the step needs
-8.13), so the step was skipped, and ck-exec `0.26.1` was not exercised. What 0.95.0 adds to the suite, and what
-the run showed:
+`v0.51.0` (`CROWDY_FLEET_REALTIME_MIN=0.51.0`), 26 seconds a run, and passed every step it ran. The first run
+skipped the hub step, because this builder's libcurl with WebSockets was gone (the system's is 8.5.0, and the
+step needs 8.13). **A second run the same day, built against libcurl 8.13.0, ran the hub step against ck-exec
+`0.26.1` and passed** (`HUB_STEP=ran`). What 0.95.0 adds to the suite, and what the runs showed:
 
 - **`userId` on the sign-in.** The four players' `mintManagedPlayerToken` answers select `userId`
   (`AppTokenResponse::userId`, Application API v2.90.0), and each carry's `FleetCarryResult::userId` is required
@@ -46,8 +46,11 @@ the run showed:
   Application API request, a verified refusal named by `sendRefused`, a refreshed token carried with no send
   refused (66 of 66 sends delivered), a closed session told within 10 ms by a signed
   `COMMAND_SESSION_RELEASED`, and no session sent anything of another app, unsigned, or with a failing HMAC.
-- **Not run live:** the hub step's own-hub address (`CROWDY_FLEET_HUB_NODE_TYPE`, `_KEY`, `_METHOD`), which is
-  new in this release; `removeMany` (the suite deletes nobody); `orgComputeCeiling`; test and prod.
+- **The hub step with a hub address of the app's own** (`CROWDY_FLEET_HUB_NODE_TYPE=arena`, `_KEY=m1`,
+  `_METHOD=state`, new in this release): the server's own call was answered in 264 ms and a call for the
+  suite's player 0, named by the `userId` its sign-in answered, in 25 ms, both with the hub's state.
+- **Not run live:** `removeMany` (the suite deletes nobody); `orgComputeCeiling`; a refused keepalive (the
+  suite cannot make a player without access); test and prod.
 
 ## 0.94.0 live validation: fleet sessions
 

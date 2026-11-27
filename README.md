@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.95.0: a player's connection checks what it receives, and Application API v2.90.0.** A player's `Connection` delivers only what the realtime server signed for its app, reassigns on `TOKEN_EXPIRED` only when it is verified, reports a refused keepalive once (`Handlers::notPresent`, for realtime servers v0.51.0), and returns from `disconnect()` whatever is arriving. Every app-token answer carries `userId`, so the token calls need Application API v2.90.0. `admin().managedPlayers().removeMany` deletes up to 100 players in one call, a fleet refresh names its server by an `ip4` or an `ip6`, and `exec().orgComputeCeiling` reads an organization's compute ceiling. The SDK waits 30 seconds at most on a server's `retryAfterMs`. Parity pinned to CrowdyJS 18.41.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.94.1: the fleet session documents come from the published schema.** Your code needs no change. The published schema has carried Application API v2.89.1 since November 26, 2026, so the four documents that 0.94.0 wrote in its headers (`openFleetSession`, `refreshFleetSession`, `closeFleetSession`, and `execConnectAsServer`) are now generated from `operations/`, as every other document is, with the same text. See [MIGRATION.md](MIGRATION.md).
 
 **v0.94.0: fleet sessions for an organization's game servers.** `replication::FleetSession` is one realtime session that a game server opens for itself and uses for every player on that server. `client.fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `exec().connectAsServer` opens the server's hub connection, where `callAs` makes a call for one of the organization's players. Fleet sessions need Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 for the hub connection; all three have been on dev, test, and prod since November 26, 2026. Crowded Kingdoms switches fleet sessions on for an organization. CrowdyJS 18.40.0 carries the same feature. See [Game servers: fleet sessions](#game-servers-fleet-sessions) and [MIGRATION.md](MIGRATION.md).
@@ -701,7 +703,7 @@ app-scoped token):
 | `client.auth()` | Sign-in: `login` / `registerUser` (email + password; `registerUser(RegisterUserInput)` with the birth date, country and parental confirmation), magic link, social/OIDC. The player's age (`recordPlayerAge`) and documents (`playerLegalDocuments`, `appRequiredDocuments`, `recordPlayerConsents` with an app and a method, `playerLegalAcceptance`), and the developer documents. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
 | `client.users()` | `me` (with `ageBracket` and `country`), `updateGamertag(gamertag, disambiguation)`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
-| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs, org-managed players (`adoptAppToken`, `exchangeManagedPlayerAssertion`), and the Minecraft sign-in for Crowded Kingdoms' own apps (`minecraftChallenge`, `signInWithMinecraft`). |
+| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs, org-managed players (`adoptAppToken`, `exchangeManagedPlayerAssertion`), and the Minecraft sign-in for Crowded Kingdoms' own apps (`minecraftChallenge`, `signInWithMinecraft`). Every app-token answer names its player (`userId`). |
 | `crowdy::startGameSession(token)` | A game session from any app token: the per-game client on the app's datacenter and the native replication connection signed with the token (`crowdy/game_session.hpp`). |
 | `client.safety()` | The player's own controls in an app (app token): who hears and sees them (`commSettings` / `setCommSettings`), a parent's consent (`requestParentalConsent`), contacts, blocks and reports (`fileReport`). The realtime servers enforce them. |
 | `client.platform()` | `config`, and the public `territoryPolicies` (the countries Crowded Kingdoms does not serve, and higher minimum ages). |
@@ -710,7 +712,7 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams: membership, roles, join policies and bans. |
-| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
+| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes: `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), the organization's compute ceiling (`orgComputeCeiling`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `getFiles` / `putFile` / `commitFiles` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
@@ -928,6 +930,53 @@ See the [native player-host notes](docs/native-player-host.md) and
   reassignment — see
   [Troubleshooting](https://docs.crowdedkingdoms.com/replication-api/troubleshooting)).
 
+What a connection delivers (0.95.0; see `MIGRATION.md`):
+
+- **Signed, and for its app.** A long-spatial notification reaches a handler when it
+  carries its own HMAC that verifies with the player's token, or when it is a member of
+  a signed bundle that verifies. One that nothing signed is dropped and counted in
+  `stats().unsignedNotifications`. One that names another app than `Config::appId` is
+  dropped and counted in `stats().wrongApp`, however it was signed. Both counts should
+  stay 0. If one moves, tell Crowded Kingdoms: the SDK's log line names the app, the
+  message type, and the chunk.
+- **Without a signature of their own.** Channel messages, channel audio, and error
+  frames have no room for an HMAC, so they are delivered alone or in either kind of
+  bundle. `GenericError::verified` is true for an error frame that arrived in a signed
+  bundle that verified. The realtime servers send a player's session every error frame
+  alone, so today it is false.
+- **`TOKEN_EXPIRED`.** A verified one reassigns the connection. An unverified one moves
+  nothing by itself: the connection asks its session provider for a fresh token, at
+  most once every 30 seconds, and reassigns only if the answer says the current server
+  does not know the new token. With `Config::refreshLeadMs = 0` it asks nothing, and
+  your `genericError` handler decides.
+- **Switched off.** With `Config::verifyNotifications = false` a notification that
+  nothing signed is delivered. A connection whose `Config::appId` is 0 compares no app.
+- **A refused keepalive.** From realtime servers v0.51.0 a keepalive (`sendHeartbeat`)
+  is accepted only where the player's actor update would be. Where the player has no
+  `access`, every keepalive is answered `UNAUTHORIZED`, every few seconds: the actor is
+  not present there, and the session stays connected. `Handlers::notPresent` is called
+  once for the actor and the place, `connection.notPresent(uuid)` returns the report
+  while it stands, and `Handlers::notPresentEnded` is called once when a keepalive there
+  is accepted (no refusal for 3 seconds), the actor moves to another chunk, or its
+  keepalives stop for 30 seconds. `genericError` still receives every refusal, with
+  `GenericError::keepalive` true. Keep sending keepalives at the same rate: never
+  faster, and never stop. Once access is granted, the next keepalive is accepted within
+  about 6 seconds. The refusal is unsigned, so the report is all it changes.
+
+A failed `connect()` answers one `Errc`. `Connection::lastAssignmentFailure()` (also
+`ConnectResult::failure` and `GameSession::failure`) keeps what the Application API
+said: its refusal `code`, its `retryAfterMs`, and its `message`. When
+`failure.platformBusy()` is true, wait `retryAfterMs` and connect again. The SDK waits
+30 seconds at most on a server's hint (`kMaxRetryAfterWaitMs`), and `retryAfterMs` here
+is never longer. Pass a hint you read yourself (`graphql::platformBusyOf`) through
+`retryWaitMs()` before you wait on it. `code` and `message` are a server's text, kept to
+one line of 64 and 500 bytes: show them, and do not act on them.
+
+`disconnect()` returns within 100 milliseconds whatever is still arriving, unless the
+session provider is in the middle of a call: the network thread stops at the 16
+datagrams it has in hand. One `pump()` reads 1,024 datagrams at most, so a caller that
+wants the socket empty calls it until it returns less.
+
 Two integration modes:
 
 - **Owned net thread** (default): the SDK runs a receive/send thread and hands
@@ -1031,6 +1080,12 @@ fleet.close();
   session's `maxPlayers`). A carry answered `NoLiveToken` is asked once more, 250 ms
   later, before it ends that way: a token made a moment ago may not have reached the
   realtime server yet.
+  The session's table holds `maxPlayers` rows and 32 more (`tableLimit()`), carried
+  players and waiting carries together. A carry for a new player while it is full ends
+  `TableFull` at the next `poll()` with nothing sent (`stats().carriesRefusedTableFull`).
+  A carry for a player the table already holds, and one whose `replaces` names such a
+  player, are never refused this way. Release the players who left, or open another
+  session.
   A result does not say which of a player's carries it answers. A `ProofRefused` that
   arrives while another carry for the player has no answer yet can be the answer to an
   earlier carry that reached the server after a later one was accepted. So it ends
@@ -1112,7 +1167,9 @@ fleet.close();
   session hears an acknowledgement of its capabilities every 15 seconds. After 45 seconds
   with nothing the server signed, `refreshDue()` turns true, and the refresh decides as
   above. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
-  timeout off, and the session sends its capabilities at least three times in it.
+  timeout off, and the session sends its capabilities at least three times in it. The
+  smallest timeout is 3,000 ms, and every value fires between the timeout and one
+  capabilities interval later.
 
 ### Security notes
 
@@ -1172,6 +1229,16 @@ about 85 messages a second reuses a number sooner than that. Then match
 
 A send past the player's rate budget has no refusal: it is dropped in silence.
 
+A refused keepalive is the exception to this table. From realtime servers v0.51.0 a
+keepalive for a carried player (`sendHeartbeat(player, chunk, uuid)`) is accepted only
+where that player's actor update would be. Where the player has no `access`, every
+keepalive is answered `UNAUTHORIZED` inside the session's signed bundle, every few
+seconds. `handlers.notPresent` is called once for the player, the actor, and the place,
+`session.notPresent(player, uuid)` returns the report while it stands, and
+`handlers.notPresentEnded` is called once when it ends. `handlers.sendRefused` is not
+called for it. The carry stands. Keep the player's keepalives going at the same rate:
+once access is granted, the next one is accepted within about 6 seconds.
+
 ### Opening, refreshing, and closing a session
 
 `client.fleetSessions()` wraps the three Application API calls, and
@@ -1183,7 +1250,7 @@ bearer.
 | Call | Application API | Answer |
 |---|---|---|
 | `open(appId)` | `openFleetSession` | `FleetSessionResponse`: `token`, `gameTokenId`, `appId`, `expiresAt` (24 hours away), `maxPlayers`, `server` |
-| `refresh(session)` or `refresh(appId, gameTokenId, currentIp4, currentClientPort)` | `refreshFleetSession` | The same token and id, with `expiresAt` moved to 24 hours from now |
+| `refresh(session)`, `refresh(appId, gameTokenId, currentServer)`, or `refresh(appId, gameTokenId, currentIp4, currentClientPort)` | `refreshFleetSession` | The same token and id, with `expiresAt` moved to 24 hours from now |
 | `close(session)` or `close(appId, gameTokenId)` | `closeFleetSession` | `true` when a session was ended |
 
 Every call has an `...Async` twin whose callback receives the outcome and the answer.
@@ -1207,9 +1274,16 @@ Every call has an `...Async` twin whose callback receives the outcome and the an
   ask `refreshDue()` from your loop. `FleetConfig::reassign` is the other way to answer a
   move order: the session calls it on its network thread and connects to the server it
   returns.
+- **One address.** `currentServer` names the server by the address the session connected
+  to: an `ip4` or an `ip6`, never both, and the `clientPort`. `refresh(session)` sends the
+  server's `ip4`, or its `ip6` when the server has no `ip4` or the session prefers IPv6
+  (`FleetConfig::transport.preferIpv6`). `replication::fleetCurrentServer(server)` makes
+  one from a session answer's server for the form that takes a `currentServer`. Naming an
+  `ip6` needs Application API v2.90.0.
 - **Without this client.** `FleetSession` needs only the token, its id, and the server. A
   server that calls the Application API with its own HTTP client fills `FleetConfig`
-  itself and passes a refresh to `fleet.applyRefresh(token, server)`.
+  itself, sends `fleet.refreshInput()` (the app, the session's id, and its `currentServer`,
+  left out after a move order), and passes the answer to `fleet.applyRefresh(token, server)`.
 
 Refusals arrive as GraphQL errors. The throwing calls raise `CrowdyGraphQLError`, and the
 async calls deliver them in the outcome's `errors`. `crowdy/graphql/errors.hpp` reads each:
@@ -1246,6 +1320,12 @@ token lasts one minute and opens one socket, so `openAsServer` never reconnects,
 that wants the SDK to reconnect uses `connectAsServer`, which asks for a new connect
 token each time. The refusals are those of the table above, and revoking the org token
 closes the connection.
+
+When the connect call is refused, the calls that waited on the connection answer
+`Unavailable`, and `hub->lastConnectFailure()` keeps what the Application API said: its
+refusal `code`, its `retryAfterMs`, and its `message`. For `PLATFORM_BUSY`,
+`ExecReply::platformBusy()` is true and `retryAfterMs()` is the wait. The same holds for
+`exec().connect` and `connectAsDeveloper`.
 
 A hub sees the first call as `Caller::Org { player: None }` and the second as
 `Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the
@@ -1291,6 +1371,14 @@ helper for 16×16×16 chunks with one byte per voxel. Voxel positions and types 
 0-255, a position outside 0-15) is kept whole in `ChunkData::overlay` (keyed by
 `voxelKey(x, y, z)`), and `voxelTypeAt` / `voxelStateAt` return it. A game with other addressing
 reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
+
+Where the player has no access, the realtime servers refuse every keepalive (v0.51.0).
+The session tells the game once: `WorldSessionConfig::onNotPresent` when the first
+keepalive there is refused, `session.notPresent()` while the report stands, and
+`onNotPresentEnded` when it ends. `errors()` records that first refusal as a
+`SendKind::Heartbeat` error. The session's actor keeps sending its keepalives every 2
+seconds and its keyframes every 3, as it does anywhere else, so access granted later
+takes effect within about 6 seconds.
 
 Buddy v0.37.0 echoes every accepted voxel edit back to its sender. `ChunkStore::setVoxel` records
 each send (uuid, sequence, voxel) for 10 s and `ingest()` does not apply its echo again, so a local
@@ -1469,7 +1557,10 @@ platform's
    admin and minting. Not accepted for gameplay.
 2. Gameplay requires a short-lived **app-scoped token** per app
    (`portal().mintAppToken(appId)`), which is also the 64-octet HMAC key for
-   native UDP. With an active native connection, rotate it through
+   native UDP. Its answer (`AppTokenResponse`) names the player it signs in
+   as `userId`, as every call that answers an app token does (0.95.0,
+   Application API v2.90.0), so a game server needs no `me` call to learn
+   who a token is for. With an active native connection, rotate it through
    `refreshGameplayToken()` so the old socket is quiesced before the bearer
    changes and the same handlers reconnect under the fresh token. Use
    `portal().refresh()` directly only when no replication lifecycle needs to
@@ -1670,7 +1761,8 @@ None of these maintainer gates run during a normal external CMake build.
   ```
 - `benchmarks/` — codec ns/op, the send-path cost breakdown (`bench_send`:
   encode vs MAC vs socket write, with the alternatives for each priced side by
-  side), and end-to-end echo latency against an env-configured deployment. See
+  side), the receive path of a player's connection (`bench_receive`: read and
+  verify, then dispatch), and end-to-end echo latency against an env-configured deployment. See
   [benchmarks/README.md](benchmarks/README.md) for how to run them and the
   recorded results.
 

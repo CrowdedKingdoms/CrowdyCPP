@@ -787,6 +787,159 @@ struct RefreshProvider final : ISessionProvider {
   }
 };
 
+// 0.95.0: why an assignment failed. A provider that knows only assignServer() reports its
+// error alone; one that overrides assignServerOrSayWhy() hands over the API's refusal code
+// and its retryAfterMs, which connect()'s one Errc cannot carry. The answer that succeeds
+// clears it.
+void runAssignmentFailureSaysWhy() {
+  struct Plain final : ISessionProvider {
+    Result<Assignment> assignServer() override { return Errc::NotConnected; }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  {
+    Connection conn(cfg, std::make_shared<Plain>(), core::opensslCrypto());
+    CHECK(!conn.lastAssignmentFailure().failed());  // none made yet
+    CHECK_EQ(static_cast<int>(conn.connect().code), static_cast<int>(Errc::NotConnected));
+    CHECK(conn.state() == ConnState::Failed);
+    const AssignmentFailure why = conn.lastAssignmentFailure();
+    CHECK(why.failed());
+    CHECK_EQ(static_cast<int>(why.error), static_cast<int>(Errc::NotConnected));
+    CHECK(why.code.empty());
+    CHECK_EQ(why.retryAfterMs, 0);
+    CHECK(!why.platformBusy());
+  }
+
+  struct Busy final : ISessionProvider {
+    int port;
+    int refusals;
+    Busy(int p, int n) : port(p), refusals(n) {}
+    Result<Assignment> assignServer() override {
+      AssignmentFailure unused;
+      return assignServerOrSayWhy(unused);
+    }
+    Result<Assignment> assignServerOrSayWhy(AssignmentFailure& why) override {
+      if (refusals > 0) {
+        --refusals;
+        why.code = "PLATFORM_BUSY";
+        why.retryAfterMs = 900;
+        why.message = "busy";
+        return Errc::Rejected;
+      }
+      return Assignment{"127.0.0.1", "", port};
+    }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  FakeServer server;
+  server.start();
+  auto busy = std::make_shared<Busy>(server.port, 1);
+  ReplicationClient client(busy, core::opensslCrypto());
+  auto first = client.connectWithStatus(cfg);
+  CHECK(!first.ok());
+  CHECK_EQ(static_cast<int>(first.status.code), static_cast<int>(Errc::Rejected));
+  CHECK(first.failure.platformBusy());
+  CHECK_EQ(first.failure.retryAfterMs, 900);
+  CHECK_EQ(static_cast<int>(first.failure.error), static_cast<int>(Errc::Rejected));
+  CHECK_EQ(first.connection->lastAssignmentFailure().message, std::string("busy"));
+  CHECK(first.connection->connect().ok());
+  CHECK(!first.connection->lastAssignmentFailure().failed());
+  auto second = client.connectWithStatus(cfg);
+  CHECK(second.ok());
+  CHECK(!second.failure.failed());
+
+  // What a provider hands over is a server's word, and the connection bounds it before it
+  // keeps it or logs it: the wait to kMaxRetryAfterWaitMs, the code to 64 characters, the
+  // message to 500, each on one line whatever control characters it carried.
+  struct Hostile final : ISessionProvider {
+    int port;
+    bool refuse = false;
+    std::int64_t wait = 0;
+    explicit Hostile(int p) : port(p) {}
+    Result<Assignment> assignServer() override {
+      AssignmentFailure unused;
+      return assignServerOrSayWhy(unused);
+    }
+    Result<Assignment> assignServerOrSayWhy(AssignmentFailure& why) override {
+      if (!refuse) return Assignment{"127.0.0.1", "", port};
+      why.code = "PLATFORM_BUSY\n[crowdy ERROR] forged line \x1b[31m" + std::string(4000, 'C');
+      why.retryAfterMs = wait;
+      why.message = "first line\r\n[crowdy ERROR] a line of its own\t\x1b[2J" + std::string(9000, 'm');
+      return Errc::Rejected;
+    }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  struct Lines final : core::ILogger {
+    mutable std::vector<std::string> lines;
+    bool enabled(core::LogLevel) const override { return true; }
+    void log(core::LogLevel, std::string_view message) const override { lines.emplace_back(message); }
+  };
+  const auto oneLine = [](const std::string& text) {
+    for (const char c : text) {
+      const auto byte = static_cast<unsigned char>(c);
+      if (byte < 0x20 || byte == 0x7f) return false;
+    }
+    return true;
+  };
+  for (const std::int64_t wait : {std::int64_t{86'400'000'000LL}, std::int64_t{0}, std::int64_t{-250}}) {
+    auto hostile = std::make_shared<Hostile>(server.port);
+    Lines lines;
+    Connection conn(cfg, hostile, core::opensslCrypto(), core::systemClock(), lines);
+    CHECK(conn.connect().ok());
+    conn.pump(0);
+    hostile->refuse = true;
+    hostile->wait = wait;
+    conn.requestReassignment();
+    conn.pump(0);
+    CHECK(conn.state() == ConnState::Failed);
+    const AssignmentFailure kept = conn.lastAssignmentFailure();
+    CHECK_EQ(kept.retryAfterMs, wait > 0 ? kMaxRetryAfterWaitMs : 0);
+    CHECK_EQ(kept.code.size(), kApiFailureCodeMaxChars);
+    CHECK(kept.code.rfind("PLATFORM_BUSY [crowdy ERROR] forged line", 0) == 0);
+    CHECK(!kept.platformBusy());  // a code with more in it is not the code
+    CHECK_EQ(kept.message.size(), kServerTextMaxChars);
+    CHECK(kept.message.rfind("first line [crowdy ERROR] a line of its own ", 0) == 0);
+    CHECK(oneLine(kept.code));
+    CHECK(oneLine(kept.message));
+    bool logged = false;
+    for (const std::string& line : lines.lines) {
+      CHECK(oneLine(line));
+      CHECK(line.size() < 200);
+      if (line.rfind("reassignment failed: PLATFORM_BUSY [crowdy ERROR]", 0) == 0) {
+        logged = true;
+        CHECK_EQ(line.find("retry after") != std::string::npos, wait > 0);
+        if (wait > 0) CHECK(line.find("(retry after 30000 ms)") != std::string::npos);
+      }
+    }
+    CHECK(logged);
+  }
+
+  // serverText: what the SDK does to any text a server sent before it logs or shows it.
+  CHECK_EQ(serverText("  plain  text  "), std::string("plain text"));
+  CHECK_EQ(serverText("a\nb\r\n\tc\x01\x7f" "d"), std::string("a b c d"));
+  CHECK_EQ(serverText(""), std::string());
+  CHECK_EQ(serverText("\n\n"), std::string());
+  CHECK_EQ(serverText(std::string(600, 'x')).size(), 500u);
+  CHECK_EQ(serverText("abcdef", 3), std::string("abc"));
+  CHECK_EQ(serverText("ab   cdef", 3), std::string("ab"));  // the cut leaves no space at the end
+  // Never inside a UTF-8 character: "é" is 2 bytes, "€" 3, and a face 4.
+  CHECK_EQ(serverText("a\xc3\xa9" "b", 2), std::string("a"));
+  CHECK_EQ(serverText("a\xc3\xa9" "b", 3), std::string("a\xc3\xa9"));
+  CHECK_EQ(serverText("\xe2\x82\xac" "x", 2), std::string());
+  CHECK_EQ(serverText("\xe2\x82\xac" "x", 3), std::string("\xe2\x82\xac"));
+  CHECK_EQ(serverText("ab\xf0\x9f\x98\x80", 5), std::string("ab"));
+  CHECK_EQ(serverText("ab\xf0\x9f\x98\x80", 6), std::string("ab\xf0\x9f\x98\x80"));
+  // bounded() is the three together.
+  const ApiFailure tidy = bounded(ApiFailure{Errc::Rejected, "CODE\n", -1, " why\nnot "});
+  CHECK_EQ(tidy.code, std::string("CODE"));
+  CHECK_EQ(tidy.retryAfterMs, 0);
+  CHECK_EQ(tidy.message, std::string("why not"));
+  CHECK_EQ(static_cast<int>(tidy.error), static_cast<int>(Errc::Rejected));
+}
+
 void runRefreshKeepsServer(bool authorize, int expectedAssignCalls) {
   FakeServer server;
   server.start();
@@ -1862,6 +2015,7 @@ int main() {
   runBundlingNetThread();
   runSpatialDistanceDefaults();
   runSendPath();
+  runAssignmentFailureSaysWhy();
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
   runFirstSendRetry();

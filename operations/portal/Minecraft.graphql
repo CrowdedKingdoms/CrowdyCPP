@@ -9,6 +9,7 @@ mutation SignInWithMinecraft($input: SignInWithMinecraftInput!) {
   signInWithMinecraft(input: $input) {
     token
     gameTokenId
+    userId
     appId
     expiresAt
     applicationApiUrl

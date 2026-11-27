@@ -20,12 +20,20 @@
 //   CROWDY_FLEET_IDLE_SECONDS  the app's idle timeout when it is short (60, say): the suite
 //                              then lets one carried player go quiet and requires its
 //                              FLEET_RELEASED, reason 5. Unset, that step is skipped.
-//   CROWDY_FLEET_HUB_APP_ID, CROWDY_FLEET_HUB_ORG_TOKEN, CROWDY_FLEET_HUB_PLAYER_ID
+//   CROWDY_FLEET_HUB_APP_ID, CROWDY_FLEET_HUB_ORG_TOKEN
 //                            a ck-exec app running the platform's probe (node types `bare`
-//                            and `probe`), an org token of ITS organization with the scope
-//                            fleet:session, and the user id of one of its players: the hub
-//                            step. It needs the curl WebSocket transport (libcurl 8.13 or
-//                            newer). Unset, or without the transport, the step is skipped.
+//                            and `probe`) and an org token of ITS organization with the scope
+//                            fleet:session: the hub step. It needs the curl WebSocket
+//                            transport (libcurl 8.13 or newer). Unset, or without the
+//                            transport, the step is skipped.
+//   CROWDY_FLEET_HUB_PLAYER_ID the user id the call-as names. Unset, it is the user id of
+//                            the suite's player 0, as the player's sign-in answered it.
+//   CROWDY_FLEET_HUB_NODE_TYPE, CROWDY_FLEET_HUB_KEY, CROWDY_FLEET_HUB_METHOD
+//                            a hub address of the app's own, for an app that does not run
+//                            the probe (`arena`, `m1`, `state`, say). The step then makes
+//                            the server's own call and a call for the player to that
+//                            address and requires both answered; it cannot check what a
+//                            hub it does not know answers. The key may be empty.
 //
 // What it leaves on the tier: four managed players of the organization, external ids
 // crowdycpp-fleet-e2e-0 to -3, which a rerun signs in again. It deletes nobody and changes
@@ -354,6 +362,8 @@ struct Managed {
   std::string externalId;
   PlayerToken token;
   std::int64_t userId = 0;
+  /// The user the sign-in answered (AppTokenResponse::userId, Application API v2.90.0).
+  std::int64_t signedInUserId = 0;
   core::ActorUuid uuid{};
   GameServer* carrier = nullptr;  ///< the server that sends for the player now
   bool quiet = false;             ///< no keepalive: the player is being let go idle
@@ -528,18 +538,24 @@ CarryOutcome carry(World& w, GameServer& server, Managed& player) {
 
 // ---- the hub connection ------------------------------------------------------------------
 
-/// Step 10. Returns why it was skipped, or empty when it ran.
-std::string hubStep(const std::string& apiUrl) {
+/// Step 10. `ownPlayer` is the user id of one of the suite's own players, named when
+/// CROWDY_FLEET_HUB_PLAYER_ID is not set. Returns why it was skipped, or empty when it ran.
+std::string hubStep(const std::string& apiUrl, std::int64_t ownPlayer) {
   const std::string appId = envOr("CROWDY_FLEET_HUB_APP_ID");
   const std::string orgToken = envOr("CROWDY_FLEET_HUB_ORG_TOKEN");
-  const std::string playerText = envOr("CROWDY_FLEET_HUB_PLAYER_ID");
-  if (appId.empty() || orgToken.empty() || playerText.empty())
-    return "CROWDY_FLEET_HUB_APP_ID, _ORG_TOKEN and _PLAYER_ID are not all set";
+  const std::string playerText = envOr("CROWDY_FLEET_HUB_PLAYER_ID", std::to_string(ownPlayer).c_str());
+  if (appId.empty() || orgToken.empty())
+    return "CROWDY_FLEET_HUB_APP_ID and CROWDY_FLEET_HUB_ORG_TOKEN are not both set";
   keepSecret(orgToken);
   if (!graphql::makeCurlWebSocketTransport())
     return "this build has no WebSocket transport (libcurl older than 8.13)";
   const std::uint64_t player = std::strtoull(playerText.c_str(), nullptr, 10);
-  FLEET_CHECK(player != 0, "CROWDY_FLEET_HUB_PLAYER_ID is a user id");
+  FLEET_CHECK(player != 0, "the hub step has a user id to name");
+  const std::string nodeType = envOr("CROWDY_FLEET_HUB_NODE_TYPE");
+  const std::string key = envOr("CROWDY_FLEET_HUB_KEY");
+  const std::string method = envOr("CROWDY_FLEET_HUB_METHOD");
+  FLEET_CHECK(nodeType.empty() == method.empty(),
+              "CROWDY_FLEET_HUB_NODE_TYPE and CROWDY_FLEET_HUB_METHOD are set together");
 
   ClientConfig c;
   c.httpUrl = apiUrl;
@@ -563,6 +579,19 @@ std::string hubStep(const std::string& apiUrl) {
     say(std::string("   ") + what + " -> " + value + " (" + std::to_string(msSince(start)) + " ms)");
     return value;
   };
+
+  if (!nodeType.empty()) {
+    // A hub of the app's own: both calls are answered. What it answers is the app's.
+    const std::string address = nodeType + "/" + key + " " + method;
+    call(("the server's own call, " + address).c_str(), [&](domains::ExecReplyCallback done) {
+      hub->call(nodeType, key, method, graphql::JVal(), std::move(done));
+    });
+    call(("a call for user " + playerText + ", " + address).c_str(), [&](domains::ExecReplyCallback done) {
+      hub->callAs(player, nodeType, key, method, graphql::JVal(), std::move(done));
+    });
+    hub->close();
+    return {};
+  }
 
   const std::string own = call("the server's own call, bare/k whoami", [&](domains::ExecReplyCallback done) {
     hub->call("bare", "k", "whoami", graphql::JVal(), std::move(done));
@@ -666,7 +695,7 @@ int run() {
       // The mint is an organization's server call that this SDK does not wrap.
       out = api.graphqlClient().requestOutcome(
           "mutation Mint($input: MintManagedPlayerTokenInput!) {"
-          " mintManagedPlayerToken(input: $input) { token gameTokenId appId expiresAt } }",
+          " mintManagedPlayerToken(input: $input) { token gameTokenId userId appId expiresAt } }",
           vars);
       const auto busy = graphql::platformBusyOf(out.errors);
       if (out.ok() || !busy) break;
@@ -683,6 +712,9 @@ int run() {
     FLEET_CHECK(minted.token.size() == 64, p.externalId + ": the player's token is 64 characters");
     p.token = PlayerToken{minted.token, minted.gameTokenIdInt64().value_or(0)};
     FLEET_CHECK(p.token.gameTokenId > 0, p.externalId + ": it has a gameTokenId");
+    // Application API v2.90.0: the answer names the user, so a game server makes no `me` call.
+    p.signedInUserId = minted.userIdInt64().value_or(0);
+    FLEET_CHECK(p.signedInUserId > 0, p.externalId + ": the sign-in answers the player's userId");
     p.uuid = core::generateActorUuid();
     say("   player " + std::to_string(i) + " (" + p.externalId + "): gameTokenId " +
         std::to_string(p.token.gameTokenId));
@@ -715,6 +747,8 @@ int run() {
         std::to_string(out.ms) + " ms");
     FLEET_CHECK(out.result.carried(), "the carry ends Carried");
     FLEET_CHECK(out.result.userId > 0, "a carried player has a user id");
+    FLEET_CHECK(out.result.userId == p.signedInUserId,
+                "the carry names the user the sign-in answered (AppTokenResponse::userId)");
     FLEET_CHECK(server.fleet->carries(p.token.gameTokenId), "the session carries the player");
     p.userId = out.result.userId;
     p.carrier = &server;
@@ -724,6 +758,36 @@ int run() {
       FLEET_CHECK(w.players[i].userId != w.players[j].userId, "four players are four users");
   }
   FLEET_CHECK(X.fleet->carriedCount() == 2 && Y.fleet->carriedCount() == 2, "two players each");
+
+  // ---- 4b ----
+  // Realtime servers v0.51.0 take a keepalive only where the player's actor update would be
+  // taken, and answer one anywhere else UNAUTHORIZED. These players have access where they
+  // stand, so each one's keepalive is taken: no refusal within the time one takes, and no
+  // not-present report. (A player without access is not something this suite can arrange.)
+  step("4b", "a carried player's keepalive is accepted where the player has access");
+  {
+    w.spin(1200);  // an update each first, so every actor is present
+    std::uint64_t refusedBefore = 0;
+    for (GameServer* s : {&X, &Y}) refusedBefore += s->fleet->stats().keepalivesRefused;
+    for (auto& p : w.players) {
+      FLEET_CHECK(p.carrier->fleet->sendHeartbeat(p.token.gameTokenId, kChunk, p.uuid).ok(),
+                  p.externalId + ": the keepalive is sent");
+    }
+    w.spin(static_cast<int>(kKeepaliveAnswerWaitMs) + 500);
+    std::uint64_t refused = 0, reports = 0;
+    for (GameServer* s : {&X, &Y}) {
+      refused += s->fleet->stats().keepalivesRefused;
+      reports += s->fleet->stats().notPresentReports;
+    }
+    say("   four keepalives: " + std::to_string(refused - refusedBefore) + " refused, " +
+        std::to_string(reports) + " not-present reports");
+    FLEET_CHECK(refused == refusedBefore, "no keepalive was refused where the player has access");
+    FLEET_CHECK(reports == 0, "no not-present report was made");
+    for (auto& p : w.players) {
+      FLEET_CHECK(!p.carrier->fleet->notPresent(p.token.gameTokenId, p.uuid).has_value(),
+                  p.externalId + ": the session holds no report for the actor");
+    }
+  }
   Managed &p0 = w.players[0], &p1 = w.players[1], &p2 = w.players[2], &p3 = w.players[3];
 
   // ---- 5 ----
@@ -1212,7 +1276,7 @@ int run() {
   // ---- 10 ----
   step("10", "the hub connection a game server opens for itself");
   {
-    const std::string skipped = hubStep(apiUrl);
+    const std::string skipped = hubStep(apiUrl, w.players[0].userId);
     if (!skipped.empty()) say("   skipped: " + skipped);
     std::printf("HUB_STEP=%s\n", skipped.empty() ? "ran" : "skipped");
   }
@@ -1242,7 +1306,9 @@ int run() {
         std::to_string(stats.messagesReceivedByType[51]) + ", FLEET_RELEASED " +
         std::to_string(stats.messagesReceivedByType[52]) + ", FLEET_DELIVERY " +
         std::to_string(stats.messagesReceivedByType[53]) + ", error frames " +
-        std::to_string(stats.messagesReceivedByType[3]));
+        std::to_string(stats.messagesReceivedByType[3]) + ", keepalives refused " +
+        std::to_string(stats.keepalivesRefused) + ", not-present reports " +
+        std::to_string(stats.notPresentReports));
     // A live session's every advertisement is acknowledged, so silence means something.
     FLEET_CHECK(stats.boundControlAcks == stats.messagesSentByType[29],
                 s->name + ": every capabilities advertisement was acknowledged");

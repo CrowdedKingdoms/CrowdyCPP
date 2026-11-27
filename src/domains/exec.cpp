@@ -297,7 +297,10 @@ std::optional<std::string> execGatewayRefusal(std::string_view gameApiUrl, std::
   if (hasUserinfo(gatewayUrl)) return "it carries credentials";
   const std::string apiScheme = schemeOf(gameApiUrl);
   const auto api = graphql::estateHostname(gameApiUrl);
-  if (apiScheme.empty() || !api) return "the game API URL " + std::string(gameApiUrl) + " is not absolute";
+  // The value is described and never shown: a URL that is not absolute can still carry
+  // credentials, and the reason is logged.
+  if (apiScheme.empty() || !api)
+    return "the Application API URL is not absolute (" + std::to_string(gameApiUrl.size()) + " characters)";
   if (apiScheme == "https" && scheme != "wss") return "a game API on https: hands out wss: gateways only";
   if (sameEstate(gameApiUrl, *api, gatewayUrl, *gateway)) return std::nullopt;
   const auto tier = graphql::estateHostname(kDefaultHttpOrigin);

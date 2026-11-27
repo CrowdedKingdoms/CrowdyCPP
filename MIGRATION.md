@@ -147,7 +147,8 @@ What changed:
   `updatedAt`). It needs `view_compute_diagnostics` on the organization and Application API v2.88.0.
 - **A refused gateway is named by its scheme, host, and port.** The message of a hub connection that
   `execGatewayRefusal` refuses used to contain the gateway URL as it was given. A URL can carry credentials, or
-  a connect token in its query, and a message is logged. Change a test that matched the whole URL.
+  a connect token in its query, and a message is logged. Change a test that matched the whole URL. An
+  Application API URL that is not absolute is described the same way, by its length, and is not shown.
 - **`schema.gql`** is the published schema of November 27, 2026 (Application API v2.90.0), and the generated
   headers follow it: `gen::ManagedPlayerDeletion`, `gen::managedPlayers::kDeleteManagedPlayersIsolatedDocument`,
   and `gen::exec::kOrgComputeCeilingIsolatedDocument` are new.

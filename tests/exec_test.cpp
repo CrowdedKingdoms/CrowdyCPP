@@ -1895,6 +1895,13 @@ void testGatewayRefusal() {
   CHECK(execGatewayRefusal("https://ck.dev.crowdedkingdoms.com/graphql", "wss://gw.example.org")
             .value_or("")
             .rfind("gw.example.org is outside the estate of ck.dev.crowdedkingdoms.com", 0) == 0);
+  // An Application API URL that is not absolute is described, never shown: it can carry credentials.
+  {
+    const std::string why =
+        execGatewayRefusal("owner:hunter2@ck.dev.crowdedkingdoms.com/graphql", "wss://gw.example.org").value_or("");
+    CHECK_EQ(why, std::string("the Application API URL is not absolute (48 characters)"));
+    CHECK(why.find("hunter2") == std::string::npos);
+  }
 
   // Through the Game API: a gateway the check refuses is never dialed, and the attempt says why.
   auto http = std::make_shared<RecordingHttp>();

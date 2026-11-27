@@ -93,6 +93,11 @@ enum class FleetCarryStatus : std::uint8_t {
   /// There is no room for the carry: the session already carries as many players as it may
   /// (`openFleetSession`'s `maxPlayers`), or the realtime server has no place for it.
   NoRoom = 4,
+  /// The session's table is full, so nothing was sent: it holds as many rows as it may
+  /// (FleetSession::tableLimit(): `maxPlayers` and kFleetTableMargin more), carried players
+  /// and carries that wait together. Release the players who left, or open another
+  /// session. Never on the wire.
+  TableFull = 253,
   /// No answer came before FleetConfig::carryTimeoutMs. Never on the wire.
   TimedOut = 254,
   /// A refusal this build does not know; FleetCarryResult::wireStatus has the byte.
@@ -106,6 +111,7 @@ inline const char* fleetCarryStatusName(FleetCarryStatus s) {
     case FleetCarryStatus::OtherOrganization: return "OtherOrganization";
     case FleetCarryStatus::ProofRefused: return "ProofRefused";
     case FleetCarryStatus::NoRoom: return "NoRoom";
+    case FleetCarryStatus::TableFull: return "TableFull";
     case FleetCarryStatus::TimedOut: return "TimedOut";
     case FleetCarryStatus::Refused: return "Refused";
   }
@@ -117,7 +123,7 @@ struct FleetCarryResult {
   /// The player's user id when carried; 0 otherwise.
   std::int64_t userId = 0;
   FleetCarryStatus status = FleetCarryStatus::TimedOut;
-  /// The status byte the server sent; 255 when none came (TimedOut).
+  /// The status byte the server sent; 255 when none came (TimedOut, TableFull).
   std::uint8_t wireStatus = 255;
 
   bool carried() const { return status == FleetCarryStatus::Carried; }
@@ -359,6 +365,15 @@ struct FleetHandlers {
   std::function<void(const FleetReleased&)> released;
 };
 
+/// How many rows a session's table may hold past its `maxPlayers`: room for the carries that
+/// wait for an answer while the table is full, such as a new player's while one who left is
+/// still to be released. The realtime servers allow a session the same 32 carries past
+/// `maxPlayers` at once.
+inline constexpr std::size_t kFleetTableMargin = 32;
+/// The most players any session may carry: FleetSession::tableLimit() counts from it when
+/// FleetConfig::maxPlayers names no number.
+inline constexpr std::size_t kFleetMaxPlayersCeiling = 1'024;
+
 /// How long after a send a refusal of it can still arrive: the realtime servers hold a send
 /// up to 2 seconds before they refuse it. FleetHandlers::sendRefused names a player only
 /// when no send for another player used the same sequence number in this time.
@@ -385,6 +400,15 @@ struct FleetConfig {
   TokenInfo token;
   /// The realtime server `openFleetSession` answered (`ip4`, `ip6`, `clientPort`).
   Assignment server;
+
+  /// How many players the session may carry at once, as `openFleetSession` answered it
+  /// (`maxPlayers`; domains::fleetConfigOf sets it). The table holds this many rows and
+  /// kFleetTableMargin more (FleetSession::tableLimit()), and a carry for a new player past
+  /// that ends FleetCarryStatus::TableFull with nothing sent, so a game server that never
+  /// releases the players who left cannot grow the table without bound. 0, or a number
+  /// above kFleetMaxPlayersCeiling, counts as that ceiling. The realtime servers enforce
+  /// `maxPlayers` themselves either way (FleetCarryStatus::NoRoom).
+  int maxPlayers = 0;
 
   /// Ask for the state this session's own carried players sent, when another of its
   /// carried players is in range (ClientCapability::kFleetOwnState). Off by default: a game
@@ -462,6 +486,9 @@ class FleetSession {
     std::uint64_t sessionReleases = 0;
     /// Verified refusals FleetHandlers::sendRefused could name a player for.
     std::uint64_t sendRefusalsNamed = 0;
+    /// Carries for a new player that ended FleetCarryStatus::TableFull: the table held
+    /// tableLimit() rows, and nothing was sent.
+    std::uint64_t carriesRefusedTableFull = 0;
   };
   using CarryCallback = std::function<void(const FleetCarryResult&)>;
 
@@ -597,6 +624,12 @@ class FleetSession {
   /// A carry that is refused or times out leaves the player not carried under that
   /// gameTokenId. A carry repeated before its result reports once, to the newer callback.
   ///
+  /// A carry for a NEW player while the table holds tableLimit() rows ends
+  /// FleetCarryStatus::TableFull: nothing is sent, no row is made, and the result reaches
+  /// `done` and FleetHandlers::carryResult from the next poll(), as every result does
+  /// (Stats::carriesRefusedTableFull counts them). A carry for a player the table already
+  /// holds, and one whose `replaces` names such a player, are never refused this way.
+  ///
   /// InvalidArgument for a token that is not 64 characters or a gameTokenId that is the
   /// session's own; NotConnected before open() and after close().
   Status carry(const PlayerToken& player, CarryCallback done = {});
@@ -617,6 +650,14 @@ class FleetSession {
   std::vector<FleetPlayer> players() const;
   /// How many players the server confirmed and nothing ended.
   std::size_t carriedCount() const;
+  /// The most rows the table holds, carried players and carries that wait together:
+  /// `maxPlayers` (kFleetMaxPlayersCeiling when FleetConfig::maxPlayers named none, and at
+  /// most that) and kFleetTableMargin more.
+  std::size_t tableLimit() const noexcept;
+  /// A refresh's answer may name another `maxPlayers` (an operator changed the
+  /// organization's limit): domains::applyFleetRefresh passes it here. It changes
+  /// tableLimit() for the carries that follow and ends no carry.
+  void setMaxPlayers(int maxPlayers) noexcept;
 
   // ----- Sends for a carried player -------------------------------------------
   //
@@ -839,6 +880,11 @@ class FleetSession {
   std::atomic<std::uint64_t> replacedIdFrames_{0};
   std::atomic<std::uint64_t> sessionReleases_{0};
   std::atomic<std::uint64_t> sendRefusalsNamed_{0};
+  std::atomic<std::uint64_t> carriesRefusedTableFull_{0};
+  std::atomic<int> maxPlayers_{0};
+  /// Carries that ended here before anything was sent (TableFull), to be reported from the
+  /// next poll(). Under playersMutex_.
+  std::vector<std::pair<FleetCarryResult, CarryCallback>> endedHere_;
   /// open() started a session anew (after Idle, Closed, Failed or Inactive): the server
   /// holds none of the table's carries, whichever server it is.
   std::atomic<bool> sessionRestarted_{false};

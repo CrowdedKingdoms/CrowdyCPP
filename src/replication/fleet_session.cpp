@@ -152,6 +152,7 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
       crypto_(crypto),
       clock_(clock),
       endpoint_(std::make_shared<Endpoint>(config_.server, config_.reassign)) {
+  maxPlayers_.store(config_.maxPlayers, std::memory_order_relaxed);
   // The session's CLIENT_CAPABILITIES binds it to its address, so it is not an option here.
   config_.transport.advertiseCapabilities = true;
   // An idle session hears only the acknowledgements of its capabilities, so three
@@ -230,6 +231,7 @@ FleetSession::Stats FleetSession::stats() const {
   stats.replacedIdFrames = replacedIdFrames_.load(std::memory_order_relaxed);
   stats.sessionReleases = sessionReleases_.load(std::memory_order_relaxed);
   stats.sendRefusalsNamed = sendRefusalsNamed_.load(std::memory_order_relaxed);
+  stats.carriesRefusedTableFull = carriesRefusedTableFull_.load(std::memory_order_relaxed);
   return stats;
 }
 
@@ -456,24 +458,33 @@ Status FleetSession::carry(const PlayerToken& player, CarryCallback done) {
 
   std::lock_guard lock(playersMutex_);
   auto it = players_.find(player.gameTokenId);
+  bool moved = false;
   if (it == players_.end() && player.replaces != 0 && player.replaces != player.gameTokenId) {
     // The same player with a refreshed token: the row moves to the new id at once, and the
     // player stays carried.
     const auto old = rowOfLocked(player.replaces);
-    if (old != players_.end()) it = supersedeLocked(old, player);
-  } else {
-    if (it == players_.end()) {
-      it = players_.try_emplace(player.gameTokenId).first;
-      it->second.sendId = player.gameTokenId;
+    if (old != players_.end()) {
+      it = supersedeLocked(old, player);
+      moved = true;
     }
-    // Straight from the caller's string into the row: no copy of the token is left behind.
-    (void)it->second.key.assign(player.token);
-    beginAttempt(it->second);
   }
   if (it == players_.end()) {
-    // `replaces` named nobody this session holds: a first carry.
+    // A new player (also when `replaces` named nobody this session holds). A game server
+    // that never releases anyone must not grow the table without bound: past the limit the
+    // carry ends here, with nothing sent, and poll() reports it.
+    if (players_.size() >= tableLimit()) {
+      carriesRefusedTableFull_.fetch_add(1, std::memory_order_relaxed);
+      FleetCarryResult full;
+      full.playerGameTokenId = player.gameTokenId;
+      full.status = FleetCarryStatus::TableFull;
+      endedHere_.emplace_back(full, std::move(done));
+      return Errc::Ok;
+    }
     it = players_.try_emplace(player.gameTokenId).first;
     it->second.sendId = player.gameTokenId;
+  }
+  if (!moved) {
+    // Straight from the caller's string into the row: no copy of the token is left behind.
     (void)it->second.key.assign(player.token);
     beginAttempt(it->second);
   }
@@ -685,6 +696,17 @@ std::vector<FleetPlayer> FleetSession::players() const {
   for (const auto& [id, player] : players_)
     out.push_back(FleetPlayer{id, player.userId, player.carried, player.attempt});
   return out;
+}
+
+std::size_t FleetSession::tableLimit() const noexcept {
+  const int named = maxPlayers_.load(std::memory_order_relaxed);
+  const std::size_t players =
+      named > 0 ? std::min(static_cast<std::size_t>(named), kFleetMaxPlayersCeiling) : kFleetMaxPlayersCeiling;
+  return players + kFleetTableMargin;
+}
+
+void FleetSession::setMaxPlayers(int maxPlayers) noexcept {
+  maxPlayers_.store(maxPlayers, std::memory_order_relaxed);
 }
 
 std::size_t FleetSession::carriedCount() const {
@@ -1177,9 +1199,10 @@ void FleetSession::expireCarries() {
   std::vector<std::int64_t> releaseOnServer;
   {
     std::lock_guard lock(playersMutex_);
-    if (!attemptsPending_) return;
+    // The carries that ended in carry() itself (TableFull) are reported first.
+    expired.swap(endedHere_);
     const std::int64_t now = clock_.monotonicMillis();
-    for (auto it = players_.begin(); it != players_.end();) {
+    for (auto it = players_.begin(); attemptsPending_ && it != players_.end();) {
       Player& player = it->second;
       if (!player.attempt || player.deadlineMs == 0 || now < player.deadlineMs) {
         ++it;

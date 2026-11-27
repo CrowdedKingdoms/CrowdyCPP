@@ -397,6 +397,9 @@ void testAnswersReachTheWireClass() {
   base.carryBurst = 1000;
   CHECK_EQ(domains::fleetConfigOf(opened, base).value().carryBurst, 1000);
   base.carryBurst = 32;
+  // The answer's maxPlayers is how many rows the session's table holds, and 32 more.
+  CHECK_EQ(base.maxPlayers, 0);
+  CHECK_EQ(config.value().maxPlayers, 256);
   CHECK(domains::fleetConfigOf(opened).ok());
   // The silence timeout is on in a config made from an answer (45 seconds; an ended session
   // is sent nothing, so silence is the only sign), and the caller's own choice is kept: 0
@@ -448,8 +451,15 @@ void testAnswersReachTheWireClass() {
   const FleetSessionResponse refreshed = api.refresh(fleet);
   CHECK_EQ(bodyOf(rig.http->requests.back())["variables"].dump(),
            std::string(R"({"input":{"appId":"7","currentServer":{"clientPort":7777,"ip4":"10.0.0.5"},"gameTokenId":"9001"}})"));
-  // The same server came back: the new expiry is taken and nothing moves.
+  // The same server came back: the new expiry is taken and nothing moves. The answer's
+  // maxPlayers is the table's from here (an operator may have changed it).
+  CHECK_EQ(fleet.tableLimit(), 256u + replication::kFleetTableMargin);
+  FleetSessionResponse fewer = refreshed;
+  fewer.maxPlayers = 100;
+  CHECK(domains::applyFleetRefresh(fleet, fewer).ok());
+  CHECK_EQ(fleet.tableLimit(), 100u + replication::kFleetTableMargin);
   CHECK(domains::applyFleetRefresh(fleet, refreshed).ok());
+  CHECK_EQ(fleet.tableLimit(), 256u + replication::kFleetTableMargin);
   CHECK_EQ(fleet.token().expiresAtEpochMs, laterExpiryMs);
   CHECK_EQ(fleet.token().token, kFleetToken);
   CHECK_EQ(fleet.server().clientPort, 7777);

@@ -202,8 +202,8 @@ inline replication::Assignment fleetServerOf(const FleetSessionResponse& answer)
 
 /// The configuration of a replication::FleetSession for a session `openFleetSession`
 /// answered: `base` (your transport options, handlers of a move, carry timings) with the
-/// app, the fleet token and the realtime server taken from the answer, and `carryBurst`
-/// raised to the answer's `maxPlayers`.
+/// app, the fleet token, the realtime server and `maxPlayers` taken from the answer, and
+/// `carryBurst` raised to the answer's `maxPlayers`.
 ///
 ///   auto opened = client.admin().fleetSessions().open(appId);
 ///   replication::FleetSession fleet(fleetConfigOf(opened).value(), crypto);
@@ -221,6 +221,8 @@ inline Result<replication::FleetConfig> fleetConfigOf(const FleetSessionResponse
   base.appId = *appId;
   base.token = token;
   base.server = server;
+  // How many rows the session's table holds (replication::FleetSession::tableLimit()).
+  base.maxPlayers = opened.maxPlayers;
   // The server lets a session send its `maxPlayers` + 32 carries at once, so one that moves
   // to another realtime server can carry all its players again without waiting on the rate.
   if (opened.maxPlayers > base.carryBurst) base.carryBurst = opened.maxPlayers;
@@ -244,6 +246,8 @@ inline Status applyFleetRefresh(replication::FleetSession& session,
   if (token.token.empty() || refreshed.appIdInt64() != session.appId() ||
       token.gameTokenId != session.token().gameTokenId)
     return Errc::InvalidArgument;
+  // An operator may have changed how many players the session may carry.
+  if (refreshed.maxPlayers > 0) session.setMaxPlayers(refreshed.maxPlayers);
   return session.applyRefresh(token, fleetServerOf(refreshed));
 }
 

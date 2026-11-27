@@ -1358,6 +1358,155 @@ void runCarriesArePaced() {
 }
 
 // ---------------------------------------------------------------------------
+// The table holds the session's maxPlayers and 32 more rows. A carry for a new player past
+// that ends TableFull with nothing sent; a carry for a player the table holds, and one that
+// replaces such a player's token, are never refused that way (CrowdyJS's `tableFull`).
+// ---------------------------------------------------------------------------
+
+void runTheTableIsCapped() {
+  CHECK_EQ(kFleetTableMargin, 32u);
+  CHECK_EQ(kFleetMaxPlayersCeiling, 1024u);
+  CHECK_EQ(static_cast<int>(FleetCarryStatus::TableFull), 253);
+  CHECK_EQ(std::string(fleetCarryStatusName(FleetCarryStatus::TableFull)), std::string("TableFull"));
+  {
+    // No number named, and one above the ceiling: the ceiling and the margin.
+    FakeServer idle;
+    idle.start();
+    FleetConfig none = configFor(idle);
+    CHECK_EQ(none.maxPlayers, 0);
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+    none.maxPlayers = 5000;
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+    none.maxPlayers = -1;
+    CHECK_EQ(FleetSession(none, crypto()).tableLimit(), 1024u + 32u);
+  }
+
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetConfig cfg = configFor(server);
+  cfg.maxPlayers = 2;
+  FleetSession fleet(cfg, crypto(), clock);
+  Seen seen;
+  fleet.setHandlers(recording(seen));
+  openConnected(fleet, server);
+  CHECK_EQ(fleet.tableLimit(), 34u);
+
+  // 34 new players: every one gets a row (the realtime server is the one that says which
+  // two it carries; here it answers nothing yet).
+  const std::int64_t first = 3000;
+  for (int i = 0; i < 34; ++i) CHECK(fleet.carry({tokenFor(first + i), first + i}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 0u);
+
+  // The 35th: accepted as a call, ended at once, reported from poll() like every result,
+  // and never on the wire.
+  const std::int64_t extra = first + 34;
+  std::vector<FleetCarryResult> viaCallback;
+  CHECK(fleet.carry({tokenFor(extra), extra}, [&](const FleetCarryResult& r) { viaCallback.push_back(r); }).ok());
+  CHECK(viaCallback.empty());
+  CHECK(seen.results.empty());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 1u);
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(!fleet.player(extra).has_value());
+  fleet.poll();
+  CHECK_EQ(viaCallback.size(), 1u);
+  CHECK_EQ(seen.results.size(), 1u);
+  CHECK_EQ(static_cast<int>(viaCallback[0].status), static_cast<int>(FleetCarryStatus::TableFull));
+  CHECK_EQ(viaCallback[0].playerGameTokenId, extra);
+  CHECK(!viaCallback[0].carried());
+  CHECK_EQ(viaCallback[0].userId, 0);
+  CHECK_EQ(viaCallback[0].wireStatus, 255u);
+  CHECK_EQ(static_cast<int>(seen.results[0].status), static_cast<int>(FleetCarryStatus::TableFull));
+  fleet.poll();
+  CHECK_EQ(viaCallback.size(), 1u);  // once
+  SpatialSend p;
+  p.uuid = uuid('a');
+  CHECK_EQ(static_cast<int>(fleet.sendActorUpdate(extra, p).error()), static_cast<int>(Errc::NotCarried));
+  // A `replaces` that names nobody the table holds is a new player too.
+  CHECK(fleet.carry({tokenFor(extra + 1), extra + 1, 999'999}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), 2u);
+  CHECK_EQ(seen.results[1].playerGameTokenId, extra + 1);
+
+  // On the wire: a FLEET_CARRY for each of the 34 (the burst at once, the rest in their
+  // turn), and none for the two that were refused.
+  std::vector<int> carries(36, 0);
+  const auto read = [&] {
+    for (const auto& d : drain(server)) {
+      CHECK_EQ(d[0], 49u);
+      const std::int64_t id = le::readI64(d.data() + wire::offsets::kPayload);
+      CHECK(id >= first && id < first + 36);
+      ++carries[static_cast<std::size_t>(id - first)];
+    }
+  };
+  read();
+  clock.advance(100);
+  fleet.pump(0);
+  read();
+  for (int i = 0; i < 34; ++i) CHECK(carries[static_cast<std::size_t>(i)] >= 1);
+  CHECK_EQ(carries[34], 0);
+  CHECK_EQ(carries[35], 0);
+
+  // A player the table holds is carried again without question: the same token (a carry
+  // repeated before its result), and a new token under the same id.
+  const std::size_t resultsBefore = seen.results.size();
+  CHECK(fleet.carry({tokenFor(first), first}).ok());
+  std::string renewed = tokenFor(first + 1);
+  renewed[0] = 'q';
+  CHECK(fleet.carry({renewed, first + 1}).ok());
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), resultsBefore);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  CHECK_EQ(fleet.players().size(), 34u);
+
+  // The server carries two of them and has no room for the rest: their rows leave.
+  for (int i = 0; i < 34; ++i) {
+    const std::int64_t id = first + i;
+    server.send(own(carryResultFrame(id, i < 2 ? 9000 + id : 0, i < 2 ? std::uint8_t{0} : std::uint8_t{4})));
+  }
+  pumpUntil(fleet, [&] { return seen.results.size() == resultsBefore + 34; });
+  CHECK_EQ(seen.results.size(), resultsBefore + 34);
+  CHECK_EQ(fleet.players().size(), 2u);
+  CHECK_EQ(fleet.carriedCount(), 2u);
+  (void)drain(server);
+
+  // Full again, with a carried player among the rows: a refreshed token for that player
+  // (`replaces`) moves the row and is not a new player.
+  for (int i = 0; i < 32; ++i) CHECK(fleet.carry({tokenFor(4000 + i), 4000 + i}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  const std::int64_t refreshedId = 5000;
+  CHECK(fleet.carry({tokenFor(refreshedId), refreshedId, first}).ok());
+  fleet.poll();
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 2u);
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(fleet.player(refreshedId).has_value());
+  CHECK(fleet.carries(first) && fleet.carries(refreshedId));  // carried throughout
+  // A new player still is.
+  CHECK(fleet.carry({tokenFor(6000), 6000}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 3u);
+
+  // A release makes room for one, and a larger maxPlayers (a refresh's answer) for more.
+  CHECK(fleet.release(4000).ok());
+  CHECK_EQ(fleet.players().size(), 33u);
+  CHECK(fleet.carry({tokenFor(6000), 6000}).ok());
+  CHECK_EQ(fleet.players().size(), 34u);
+  CHECK(fleet.carry({tokenFor(6001), 6001}).ok());
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 4u);
+  fleet.setMaxPlayers(3);
+  CHECK_EQ(fleet.tableLimit(), 35u);
+  CHECK(fleet.carry({tokenFor(6001), 6001}).ok());
+  CHECK_EQ(fleet.players().size(), 35u);
+  CHECK_EQ(fleet.stats().carriesRefusedTableFull, 4u);
+  fleet.poll();
+  CHECK_EQ(seen.results.size(), resultsBefore + 34 + 2);  // the two TableFull since
+  for (std::size_t i = resultsBefore + 34; i < seen.results.size(); ++i) {
+    CHECK_EQ(static_cast<int>(seen.results[i].status), static_cast<int>(FleetCarryStatus::TableFull));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Each FLEET_CARRY_RESULT status.
 // ---------------------------------------------------------------------------
 
@@ -4326,6 +4475,7 @@ int main() {
   runOnlyFourMessagesUnderTheSessionsId();
   runCarryResendAndDeadline();
   runCarriesArePaced();
+  runTheTableIsCapped();
   runCarryStatuses();
   runReleasedReasons();
   runRefreshedTokenReplacesEntry();

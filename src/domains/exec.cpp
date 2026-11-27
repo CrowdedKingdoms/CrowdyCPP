@@ -274,6 +274,19 @@ bool sameEstate(std::string_view urlA, const std::string& hostA, std::string_vie
   return graphql::isSameEstate(urlA, urlB);
 }
 
+/// A gateway URL as a message may show it (0.95.0, as CrowdyJS 18.41.0): its scheme, host
+/// and port, and nothing else. The authority can carry credentials and the path or the query
+/// a connect token, and a message is logged. What is not an absolute URL is described.
+std::string gatewayName(std::string_view url) {
+  const std::string scheme = schemeOf(url);
+  if (scheme.empty())
+    return "a gateway URL that is not absolute (" + std::to_string(url.size()) + " characters)";
+  std::string_view rest = url.substr(url.find("://") + 3);
+  std::string_view authority = rest.substr(0, rest.find_first_of("/?#"));
+  if (const auto at = authority.rfind('@'); at != std::string_view::npos) authority.remove_prefix(at + 1);
+  return scheme + "://" + serverText(authority, 255);
+}
+
 }  // namespace
 
 std::optional<std::string> execGatewayRefusal(std::string_view gameApiUrl, std::string_view gatewayUrl) {
@@ -284,7 +297,10 @@ std::optional<std::string> execGatewayRefusal(std::string_view gameApiUrl, std::
   if (hasUserinfo(gatewayUrl)) return "it carries credentials";
   const std::string apiScheme = schemeOf(gameApiUrl);
   const auto api = graphql::estateHostname(gameApiUrl);
-  if (apiScheme.empty() || !api) return "the game API URL " + std::string(gameApiUrl) + " is not absolute";
+  // The value is described and never shown: a URL that is not absolute can still carry
+  // credentials, and the reason is logged.
+  if (apiScheme.empty() || !api)
+    return "the Application API URL is not absolute (" + std::to_string(gameApiUrl.size()) + " characters)";
   if (apiScheme == "https" && scheme != "wss") return "a game API on https: hands out wss: gateways only";
   if (sameEstate(gameApiUrl, *api, gatewayUrl, *gateway)) return std::nullopt;
   const auto tier = graphql::estateHostname(kDefaultHttpOrigin);
@@ -661,7 +677,7 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
       }
       if (pin) {
         if (auto why = execGatewayRefusal(pin(), found.value().gatewayUrl)) {
-          refused = "refusing the gateway " + found.value().gatewayUrl + ": " + *why;
+          refused = "refusing the gateway " + gatewayName(found.value().gatewayUrl) + ": " + *why;
         }
       }
     }
@@ -1487,6 +1503,20 @@ graphql::Json ExecAPI::status(std::string appId) const {
 void ExecAPI::statusAsync(std::string appId, graphql::GraphQLCallback done) const {
   execAsync(gen::exec::kExecAppStatusIsolatedDocument, "execAppStatus", appVariables(appId),
             gen::exec::kExecAppStatusOperationName, std::move(done));
+}
+
+graphql::Json ExecAPI::orgComputeCeiling(std::string orgId) const {
+  graphql::JVal variables;
+  variables["orgId"] = orgId;
+  return exec(gen::exec::kOrgComputeCeilingIsolatedDocument, "orgComputeCeiling", std::move(variables),
+              gen::exec::kOrgComputeCeilingOperationName);
+}
+
+void ExecAPI::orgComputeCeilingAsync(std::string orgId, graphql::GraphQLCallback done) const {
+  graphql::JVal variables;
+  variables["orgId"] = orgId;
+  execAsync(gen::exec::kOrgComputeCeilingIsolatedDocument, "orgComputeCeiling", std::move(variables),
+            gen::exec::kOrgComputeCeilingOperationName, std::move(done));
 }
 
 graphql::Json ExecAPI::activateVersion(std::string appId, int version) const {

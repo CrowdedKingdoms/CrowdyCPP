@@ -750,6 +750,18 @@ class ExecAPI : public DomainBase {
   /// `view_compute_diagnostics`.
   graphql::Json status(std::string appId) const;
   void statusAsync(std::string appId, graphql::GraphQLCallback done) const;
+  /// The organization's compute ceiling (`orgComputeCeiling`; 0.95.0, Application API
+  /// v2.88.0): what each of its apps may run of compute modules in one datacenter once the
+  /// organization is funded. `{ orgId, maxInstances, maxReservedMb, operatorSet, funded,
+  /// defaultMaxInstances, defaultMaxReservedMb, reason, updatedAt }`: `maxInstances` placed
+  /// at once and `maxReservedMb` of memory they reserve (each instance reserves its type's
+  /// memory limit times its copies). `operatorSet` is true when a Crowded Kingdoms operator
+  /// set them for this organization, with `reason` and `updatedAt`; otherwise they are the
+  /// platform's defaults. While `funded` is false the organization's apps keep the free tier
+  /// limits whatever this says: status() reports what an app has now. Read-only: an operator
+  /// changes it. Requires `view_compute_diagnostics` on the organization.
+  graphql::Json orgComputeCeiling(std::string orgId) const;
+  void orgComputeCeilingAsync(std::string orgId, graphql::GraphQLCallback done) const;
   /// Make an earlier version active again, a rollback (`execActivateVersion`). As after
   /// a deploy, instances of the types it keeps pick it up when they next start, and those
   /// of a type it lacks are persisted and stopped at once; a type it lacks leaves the

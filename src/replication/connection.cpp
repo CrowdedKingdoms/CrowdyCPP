@@ -120,8 +120,7 @@ Status Connection::doAssign() {
   }
   const Assignment endpoint = assigned.value();
 
-  const std::string& host =
-      (config_.preferIpv6 && !endpoint.ip6.empty()) ? endpoint.ip6 : endpoint.ip4;
+  const std::string& host = connectAddress(endpoint, config_.preferIpv6);
   if (host.empty() || endpoint.clientPort <= 0) {
     return failAssignment({Errc::Rejected, {}, 0, "the assignment names no server"});
   }

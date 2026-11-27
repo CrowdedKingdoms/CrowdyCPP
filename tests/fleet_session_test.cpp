@@ -3694,7 +3694,11 @@ void runSendsInFlightSwitchWithTheCarry() {
   server.start();
   server.roomForABacklog();
   FleetConfig cfg = configFor(server);
+  // 150 refreshed tokens against a burst of 64 at 40 a second: on any machine some carries
+  // leave from carry() and the rest wait for their turn and leave from pump(), with the
+  // same order on the wire either way.
   cfg.carryBurst = 64;
+  cfg.carriesPerSecond = 40;
   FleetSession fleet(cfg, crypto());
   openConnected(fleet, server);
   const std::int64_t user = 7101;
@@ -3734,8 +3738,6 @@ void runSendsInFlightSwitchWithTheCarry() {
   int updates = 0, wrong = 0, carries = 0;
   const auto drain = [&](int atMost) {
     // The bound is tested before the read: a datagram taken off the socket is always handled.
-    // (Reading first lost one at the bound, and when that one was the carry, `expected` never
-    // moved; a slow runner reaches the bound often.)
     for (int read = 0; read < atMost; ++read) {
       const auto got = server.tryRecv(1);
       if (got.empty()) break;
@@ -3755,7 +3757,13 @@ void runSendsInFlightSwitchWithTheCarry() {
     oldId.store(newId.load());
     CHECK(fleet.carry({tokenFor(id), id, id - 1}).ok());
     newId.store(id);
-    for (int i = 0; i < 2000 && expected != id; ++i) drain(200);
+    // A carry with no turn left in the rate leaves at a later pump(), so the wait pumps.
+    // (It used to only read. On a machine fast enough to spend the burst, the carry never
+    // left and this check failed: macOS in CI, about half the runs.)
+    for (int i = 0; i < 5000 && expected != id; ++i) {
+      fleet.pump(1);
+      drain(200);
+    }
     CHECK_EQ(expected, id);
     server.send(own(carryResultFrame(id, user, 0)));
     for (int i = 0; i < 2000 && fleet.player(id)->pending; ++i) {

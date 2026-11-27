@@ -267,7 +267,7 @@ void Connection::countNotOwn(bool wrongApp, const wire::LongSpatialView& view) {
                   std::to_string(static_cast<int>(view.type)) + ", chunk (" +
                   std::to_string(view.chunk.x) + ", " + std::to_string(view.chunk.y) + ", " +
                   std::to_string(view.chunk.z) + "), " + std::to_string(count) +
-                  " so far. The realtime server should never send a fleet session this: "
+                  " so far. The realtime server should never send a session this: "
                   "report it to Crowded Kingdoms");
 }
 
@@ -1001,18 +1001,23 @@ void Connection::handleDatagram(Bytes datagram) {
       }
       if (parsed->containsAuth && config_.verifyNotifications)
         lastVerifiedMs_.store(now, std::memory_order_relaxed);
-      if (fleet_) [[unlikely]] {
-        // A fleet session gives its game server nothing the realtime server did not sign,
-        // and nothing of another app, however it was signed. A player's connection makes
-        // neither check, as it never has.
-        if (!signedBundle && !parsed->containsAuth) {
-          countNotOwn(/*wrongApp=*/false, parsed.value());
-          return;
-        }
-        if (parsed->appId != config_.appId) {
-          countNotOwn(/*wrongApp=*/true, parsed.value());
-          return;
-        }
+      // Nothing signed it: no HMAC of its own, and not a member of a signed bundle whose HMAC
+      // held. The realtime servers sign every long-spatial notification they send a session,
+      // so this one did not come from them. A fleet session never takes it. A player's
+      // connection takes it only when the application switched verification off
+      // (Config::verifyNotifications), as it then takes one whose HMAC it did not check.
+      if (!signedBundle && !parsed->containsAuth && (fleet_ || config_.verifyNotifications))
+          [[unlikely]] {
+        countNotOwn(/*wrongApp=*/false, parsed.value());
+        return;
+      }
+      // Another app's, however it was signed: a connection is in one app (Config::appId), so
+      // this is not its own. A player's connection that was given no app (0) has nothing to
+      // compare, and a notification that names no app (0) names no other app.
+      if (parsed->appId != config_.appId &&
+          (fleet_ || (parsed->appId != 0 && config_.appId != 0))) [[unlikely]] {
+        countNotOwn(/*wrongApp=*/true, parsed.value());
+        return;
       }
       {
         std::lock_guard lock(statsMutex_);
@@ -1105,14 +1110,27 @@ void Connection::housekeeping() {
     if (fleet_ && fleet_->advertised) fleet_->advertised();
   }
 
-  // Proactive token refresh.
+  // Proactive token refresh, and the check an unverified TOKEN_EXPIRED asks for: the same
+  // call, whose answer is the Application API's and so can be trusted where the frame cannot.
+  // The check is paced, so frames sent to the flow cost one call every kTokenCheckIntervalMs
+  // at most, and an application that switched the refresh off (refreshLeadMs 0) manages its
+  // token itself: it has the frame from Handlers::genericError.
   std::int64_t expiresAt = 0;
   {
     std::lock_guard lock(tokenMutex_);
     expiresAt = token_.expiresAtEpochMs;
   }
-  if (config_.refreshLeadMs > 0 && expiresAt > 0 &&
-      clock_.epochMillis() >= expiresAt - config_.refreshLeadMs) {
+  const bool due = config_.refreshLeadMs > 0 && expiresAt > 0 &&
+                   clock_.epochMillis() >= expiresAt - config_.refreshLeadMs;
+  bool asked = false;
+  if (tokenCheckRequested_.exchange(false, std::memory_order_acq_rel) && !due &&
+      config_.refreshLeadMs > 0 && state() == ConnState::Connected &&
+      (!tokenChecked_ || nowMono - lastTokenCheckMs_ >= kTokenCheckIntervalMs)) {
+    asked = true;
+    tokenChecked_ = true;
+    lastTokenCheckMs_ = nowMono;
+  }
+  if (due || asked) {
     Assignment current;
     {
       std::lock_guard lock(assignmentMutex_);
@@ -1135,12 +1153,16 @@ void Connection::housekeeping() {
                     "app token refreshed; not authorized on the current server, reassigning");
         reconnectRequested_.store(true, std::memory_order_release);
       }
-    } else {
+    } else if (due) {
       // Push expiry forward a little so a failing refresh endpoint does not
       // busy-loop; the server will emit TOKEN_EXPIRED if it truly lapses.
       std::lock_guard lock(tokenMutex_);
       token_.expiresAtEpochMs += 30 * 1000;
       logger_.log(core::LogLevel::Warn, "app token refresh failed; will retry");
+    } else {
+      logger_.log(core::LogLevel::Warn,
+                  "an unverified TOKEN_EXPIRED arrived and no fresh app token could be had; "
+                  "nothing changes");
     }
   }
 
@@ -1324,14 +1346,23 @@ std::size_t Connection::poll(std::size_t maxEvents) {
       case Event::Kind::Error: {
         auto err = wire::parseGenericError(message);
         if (err.ok()) {
-          // A player's connection takes TOKEN_EXPIRED as its own token's, verified or not,
-          // as it always has. To a fleet session the frame answers one send for a carried
-          // player and is about that player's token (the fleet token's own expiry is a
-          // signed COMMAND_SESSION_RELEASED, reason 2): it changes nothing here, whatever
-          // its code, and FleetSession tells the application whose send it was.
+          // To a fleet session the frame answers one send for a carried player and is about
+          // that player's token (the fleet token's own expiry is a signed
+          // COMMAND_SESSION_RELEASED, reason 2): it changes nothing here, whatever its code,
+          // and FleetSession tells the application whose send it was. A player's connection
+          // takes a verified TOKEN_EXPIRED as its own token's and reassigns. One that nothing
+          // verified is 3 bytes anyone on the flow could have sent: it moves the session
+          // nowhere, and housekeeping asks the session provider instead.
           if (err->code == wire::ErrorCode::TokenExpired && !fleet_) {
-            // Refresh + reassign; the session provider re-mints server-side.
-            reconnectRequested_.store(true, std::memory_order_release);
+            if (e.verified) {
+              reconnectRequested_.store(true, std::memory_order_release);
+            } else {
+              {
+                std::lock_guard lock(statsMutex_);
+                ++stats_.unverifiedTokenExpired;
+              }
+              tokenCheckRequested_.store(true, std::memory_order_release);
+            }
           }
           if (pendingWait_.active && !pendingWait_.done &&
               err->sequence == pendingWait_.sequence) {

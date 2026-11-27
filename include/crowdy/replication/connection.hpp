@@ -337,19 +337,25 @@ class Connection {
     /// recently (0.83.0): a 22 signs fixed bytes, so a captured one verifies for the
     /// game token's life, and each honoured one moves the player to another server.
     std::uint64_t legacyReconnectsSuppressed = 0;
-    /// A fleet session only (FleetSession::stats()): notifications dropped because they
-    /// named another app than the session's, plain or inside a FLEET_DELIVERY. A fleet
-    /// session is in one app, so state or a communication of another app is never its own,
-    /// however it was signed, and it reaches no handler. THIS SHOULD NEVER HAPPEN: anything
-    /// but 0 is worth reporting to Crowded Kingdoms (the log names the app, the message type
-    /// and the chunk at the first one and at every doubling of the count). Always 0 on a
-    /// player's Connection, which does not make this check.
+    /// Long-spatial notifications dropped because they named another app than this
+    /// connection's (Config::appId), alone, in a bundle or, for a fleet session, inside a
+    /// FLEET_DELIVERY. A connection is in one app, so state or a communication of another
+    /// app is never its own, however it was signed, and it reaches no handler. THIS SHOULD
+    /// NEVER HAPPEN: anything but 0 is worth reporting to Crowded Kingdoms (the log names the
+    /// app, the message type and the chunk at the first one and at every doubling of the
+    /// count). A player's Connection has made this check since 0.95.0; it skips it when
+    /// Config::appId is 0 and for a notification that names no app (0).
     std::uint64_t wrongApp = 0;
-    /// A fleet session only: plain notifications dropped because nothing signed them (no
-    /// HMAC of their own, and not inside a signed bundle whose HMAC held). The realtime
-    /// servers send a fleet session nothing unsigned, so anything but 0 is worth reporting
-    /// too. Always 0 on a player's Connection, which takes such a notification as it is.
+    /// Long-spatial notifications dropped because nothing signed them (no HMAC of their
+    /// own, and not inside a signed bundle whose HMAC held). The realtime servers sign every
+    /// long-spatial notification they send a session, so anything but 0 is worth reporting
+    /// too. A player's Connection has made this check since 0.95.0, unless
+    /// Config::verifyNotifications is off; a fleet session always makes it.
     std::uint64_t unsignedNotifications = 0;
+    /// TOKEN_EXPIRED error frames that nothing verified (GenericError::verified false), on
+    /// a player's Connection (0.95.0). None of them reassigned: the first, and then at most
+    /// one every 30 seconds, asked the session provider for a fresh token instead.
+    std::uint64_t unverifiedTokenExpired = 0;
     std::int64_t lastServerEpochMs = 0;
     /// Messages sent, by wire opcode (actor/voxel/audio/text/event/channel/
     /// heartbeat requests).
@@ -531,13 +537,13 @@ class Connection {
   /// assignment when none has arrived on it yet. A fleet session's silence is measured from
   /// it (FleetSession::checkSilence); a player's watchdog keeps to lastRecvMs_.
   std::atomic<std::int64_t> lastVerifiedMs_{0};
-  /// A fleet session dropped a notification that was not its own (Stats::wrongApp,
+  /// A notification that was not this connection's own was dropped (Stats::wrongApp,
   /// unsignedNotifications): count it, and name it in the log at the first and at every
-  /// doubling of the count. Network thread.
+  /// doubling of the count. Network thread. Out of line, so the receive path stays short.
   void countNotOwn(bool wrongApp, const wire::LongSpatialView& view);
   /// One of a fleet session's three frames (51, 52, 53): verify it, take its own HMAC off
   /// `message` when it carries one, and say whether to queue it. Network thread, and out of
-  /// line: a player's connection never gets here, and its receive path stays short.
+  /// line: a player's connection never gets here.
   bool admitFleetFrame(Bytes& message, bool signedBundle, const Credentials& creds,
                        std::int64_t now);
   /// A fleet session's realtime server released it for a reason that is not idleness: tell
@@ -549,6 +555,12 @@ class Connection {
   /// Set by the receive path on a verified idle release; housekeeping goes Inactive.
   std::atomic<bool> idleReleased_{false};
   std::atomic<bool> reconnectRequested_{false};
+  /// Set by poll() on an unverified TOKEN_EXPIRED; housekeeping asks the session provider
+  /// for a fresh token, at most once every kTokenCheckIntervalMs (lastTokenCheckMs_, the
+  /// network thread's), and what the provider answers decides what happens.
+  std::atomic<bool> tokenCheckRequested_{false};
+  std::int64_t lastTokenCheckMs_ = 0;
+  bool tokenChecked_ = false;
   /// This assignment's BOUND_CONTROL nonce, drawn in doAssign() and sent with
   /// CLIENT_CAPABILITIES; 0 when no random bytes were available (the bit is not sent).
   std::atomic<std::uint64_t> controlNonce_{0};

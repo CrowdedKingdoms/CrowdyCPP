@@ -81,6 +81,10 @@ struct SpeakerList {
   }
 };
 
+/// The least time between two fresh tokens a player's Connection asks its session provider
+/// for because of TOKEN_EXPIRED frames that nothing verified (GenericError::verified).
+inline constexpr std::int64_t kTokenCheckIntervalMs = 30'000;
+
 struct Config {
   std::int64_t appId = 0;
   TokenInfo token;
@@ -236,9 +240,13 @@ struct GenericError {
   wire::ErrorCode code;
   /// True when the frame arrived inside a MESSAGE_BUNDLE_SIGNED whose HMAC verified. An
   /// error frame ([3][sequence][code]) carries no HMAC of its own, so one that arrives any
-  /// other way is the word of whoever could put a datagram on the session's flow. A
-  /// FleetSession changes no state on an unverified one; a Connection acts on either, as it
-  /// always has.
+  /// other way is the word of whoever could put a datagram on the session's flow, and the
+  /// realtime servers send a player's session every error frame alone. Verified or not, a
+  /// frame settles the awaited send whose sequence number it names and reaches this handler.
+  /// A FleetSession changes no other state on an unverified one. A Connection reassigns on
+  /// a verified TOKEN_EXPIRED; on an unverified one it asks its session provider for a fresh
+  /// token (at most once every 30 seconds, and only when Config::refreshLeadMs is not 0) and
+  /// does what the provider's answer says (0.95.0; until then it reassigned on either).
   bool verified = false;
 };
 

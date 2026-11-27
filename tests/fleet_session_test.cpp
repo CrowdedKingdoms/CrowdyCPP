@@ -3334,8 +3334,9 @@ void runErrorFramesChangeNothing() {
   CHECK(fleet.carries(kPlayerId));
   server.expectNothing();
 
-  // A player's Connection is as it was: it acts on TOKEN_EXPIRED however it arrives, and
-  // its handler is told which way that was.
+  // A player's Connection reassigns on a verified TOKEN_EXPIRED only (0.95.0; it used to
+  // on either), and its handler is told which way a frame arrived
+  // (player_connection_checks_test has the rest).
   struct Counting final : ISessionProvider {
     int port;
     int assigns = 0;
@@ -3367,16 +3368,15 @@ void runErrorFramesChangeNothing() {
   other.recvOne();
   CHECK_EQ(provider->assigns, 1);
   other.send(expired);
-  for (int i = 0; i < 100 && provider->assigns < 2; ++i) {
+  for (int i = 0; i < 100 && errors.empty(); ++i) {
     conn.pump(20);
     conn.poll();
   }
-  CHECK_EQ(provider->assigns, 2);  // unverified, and acted on, as before
+  conn.pump(0);
+  CHECK_EQ(provider->assigns, 1);  // unverified: no reassignment
+  CHECK_EQ(conn.stats().unverifiedTokenExpired, 1u);
   CHECK_EQ(errors.size(), 1u);
   CHECK(!errors[0].verified);
-  conn.pump(0);
-  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
-  other.recvOne();
   other.send(signedBundle({unauthorized}));
   for (int i = 0; i < 100 && errors.size() < 2; ++i) {
     conn.pump(20);

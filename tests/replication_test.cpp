@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -507,6 +508,35 @@ void runSendPath() {
   {
     UdpSocket sock;
     CHECK_EQ(sock.send(payload).code, Errc::NotConnected);
+  }
+
+  // --- A real fault is SocketError, and the socket keeps the system's code for it. A
+  // closed port refuses the first datagram, and the send after the refusal fails
+  // ECONNREFUSED: not a full buffer, so not WouldBlock.
+  {
+    int port = 0;
+    {
+      FakeServer gone;
+      gone.start();
+      port = gone.port;
+    }
+    UdpSocket sock;
+    CHECK(sock.open("127.0.0.1", port, 0, 0).ok());
+    CHECK_EQ(sock.lastSendFault(), 0);
+    Errc seen = Errc::Ok;
+    for (int i = 0; i < 400 && seen == Errc::Ok; ++i) {
+      seen = sock.send(payload).code;
+      if (seen == Errc::Ok) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK_EQ(seen, Errc::SocketError);
+    CHECK_EQ(sock.lastSendFault(), ECONNREFUSED);
+    // A socket opened again starts with none.
+    FakeServer peer;
+    peer.start();
+    CHECK(sock.open("127.0.0.1", peer.port, 0, 0).ok());
+    CHECK_EQ(sock.lastSendFault(), 0);
+    CHECK(sock.send(payload).ok());
+    CHECK_EQ(sock.lastSendFault(), 0);
   }
 
   // --- Both buffer hints reach the socket.

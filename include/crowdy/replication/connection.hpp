@@ -535,6 +535,11 @@ class Connection {
   /// unsignedNotifications): count it, and name it in the log at the first and at every
   /// doubling of the count. Network thread.
   void countNotOwn(bool wrongApp, const wire::LongSpatialView& view);
+  /// One of a fleet session's three frames (51, 52, 53): verify it, take its own HMAC off
+  /// `message` when it carries one, and say whether to queue it. Network thread, and out of
+  /// line: a player's connection never gets here, and its receive path stays short.
+  bool admitFleetFrame(Bytes& message, bool signedBundle, const Credentials& creds,
+                       std::int64_t now);
   /// A fleet session's realtime server released it for a reason that is not idleness: tell
   /// the session now (network thread) and queue the frame for its handler (poll()).
   void fleetSessionReleased(std::uint8_t reason);

@@ -754,13 +754,67 @@ Result<std::uint8_t> Connection::sendHeartbeatAs(Sender as, const wire::ChunkCoo
 // Receive path
 // ---------------------------------------------------------------------------
 
+bool Connection::admitFleetFrame(Bytes& message, bool signedBundle, const Credentials& creds,
+                                 std::int64_t now) {
+  const std::uint8_t type = message[0];
+  const wire::Token64& token = creds.token;
+  // A fleet session's three frames. Inside a signed bundle the bundle's HMAC, checked
+  // above, vouches for them. Anywhere else (alone, or in a plain bundle) each is
+  // followed by its own HMAC, which is checked and taken off here; what is queued is
+  // the frame without it, so the largest datagram (1,242 bytes) queues as 1,210.
+  Errc verdict = Errc::Ok;
+  if (!signedBundle) {
+    const auto frame = wire::verifyFleetFrame(crypto_, message, token, creds.mac.get());
+    if (frame.ok()) {
+      message = frame.value();
+      lastVerifiedMs_.store(now, std::memory_order_relaxed);
+    } else {
+      verdict = frame.error();
+    }
+  }
+  if (verdict != Errc::Ok) {
+    // dropped below
+  } else if (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult)) {
+    verdict = wire::parseFleetCarryResult(message).error();
+  } else if (type == static_cast<std::uint8_t>(MessageType::FleetReleased)) {
+    verdict = wire::parseFleetReleased(message).error();
+  } else {
+    // The notification inside is what a player's own session would have been sent, in
+    // its unsigned form: nothing here is taken on its own word.
+    const auto delivery = wire::parseFleetDelivery(message);
+    if (!delivery.ok()) {
+      verdict = delivery.error();
+    } else if (delivery->channel()) {
+      verdict = wire::parseFleetDeliveredChannel(delivery->notification).error();
+    } else {
+      const auto inner = wire::parseFleetDeliveredSpatial(delivery->notification);
+      if (!inner.ok()) {
+        verdict = inner.error();
+      } else if (inner->appId != config_.appId) {
+        // Signed, and another app's: not this session's, whoever it lists.
+        countNotOwn(/*wrongApp=*/true, inner.value());
+        return false;
+      }
+    }
+  }
+  if (verdict != Errc::Ok) {
+    std::lock_guard lock(statsMutex_);
+    if (verdict == Errc::HmacMismatch) ++stats_.hmacFailures;
+    else ++stats_.malformed;
+    return false;
+  }
+  return true;
+}
+
 void Connection::handleDatagram(Bytes datagram) {
   {
     std::lock_guard lock(statsMutex_);
     ++stats_.datagramsReceived;
     stats_.bytesReceived += datagram.size();
   }
-  lastRecvMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
+  // The one clock read of a datagram: the time it arrived, and the time of what verifies in it.
+  const std::int64_t now = clock_.monotonicMillis();
+  lastRecvMs_.store(now, std::memory_order_relaxed);
 
   // The bound forms (Buddy v0.45.0) carry this assignment's nonce inside their signature, so
   // a verified one cannot be a frame captured earlier: it is final, without the idle guard.
@@ -788,7 +842,7 @@ void Connection::handleDatagram(Bytes datagram) {
     }
     if (n == 0) verdict = Errc::Rejected;  // we never asked for bound frames
     if (verdict == Errc::Ok) {
-      lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
+      lastVerifiedMs_.store(now, std::memory_order_relaxed);
       if (ack) {
         // Bound to the nonce it verified: after a reassignment it matches nothing.
         boundNonce_.store(n, std::memory_order_release);
@@ -898,7 +952,7 @@ void Connection::handleDatagram(Bytes datagram) {
       ++stats_.hmacFailures;
       return;
     }
-    lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
+    lastVerifiedMs_.store(now, std::memory_order_relaxed);
   }
   bool queued = false;
   Status bundleStatus = wire::forEachMessage(datagram, [&](Bytes message) {
@@ -928,51 +982,9 @@ void Connection::handleDatagram(Bytes datagram) {
     } else if (fleet_ && (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult) ||
                           type == static_cast<std::uint8_t>(MessageType::FleetReleased) ||
                           type == static_cast<std::uint8_t>(MessageType::FleetDelivery))) {
-      // A fleet session's three frames. Inside a signed bundle the bundle's HMAC, checked
-      // above, vouches for them. Anywhere else (alone, or in a plain bundle) each is
-      // followed by its own HMAC, which is checked and taken off here; what is queued is
-      // the frame without it, so the largest datagram (1,242 bytes) queues as 1,210.
-      Errc verdict = Errc::Ok;
-      if (!signedBundle) {
-        const auto frame = wire::verifyFleetFrame(crypto_, message, token, creds.mac.get());
-        if (frame.ok()) {
-          message = frame.value();
-          lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
-        } else {
-          verdict = frame.error();
-        }
-      }
-      if (verdict != Errc::Ok) {
-        // dropped below
-      } else if (type == static_cast<std::uint8_t>(MessageType::FleetCarryResult)) {
-        verdict = wire::parseFleetCarryResult(message).error();
-      } else if (type == static_cast<std::uint8_t>(MessageType::FleetReleased)) {
-        verdict = wire::parseFleetReleased(message).error();
-      } else {
-        // The notification inside is what a player's own session would have been sent, in
-        // its unsigned form: nothing here is taken on its own word.
-        const auto delivery = wire::parseFleetDelivery(message);
-        if (!delivery.ok()) {
-          verdict = delivery.error();
-        } else if (delivery->channel()) {
-          verdict = wire::parseFleetDeliveredChannel(delivery->notification).error();
-        } else {
-          const auto inner = wire::parseFleetDeliveredSpatial(delivery->notification);
-          if (!inner.ok()) {
-            verdict = inner.error();
-          } else if (inner->appId != config_.appId) {
-            // Signed, and another app's: not this session's, whoever it lists.
-            countNotOwn(/*wrongApp=*/true, inner.value());
-            return;
-          }
-        }
-      }
-      if (verdict != Errc::Ok) {
-        std::lock_guard lock(statsMutex_);
-        if (verdict == Errc::HmacMismatch) ++stats_.hmacFailures;
-        else ++stats_.malformed;
-        return;
-      }
+      // A fleet session's three frames, read out of line: a player's connection is never
+      // sent one, and its path through here stays as short as it was before them.
+      if (!admitFleetFrame(message, signedBundle, creds, now)) return;
       e.kind = Event::Kind::Fleet;
     } else if (wire::isLongSpatialLayout(type)) {
       auto parsed = wire::parseLongSpatial(message);
@@ -988,8 +1000,8 @@ void Connection::handleDatagram(Bytes datagram) {
         return;
       }
       if (parsed->containsAuth && config_.verifyNotifications)
-        lastVerifiedMs_.store(clock_.monotonicMillis(), std::memory_order_relaxed);
-      if (fleet_) {
+        lastVerifiedMs_.store(now, std::memory_order_relaxed);
+      if (fleet_) [[unlikely]] {
         // A fleet session gives its game server nothing the realtime server did not sign,
         // and nothing of another app, however it was signed. A player's connection makes
         // neither check, as it never has.

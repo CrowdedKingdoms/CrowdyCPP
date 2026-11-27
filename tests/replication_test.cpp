@@ -787,6 +787,71 @@ struct RefreshProvider final : ISessionProvider {
   }
 };
 
+// 0.95.0: why an assignment failed. A provider that knows only assignServer() reports its
+// error alone; one that overrides assignServerOrSayWhy() hands over the API's refusal code
+// and its retryAfterMs, which connect()'s one Errc cannot carry. The answer that succeeds
+// clears it.
+void runAssignmentFailureSaysWhy() {
+  struct Plain final : ISessionProvider {
+    Result<Assignment> assignServer() override { return Errc::NotConnected; }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  {
+    Connection conn(cfg, std::make_shared<Plain>(), core::opensslCrypto());
+    CHECK(!conn.lastAssignmentFailure().failed());  // none made yet
+    CHECK_EQ(static_cast<int>(conn.connect().code), static_cast<int>(Errc::NotConnected));
+    CHECK(conn.state() == ConnState::Failed);
+    const AssignmentFailure why = conn.lastAssignmentFailure();
+    CHECK(why.failed());
+    CHECK_EQ(static_cast<int>(why.error), static_cast<int>(Errc::NotConnected));
+    CHECK(why.code.empty());
+    CHECK_EQ(why.retryAfterMs, 0);
+    CHECK(!why.platformBusy());
+  }
+
+  struct Busy final : ISessionProvider {
+    int port;
+    int refusals;
+    Busy(int p, int n) : port(p), refusals(n) {}
+    Result<Assignment> assignServer() override {
+      AssignmentFailure unused;
+      return assignServerOrSayWhy(unused);
+    }
+    Result<Assignment> assignServerOrSayWhy(AssignmentFailure& why) override {
+      if (refusals > 0) {
+        --refusals;
+        why.code = "PLATFORM_BUSY";
+        why.retryAfterMs = 900;
+        why.message = "busy";
+        return Errc::Rejected;
+      }
+      return Assignment{"127.0.0.1", "", port};
+    }
+    Result<TokenInfo> refreshToken() override { return Errc::Rejected; }
+  };
+  FakeServer server;
+  server.start();
+  auto busy = std::make_shared<Busy>(server.port, 1);
+  ReplicationClient client(busy, core::opensslCrypto());
+  auto first = client.connectWithStatus(cfg);
+  CHECK(!first.ok());
+  CHECK_EQ(static_cast<int>(first.status.code), static_cast<int>(Errc::Rejected));
+  CHECK(first.failure.platformBusy());
+  CHECK_EQ(first.failure.retryAfterMs, 900);
+  CHECK_EQ(static_cast<int>(first.failure.error), static_cast<int>(Errc::Rejected));
+  CHECK_EQ(first.connection->lastAssignmentFailure().message, std::string("busy"));
+  CHECK(first.connection->connect().ok());
+  CHECK(!first.connection->lastAssignmentFailure().failed());
+  auto second = client.connectWithStatus(cfg);
+  CHECK(second.ok());
+  CHECK(!second.failure.failed());
+}
+
 void runRefreshKeepsServer(bool authorize, int expectedAssignCalls) {
   FakeServer server;
   server.start();
@@ -1862,6 +1927,7 @@ int main() {
   runBundlingNetThread();
   runSpatialDistanceDefaults();
   runSendPath();
+  runAssignmentFailureSaysWhy();
   runRefreshKeepsServer(/*authorize=*/true, /*expectedAssignCalls=*/1);
   runRefreshKeepsServer(/*authorize=*/false, /*expectedAssignCalls=*/2);
   runFirstSendRetry();

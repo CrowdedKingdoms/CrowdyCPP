@@ -98,21 +98,40 @@ void Connection::signalEvents() {
   config_.onEventsReady();
 }
 
+Status Connection::failAssignment(AssignmentFailure why) {
+  const Status failed = why.error;
+  std::lock_guard lock(assignmentMutex_);
+  assignmentFailure_ = std::move(why);
+  return failed;
+}
+
+AssignmentFailure Connection::lastAssignmentFailure() const {
+  std::lock_guard lock(assignmentMutex_);
+  return assignmentFailure_;
+}
+
 Status Connection::doAssign() {
-  auto assigned = provider_->assignServer();
-  if (!assigned.ok()) return assigned.error();
+  AssignmentFailure why;
+  auto assigned = provider_->assignServerOrSayWhy(why);
+  if (!assigned.ok()) {
+    why.error = assigned.error();
+    return failAssignment(std::move(why));
+  }
   const Assignment endpoint = assigned.value();
 
   const std::string& host =
       (config_.preferIpv6 && !endpoint.ip6.empty()) ? endpoint.ip6 : endpoint.ip4;
-  if (host.empty() || endpoint.clientPort <= 0) return Errc::Rejected;
+  if (host.empty() || endpoint.clientPort <= 0) {
+    return failAssignment({Errc::Rejected, {}, 0, "the assignment names no server"});
+  }
 
   Status st = socket_.open(host, endpoint.clientPort, config_.socketRecvBufferBytes,
                            config_.socketSendBufferBytes);
-  if (!st.ok()) return st;
+  if (!st.ok()) return failAssignment({st.code, {}, 0, "the socket to the assigned server did not open"});
   {
     std::lock_guard lock(assignmentMutex_);
     assignment_ = endpoint;
+    assignmentFailure_ = AssignmentFailure{};
   }
 
   readyAtMs_ = clock_.monotonicMillis() + config_.sessionReadyWaitMs;
@@ -1138,7 +1157,13 @@ void Connection::housekeeping() {
     if (st.ok()) {
       setState(ConnState::Connecting);
     } else {
-      logger_.log(core::LogLevel::Error, "reassignment failed");
+      const AssignmentFailure why = lastAssignmentFailure();
+      logger_.log(core::LogLevel::Error,
+                  why.code.empty() ? std::string("reassignment failed")
+                                   : "reassignment failed: " + why.code +
+                                         (why.retryAfterMs > 0
+                                              ? " (retry after " + std::to_string(why.retryAfterMs) + " ms)"
+                                              : std::string()));
       setState(ConnState::Failed);
     }
   }
@@ -1353,7 +1378,9 @@ ReplicationClient::ConnectResult ReplicationClient::connectWithStatus(
     std::lock_guard lock(connectionMutex_);
     activeConnection_ = conn;
   }
-  return {conn, conn->connect()};
+  ConnectResult result{conn, conn->connect(), {}};
+  if (!result.status.ok()) result.failure = conn->lastAssignmentFailure();
+  return result;
 }
 
 std::shared_ptr<Connection> ReplicationClient::connect(

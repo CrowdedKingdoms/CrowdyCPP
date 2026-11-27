@@ -28,6 +28,9 @@ class AssignmentHttp final : public graphql::IHttpTransport {
   std::vector<graphql::HttpRequest> requests;
   int refuseFirst = 0;
   int assignments = 0;
+  /// What a refused assignment answers; the default names no wait.
+  std::string refusal =
+      R"({"errors":[{"message":"No available servers found","extensions":{"code":"UNAVAILABLE"}}]})";
 
   graphql::HttpResponse send(const graphql::HttpRequest& request) override {
     requests.push_back(request);
@@ -35,8 +38,7 @@ class AssignmentHttp final : public graphql::IHttpTransport {
       ++assignments;
       if (refuseFirst > 0) {
         --refuseFirst;
-        return {200,
-                R"({"errors":[{"message":"No available servers found","extensions":{"code":"UNAVAILABLE"}}]})"};
+        return {200, refusal};
       }
       return {200,
               R"({"data":{"serverWithLeastClients":{"serverId":"server-1","ip4":"127.0.0.1","ip6":"","clientPort":39001,"status":"READY","peers":[],"clients":"0","cpuPeakPct":0,"updatedAt":"","createdAt":""}}})"};
@@ -215,6 +217,45 @@ void testAssignmentRetriesAndFailures() {
   CHECK(failed.connection != nullptr);
   CHECK(failed.connection->state() == replication::ConnState::Failed);
   CHECK_EQ(refusing->assignments, 1);
+  // The refusal keeps its code (0.95.0); this one named no wait.
+  CHECK(failed.failure.failed());
+  CHECK_EQ(static_cast<int>(failed.failure.error), static_cast<int>(failed.status.code));
+  CHECK_EQ(failed.failure.code, std::string("UNAVAILABLE"));
+  CHECK_EQ(failed.failure.retryAfterMs, 0);
+  CHECK_EQ(failed.failure.message, std::string("No available servers found"));
+  CHECK(!failed.failure.platformBusy());
+  CHECK(!retried.failure.failed());  // the attempt that succeeded leaves none
+
+  // PLATFORM_BUSY with a wait: the caller is told to wait, how long, and that it may try
+  // again. With attempts left, the next one waits as long as the API asked.
+  auto busy = std::make_shared<AssignmentHttp>();
+  busy->refuseFirst = 5;
+  busy->refusal =
+      R"({"errors":[{"message":"The platform is busy. Try again shortly.","extensions":{"code":"PLATFORM_BUSY","retryable":true,"blame":"PLATFORM","retryAfterMs":250}}]})";
+  GameSession told = startGameSession(appToken(), manualOptions(busy));
+  CHECK(!told.ok());
+  CHECK(told.failure.platformBusy());
+  CHECK_EQ(told.failure.code, std::string("PLATFORM_BUSY"));
+  CHECK_EQ(told.failure.retryAfterMs, 250);
+  CHECK_EQ(told.connection->lastAssignmentFailure().retryAfterMs, 250);
+  // The game server does what it was told, on the connection it was left.
+  busy->refuseFirst = 0;
+  CHECK(told.connection->connect().ok());
+  CHECK(!told.connection->lastAssignmentFailure().failed());
+
+  auto waited = std::make_shared<AssignmentHttp>();
+  waited->refuseFirst = 1;
+  waited->refusal = busy->refusal;
+  GameSessionOptions patient = manualOptions(waited);
+  patient.connectAttempts = 2;
+  patient.connectRetryDelayMs = 1;
+  const auto asked = std::chrono::steady_clock::now();
+  GameSession second = startGameSession(appToken(), std::move(patient));
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - asked);
+  CHECK(second.ok());
+  CHECK_EQ(waited->assignments, 2);
+  CHECK(took.count() >= 250);  // the API's wait, where the caller's own was 1 ms
+  CHECK(!second.failure.failed());
 
   // Not ready in time: Timeout, with everything kept.
   auto slow = std::make_shared<AssignmentHttp>();

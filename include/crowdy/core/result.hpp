@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <variant>
@@ -87,6 +88,32 @@ class Result {
 
  private:
   std::variant<T, Errc> value_;
+};
+
+/// Why the Application API did not do what a connection asked of it (0.95.0): a realtime
+/// server assignment (replication::AssignmentFailure) or a hub connection's connect call
+/// (domains::ExecConnectFailure).
+///
+/// The call itself answers one Errc for every such failure. This keeps what the API said:
+/// its refusal code and, when it named one, how long it asked the caller to wait.
+/// PLATFORM_BUSY with a `retryAfterMs` means "wait that long and ask again"; any other code
+/// is a refusal that the same call meets again until its cause is dealt with.
+struct ApiFailure {
+  /// The Errc the call answered; Errc::Ok when the last one succeeded, or none was made.
+  Errc error = Errc::Ok;
+  /// The Application API's refusal code (GraphQL `extensions.code`), such as "PLATFORM_BUSY";
+  /// empty when the failure carried none (no answer of the API's at all, an answer that
+  /// names no server, a socket that would not open).
+  std::string code;
+  /// How long the Application API asked the caller to wait before asking again, in
+  /// milliseconds; 0 when it named no wait.
+  std::int64_t retryAfterMs = 0;
+  /// The Application API's message, or the transport's.
+  std::string message;
+
+  bool failed() const { return error != Errc::Ok; }
+  /// The platform was shedding load: wait `retryAfterMs`, then ask again.
+  bool platformBusy() const { return code == "PLATFORM_BUSY"; }
 };
 
 }  // namespace crowdy

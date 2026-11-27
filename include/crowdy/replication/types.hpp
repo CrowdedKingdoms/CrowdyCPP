@@ -35,6 +35,11 @@ struct Assignment {
   int clientPort = 0;
 };
 
+/// Why a server assignment did not happen (Connection::lastAssignmentFailure(), 0.95.0):
+/// the Application API's refusal code and its `retryAfterMs`, which connect()'s one Errc
+/// cannot carry. See ApiFailure.
+using AssignmentFailure = ApiFailure;
+
 enum class ConnState : std::uint8_t {
   Idle = 0,
   Connecting,    ///< assigning a server / waiting for session-ready

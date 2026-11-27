@@ -53,7 +53,8 @@ struct GameSessionOptions {
   replication::Config replication;
   replication::Handlers handlers;
   /// Assignment attempts. Small deployments can answer "no available servers" for a moment
-  /// while server heartbeats lapse; a value above 1 retries after connectRetryDelayMs.
+  /// while server heartbeats lapse; a value above 1 retries after connectRetryDelayMs, or
+  /// after the `retryAfterMs` the Application API named when that is longer (0.95.0).
   int connectAttempts = 1;
   int connectRetryDelayMs = 2000;
   /// Wait up to this long for the connection to report Connected (it does once the
@@ -78,6 +79,7 @@ struct GameSession {
       connection = other.connection;
       token = other.token;
       status = other.status;
+      failure = other.failure;
     }
     return *this;
   }
@@ -88,6 +90,7 @@ struct GameSession {
       connection = std::move(other.connection);
       token = std::move(other.token);
       status = other.status;
+      failure = std::move(other.failure);
     }
     return *this;
   }
@@ -103,6 +106,10 @@ struct GameSession {
   /// the assignment's or the socket's failure, with the client and the Failed connection kept
   /// so the caller can retry connection->connect().
   Status status = Errc::Rejected;
+  /// Why the server assignment failed, when `status` is its failure (0.95.0): the
+  /// Application API's refusal code and `retryAfterMs`. `failure.platformBusy()` means the
+  /// platform was shedding load: wait `failure.retryAfterMs`, then connection->connect().
+  replication::AssignmentFailure failure;
 
   bool ok() const { return status.ok() && client != nullptr && connection != nullptr; }
   /// The app was paused when the token was minted: the session stays, and the replication

@@ -1,5 +1,6 @@
 #include "crowdy/game_session.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <utility>
@@ -75,10 +76,16 @@ GameSession startGameSession(const domains::AppTokenResponse& token, GameSession
   auto connected = session.client->replication().connectWithStatus(config, std::move(options.handlers));
   session.connection = connected.connection;
   session.status = connected.status;
+  session.failure = connected.failure;
   for (int attempt = 1; !session.status.ok() && attempt < options.connectAttempts && session.connection;
        ++attempt) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(options.connectRetryDelayMs));
+    // The API's own wait, when it named a longer one than the caller's.
+    const std::int64_t wait =
+        std::max<std::int64_t>(options.connectRetryDelayMs, session.failure.retryAfterMs);
+    std::this_thread::sleep_for(std::chrono::milliseconds(wait));
     session.status = session.connection->connect();
+    session.failure = session.status.ok() ? replication::AssignmentFailure{}
+                                          : session.connection->lastAssignmentFailure();
   }
   if (!session.status.ok() || options.connectTimeoutMs <= 0) return session;
 

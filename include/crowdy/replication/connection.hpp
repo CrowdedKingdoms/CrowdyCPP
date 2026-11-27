@@ -54,6 +54,12 @@ class Connection {
   /// After it returns the state is Connecting until the session-ready wait
   /// elapses, then Connected (status callback fires from poll()).
   Status connect();
+  /// Why the last server assignment failed (0.95.0): the first connect(), a later one, or a
+  /// reassignment that left the state Failed. `error` is Errc::Ok when the last assignment
+  /// succeeded or none was made. The Application API's refusal keeps its code and its
+  /// `retryAfterMs` here, so a caller can tell PLATFORM_BUSY (wait that long and connect()
+  /// again) from a refusal. Safe from any thread.
+  AssignmentFailure lastAssignmentFailure() const;
 
   /// Stop threads, close the socket, state -> Closed.
   void disconnect();
@@ -494,6 +500,8 @@ class Connection {
   UdpSocket socket_;
   mutable std::mutex assignmentMutex_;
   Assignment assignment_;
+  AssignmentFailure assignmentFailure_;  ///< under assignmentMutex_
+  Status failAssignment(AssignmentFailure why);
 
   mutable std::mutex tokenMutex_;
   TokenInfo token_;
@@ -630,6 +638,9 @@ class ReplicationClient {
   struct ConnectResult {
     std::shared_ptr<Connection> connection;
     Status status;
+    /// Why the assignment failed, when `status` is its failure (0.95.0): the Application
+    /// API's refusal code and `retryAfterMs` (Connection::lastAssignmentFailure()).
+    AssignmentFailure failure;
 
     bool ok() const { return status.ok() && connection != nullptr; }
   };

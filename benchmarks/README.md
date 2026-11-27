@@ -5,10 +5,35 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # Release, or the numbers mean 
 cmake --build build -j
 ./build/benchmarks/bench_codec                   # encode / parse / verify, ns per op
 ./build/benchmarks/bench_send                    # the send path taken apart
+taskset -c 2 ./build/benchmarks/bench_receive    # a player's connection receiving
 ```
 
 `bench_e2e_latency` measures echo round-trip against a deployment and needs the
 `CROWDY_E2E_*` variables; it is not part of the offline set.
+
+## bench_receive (0.95.0)
+
+What it costs a player's `Connection` to receive: a manual-pump connection drains loopback
+datagrams that were all sent before the clock starts, and the round times `pump()` (the socket
+read and the HMAC verification) and `poll()` (the dispatch to a handler) apart. A datagram is a
+plain `MESSAGE_BUNDLE` of 6 actor updates of 64 bytes, each with its own HMAC, or with `signed`
+one `MESSAGE_BUNDLE_SIGNED` of the same 6. The file uses nothing newer than 0.93.0, so the same
+source measures an older tree.
+
+On the CKS builder (8 cores shared with other builds, so the fastest of 300 rounds of 1,000
+datagrams is the number to compare), Release, pinned with `taskset -c 2`, each tree run in turn:
+
+| Tree | Plain bundles, 5 runs | Signed bundles, 3 runs |
+| --- | --- | --- |
+| 0.93.0 | 464 to 483 ns a notification, 2.07 to 2.16 million a second | 259 to 263 ns, 3.81 to 3.87 million |
+| 0.94.1 | 551 to 582 ns, 1.72 to 1.82 million | 294 to 299 ns, 3.34 to 3.40 million |
+| 0.95.0 | 484 to 495 ns, 2.02 to 2.07 million | 271 to 274 ns, 3.65 to 3.70 million |
+
+0.94.0 put two things on the path every notification takes: a clock read for each one that
+verified (about 30 ns) and the handling of a fleet session's three frames inside the
+per-message code (about 40 ns). 0.95.0 reads the clock once a datagram and reads the fleet
+frames out of line. The two checks 0.95.0 adds for a player (signed, and for its app) cost
+nothing that these runs can see.
 
 ## bench_chunk_store (0.82.0)
 

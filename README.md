@@ -928,6 +928,38 @@ See the [native player-host notes](docs/native-player-host.md) and
   reassignment — see
   [Troubleshooting](https://docs.crowdedkingdoms.com/replication-api/troubleshooting)).
 
+What a connection delivers, from the next release (see `MIGRATION.md`, "Unreleased"):
+
+- **Signed, and for its app.** A long-spatial notification reaches a handler when it
+  carries its own HMAC that verifies with the player's token, or when it is a member of
+  a signed bundle that verifies. One that nothing signed is dropped and counted in
+  `stats().unsignedNotifications`. One that names another app than `Config::appId` is
+  dropped and counted in `stats().wrongApp`, however it was signed. Both counts should
+  stay 0. If one moves, tell Crowded Kingdoms: the SDK's log line names the app, the
+  message type, and the chunk.
+- **Without a signature of their own.** Channel messages, channel audio, and error
+  frames have no room for an HMAC, so they are delivered alone or in either kind of
+  bundle. `GenericError::verified` is true for an error frame that arrived in a signed
+  bundle that verified. The realtime servers send a player's session every error frame
+  alone, so today it is false.
+- **`TOKEN_EXPIRED`.** A verified one reassigns the connection. An unverified one moves
+  nothing by itself: the connection asks its session provider for a fresh token, at
+  most once every 30 seconds, and reassigns only if the answer says the current server
+  does not know the new token. With `Config::refreshLeadMs = 0` it asks nothing, and
+  your `genericError` handler decides.
+- **Switched off.** With `Config::verifyNotifications = false` a notification that
+  nothing signed is delivered. A connection whose `Config::appId` is 0 compares no app.
+
+A failed `connect()` answers one `Errc`. `Connection::lastAssignmentFailure()` (also
+`ConnectResult::failure` and `GameSession::failure`) keeps what the Application API
+said: its refusal `code`, its `retryAfterMs`, and its `message`. When
+`failure.platformBusy()` is true, wait `retryAfterMs` and connect again.
+
+`disconnect()` returns within 100 milliseconds whatever is still arriving, unless the
+session provider is in the middle of a call: the network thread stops at the 16
+datagrams it has in hand. One `pump()` reads 1,024 datagrams at most, so a caller that
+wants the socket empty calls it until it returns less.
+
 Two integration modes:
 
 - **Owned net thread** (default): the SDK runs a receive/send thread and hands
@@ -1031,6 +1063,12 @@ fleet.close();
   session's `maxPlayers`). A carry answered `NoLiveToken` is asked once more, 250 ms
   later, before it ends that way: a token made a moment ago may not have reached the
   realtime server yet.
+  The session's table holds `maxPlayers` rows and 32 more (`tableLimit()`), carried
+  players and waiting carries together. A carry for a new player while it is full ends
+  `TableFull` at the next `poll()` with nothing sent (`stats().carriesRefusedTableFull`).
+  A carry for a player the table already holds, and one whose `replaces` names such a
+  player, are never refused this way. Release the players who left, or open another
+  session.
   A result does not say which of a player's carries it answers. A `ProofRefused` that
   arrives while another carry for the player has no answer yet can be the answer to an
   earlier carry that reached the server after a later one was accepted. So it ends
@@ -1112,7 +1150,9 @@ fleet.close();
   session hears an acknowledgement of its capabilities every 15 seconds. After 45 seconds
   with nothing the server signed, `refreshDue()` turns true, and the refresh decides as
   above. The 45 seconds are `FleetConfig::transport.watchdogSilenceMs`. 0 switches the
-  timeout off, and the session sends its capabilities at least three times in it.
+  timeout off, and the session sends its capabilities at least three times in it. The
+  smallest timeout is 3,000 ms, and every value fires between the timeout and one
+  capabilities interval later.
 
 ### Security notes
 
@@ -1246,6 +1286,12 @@ token lasts one minute and opens one socket, so `openAsServer` never reconnects,
 that wants the SDK to reconnect uses `connectAsServer`, which asks for a new connect
 token each time. The refusals are those of the table above, and revoking the org token
 closes the connection.
+
+When the connect call is refused, the calls that waited on the connection answer
+`Unavailable`, and `hub->lastConnectFailure()` keeps what the Application API said: its
+refusal `code`, its `retryAfterMs`, and its `message`. For `PLATFORM_BUSY`,
+`ExecReply::platformBusy()` is true and `retryAfterMs()` is the wait. The same holds for
+`exec().connect` and `connectAsDeveloper`.
 
 A hub sees the first call as `Caller::Org { player: None }` and the second as
 `Caller::Org { player: Some(id) }`. The platform checks that the connection belongs to the
@@ -1670,7 +1716,8 @@ None of these maintainer gates run during a normal external CMake build.
   ```
 - `benchmarks/` — codec ns/op, the send-path cost breakdown (`bench_send`:
   encode vs MAC vs socket write, with the alternatives for each priced side by
-  side), and end-to-end echo latency against an env-configured deployment. See
+  side), the receive path of a player's connection (`bench_receive`: read and
+  verify, then dispatch), and end-to-end echo latency against an env-configured deployment. See
   [benchmarks/README.md](benchmarks/README.md) for how to run them and the
   recorded results.
 

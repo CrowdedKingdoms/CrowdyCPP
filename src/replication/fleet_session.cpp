@@ -195,6 +195,11 @@ FleetSession::FleetSession(FleetConfig config, const core::ICrypto& crypto,
     if (active_.channelAudio) active_.channelAudio(n, FleetRecipients{});
   };
   plain.genericError = [this](const GenericError& e) { onGenericError(e); };
+  // The connection ends the reports this session makes (onGenericError), as it does a
+  // player's: by the keepalives and updates that leave, and by time.
+  plain.notPresentEnded = [this](const ActorNotPresent& report, NotPresentEnd why) {
+    if (active_.notPresentEnded) active_.notPresentEnded(report, why);
+  };
   plain.status = [this](ConnState s) {
     onStatus(s);
     if (active_.status) active_.status(s);
@@ -979,11 +984,37 @@ std::int64_t FleetSession::refusedPlayer(std::uint8_t sequence) {
   return slot.player;
 }
 
+std::optional<ActorNotPresent> FleetSession::notPresent(std::int64_t playerGameTokenId,
+                                                        const core::ActorUuid& uuid) const {
+  std::int64_t sentAs = playerGameTokenId;
+  {
+    // The id the player's messages leave under, which a refreshed token's carry changes.
+    std::lock_guard lock(playersMutex_);
+    const auto it = rowOfLocked(playerGameTokenId);
+    if (it != players_.end() && it->second.sendId != 0) sentAs = it->second.sendId;
+  }
+  return connection_->notPresentFor(sentAs, uuid);
+}
+
 void FleetSession::onGenericError(const GenericError& error) {
   if (active_.genericError) active_.genericError(error);
   // Only a refusal the server signed names a player: an unsigned frame could carry any
   // sequence number. Neither changes a carry.
   if (!error.verified) return;
+  if (error.keepalive && error.code == wire::ErrorCode::Unauthorized) {
+    // A carried player's keepalive, refused: the player's actor is not present there
+    // (realtime servers v0.51.0: no access at that place). Every keepalive there is refused
+    // the same way, so this is told once, by notPresent, and not by sendRefused. The first
+    // report needs what sendRefused needs, a number that can only be that keepalive's; a
+    // report that stands is kept standing by any refusal of the player's keepalive there.
+    const auto sent = connection_->keepaliveAnswered(error.sequence);
+    if (!sent || sent->player == 0) return;  // the session's own keepalive registers no actor
+    const bool standing = connection_->notPresentFor(sent->player, sent->uuid).has_value();
+    if (!standing && refusedPlayer(error.sequence) != sent->player) return;
+    const auto report = connection_->keepaliveRefused(*sent, error.sequence, /*verified=*/true);
+    if (report && active_.notPresent) active_.notPresent(*report);
+    return;
+  }
   const std::int64_t player = refusedPlayer(error.sequence);
   if (player == 0) return;
   FleetSendRefused refused;

@@ -2,11 +2,14 @@
 
 #include <array>
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "crowdy/core/clock.hpp"
 #include "crowdy/core/crypto.hpp"
@@ -60,6 +63,14 @@ class Connection {
   /// `retryAfterMs` here, so a caller can tell PLATFORM_BUSY (wait that long and connect()
   /// again) from a refusal. Safe from any thread.
   AssignmentFailure lastAssignmentFailure() const;
+
+  /// The not-present report that stands for `uuid`, if one does (ActorNotPresent, 0.95.0):
+  /// the actor's keepalive was refused UNAUTHORIZED where `chunk` says, and nothing has
+  /// ended the report since. poll() makes and ends reports, so this changes only there and
+  /// in a send that names another chunk for the actor. Safe from any thread.
+  std::optional<ActorNotPresent> notPresent(const core::ActorUuid& uuid) const {
+    return notPresentFor(0, uuid);
+  }
 
   /// Stop threads, close the socket, state -> Closed. The network thread stops reading at
   /// the batch in hand (kReceiveBatchDatagrams, 16 datagrams), so this returns within 100
@@ -357,6 +368,13 @@ class Connection {
     /// too. A player's Connection has made this check since 0.95.0, unless
     /// Config::verifyNotifications is off; a fleet session always makes it.
     std::uint64_t unsignedNotifications = 0;
+    /// Keepalives (CLIENT_ACTOR_HEARTBEAT) answered UNAUTHORIZED, every one of them: the
+    /// actor was not present where the keepalive named (ActorNotPresent, 0.95.0). It keeps
+    /// rising while a report stands, as the keepalives keep going out.
+    std::uint64_t keepalivesRefused = 0;
+    /// Not-present reports made (Handlers::notPresent): one per actor and place, however
+    /// many keepalives were refused there.
+    std::uint64_t notPresentReports = 0;
     /// TOKEN_EXPIRED error frames that nothing verified (GenericError::verified false), on
     /// a player's Connection (0.95.0). None of them reassigned: the first, and then at most
     /// one every 30 seconds, asked the session provider for a fresh token instead.
@@ -499,7 +517,60 @@ class Connection {
   // fails still consumes a sequence number. That is harmless and deliberate:
   // sequences are correlation, not idempotency, they wrap at 256, and rolling
   // the counter back would hand the same number to a concurrent sender.
-  std::uint8_t nextSequence() { return sequence_.fetch_add(1, std::memory_order_relaxed); }
+  /// The number of the next message: its low byte is the wire's sequence number, and the
+  /// whole of it says whether a later message has taken that byte since (256 further on).
+  std::uint32_t nextSendNumber() { return sendNumber_.fetch_add(1, std::memory_order_relaxed); }
+
+  // ----- Keepalives the server refuses (ActorNotPresent) -----
+  //
+  // A keepalive's refusal names only a sequence number, so each keepalive is remembered
+  // under its number until another message takes it. Only keepalive sends, the refusals of
+  // keepalives and the reports that stand cost anything here: every other send and every
+  // notification pay one relaxed load at most (notPresentCount_).
+  struct KeepaliveSent {
+    bool set = false;
+    std::uint32_t number = 0;    ///< nextSendNumber() of the keepalive
+    std::int64_t sentAtMs = 0;
+    std::int64_t player = 0;     ///< the carried player it was sent for; 0 the session's own
+    core::ActorUuid uuid{};
+    wire::ChunkCoord chunk;
+  };
+  struct NotPresentReport {
+    ActorNotPresent report;
+    std::int64_t lastKeepaliveMs = 0;   ///< when a keepalive for the actor there last left
+    /// When the oldest keepalive there that no refusal has answered left; 0 when there is
+    /// none. kKeepaliveAnswerWaitMs later the keepalive was accepted.
+    std::int64_t unansweredSinceMs = 0;
+  };
+  using PresenceKey = std::pair<std::int64_t, core::ActorUuid>;  ///< (player, actor)
+  /// Any sending thread: a keepalive left.
+  void noteKeepaliveSent(std::uint32_t number, std::int64_t player, const SpatialSend& p);
+  /// Any sending thread, while a report stands: an actor update left.
+  void noteActorUpdateSent(std::int64_t player, const SpatialSend& p);
+  /// poll(): the keepalive that an error frame with this sequence number answers, if the
+  /// last message under the number was one and it left within kKeepaliveAnswerWaitMs.
+  std::optional<KeepaliveSent> keepaliveAnswered(std::uint8_t sequence) const;
+  /// poll(): that keepalive was refused UNAUTHORIZED. Returns the report when this refusal
+  /// made it (the first for the actor at that place), for the handler.
+  std::optional<ActorNotPresent> keepaliveRefused(const KeepaliveSent& sent, std::uint8_t sequence,
+                                                  bool verified);
+  /// poll(): the server sent the actor's own update back from `chunk`.
+  void noteActorEchoed(const core::ActorUuid& uuid, const wire::ChunkCoord& chunk);
+  /// poll(): end the reports whose keepalive was accepted or whose keepalives stopped, and
+  /// hand over every report that ended since the last pass.
+  void presencePass(const Handlers& handlers);
+  /// A new assignment: what was sent to the server the connection left gets no answer.
+  void presenceRestart();
+  std::optional<ActorNotPresent> notPresentFor(std::int64_t player, const core::ActorUuid& uuid) const;
+  void endReportLocked(std::map<PresenceKey, NotPresentReport>::iterator it, NotPresentEnd why);
+  static constexpr std::size_t kMaxNotPresentReports = 4096;
+  mutable std::mutex presenceMutex_;
+  std::array<KeepaliveSent, 256> keepalivesSent_{};                            // presenceMutex_
+  std::map<PresenceKey, NotPresentReport> notPresent_;                         // presenceMutex_
+  std::vector<std::pair<ActorNotPresent, NotPresentEnd>> notPresentEnded_;     // presenceMutex_
+  /// Reports that stand, and reports that ended and wait for poll() to say so.
+  std::atomic<std::size_t> notPresentCount_{0};
+  std::atomic<std::size_t> notPresentEndedCount_{0};
   wire::Token64 tokenSnapshot() const;
 
   Config config_;
@@ -526,7 +597,7 @@ class Connection {
 
   core::SpscRing<Event> ring_;
   std::atomic<ConnState> state_{ConnState::Idle};
-  std::atomic<std::uint8_t> sequence_{0};
+  std::atomic<std::uint32_t> sendNumber_{0};
   std::atomic<bool> running_{false};
   std::thread netThread_;
 

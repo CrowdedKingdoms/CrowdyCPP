@@ -642,6 +642,288 @@ void runTokenExpired() {
 }
 
 // ---------------------------------------------------------------------------
+// A refused keepalive (for realtime servers v0.51.0). Where the player has no access the
+// server answers every keepalive [3][sequence][UNAUTHORIZED], unsigned, every few seconds.
+// The connection makes one report for the actor and the place (Handlers::notPresent, and
+// Connection::notPresent to read), and ends it once: when a keepalive there goes
+// kKeepaliveAnswerWaitMs without a refusal or the actor's own update comes back, when the
+// actor's next keepalive or update names another chunk, or when its keepalives stop. It
+// changes nothing else: not the state, not the assignment, not the token.
+// ---------------------------------------------------------------------------
+
+struct Presence {
+  std::vector<ActorNotPresent> made;
+  std::vector<std::pair<ActorNotPresent, NotPresentEnd>> ended;
+};
+
+Handlers recording(Seen& seen, Presence& presence) {
+  Handlers h = recording(seen);
+  h.notPresent = [&presence](const ActorNotPresent& report) { presence.made.push_back(report); };
+  h.notPresentEnded = [&presence](const ActorNotPresent& report, NotPresentEnd why) {
+    presence.ended.emplace_back(report, why);
+  };
+  return h;
+}
+
+/// Send a keepalive and let the server read it. Returns its sequence number.
+std::uint8_t keepalive(Connection& conn, FakeServer& server, const wire::ChunkCoord& chunk,
+                       const core::ActorUuid& actor) {
+  const auto seq = conn.sendHeartbeat(chunk, actor);
+  CHECK(seq.ok());
+  const auto got = server.recvOne();
+  CHECK_EQ(got[0], 26u);
+  CHECK_EQ(got.back(), seq.value());
+  return seq.value();
+}
+
+/// The server's refusal of the message with that sequence number, as a player's session is
+/// sent it: 3 bytes, alone, unsigned.
+void refuse(Connection& conn, FakeServer& server, std::uint8_t sequence, std::uint8_t code = 7) {
+  deliver(conn, server, {3, sequence, code});
+}
+
+void runARefusedKeepaliveIsReportedOnce() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<Provider>(server.port);
+  ManualClock clock;
+  Connection conn(playerConfig(), provider, crypto(), clock);
+  Seen seen;
+  Presence presence;
+  conn.setHandlers(recording(seen, presence));
+  open(conn, server);
+
+  const wire::ChunkCoord here{10, 0, -4};
+  const wire::ChunkCoord there{11, 0, -4};
+  const core::ActorUuid actor = uuid('p');
+  const auto unchanged = [&] {
+    CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+    CHECK_EQ(provider->assigns, 1);
+    CHECK_EQ(provider->refreshes, 0);
+    CHECK_EQ(conn.stats().reconnects, 0u);
+    CHECK_EQ(conn.sessionEpoch(), 1u);
+  };
+
+  // An accepted keepalive is answered with nothing, and nothing is reported.
+  keepalive(conn, server, here, actor);
+  conn.pump(0);
+  conn.poll();
+  CHECK(presence.made.empty());
+  CHECK(!conn.notPresent(actor).has_value());
+
+  // The first refused keepalive: one report, readable, and nothing else changed.
+  const std::uint8_t first = keepalive(conn, server, here, actor);
+  refuse(conn, server, first);
+  CHECK_EQ(presence.made.size(), 1u);
+  CHECK(presence.made[0].uuid == actor);
+  CHECK(presence.made[0].chunk == here);
+  CHECK_EQ(presence.made[0].sequence, first);
+  CHECK(!presence.made[0].verified);  // 3 bytes that nothing signed
+  CHECK_EQ(presence.made[0].playerGameTokenId, 0);
+  CHECK_EQ(seen.errors.size(), 1u);
+  CHECK(seen.errors[0].keepalive);
+  CHECK(!seen.errors[0].verified);
+  CHECK(conn.notPresent(actor).has_value());
+  CHECK(conn.notPresent(actor)->chunk == here);
+  CHECK(!conn.notPresent(uuid('q')).has_value());
+  unchanged();
+
+  // The keepalives go on at the game's own rate, each refused: every refusal reaches
+  // genericError, marked as a keepalive's, and the report is not made again.
+  for (int i = 0; i < 20; ++i) {
+    clock.mono += 2000;
+    refuse(conn, server, keepalive(conn, server, here, actor));
+  }
+  CHECK_EQ(presence.made.size(), 1u);
+  CHECK(presence.ended.empty());
+  CHECK_EQ(seen.errors.size(), 21u);
+  for (const GenericError& e : seen.errors) CHECK(e.keepalive);
+  CHECK_EQ(conn.stats().keepalivesRefused, 21u);
+  CHECK_EQ(conn.stats().notPresentReports, 1u);
+  CHECK(conn.notPresent(actor).has_value());
+  unchanged();
+
+  // One refusal lost on the way is not acceptance: the next keepalive, 2 seconds later, is
+  // refused before the lost one's 3 seconds are up.
+  clock.mono += 2000;
+  keepalive(conn, server, here, actor);  // its refusal never arrives
+  clock.mono += 2000;
+  refuse(conn, server, keepalive(conn, server, here, actor));
+  clock.mono += 1500;  // 3.5 s after the unanswered one
+  conn.poll();
+  CHECK(presence.ended.empty());
+  CHECK(conn.notPresent(actor).has_value());
+
+  // A refusal of something that is not a keepalive is not one: an actor update's.
+  SpatialSend update;
+  update.chunk = here;
+  update.uuid = actor;
+  const std::uint8_t pose[] = {1, 2, 3, 4};
+  update.payload = Bytes(pose, sizeof(pose));
+  const auto updated = conn.sendActorUpdate(update);
+  CHECK(updated.ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  refuse(conn, server, updated.value());
+  CHECK(!seen.errors.back().keepalive);
+  CHECK_EQ(conn.stats().keepalivesRefused, 22u);
+  CHECK_EQ(presence.made.size(), 1u);
+
+  // Access granted: the next keepalive is not refused. The report ends 3,000 ms after it
+  // left, and not a millisecond sooner.
+  clock.mono += 2000;
+  keepalive(conn, server, here, actor);
+  clock.mono += kKeepaliveAnswerWaitMs - 1;
+  conn.pump(0);
+  conn.poll();
+  CHECK(presence.ended.empty());
+  clock.mono += 1;
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 1u);
+  CHECK(presence.ended[0].first.uuid == actor);
+  CHECK(presence.ended[0].first.chunk == here);
+  CHECK_EQ(presence.ended[0].first.sequence, first);
+  CHECK_EQ(static_cast<int>(presence.ended[0].second), static_cast<int>(NotPresentEnd::Accepted));
+  CHECK(!conn.notPresent(actor).has_value());
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 1u);  // once
+
+  // Refused there again later: a new report.
+  clock.mono += 2000;
+  refuse(conn, server, keepalive(conn, server, here, actor));
+  CHECK_EQ(presence.made.size(), 2u);
+
+  // The actor moves: its next keepalive names another chunk, and the report ends. Nothing
+  // is known of the new place until a keepalive there is answered.
+  clock.mono += 2000;
+  const std::uint8_t moved = keepalive(conn, server, there, actor);
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 2u);
+  CHECK(presence.ended[1].first.chunk == here);
+  CHECK_EQ(static_cast<int>(presence.ended[1].second), static_cast<int>(NotPresentEnd::Moved));
+  CHECK(!conn.notPresent(actor).has_value());
+  refuse(conn, server, moved);
+  CHECK_EQ(presence.made.size(), 3u);
+  CHECK(presence.made[2].chunk == there);
+  CHECK_EQ(presence.made[2].sequence, moved);
+
+  // A move seen in the actor's update ends it too.
+  update.chunk = here;
+  CHECK(conn.sendActorUpdate(update).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 3u);
+  CHECK_EQ(static_cast<int>(presence.ended[2].second), static_cast<int>(NotPresentEnd::Moved));
+
+  // The keepalives stop: 30 seconds later the report ends by itself.
+  clock.mono += 2000;
+  refuse(conn, server, keepalive(conn, server, here, actor));
+  CHECK_EQ(presence.made.size(), 4u);
+  clock.mono += kNotPresentIdleMs - 1;
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 3u);
+  clock.mono += 1;
+  conn.poll();
+  CHECK_EQ(presence.ended.size(), 4u);
+  CHECK_EQ(static_cast<int>(presence.ended[3].second), static_cast<int>(NotPresentEnd::Stopped));
+
+  // Two actors, two reports, each its own.
+  const core::ActorUuid other = uuid('q');
+  clock.mono += 2000;
+  refuse(conn, server, keepalive(conn, server, here, actor));
+  refuse(conn, server, keepalive(conn, server, here, other));
+  CHECK_EQ(presence.made.size(), 6u);
+  CHECK(presence.made[5].uuid == other);
+  CHECK(conn.notPresent(actor).has_value() && conn.notPresent(other).has_value());
+
+  // The actor's own update comes back from the server, signed: it is present there. (The
+  // helper's notification is actor 'b' at chunk (1, 2, 3).)
+  const core::ActorUuid echoed = uuid('b');
+  const wire::ChunkCoord echoedAt{1, 2, 3};
+  refuse(conn, server, keepalive(conn, server, echoedAt, echoed));
+  CHECK_EQ(presence.made.size(), 7u);
+  deliver(conn, server, signedNote(wire::MessageType::ActorUpdateNotification));
+  CHECK_EQ(presence.ended.size(), 5u);
+  CHECK(presence.ended[4].first.uuid == echoed);
+  CHECK_EQ(static_cast<int>(presence.ended[4].second), static_cast<int>(NotPresentEnd::Accepted));
+  // Another actor's update, and this actor's from another chunk, end nothing.
+  CHECK(conn.notPresent(actor).has_value() && conn.notPresent(other).has_value());
+
+  // What is not a keepalive's refusal: a sequence number no keepalive left under, a
+  // keepalive's number once another message has taken it, and an answer that comes after
+  // the time a refusal takes.
+  const std::size_t errorsBefore = seen.errors.size();
+  const std::uint64_t refusedBefore = conn.stats().keepalivesRefused;
+  refuse(conn, server, 200);
+  CHECK(!seen.errors.back().keepalive);
+  const core::ActorUuid third = uuid('r');
+  const std::uint8_t taken = keepalive(conn, server, here, third);
+  for (int i = 0; i < 256; ++i) {
+    CHECK(conn.sendText(update).ok());
+    CHECK_EQ(server.recvOne()[0], 136u);
+  }
+  refuse(conn, server, taken);  // the text that took the number is what this answers
+  CHECK(!seen.errors.back().keepalive);
+  const std::uint8_t late = keepalive(conn, server, here, third);
+  clock.mono += kKeepaliveAnswerWaitMs + 1;
+  refuse(conn, server, late);
+  CHECK(!seen.errors.back().keepalive);
+  CHECK_EQ(seen.errors.size(), errorsBefore + 3);
+  CHECK_EQ(conn.stats().keepalivesRefused, refusedBefore);
+  CHECK(!conn.notPresent(third).has_value());
+
+  // Another code for a keepalive is a keepalive's refusal, and no report.
+  refuse(conn, server, keepalive(conn, server, here, third), 18);  // INVALID_APP_ID
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(static_cast<int>(seen.errors.back().code), 18);
+  CHECK(!conn.notPresent(third).has_value());
+  CHECK_EQ(conn.stats().keepalivesRefused, refusedBefore);
+
+  // A reassignment: a keepalive sent to the server the connection left gets no answer,
+  // and that silence is not acceptance.
+  clock.mono += 2000;
+  refuse(conn, server, keepalive(conn, server, here, third));
+  CHECK(conn.notPresent(third).has_value());
+  clock.mono += 2000;
+  keepalive(conn, server, here, third);
+  conn.requestReassignment();
+  conn.pump(0);
+  CHECK_EQ(provider->assigns, 2);
+  conn.pump(0);
+  clock.mono += kKeepaliveAnswerWaitMs;
+  conn.poll();
+  CHECK(conn.notPresent(third).has_value());
+  // The first keepalive on the new assignment is the one to wait on.
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  const std::size_t endedBefore = presence.ended.size();
+  keepalive(conn, server, here, third);
+  clock.mono += kKeepaliveAnswerWaitMs;
+  conn.poll();
+  CHECK(!conn.notPresent(third).has_value());
+  bool accepted = false;
+  for (std::size_t i = endedBefore; i < presence.ended.size(); ++i) {
+    if (presence.ended[i].first.uuid == third) {
+      accepted = presence.ended[i].second == NotPresentEnd::Accepted;
+    }
+  }
+  CHECK(accepted);
+
+  // A hundred forged refusals of one keepalive make one report and move nothing.
+  const core::ActorUuid target = uuid('s');
+  const std::size_t madeBefore = presence.made.size();
+  const std::uint8_t aimed = keepalive(conn, server, here, target);
+  for (int i = 0; i < 100; ++i) refuse(conn, server, aimed);
+  CHECK_EQ(presence.made.size(), madeBefore + 1);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  CHECK_EQ(provider->assigns, 2);
+  CHECK_EQ(provider->refreshes, 0);
+  CHECK_EQ(conn.stats().unverifiedTokenExpired, 0u);
+  CHECK_EQ(std::string(notPresentEndName(NotPresentEnd::Accepted)), "Accepted");
+  CHECK_EQ(std::string(notPresentEndName(NotPresentEnd::Moved)), "Moved");
+  CHECK_EQ(std::string(notPresentEndName(NotPresentEnd::Stopped)), "Stopped");
+  conn.disconnect();
+}
+
+// ---------------------------------------------------------------------------
 // Datagrams that arrive faster than they are verified. The flood here does not depend on how
 // fast anything runs: the crypto provider the connection verifies with sends two more
 // datagrams for every one it verifies. Where the loopback hands a datagram over before
@@ -846,6 +1128,7 @@ int main() {
   runWhatIsDropped();
   runWhatIsStillTaken();
   runTokenExpired();
+  runARefusedKeepaliveIsReportedOnce();
   const bool immediate = loopbackIsImmediate();
   std::printf("loopback hands a datagram over before sendto() returns: %s\n", immediate ? "yes" : "no");
   runAReceivePassEnds(immediate);

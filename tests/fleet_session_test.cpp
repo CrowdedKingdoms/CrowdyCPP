@@ -3387,6 +3387,189 @@ void runErrorFramesChangeNothing() {
 }
 
 // ---------------------------------------------------------------------------
+// A carried player's keepalive, refused (for realtime servers v0.51.0: a keepalive is
+// accepted only where the player's actor update would be, so where the player has no access
+// every keepalive is answered UNAUTHORIZED, inside the session's signed bundle). The
+// session tells the game server once per player, actor and place (notPresent), keeps the
+// report readable, ends it once, and changes nothing else: the carry stands, nothing is
+// carried again, no refresh comes due, and sendRefused is not called every few seconds.
+// ---------------------------------------------------------------------------
+
+void runARefusedKeepaliveOfACarriedPlayer() {
+  FakeServer server;
+  server.start();
+  ManualClock clock;
+  FleetSession fleet(configFor(server), crypto(), clock);
+  Seen seen;
+  std::vector<FleetSendRefused> refused;
+  std::vector<ActorNotPresent> made;
+  std::vector<std::pair<ActorNotPresent, NotPresentEnd>> ended;
+  FleetHandlers h = recording(seen);
+  h.sendRefused = [&](const FleetSendRefused& r) { refused.push_back(r); };
+  h.notPresent = [&](const ActorNotPresent& r) { made.push_back(r); };
+  h.notPresentEnded = [&](const ActorNotPresent& r, NotPresentEnd why) { ended.emplace_back(r, why); };
+  fleet.setHandlers(std::move(h));
+  openConnected(fleet, server);
+  const std::int64_t a = 901, b = 902;
+  carryAs(fleet, server, a, 9011, tokenFor(a));
+  carryAs(fleet, server, b, 9012, tokenFor(b));
+  const wire::ChunkCoord here{7, 0, 7};
+  const wire::ChunkCoord there{8, 0, 7};
+
+  // Everything the session sends from here on is a keepalive, an update or its
+  // capabilities: never a carry, a release or anything a refusal could have caused.
+  const auto read = [&] {
+    for (const auto& got : sentSoFar(server)) CHECK(got[0] == 26 || got[0] == 128 || got[0] == 29);
+  };
+  const auto beat = [&](std::int64_t player, const wire::ChunkCoord& chunk, const core::ActorUuid& actor) {
+    const auto seq = fleet.sendHeartbeat(player, chunk, actor);
+    CHECK(seq.ok());
+    read();
+    return seq.value();
+  };
+  const auto refuse = [&](std::uint8_t sequence, bool signedByTheServer = true) {
+    const std::size_t before = seen.errors.size();
+    const std::vector<std::uint8_t> frame = {3, sequence, 7};
+    server.send(signedByTheServer ? signedBundle({frame}) : frame);
+    pumpUntil(fleet, [&] { return seen.errors.size() == before + 1; });
+    CHECK_EQ(seen.errors.size(), before + 1);
+    CHECK_EQ(seen.errors.back().verified, signedByTheServer);
+  };
+  const auto unchanged = [&] {
+    CHECK(fleet.carries(a) && fleet.carries(b));
+    CHECK(!fleet.moveOrdered() && !fleet.refreshDue());
+    CHECK(seen.released.empty());
+    CHECK_EQ(fleet.sessionEpoch(), 1u);
+    CHECK_EQ(fleet.stats().reconnects, 0u);
+    CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
+  };
+
+  // The first refused keepalive of a's actor: one report, naming the player.
+  const std::uint8_t first = beat(a, here, uuid('a'));
+  refuse(first);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 1u);
+  CHECK_EQ(made[0].playerGameTokenId, a);
+  CHECK(made[0].uuid == uuid('a'));
+  CHECK(made[0].chunk == here);
+  CHECK_EQ(made[0].sequence, first);
+  CHECK(made[0].verified);
+  CHECK(refused.empty());  // a keepalive's UNAUTHORIZED is told by notPresent
+  CHECK(fleet.notPresent(a, uuid('a')).has_value());
+  CHECK(!fleet.notPresent(b, uuid('a')).has_value());
+  unchanged();
+
+  // The game server keeps the keepalives going, and each is refused: told once.
+  for (int i = 0; i < 10; ++i) {
+    clock.advance(2000);
+    refuse(beat(a, here, uuid('a')));
+    CHECK(seen.errors.back().keepalive);
+  }
+  CHECK_EQ(made.size(), 1u);
+  CHECK(ended.empty());
+  CHECK(refused.empty());
+  CHECK_EQ(fleet.stats().keepalivesRefused, 11u);
+  CHECK_EQ(fleet.stats().notPresentReports, 1u);
+  CHECK_EQ(fleet.stats().sendRefusalsNamed, 0u);
+  unchanged();
+
+  // Three bytes that nothing signed make no report, whatever number they carry.
+  const std::uint8_t unsignedFor = beat(b, here, uuid('b'));
+  refuse(unsignedFor, /*signedByTheServer=*/false);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 1u);
+  CHECK(!fleet.notPresent(b, uuid('b')).has_value());
+  refuse(unsignedFor);
+  CHECK_EQ(made.size(), 2u);
+  CHECK_EQ(made[1].playerGameTokenId, b);
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+
+  // A refused update is still a refused send, named by sendRefused each time.
+  const std::uint8_t pose[] = {1, 2, 3};
+  const SpatialSend update{here, uuid('a'), Bytes(pose, sizeof(pose))};
+  auto updated = fleet.sendActorUpdate(a, update);
+  CHECK(updated.ok());
+  read();
+  refuse(updated.value());
+  CHECK(!seen.errors.back().keepalive);
+  CHECK_EQ(refused.size(), 1u);
+  CHECK_EQ(refused[0].playerGameTokenId, a);
+  CHECK_EQ(made.size(), 2u);
+
+  // The session's own keepalive registers no actor: its refusal is nobody's report.
+  const auto own = fleet.sendHeartbeat();
+  CHECK(own.ok());
+  read();
+  refuse(own.value());
+  CHECK_EQ(made.size(), 2u);
+  CHECK_EQ(refused.size(), 1u);
+
+  // a is given access: the next keepalive has no refusal, and 3,000 ms later the report
+  // ends.
+  clock.advance(2000);
+  beat(a, here, uuid('a'));
+  clock.advance(kKeepaliveAnswerWaitMs - 1);
+  settle(fleet);
+  CHECK(ended.empty());
+  clock.advance(1);
+  settle(fleet);
+  read();
+  CHECK_EQ(ended.size(), 1u);
+  CHECK_EQ(ended[0].first.playerGameTokenId, a);
+  CHECK_EQ(static_cast<int>(ended[0].second), static_cast<int>(NotPresentEnd::Accepted));
+  CHECK(!fleet.notPresent(a, uuid('a')).has_value());
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+
+  // b's actor moves: its next keepalive names another chunk.
+  beat(b, there, uuid('b'));
+  settle(fleet);
+  read();
+  CHECK_EQ(ended.size(), 2u);
+  CHECK_EQ(ended[1].first.playerGameTokenId, b);
+  CHECK(ended[1].first.chunk == here);
+  CHECK_EQ(static_cast<int>(ended[1].second), static_cast<int>(NotPresentEnd::Moved));
+
+  // A sequence number is one byte for the whole session. A refusal under a number that a
+  // send for another player also left under, within the time a refusal can take, makes no
+  // first report (as it names no player for sendRefused).
+  clock.advance(kFleetRefusalWindowMs + 1);
+  std::uint8_t last = fleet.sendActorUpdate(a, update).value();
+  const auto fillTo = [&](std::uint8_t sequence) {
+    while (static_cast<std::uint8_t>(last + 1) != sequence) last = fleet.sendActorUpdate(a, update).value();
+    read();
+  };
+  const std::uint8_t shared = static_cast<std::uint8_t>(last + 1);
+  last = fleet.sendActorUpdate(a, update).value();  // a's, under `shared`
+  fillTo(shared);
+  const std::uint8_t ambiguous = beat(b, there, uuid('b'));  // b's keepalive, 256 sends later
+  CHECK_EQ(ambiguous, shared);
+  last = ambiguous;
+  refuse(ambiguous);
+  CHECK(seen.errors.back().keepalive);
+  CHECK_EQ(made.size(), 2u);
+  CHECK(!fleet.notPresent(b, uuid('b')).has_value());
+  // Once a's send is too old to be the one refused, the number is b's keepalive's alone.
+  clock.advance(kFleetRefusalWindowMs + 1);
+  refuse(beat(b, there, uuid('b')));
+  CHECK_EQ(made.size(), 3u);
+  CHECK(made[2].chunk == there);
+  // A report that stands is kept standing by a refusal under a shared number too: the
+  // keepalive it may answer is not taken as accepted.
+  last = fleet.sendActorUpdate(a, update).value();
+  const std::uint8_t again = static_cast<std::uint8_t>(last + 1);
+  last = fleet.sendActorUpdate(a, update).value();
+  fillTo(again);
+  CHECK_EQ(beat(b, there, uuid('b')), again);
+  refuse(again);
+  clock.advance(kKeepaliveAnswerWaitMs);
+  settle(fleet);
+  read();
+  CHECK(fleet.notPresent(b, uuid('b')).has_value());
+  CHECK_EQ(ended.size(), 2u);
+  unchanged();
+}
+
+// ---------------------------------------------------------------------------
 // A status 3 (a replay) can answer an earlier send that reached the server after a later
 // one was accepted, and a result does not say which send it answers. While a carry that
 // left has no answer, a status 3 settles nothing: at the first, one more carry leaves. The
@@ -4502,6 +4685,7 @@ int main() {
   runSendFaultIsNamed();
   runOnlyTheSessionsOwnAppIsDispatched();
   runVerifiedRefusals();
+  runARefusedKeepaliveOfACarriedPlayer();
   runARefreshedTokenKeepsThePlayerCarried();
   if (const char* reorders = std::getenv("FLEET_TEST_LOOPBACK_REORDERS"); reorders && reorders[0] == '1') {
     std::puts("runSendsInFlightSwitchWithTheCarry left out: FLEET_TEST_LOOPBACK_REORDERS=1");

@@ -335,6 +335,23 @@ struct FleetHandlers {
   /// the same frame. The session changes no carry on it: FleetSendRefused says what the
   /// code means and what to do.
   std::function<void(const FleetSendRefused&)> sendRefused;
+  /// A carried player's keepalive (sendHeartbeat(player, ...)) was refused UNAUTHORIZED, in
+  /// a frame that verified: that player's actor is not present where the keepalive named
+  /// (ActorNotPresent, with `playerGameTokenId`; 0.95.0, for realtime servers v0.51.0). From
+  /// v0.51.0 a keepalive is accepted only where the player's actor update would be, so this
+  /// is what a player with no `access` at a place looks like: every keepalive there is
+  /// refused, every few seconds. Once per player, actor and place, after `genericError` for
+  /// the same frame, and in place of `sendRefused`, which a keepalive's UNAUTHORIZED never
+  /// reaches. Keep sending the player's keepalives at the same rate: the session carries
+  /// the player as before, and access granted later admits the next keepalive within about
+  /// 6 seconds. The first report needs a refusal whose sequence number can only be that
+  /// keepalive's (as `sendRefused` does); once it stands, any refusal of the player's
+  /// keepalive there keeps it standing.
+  std::function<void(const ActorNotPresent&)> notPresent;
+  /// That report ended: a keepalive there was accepted (no refusal for
+  /// kKeepaliveAnswerWaitMs), the player's next keepalive or update named another chunk, or
+  /// the keepalives stopped (NotPresentEnd). Once per report.
+  std::function<void(const ActorNotPresent&, NotPresentEnd)> notPresentEnded;
   /// The realtime server ended the session, in a frame signed with the fleet token
   /// (COMMAND_SESSION_RELEASED, 28, or 45 bound to this connection), for any reason but
   /// idleness: the Application API closed it, its org token was revoked or fleet sessions
@@ -645,6 +662,10 @@ class FleetSession {
   /// True when the server confirmed a carry of this gameTokenId and nothing ended it.
   /// While a refreshed token's carry waits (PlayerToken::replaces), true for both ids.
   bool carries(std::int64_t playerGameTokenId) const;
+  /// The not-present report that stands for one of the player's actors, if one does
+  /// (FleetHandlers::notPresent, 0.95.0). poll() makes and ends reports.
+  std::optional<ActorNotPresent> notPresent(std::int64_t playerGameTokenId,
+                                            const core::ActorUuid& uuid) const;
   std::optional<FleetPlayer> player(std::int64_t playerGameTokenId) const;
   /// Every row of the table: carried players and carries still waiting.
   std::vector<FleetPlayer> players() const;

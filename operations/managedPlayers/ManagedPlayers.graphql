@@ -61,6 +61,18 @@ mutation DeleteManagedPlayer($orgId: BigInt!, $externalId: String!) {
   deleteManagedPlayer(orgId: $orgId, externalId: $externalId)
 }
 
+mutation DeleteManagedPlayers($input: DeleteManagedPlayersInput!) {
+  deleteManagedPlayers(input: $input) {
+    deleted
+    notFound
+    held
+    players {
+      externalId
+      outcome
+    }
+  }
+}
+
 query OrgManagedPlayerSettings($orgId: BigInt!) {
   orgManagedPlayerSettings(orgId: $orgId) {
     orgId
@@ -70,6 +82,9 @@ query OrgManagedPlayerSettings($orgId: BigInt!) {
     mintsPerMinute
     defaultSessionTtlSeconds
     maxSessionTtlSeconds
+    fleetSessionsEnabled
+    maxFleetSessions
+    maxFleetPlayers
     termsVersion
     termsUrl
     termsAccepted

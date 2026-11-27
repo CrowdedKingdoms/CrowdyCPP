@@ -42,7 +42,7 @@ graphql::Json bodyOf(const graphql::HttpRequest& request) {
 
 const char* kTokenReply =
     R"({"data":{"exchangeManagedPlayerAssertion":{"token":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",)"
-    R"("gameTokenId":"9","appId":"7","expiresAt":"2026-10-22T00:00:00.000Z","gameApiUrl":null,)"
+    R"("gameTokenId":"9","userId":"9007199254740993","appId":"7","expiresAt":"2026-10-22T00:00:00.000Z","gameApiUrl":null,)"
     R"("gameApiWsUrl":null,"discoveryUrl":null,"launchUrl":null,"runtimeGate":null}}})";
 
 void testAdoptStoresTheAppToken() {
@@ -72,11 +72,16 @@ void testExchangeTradesTheAssertionAndStoresTheToken() {
   domains::PortalAPI portal(rig.gql, rig.auth, core::unavailableCrypto());
   const domains::AppTokenResponse r = portal.exchangeManagedPlayerAssertion("7", "h.p.s");
   CHECK_EQ(r.token, std::string(64, 'c'));
+  // The user the token signs in (0.95.0, Application API v2.90.0): past a double's
+  // integers, so never narrowed, and readable as the int64 callAs takes.
+  CHECK_EQ(r.userId, std::string("9007199254740993"));
+  CHECK(r.userIdInt64() == std::optional<std::int64_t>(9007199254740993LL));
   CHECK_EQ(rig.auth->token(), std::string(64, 'c'));
   CHECK_EQ(rig.http->requests.size(), std::size_t{1});
   const graphql::Json body = bodyOf(rig.http->requests[0]);
   CHECK(body["query"].asString().find("exchangeManagedPlayerAssertion(input: $input)") !=
         std::string::npos);
+  CHECK(body["query"].asString().find(" token gameTokenId userId appId ") != std::string::npos);
   CHECK_EQ(body["variables"]["input"]["appId"].asString(), std::string("7"));
   CHECK_EQ(body["variables"]["input"]["assertion"].asString(), std::string("h.p.s"));
 
@@ -140,6 +145,108 @@ void testAdminFieldsAndArguments() {
   }
 }
 
+// 0.95.0 (Application API v2.90.0): up to 100 players deleted in one call, each external
+// id answered with its outcome; and the organization's fleet limits in its settings
+// (Application API v2.89.0).
+void testRemoveManyAndTheFleetLimits() {
+  Rig rig;
+  rig.http->reply =
+      R"({"data":{"deleteManagedPlayers":{"deleted":1,"notFound":1,"held":1,"players":[)"
+      R"({"externalId":"acct-1","outcome":"DELETED"},{"externalId":"gone","outcome":"NOT_FOUND"},)"
+      R"({"externalId":"held-1","outcome":"LEGAL_HOLD"}]}}})";
+  domains::ManagedPlayersAPI players(rig.gql);
+  const graphql::Json done = players.removeMany("3", {"acct-1", "gone", "held-1", "acct-1"});
+  CHECK_EQ(rig.http->requests.size(), std::size_t{1});
+  const graphql::Json body = bodyOf(rig.http->requests[0]);
+  const std::string query = body["query"].asString();
+  CHECK(query.find("mutation DeleteManagedPlayers($input: DeleteManagedPlayersInput!)") != std::string::npos);
+  CHECK(query.find("deleteManagedPlayers(input: $input)") != std::string::npos);
+  for (const char* field : {"deleted", "notFound", "held", "externalId", "outcome"}) {
+    CHECK(query.find(field) != std::string::npos);
+  }
+  // Every id as it was given, in order: the API deletes one sent twice once.
+  CHECK_EQ(body["variables"].dump(),
+           std::string(R"({"input":{"externalIds":["acct-1","gone","held-1","acct-1"],"orgId":"3"}})"));
+  CHECK_EQ(done["deleted"].asInt64(), 1);
+  CHECK_EQ(done["notFound"].asInt64(), 1);
+  CHECK_EQ(done["held"].asInt64(), 1);  // a held player does not fail the call
+  CHECK_EQ(done["players"].size(), 3u);
+  const gen::ManagedPlayerDeletion expected[] = {gen::ManagedPlayerDeletion::DELETED,
+                                                 gen::ManagedPlayerDeletion::NOT_FOUND,
+                                                 gen::ManagedPlayerDeletion::LEGAL_HOLD};
+  std::size_t at = 0;
+  done["players"].forEach([&](const graphql::Json& player) {
+    const auto outcome = gen::managedPlayerDeletionFromString(player["outcome"].asString());
+    CHECK(outcome.has_value());
+    if (outcome && at < 3) CHECK(*outcome == expected[at]);
+    ++at;
+  });
+  CHECK_EQ(at, std::size_t{3});
+
+  bool called = false;
+  players.removeManyAsync("3", {"acct-1"}, [&](graphql::GraphQLOutcome out) {
+    called = true;
+    CHECK(out.ok());
+    CHECK_EQ(out.data["deleted"].asInt64(), 1);
+  });
+  CHECK(called);
+  CHECK_EQ(rig.http->requests.size(), std::size_t{2});
+  CHECK_EQ(bodyOf(rig.http->requests[1])["variables"].dump(),
+           std::string(R"({"input":{"externalIds":["acct-1"],"orgId":"3"}})"));
+
+  // 1 to 100 ids a call. None, and 101, are refused before any request, and the refusal
+  // says how many it was given and names none of them.
+  CHECK_EQ(domains::ManagedPlayersAPI::kRemoveManyMax, std::size_t{100});
+  std::vector<std::string> hundred;
+  for (int i = 0; i < 100; ++i) hundred.push_back("player-name-" + std::to_string(i));
+  players.removeMany("3", hundred);
+  CHECK_EQ(rig.http->requests.size(), std::size_t{3});
+  CHECK_EQ(bodyOf(rig.http->requests[2])["variables"]["input"]["externalIds"].size(), 100u);
+  std::vector<std::string> tooMany = hundred;
+  tooMany.push_back("player-name-100");
+  const std::vector<std::string> none;
+  for (const std::vector<std::string>* ids : {static_cast<const std::vector<std::string>*>(&tooMany), &none}) {
+    const std::vector<std::string>& given = *ids;
+#ifndef CROWDY_NO_EXCEPTIONS
+    bool threw = false;
+    try {
+      players.removeMany("3", given);
+    } catch (const graphql::CrowdyError& e) {
+      threw = true;
+      CHECK_EQ(std::string(e.code()), std::string("INVALID_ARGUMENT"));
+      const std::string said = e.what();
+      CHECK(said.find("1 to 100 external ids") != std::string::npos);
+      CHECK(said.find("was given " + std::to_string(given.size())) != std::string::npos);
+      CHECK(said.find("player-name") == std::string::npos);
+    }
+    CHECK(threw);
+#else
+    CHECK(players.removeMany("3", given).isNull());
+#endif
+    called = false;
+    players.removeManyAsync("3", given, [&](graphql::GraphQLOutcome out) {
+      called = true;
+      CHECK(out.status.code == Errc::InvalidArgument);
+      CHECK(out.errorMessage.find("was given " + std::to_string(given.size())) != std::string::npos);
+      CHECK(out.errorMessage.find("player-name") == std::string::npos);
+    });
+    CHECK(called);
+  }
+  CHECK_EQ(rig.http->requests.size(), std::size_t{3});
+
+  // settings() selects the organization's fleet limits.
+  rig.http->reply =
+      R"({"data":{"orgManagedPlayerSettings":{"orgId":"3","enabled":true,"fleetSessionsEnabled":true,"maxFleetSessions":512,"maxFleetPlayers":256}}})";
+  const graphql::Json settings = players.settings("3");
+  const std::string settingsQuery = bodyOf(rig.http->requests.back())["query"].asString();
+  for (const char* field : {"fleetSessionsEnabled", "maxFleetSessions", "maxFleetPlayers"}) {
+    CHECK(settingsQuery.find(field) != std::string::npos);
+  }
+  CHECK(settings["fleetSessionsEnabled"].asBool());
+  CHECK_EQ(settings["maxFleetSessions"].asInt64(), 512);
+  CHECK_EQ(settings["maxFleetPlayers"].asInt64(), 256);
+}
+
 void testRegisterSigningKeySendsJwkTextAndRefusesAPrivateKey() {
   Rig rig;
   domains::ManagedPlayersAPI players(rig.gql);
@@ -195,6 +302,7 @@ int main() {
   testAdoptRefusesAnOrgTokenAndAnEmptyOne();
   testExchangeTradesTheAssertionAndStoresTheToken();
   testAdminFieldsAndArguments();
+  testRemoveManyAndTheFleetLimits();
   testRegisterSigningKeySendsJwkTextAndRefusesAPrivateKey();
   testRevokeTokenSendsEndSessionsOnlyWhenAsked();
   std::printf("managed_players_test passed\n");

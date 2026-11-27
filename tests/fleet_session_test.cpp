@@ -25,6 +25,14 @@
 //   sudo ip netns exec fst sudo -u "$USER" ./tests/fleet_session_test
 //   sudo ip netns del fst
 //
+// A loopback with netem on it does not always keep the order. With jitter (`netem delay 3ms
+// 2ms`) it never does. With a plain delay it does on one CPU, and on several it hands a
+// datagram that is due to whichever CPU takes it first (measured at 2 ms on eight cores:
+// about 300 of 140,000 datagrams of one thread arrived behind a later one). Every case holds
+// under that but runSendsInFlightSwitchWithTheCarry, which judges by the order of arrival
+// from two sending threads and says why at its head. Run the binary on one CPU (`taskset -c
+// 0`) for a plain delay, and leave that case out (FLEET_TEST_LOOPBACK_REORDERS=1) for jitter.
+//
 // The golden bytes are wire_test's, computed independently (Python hmac/hashlib) from the
 // wire as built (realtime servers v0.50.1; the build contract's sections 8 and 9).
 #include <arpa/inet.h>
@@ -3879,10 +3887,19 @@ void runARefreshedTokenKeepsThePlayerCarried() {
 // every message names the id it replaces, and from that carry on every message names the
 // new id, the rest of a frame that had begun included: the carry waits for the frame. (Run
 // this under ThreadSanitizer too.)
+//
+// This case judges by the order of arrival, and reads the socket as it is. The order the
+// sequence numbers give would not do: a send that took its number before the carry and
+// reached the socket after it is the very fault this case is here for, and its number
+// would put it back in front. So the case needs a loopback that keeps the order, as every
+// real one does, and asks nothing else of it: any delay will do, because its waits pump and
+// read until what they wait for has come. On a path that reorders (the head of this file
+// says when netem's does) the verdict means nothing; the case counts the datagrams of one
+// thread that arrived behind a later one and names them beside a verdict that fails.
+// FLEET_TEST_LOOPBACK_REORDERS=1 leaves the case out for a run on such a path.
 void runSendsInFlightSwitchWithTheCarry() {
   FakeServer server;
   server.start();
-  server.roomForABacklog();
   FleetConfig cfg = configFor(server);
   // 150 refreshed tokens against a burst of 64 at 40 a second: on any machine some carries
   // leave from carry() and the rest wait for their turn and leave from pump(), with the
@@ -3895,6 +3912,10 @@ void runSendsInFlightSwitchWithTheCarry() {
   constexpr int kTokens = 150;
   const std::int64_t base = 71000;
   carryAs(fleet, server, base, user, tokenFor(base));
+  // From here the server is a bare socket: the senders never stop, so there is no moment
+  // to wait for "everything sent", and this thread counts what it reads itself.
+  server.forget();
+  std::uint64_t taken = fleet.stats().datagramsSent;  // the capabilities and the first carry
   std::atomic<std::int64_t> oldId{base}, newId{base};
   std::atomic<bool> stop{false};
   std::atomic<int> sent{0}, notCarried{0}, otherRefusals{0};
@@ -3926,11 +3947,18 @@ void runSendsInFlightSwitchWithTheCarry() {
   // The fake server's side, on this thread: everything in the order it arrived.
   std::int64_t expected = base;  // the id the player's sends name now
   int updates = 0, wrong = 0, carries = 0;
+  // Whether the path kept the order, which this case takes for granted: the video fragments
+  // are one thread's and number themselves (the frame, then the fragment within it), so one
+  // that arrives behind that thread's last was overtaken on the way. Counted, to be named
+  // beside the verdict below.
+  int overtaken = 0;
+  std::int64_t lastFragment = -1;  // frame * 16 + fragment, of 2^20
   const auto drain = [&](int atMost) {
     // The bound is tested before the read: a datagram taken off the socket is always handled.
     for (int read = 0; read < atMost; ++read) {
       const auto got = server.tryRecv(1);
       if (got.empty()) break;
+      ++taken;
       if (got[0] == 49) {
         const std::int64_t id = le::readI64(got.data() + wire::offsets::kPayload);
         if (id != expected) ++carries;  // a carry sent again names the same id
@@ -3938,6 +3966,13 @@ void runSendsInFlightSwitchWithTheCarry() {
       } else if (got[0] == 128 || got[0] == 143) {
         ++updates;
         if (tailId(got) != expected) ++wrong;
+        if (got[0] == 143) {
+          const std::uint8_t* header = got.data() + wire::offsets::kPayload;
+          const std::int64_t fragment = ((std::int64_t{header[2]} << 8 | header[3]) << 4) + header[4];
+          const std::int64_t ahead = (fragment - lastFragment) & ((1 << 20) - 1);
+          if (lastFragment >= 0 && (ahead == 0 || ahead >= (1 << 19))) ++overtaken;
+          else lastFragment = fragment;
+        }
       }
     }
   };
@@ -3967,9 +4002,22 @@ void runSendsInFlightSwitchWithTheCarry() {
   stop.store(true);
   one.join();
   two.join();
-  for (int i = 0; i < 50; ++i) drain(1000);
+  // Everything the three threads sent is read before the counts are: the session's own count
+  // says how many datagrams left. (One the kernel dropped for want of room would be missing
+  // for good; the wait gives up on it and the counts are judged without it, as they were.)
+  const std::uint64_t left = fleet.stats().datagramsSent;
+  const auto giveUp = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (taken < left && std::chrono::steady_clock::now() < giveUp) drain(1000);
+  drain(1000);
   CHECK_EQ(carries, kTokens);
   CHECK(updates > kTokens);
+  if (overtaken != 0) {
+    std::fprintf(stderr,
+                 "the loopback handed over %d of %d datagrams behind a later one of the same thread: "
+                 "it does not keep the order here, and this case cannot judge by it "
+                 "(FLEET_TEST_LOOPBACK_REORDERS=1 leaves the case out)\n",
+                 overtaken, updates);
+  }
   if (wrong != 0) std::fprintf(stderr, "%d of %d messages named an id out of turn\n", wrong, updates);
   CHECK_EQ(wrong, 0);
   CHECK_EQ(otherRefusals.load(), 0);
@@ -4249,7 +4297,11 @@ int main() {
   runOnlyTheSessionsOwnAppIsDispatched();
   runVerifiedRefusals();
   runARefreshedTokenKeepsThePlayerCarried();
-  runSendsInFlightSwitchWithTheCarry();
+  if (const char* reorders = std::getenv("FLEET_TEST_LOOPBACK_REORDERS"); reorders && reorders[0] == '1') {
+    std::puts("runSendsInFlightSwitchWithTheCarry left out: FLEET_TEST_LOOPBACK_REORDERS=1");
+  } else {
+    runSendsInFlightSwitchWithTheCarry();
+  }
   runNoLiveTokenIsAskedOnceMore();
   runSendsWhileTheSessionMoves();
   runOwnedThread();

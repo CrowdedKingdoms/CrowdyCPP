@@ -101,6 +101,11 @@ const PLATFORM_ONLY = [
   'childSafetyReports',
   'eraseAccount',
   'recordParentalConsentWithdrawal',
+  // Application API v2.87.1 and v2.88.0: an operator records the decision on an
+  // organization's project profile and sets an organization's compute ceiling.
+  // orgComputeCeiling is an organization's read (view_compute_diagnostics) and is not here.
+  'setOrgProjectProfileReview',
+  'setOrgComputeCeiling',
 ];
 
 const PLATFORM_DESCRIPTION =

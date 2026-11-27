@@ -949,11 +949,26 @@ What a connection delivers, from the next release (see `MIGRATION.md`, "Unreleas
   your `genericError` handler decides.
 - **Switched off.** With `Config::verifyNotifications = false` a notification that
   nothing signed is delivered. A connection whose `Config::appId` is 0 compares no app.
+- **A refused keepalive.** From realtime servers v0.51.0 a keepalive (`sendHeartbeat`)
+  is accepted only where the player's actor update would be. Where the player has no
+  `access`, every keepalive is answered `UNAUTHORIZED`, every few seconds: the actor is
+  not present there, and the session stays connected. `Handlers::notPresent` is called
+  once for the actor and the place, `connection.notPresent(uuid)` returns the report
+  while it stands, and `Handlers::notPresentEnded` is called once when a keepalive there
+  is accepted (no refusal for 3 seconds), the actor moves to another chunk, or its
+  keepalives stop for 30 seconds. `genericError` still receives every refusal, with
+  `GenericError::keepalive` true. Keep sending keepalives at the same rate: never
+  faster, and never stop. Once access is granted, the next keepalive is accepted within
+  about 6 seconds. The refusal is unsigned, so the report is all it changes.
 
 A failed `connect()` answers one `Errc`. `Connection::lastAssignmentFailure()` (also
 `ConnectResult::failure` and `GameSession::failure`) keeps what the Application API
 said: its refusal `code`, its `retryAfterMs`, and its `message`. When
-`failure.platformBusy()` is true, wait `retryAfterMs` and connect again.
+`failure.platformBusy()` is true, wait `retryAfterMs` and connect again. The SDK waits
+30 seconds at most on a server's hint (`kMaxRetryAfterWaitMs`), and `retryAfterMs` here
+is never longer. Pass a hint you read yourself (`graphql::platformBusyOf`) through
+`retryWaitMs()` before you wait on it. `code` and `message` are a server's text, kept to
+one line of 64 and 500 bytes: show them, and do not act on them.
 
 `disconnect()` returns within 100 milliseconds whatever is still arriving, unless the
 session provider is in the middle of a call: the network thread stops at the 16
@@ -1212,6 +1227,16 @@ about 85 messages a second reuses a number sooner than that. Then match
 
 A send past the player's rate budget has no refusal: it is dropped in silence.
 
+A refused keepalive is the exception to this table. From realtime servers v0.51.0 a
+keepalive for a carried player (`sendHeartbeat(player, chunk, uuid)`) is accepted only
+where that player's actor update would be. Where the player has no `access`, every
+keepalive is answered `UNAUTHORIZED` inside the session's signed bundle, every few
+seconds. `handlers.notPresent` is called once for the player, the actor, and the place,
+`session.notPresent(player, uuid)` returns the report while it stands, and
+`handlers.notPresentEnded` is called once when it ends. `handlers.sendRefused` is not
+called for it. The carry stands. Keep the player's keepalives going at the same rate:
+once access is granted, the next one is accepted within about 6 seconds.
+
 ### Opening, refreshing, and closing a session
 
 `client.fleetSessions()` wraps the three Application API calls, and
@@ -1337,6 +1362,14 @@ helper for 16×16×16 chunks with one byte per voxel. Voxel positions and types 
 0-255, a position outside 0-15) is kept whole in `ChunkData::overlay` (keyed by
 `voxelKey(x, y, z)`), and `voxelTypeAt` / `voxelStateAt` return it. A game with other addressing
 reads the raw edits through `onVoxel` and `StoredChunk::voxelStates`.
+
+Where the player has no access, the realtime servers refuse every keepalive (v0.51.0).
+The session tells the game once: `WorldSessionConfig::onNotPresent` when the first
+keepalive there is refused, `session.notPresent()` while the report stands, and
+`onNotPresentEnded` when it ends. `errors()` records that first refusal as a
+`SendKind::Heartbeat` error. The session's actor keeps sending its keepalives every 2
+seconds and its keyframes every 3, as it does anywhere else, so access granted later
+takes effect within about 6 seconds.
 
 Buddy v0.37.0 echoes every accepted voxel edit back to its sender. `ChunkStore::setVoxel` records
 each send (uuid, sequence, voxel) for 10 s and `ingest()` does not apply its echo again, so a local

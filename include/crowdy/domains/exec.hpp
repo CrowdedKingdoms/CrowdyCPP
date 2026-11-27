@@ -125,7 +125,8 @@ struct ExecReply {
   /// Wait `retryAfterMs()`, then call again (the next call connects again).
   bool platformBusy() const;
   /// How long to wait before calling again, when a rate-limit refusal or a PLATFORM_BUSY
-  /// refusal of the connect call says (`retry in N ms`).
+  /// refusal of the connect call says (`retry in N ms`). A gateway's or the API's word, so
+  /// it is never more than kMaxRetryAfterWaitMs (30 s), whatever the message says (0.95.0).
   std::optional<long> retryAfterMs() const;
   /// The payload decoded from MessagePack (a null Json when it is not).
   graphql::Json value() const { return graphql::Json::fromMsgpack(payload); }

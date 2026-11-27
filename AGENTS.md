@@ -509,7 +509,10 @@ before calling it fixed**: four green macOS jobs can be chance. Two things about
   about a 2 ms window; it did not come back in 70 more runs, 30 of them under CPU load, so
   nothing was changed for it). `replication_test` fails under jitter, at checks that read two
   datagrams sent in one pass in the order they arrive. No loopback reorders, so it was left
-  as it is; give it this harness if it ever fails on macOS.
+  as it is; give it this harness if it ever fails on macOS. `session_test`'s first case
+  (`run`) does the same and fails under jitter in the same way (5 of 8 on 2026-11-27); its
+  two keepalive cases keep one datagram in flight at a time and held, as the whole file
+  does under a plain 5 ms delay (8 of 8).
 
 `e2e_fleet_session` is the live suite (`CROWDY_FLEET_*`, label `e2e_optional`; its header says
 what it leaves on a tier). It passed on dev on 2026-11-26 against the realtime servers' build
@@ -654,6 +657,68 @@ What `Connection::handleDatagram` does for a connection with no `fleet_`, and wh
   what `WorldSession` and `ChunkStore` do with a `GenericError` (an optimistic edit rolled
   back). That is how the servers refuse a player's send, so it cannot wait for a signature.
 
+**A refused keepalive makes one report** (realtime servers v0.51.0, on dev since 2026-11-27;
+test and prod follow). What a client can see, and all this repo may say of it: a keepalive
+(26) is accepted only where the player's actor update would be; where the player has no
+`access` every keepalive is answered `[3][seq][7]`, unsigned to a player's session and inside
+a fleet session's signed bundle; the session stays connected; access granted later admits
+the next keepalive within about 6 seconds. So the SDK must keep the keepalives going at the
+same rate, change no connection state on the refusal, and tell the game once.
+
+- `Connection` remembers each keepalive under its sequence number (`keepalivesSent_`, written
+  only by a keepalive send). `sendNumber_` is 32 bits, the wire's sequence number its low
+  byte, so `keepaliveAnswered` can tell that no later message took the number (fewer than
+  257 sends since) without any other send writing anything. An answer more than
+  `kKeepaliveAnswerWaitMs` (3 s) after the keepalive is not its answer.
+- `poll()` sets `GenericError::keepalive`, counts `Stats::keepalivesRefused`, and on
+  `UNAUTHORIZED` makes or sustains the report (`keepaliveRefused`, `notPresent_` keyed by
+  carried player and actor; `Handlers::notPresent` at the first). `presencePass` at the end
+  of `poll()` ends reports: `Accepted` when a keepalive there has gone 3 s without a
+  refusal, `Stopped` after `kNotPresentIdleMs` (30 s) without a keepalive. A keepalive or an
+  update that names another chunk ends it `Moved` from the sending thread, and `poll()`
+  hands that over. The actor's own update coming back from that chunk ends it `Accepted`
+  (a player's connection only: that echo is signed, where the refusal is not).
+- The 3 s is longer than the 2 s between two of `LocalActorStore`'s keepalives on purpose:
+  one lost refusal is answered for by the next keepalive's, and the report does not flap.
+  A new assignment forgets which keepalives wait for an answer (`presenceRestart`), since
+  the server the connection left answers nothing.
+- A player's session is sent the refusal unsigned. The report, the two counters and the
+  `keepalive` flag are all it may change. Do not add a reconnect, a token check, a change
+  of rate or anything else to that path: 3 forged bytes would then drive it.
+- `WorldSession` keeps a keepalive's refusal away from `LocalActorStore::recordError` and
+  `ChunkStore::ingestError` (it used to pass every refusal to both, by sequence number
+  alone) and records one `SendKind::Heartbeat` error per report in `errors()`. It never
+  recorded keepalive sends, so each refusal used to arrive there as an error of unknown or
+  stale kind. `LocalActorStore` already kept its rate: nothing in `tick()` reads an error.
+  `runKeepalivesKeepTheirRate` (`session_test`) holds that: the same datagrams at the same
+  times over 30 simulated seconds, refused or not. A refused update is still recorded each
+  time, as before; where a player has no access that is one every keyframe (3 s).
+- `FleetSession::onGenericError` makes the report for a carried player. The first one needs
+  a verified refusal and `refusedPlayer(sequence)` naming the keepalive's player, as
+  `sendRefused` does; once a report stands, any verified refusal of that player's keepalive
+  there sustains it, because a busy session (over about 85 messages a second) reuses a
+  number too soon to name anyone, and the report would otherwise end as `Accepted` every
+  3 s. A keepalive's `UNAUTHORIZED` no longer reaches `sendRefused`. Nothing here ends a
+  carry or sends one.
+- Reports are capped at `kMaxNotPresentReports` (4,096); past it no new one is made.
+
+**The SDK waits 30 s at most on a server's word** (`kMaxRetryAfterWaitMs`, `retryWaitMs()`
+in `core/result.hpp`; the security review of a90ca15, medium). Every place a `retryAfterMs`
+or a gateway's "retry in N ms" becomes a wait goes through it: `connectRetryWaitMs`
+(`startGameSession`), `graphql::detail::retryAfterMsOf` and `isDroppedReadException` (the
+Studio runner's timer, the Studio runtime's and `waitForModBuild`'s sleeps),
+`ExecReply::retryAfterMs()` (the kit runtime's `hold`), and `crowdy::bounded()` where an
+`ApiFailure` is made or kept (`apiFailureOf`, `Connection::failAssignment`, the dial's
+explanation). A new wait on anything a server sent uses `retryWaitMs()`; a test of it
+records the wait instead of sleeping (`GameSessionOptions::sleep`). `error_extensions.hpp`
+reads a hint past int64 as the largest int64, where the conversion used to be out of range.
+
+**A server's text is untrusted** (the same review, low). `serverText()` makes it one line
+of 500 bytes at most; `bounded()` applies it to an `ApiFailure`'s code (64) and message.
+Anything new that logs or stores what the Application API or a gateway said passes it
+through one of them first. The gateway's HTTP refusal reason (`kRefusalReasonMaxChars` in
+`exec.cpp`) has its own loop of the same kind.
+
 **The receive path is measured.** `benchmarks/bench_receive.cpp` (and `benchmarks/README.md`
 for the recorded numbers) times `pump()` and `poll()` apart over datagrams sent before the
 clock starts. 0.94.0 cost a player 15 to 17 % there (found by CrowdyPy's benchmark of the
@@ -695,8 +760,10 @@ that can be refused `PLATFORM_BUSY` on the way to a connection should hand its c
 README's version line; the CrowdyJS pin (18.41.0) with `npm run parity:repin` and the new
 surface it brings mapped; the schema sync (Application API v2.90.0) and the wrappers that
 need it; finishing `MIGRATION.md`'s "Unreleased" section (its title, the platform versions,
-CrowdyPy's re-vendor line); `docs/compatibility.md`'s line for the release; cks-docs. While
-the sibling CrowdyJS checkout is ahead of the pin, the parity tools refuse it: point
+CrowdyPy's re-vendor line); `docs/compatibility.md`'s line for the release; cks-docs, which
+has nothing yet on the refused keepalive or the 30 s ceiling. When the pin moves, look at
+what CrowdyJS does with a refused keepalive and classify the not-present report either way.
+While the sibling CrowdyJS checkout is ahead of the pin, the parity tools refuse it: point
 `CROWDYJS_PATH` at a clone at the pinned commit, built (`npm ci && npm run build`).
 
 ## Writing tests against `graphql::Json`

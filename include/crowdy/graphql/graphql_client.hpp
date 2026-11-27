@@ -63,7 +63,9 @@ using GraphQLCallback = std::function<void(GraphQLOutcome)>;
 /// What a failed outcome says of why (0.95.0): the first GraphQL error's code and message,
 /// the first `retryAfterMs` any of its errors names, or the transport's account when the
 /// API gave no answer of its own. `error` is the outcome's Errc (Rejected for a refusal).
-/// An outcome that is ok() gives a failure that has not failed().
+/// An outcome that is ok() gives a failure that has not failed(). What the API sent is
+/// bounded (crowdy::bounded): the wait to kMaxRetryAfterWaitMs, the code and the message in
+/// length and to one line.
 inline ApiFailure apiFailureOf(const GraphQLOutcome& out) {
   ApiFailure why;
   if (out.ok()) return why;
@@ -82,7 +84,7 @@ inline ApiFailure apiFailureOf(const GraphQLOutcome& out) {
   } else if (out.httpStatus != 0) {
     why.message = "HTTP " + std::to_string(out.httpStatus);
   }
-  return why;
+  return bounded(std::move(why));
 }
 
 /// The answer to a REST call on the API origin (`getAsync`): the HTTP status and body

@@ -167,7 +167,8 @@ class ClientSessionProvider final : public replication::ISessionProvider {
       return info;
 #ifndef CROWDY_NO_EXCEPTIONS
     } catch (const std::exception& e) {
-      logger_.log(core::LogLevel::Error, std::string("refreshToken failed: ") + e.what());
+      // The exception's text can be the API's message: bounded and one line, as above.
+      logger_.log(core::LogLevel::Error, "refreshToken failed: " + serverText(e.what()));
       return Errc::Rejected;
     }
 #endif
@@ -181,6 +182,8 @@ class ClientSessionProvider final : public replication::ISessionProvider {
     domains::ServerAssignment a;
     const graphql::GraphQLOutcome out = serverStatus_.serverWithLeastClientsOutcome(a);
     if (!out.ok()) {
+      // apiFailureOf bounds what the API sent (crowdy::bounded): the code and the message are
+      // a server's text, at most 64 and 500 characters and one line, so the log line is too.
       why = graphql::apiFailureOf(out);
       why.error = Errc::Rejected;  // what a failed assignment has always answered
       logger_.log(core::LogLevel::Error,

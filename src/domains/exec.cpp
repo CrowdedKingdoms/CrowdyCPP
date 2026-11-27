@@ -78,12 +78,13 @@ std::optional<long> ExecReply::retryAfterMs() const {
   long ms = 0;
   bool digits = false;
   for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i) {
-    if (ms > 100000000L) return std::nullopt;
-    ms = ms * 10 + (text[i] - '0');
+    // Past the ceiling the digits only say "longer": the count stops there.
+    if (ms <= kMaxRetryAfterWaitMs) ms = ms * 10 + (text[i] - '0');
     digits = true;
   }
   if (!digits || text.substr(i, 3) != " ms") return std::nullopt;
-  return ms;
+  // A gateway's word, and the kit's runtime waits on it: never more than the ceiling.
+  return static_cast<long>(retryWaitMs(ms));
 }
 
 // ---- frames ------------------------------------------------------------------
@@ -625,13 +626,15 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
   /// What a failed dial tells the calls that waited on it: the text they always got, then
   /// the Application API's code, its wait (as "retry in N ms", which ExecReply::retryAfterMs
   /// reads) and its message, when it gave them.
+  /// `why` is bounded (crowdy::bounded) where it is stored, so its code, its wait and its
+  /// message are safe to put in a message whoever filled it in.
   static std::string dialFailureMessage(const ExecConnectFailure& why) {
     std::string text = "no host for this app";
     if (!why.code.empty()) {
       text += ": " + why.code;
       if (why.retryAfterMs > 0) text += ", retry in " + std::to_string(why.retryAfterMs) + " ms";
     }
-    if (!why.message.empty()) text += ": " + why.message.substr(0, kRefusalReasonMaxChars);
+    if (!why.message.empty()) text += ": " + why.message;
     return text;
   }
 
@@ -646,7 +649,8 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
         std::lock_guard lock(mu_);
         explain = explainDial_;
       }
-      if (explain) failure = explain();
+      // Whoever explains (ExecAPI's dialer, or a caller's own), what a server said is bounded.
+      if (explain) failure = bounded(explain());
       failure.error = found.error();
     }
     if (found.ok()) {
@@ -673,7 +677,7 @@ class ExecConnection::Impl : public std::enable_shared_from_this<Impl> {
         attemptFailedLocked(run, found.error(), dialFailureMessage(failure));
       } else if (refused) {
         dialing_ = false;
-        connectFailure_ = ExecConnectFailure{Errc::NotConnected, {}, 0, *refused};
+        connectFailure_ = bounded(ExecConnectFailure{Errc::NotConnected, {}, 0, *refused});
         attemptFailedLocked(run, Errc::NotConnected, *refused);
       } else {
         connectFailure_ = ExecConnectFailure{};
@@ -1282,7 +1286,7 @@ void connectSayingWhy(std::shared_ptr<ExecConnection> conn,
     if (!why.failed()) {
       // The dial found a host and the gateway refused or failed: lastFailure() has its words.
       why.error = s.code;
-      if (auto last = conn->lastFailure()) why.message = last->message();
+      if (auto last = conn->lastFailure()) why.message = serverText(last->message());
     }
     done(s.code, std::move(why));
   });
@@ -1724,6 +1728,7 @@ graphql::Json ExecAPI::waitForModBuild(std::string appId, std::string buildId, i
       if (!graphql::detail::isDroppedReadException(&retryAfterMs) || std::chrono::steady_clock::now() >= until) {
         throw;
       }
+      // retryAfterMs is the API's hint as isDroppedReadException bounds it (retryWaitMs).
       std::this_thread::sleep_for(std::chrono::milliseconds(std::max<std::int64_t>(intervalMs, retryAfterMs)));
       continue;
     }

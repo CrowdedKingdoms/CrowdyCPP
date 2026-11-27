@@ -278,6 +278,27 @@ void testARefusedAssignmentKeepsItsCodeAndItsWait() {
   CHECK(!busy.connection->connect().ok());
   CHECK_EQ(busy.connection->lastAssignmentFailure().retryAfterMs, 40);
 
+  // The wait is bounded where the SDK reads it (kMaxRetryAfterWaitMs), and the API's text
+  // is taken as untrusted: a code and a message of any length, with line breaks and escape
+  // sequences in them, are kept (and logged by the provider) short and on one line.
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy\n[crowdy ERROR] forged\u001b[2J )" + std::string(5000, 'm') +
+      R"(","extensions":{"code":"PLATFORM_BUSY\nX)" + std::string(300, 'C') + R"(","retryAfterMs":86400000000}}]})";
+  CHECK(!busy.connection->connect().ok());
+  why = busy.connection->lastAssignmentFailure();
+  CHECK_EQ(why.retryAfterMs, kMaxRetryAfterWaitMs);
+  CHECK_EQ(why.code.size(), kApiFailureCodeMaxChars);
+  CHECK_EQ(why.message.size(), kServerTextMaxChars);
+  CHECK(why.message.rfind("busy [crowdy ERROR] forged [2J mmm", 0) == 0);
+  for (const std::string* text : {&why.code, &why.message}) {
+    for (const char c : *text) CHECK(static_cast<unsigned char>(c) >= 0x20 && c != 0x7f);
+  }
+  transport->assignmentBody =
+      R"({"errors":[{"message":"busy","extensions":{"code":"PLATFORM_BUSY","retryAfterMs":-5}}]})";
+  CHECK(!busy.connection->connect().ok());
+  CHECK_EQ(busy.connection->lastAssignmentFailure().retryAfterMs, 0);
+  CHECK(busy.connection->lastAssignmentFailure().platformBusy());
+
   // No answer of the API's at all: no code, and a message that says what came back.
   transport->assignmentStatus = 503;
   transport->assignmentBody = "upstream unavailable";

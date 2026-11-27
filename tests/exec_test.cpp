@@ -14,6 +14,7 @@
 #include "crowdy/core/base64.hpp"
 #include "crowdy/domains/exec.hpp"
 #include "crowdy/graphql/auth_state.hpp"
+#include "crowdy/graphql/dropped_read.hpp"
 #include "crowdy/graphql/errors.hpp"
 #include "crowdy/graphql/graphql_client.hpp"
 #include "crowdy/graphql/http.hpp"
@@ -185,6 +186,53 @@ void testStatusesAndDigests() {
   CHECK(!full.retryAfterMs().has_value());
   CHECK((ExecReply{ExecStatus::RateLimited, "slow down"}.rateLimited()));
   CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in soon"}.retryAfterMs().has_value()));
+  // A gateway's wait is a server's word: it counts up to kMaxRetryAfterWaitMs (30 s), which
+  // is what the kit's runtime then holds its calls for at most.
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 30000 ms"}.retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 30001 ms"}.retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 86400000000 ms"}.retryAfterMs()) ==
+        std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 99999999999999999999999999999999999 ms"}
+             .retryAfterMs()) == std::optional<long>(30000));
+  CHECK((ExecReply{ExecStatus::Busy, "rate limited: retry in 0 ms"}.retryAfterMs()) == std::optional<long>(0));
+  CHECK(!(ExecReply{ExecStatus::Busy, "rate limited: retry in -5 ms"}.retryAfterMs().has_value()));
+  CHECK((ExecReply{ExecStatus::Unavailable, "no host for this app: PLATFORM_BUSY, retry in 86400000000 ms: busy"}
+             .retryAfterMs()) == std::optional<long>(30000));
+  {
+    // The waits the Studio runner, the Studio runtime and waitForModBuild read a dropped
+    // build-status read again after come from these two, bounded the same way.
+    const auto busyFor = [](std::int64_t ms) {
+      graphql::GraphQLOutcome out;
+      out.kind = graphql::GraphQLErrorKind::GraphQL;
+      graphql::GraphQLErrorDetail busy;
+      busy.code = "PLATFORM_BUSY";
+      busy.blame = "PLATFORM";
+      busy.retryAfterMs = ms;
+      out.errors.push_back(busy);
+      return out;
+    };
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(750)), 750);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(86'400'000'000LL)), kMaxRetryAfterWaitMs);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(INT64_MAX)), kMaxRetryAfterWaitMs);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(0)), 0);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(-1)), 0);
+    CHECK_EQ(graphql::detail::retryAfterMsOf(busyFor(INT64_MIN)), 0);
+#ifndef CROWDY_NO_EXCEPTIONS
+    const std::pair<std::int64_t, std::int64_t> hints[] = {
+        {750, 750}, {86'400'000'000LL, kMaxRetryAfterWaitMs}, {0, 0}, {-1, 0}};
+    for (const auto& [asked, waited] : hints) {
+      std::int64_t wait = -7;
+      bool dropped = false;
+      try {
+        throw graphql::CrowdyGraphQLError(busyFor(asked).errors);
+      } catch (...) {
+        dropped = graphql::detail::isDroppedReadException(&wait);
+      }
+      CHECK(dropped);
+      CHECK_EQ(wait, waited);
+    }
+#endif
+  }
   CHECK(!(ExecReply{ExecStatus::Denied, refusal}.rateLimited()));
   CHECK_EQ(execSha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   CHECK_EQ(execSha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
@@ -1074,6 +1122,25 @@ void testARefusedConnectKeepsItsCodeAndItsWait() {
   ExecDial dial = [](std::function<void(Result<ExecEndpoint>)> found) { found(Errc::Rejected); };
   auto own = std::make_shared<ExecConnection>(transport, nullptr, dial, opts);
   own->explainDialFailures([] { return ExecConnectFailure{Errc::Rejected, "PLATFORM_BUSY", 120, "busy"}; });
+  {
+    // What an explanation hands over is bounded before it is kept or put in a message: a
+    // wait of days is 30 s, and the text is short and on one line.
+    auto hostile = std::make_shared<ExecConnection>(transport, nullptr, dial, opts);
+    hostile->explainDialFailures([] {
+      return ExecConnectFailure{Errc::Rejected, "PLATFORM_BUSY", 86'400'000'000LL,
+                                "busy\n\x1b[2Jforged " + std::string(5000, 'm')};
+    });
+    hostile->connect();
+    const ExecConnectFailure kept = hostile->lastConnectFailure();
+    CHECK_EQ(kept.retryAfterMs, kMaxRetryAfterWaitMs);
+    CHECK_EQ(kept.message.size(), kServerTextMaxChars);
+    const auto said = hostile->lastFailure();
+    CHECK(said.has_value());
+    CHECK(said->message().rfind("no host for this app: PLATFORM_BUSY, retry in 30000 ms: busy [2Jforged mmm", 0) == 0);
+    CHECK(said->message().size() < 600);
+    CHECK(said->retryAfterMs() == std::optional<long>(30000));
+    for (const char c : said->message()) CHECK(static_cast<unsigned char>(c) >= 0x20);
+  }
   std::optional<Status> done;
   own->connect([&](Status s) { done = s; });
   CHECK(done.has_value() && done->code == Errc::Rejected);

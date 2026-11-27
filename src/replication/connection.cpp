@@ -101,7 +101,8 @@ void Connection::signalEvents() {
 Status Connection::failAssignment(AssignmentFailure why) {
   const Status failed = why.error;
   std::lock_guard lock(assignmentMutex_);
-  assignmentFailure_ = std::move(why);
+  // A session provider's account of what a server said: bounded before it is kept or logged.
+  assignmentFailure_ = bounded(std::move(why));
   return failed;
 }
 

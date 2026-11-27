@@ -485,6 +485,33 @@ change here must keep:
   sends again on `WouldBlock` only: `SocketError` is a fault, `UdpSocket::lastSendFault()` and
   the WARN line name it, and retrying it in a test would hide it.
 
+**`fleet_session_test` must not depend on how long a datagram takes to cross the loopback.**
+Linux hands a loopback datagram to its receiver before `sendto()` returns; macOS does not, and
+a step that pumped once or read "what has arrived by now" failed there in one job of four.
+The fake server therefore knows its session (`FakeServer::serves`, which `openConnected`
+calls) and waits on counts, in real time, with the test's clock standing still: a read first
+takes as many datagrams as `Stats::datagramsSent` says left and hands them over in the order
+of their sequence numbers, and `FakeServer::send` returns when `Stats::datagramsReceived` has
+moved. A new case binds its server before the session opens, reads with `recvOne`, `takeAll`
+(`sentSoFar`, `drain`) or `expectNothing`, and never sleeps or pumps "long enough". Reproduce
+a loopback that takes time on Linux in a network namespace of its own (the head of the test
+has the commands; never put netem on the host's `lo`), and **reproduce a failure on purpose
+before calling it fixed**: four green macOS jobs can be chance. Two things about that tool:
+
+- netem reorders. With jitter always; with a plain delay on any machine with more than one
+  CPU (about 300 of 140,000 datagrams of one thread at 2 ms on eight cores). The count-and-
+  sequence harness holds under both. `runSendsInFlightSwitchWithTheCarry` cannot: it judges by
+  the order of arrival from two sending threads, which is the point of it (sequence order
+  would hide a send that left after the carry). Run it under `taskset -c 0`, or leave it out
+  with `FLEET_TEST_LOOPBACK_REORDERS=1`; it names the reordering it saw when it fails.
+- `replication_test` and `fleet_sessions_api_test` use the same fake-server pattern and held
+  under a delay of 2 ms and of 5 ms (2026-11-27: every run, but for one of 95 runs of
+  `replication_test` at 5 ms, at `members == 2` in `runBundlingNetThread`, a real-clock case
+  about a 2 ms window; it did not come back in 70 more runs, 30 of them under CPU load, so
+  nothing was changed for it). `replication_test` fails under jitter, at checks that read two
+  datagrams sent in one pass in the order they arrive. No loopback reorders, so it was left
+  as it is; give it this harness if it ever fails on macOS.
+
 `e2e_fleet_session` is the live suite (`CROWDY_FLEET_*`, label `e2e_optional`; its header says
 what it leaves on a tier). It passed on dev on 2026-11-26 against the realtime servers' build
 before v0.50.1 and Application API v2.89.1 (`docs/e2e-coverage.md`). Three of its steps

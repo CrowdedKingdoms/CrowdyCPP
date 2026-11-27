@@ -3,19 +3,52 @@
 // fleet session's server-to-client messages. Manual-pump mode on a clock the test moves,
 // except the last case, which runs the owned network thread.
 //
+// NO STEP DEPENDS ON HOW LONG A DATAGRAM TAKES TO CROSS THE LOOPBACK. Linux hands a loopback
+// datagram to its receiver before sendto() returns; macOS does not, and a step that read
+// "what has arrived by now" failed there now and then. A fake server knows the session it
+// serves (FakeServer::serves), and each direction waits, in real time and with the test's
+// clock standing still, on a count:
+//
+//  - Session to server: the session counts the datagrams it has sent (Stats::datagramsSent).
+//    Every read first takes that many off the sockets, however long they take, and hands
+//    them over in the order they left: the order of the sequence number each one ends with,
+//    which one sending thread gives out as it sends. So "everything it sent" is exact, and
+//    "nothing" means the count did not move.
+//  - Server to session: FakeServer::send returns once the session has received the datagram
+//    (Stats::datagramsReceived), pumping the session meanwhile.
+//
+// To see it hold, give the loopback a delay in a network namespace of its own (never on the
+// host's):
+//
+//   sudo ip netns add fst && sudo ip netns exec fst ip link set lo up
+//   sudo ip netns exec fst tc qdisc add dev lo root netem delay 5ms
+//   sudo ip netns exec fst sudo -u "$USER" ./tests/fleet_session_test
+//   sudo ip netns del fst
+//
+// A loopback with netem on it does not always keep the order. With jitter (`netem delay 3ms
+// 2ms`) it never does. With a plain delay it does on one CPU, and on several it hands a
+// datagram that is due to whichever CPU takes it first (measured at 2 ms on eight cores:
+// about 300 of 140,000 datagrams of one thread arrived behind a later one). Every case holds
+// under that but runSendsInFlightSwitchWithTheCarry, which judges by the order of arrival
+// from two sending threads and says why at its head. Run the binary on one CPU (`taskset -c
+// 0`) for a plain delay, and leave that case out (FLEET_TEST_LOOPBACK_REORDERS=1) for jitter.
+//
 // The golden bytes are wire_test's, computed independently (Python hmac/hashlib) from the
 // wire as built (realtime servers v0.50.1; the build contract's sections 8 and 9).
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -90,11 +123,57 @@ core::ActorUuid uuid(char fill) {
   return u;
 }
 
+struct FakeServer;
+
+/// Who pumps a session under test: the test (manual pump), or the session's own network thread.
+enum class Pumped { ByTheTest, ByItsOwnThread };
+
+/// What the fake servers know of one session under test: how many of its datagrams they have
+/// taken off their sockets, and where in the session's sending order the latest one was.
+struct Wire {
+  FleetSession* session = nullptr;
+  Pumped pumped = Pumped::ByTheTest;
+  std::uint64_t read = 0;
+  /// The place, in the order the session sent them, of the latest datagram read. A datagram
+  /// ends with a one-byte sequence number that the session counts up by one for each.
+  std::int64_t latest = -1;
+  std::vector<FakeServer*> servers;
+
+  /// The place of a datagram whose sequence number is `sequence`: the number nearest the one
+  /// after the latest that ends in that byte. Datagrams that overtook each other on the way
+  /// (fewer than 128 places apart) get the places they left in.
+  std::int64_t placeOf(std::uint8_t sequence) {
+    const std::int64_t next = latest + 1;
+    const auto ahead = static_cast<std::int8_t>(static_cast<std::uint8_t>(sequence - static_cast<std::uint8_t>(next)));
+    const std::int64_t place = next + ahead;
+    if (place > latest) latest = place;
+    return place;
+  }
+};
+
+std::map<const FleetSession*, Wire>& wires() {
+  static std::map<const FleetSession*, Wire> all;
+  return all;
+}
+
 struct FakeServer {
   int fd = -1;
   int port = 0;
   sockaddr_in lastClient{};
   socklen_t lastClientLen = 0;
+  /// The session this server serves, once serves() said so. Without one the server reads and
+  /// sends as a bare socket does (a plain Connection's server, and the threaded cases).
+  Wire* wire = nullptr;
+
+  /// A datagram taken off the socket and not handed to the test yet.
+  struct Arrival {
+    std::int64_t place = 0;
+    sockaddr_in from{};
+    socklen_t fromLen = 0;
+    std::vector<std::uint8_t> bytes;
+  };
+  std::vector<Arrival> inbox;  // in the order the session sent them
+  std::int64_t arrivals = 0;
 
   void start() {
     fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -107,16 +186,47 @@ struct FakeServer {
     socklen_t len = sizeof(addr);
     CHECK(::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
     port = ntohs(addr.sin_port);
+    roomForABacklog();
   }
 
   ~FakeServer() {
+    forget();
     if (fd >= 0) ::close(fd);
   }
 
-  /// A larger receive buffer, for a test whose senders can outrun the thread that reads: a
-  /// datagram the kernel drops for want of room never arrives, and a test that reads "in
-  /// the order they arrived" cannot tell that from one never sent. The largest of these the
-  /// system allows is kept (macOS refuses a size above its limit).
+  /// This server is one the session sends to and hears from. Say so before the session sends
+  /// anything; a session that moves between two servers is served by both.
+  void serves(FleetSession& session, Pumped pumped = Pumped::ByTheTest) {
+    forget();
+    Wire& w = wires()[&session];
+    const bool unused = session.stats().datagramsSent == 0;
+    if (w.servers.empty() || (unused && w.read != 0)) {
+      // A session the servers have not met (or a new one where an earlier one stood).
+      CHECK(unused);
+      for (FakeServer* other : w.servers) other->wire = nullptr;
+      w = Wire{};
+      w.session = &session;
+      w.pumped = pumped;
+    }
+    w.servers.push_back(this);
+    wire = &w;
+  }
+
+  /// Back to a bare socket: what the session sends is read as it arrives, with no count.
+  void forget() {
+    if (!wire) return;
+    auto& servers = wire->servers;
+    servers.erase(std::remove(servers.begin(), servers.end(), this), servers.end());
+    if (servers.empty()) wires().erase(wire->session);
+    wire = nullptr;
+  }
+
+  /// A larger receive buffer than the system's default, which holds fewer than 300 small
+  /// datagrams on Linux: a case that sends 256 before it reads (runVerifiedRefusals) or whose
+  /// senders outrun the thread that reads would lose some to the kernel, and a datagram the
+  /// kernel drops for want of room never arrives, which a count of what was sent cannot tell
+  /// from one that is late. The largest of these the system allows is kept (macOS refuses a
+  /// size above its limit).
   void roomForABacklog() {
     for (const int bytes : {8 << 20, 4 << 20, 2 << 20, 1 << 20}) {
       const auto* value = reinterpret_cast<const char*>(&bytes);
@@ -124,18 +234,72 @@ struct FakeServer {
     }
   }
 
-  /// The next datagram, or empty when none arrives in time.
-  std::vector<std::uint8_t> tryRecv(int timeoutMs) {
-    timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  /// Take one datagram off the socket if one is there, into the inbox: at its place in the
+  /// order the session sent them when the server serves a session, at the end otherwise.
+  bool pull() {
     std::uint8_t buf[2048];
-    sockaddr_in from{};
-    socklen_t fromLen = sizeof(from);
-    const ssize_t n = ::recvfrom(fd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
-    if (n <= 0) return {};
-    lastClient = from;
-    lastClientLen = fromLen;
-    return std::vector<std::uint8_t>(buf, buf + n);
+    Arrival got;
+    got.fromLen = sizeof(got.from);
+    const ssize_t n =
+        ::recvfrom(fd, buf, sizeof(buf), MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&got.from), &got.fromLen);
+    if (n <= 0) return false;
+    got.bytes.assign(buf, buf + n);
+    got.place = arrivals++;
+    if (wire) {
+      ++wire->read;
+      got.place = wire->placeOf(got.bytes.back());
+    }
+    const auto after = std::upper_bound(inbox.begin(), inbox.end(), got.place,
+                                        [](std::int64_t place, const Arrival& a) { return place < a.place; });
+    inbox.insert(after, std::move(got));
+    return true;
+  }
+
+  /// Wait, in real time, until a datagram is on the socket or `timeoutMs` passed.
+  bool readable(int timeoutMs) const {
+    pollfd p{fd, POLLIN, 0};
+    return ::poll(&p, 1, timeoutMs) > 0;
+  }
+
+  /// Every datagram the session has sent by now is in an inbox when this returns, however
+  /// long each took to arrive: the session's own count says how many there are.
+  void gather() {
+    if (!wire) return;
+    const std::uint64_t sent = wire->session->stats().datagramsSent;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (wire->read < sent && std::chrono::steady_clock::now() < deadline) {
+      bool any = false;
+      for (FakeServer* server : wire->servers) {
+        while (server->pull()) any = true;
+      }
+      if (!any) {
+        std::vector<pollfd> fds;
+        for (FakeServer* server : wire->servers) fds.push_back({server->fd, POLLIN, 0});
+        ::poll(fds.data(), static_cast<nfds_t>(fds.size()), 1);
+      }
+    }
+    if (wire->read < sent) {
+      std::fprintf(stderr, "the session sent %llu datagrams and its servers have read %llu\n",
+                   static_cast<unsigned long long>(sent), static_cast<unsigned long long>(wire->read));
+    }
+    CHECK(wire->read >= sent);
+  }
+
+  /// The next datagram in the order the session sent them, or empty when there is none:
+  /// everything the session has sent is waited for first, and when that is nothing, a
+  /// datagram it sends within `timeoutMs` (a session with a thread of its own).
+  std::vector<std::uint8_t> tryRecv(int timeoutMs) {
+    gather();
+    if (inbox.empty() && readable(timeoutMs)) {
+      pull();
+      gather();  // whatever left with it
+    }
+    if (inbox.empty()) return {};
+    Arrival next = std::move(inbox.front());
+    inbox.erase(inbox.begin());
+    lastClient = next.from;
+    lastClientLen = next.fromLen;
+    return std::move(next.bytes);
   }
 
   std::vector<std::uint8_t> recvOne(int timeoutMs = 2000) {
@@ -144,12 +308,41 @@ struct FakeServer {
     return got;
   }
 
+  /// The session has sent nothing the test has not read: by its own count, and by 60 ms of
+  /// the socket for anything the count would not know of.
   void expectNothing() { CHECK(tryRecv(60).empty()); }
 
-  void send(const std::vector<std::uint8_t>& data) {
+  /// Everything the session has sent and the test has not read, in the order it left. A bare
+  /// socket has no count to wait on: it reads until nothing has arrived for 40 ms.
+  std::vector<std::vector<std::uint8_t>> takeAll() {
+    std::vector<std::vector<std::uint8_t>> all;
+    for (auto got = tryRecv(wire ? 0 : 40); !got.empty(); got = tryRecv(wire ? 0 : 40)) all.push_back(std::move(got));
+    return all;
+  }
+
+  /// Put a datagram on the wire to the address the last one read came from, and wait for
+  /// nothing: what send() does first, and all a bare socket can do.
+  void sendUnheard(const std::vector<std::uint8_t>& data) {
     CHECK(lastClientLen > 0);
     CHECK(::sendto(fd, data.data(), data.size(), 0, reinterpret_cast<sockaddr*>(&lastClient),
                    lastClientLen) == static_cast<ssize_t>(data.size()));
+  }
+
+  /// Send the session a datagram, and return when the session has received it: its count of
+  /// datagrams received moved. The test's clock stands still meanwhile. The session is pumped
+  /// here when the test pumps it (what the datagram says is dispatched at the next poll(), as
+  /// ever), and watched when it has a network thread of its own.
+  void send(const std::vector<std::uint8_t>& data) {
+    if (!wire) return sendUnheard(data);
+    FleetSession& session = *wire->session;
+    const std::uint64_t before = session.stats().datagramsReceived;
+    sendUnheard(data);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (session.stats().datagramsReceived == before && std::chrono::steady_clock::now() < deadline) {
+      if (wire->pumped == Pumped::ByTheTest) session.pump(1);
+      else std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+    CHECK(session.stats().datagramsReceived > before);
   }
 };
 
@@ -333,10 +526,12 @@ void pumpUntil(FleetSession& fleet, Done done) {
   }
 }
 
-/// A few passes with nothing expected, so anything wrongly queued would be dispatched.
+/// A few passes with nothing expected, so anything wrongly queued would be dispatched. What
+/// a fake server sent has arrived already (FakeServer::send waits for it), so the passes
+/// wait for nothing.
 void settle(FleetSession& fleet) {
   for (int i = 0; i < 3; ++i) {
-    fleet.pump(20);
+    fleet.pump(0);
     fleet.poll();
   }
 }
@@ -358,6 +553,7 @@ std::uint32_t expectCapabilities(FakeServer& server, std::int64_t fleetId = kFle
 
 /// Open the session and read the first thing it sends: its capabilities, which bind it.
 void openConnected(FleetSession& fleet, FakeServer& server) {
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   fleet.pump(0);
   CHECK_EQ(static_cast<int>(fleet.state()), static_cast<int>(ConnState::Connected));
@@ -510,14 +706,7 @@ std::vector<std::uint8_t> nextOfTypeAfterPump(FleetSession& fleet, FakeServer& s
 }
 
 /// Everything the server has been sent and not read yet.
-std::vector<std::vector<std::uint8_t>> drain(FakeServer& server) {
-  std::vector<std::vector<std::uint8_t>> all;
-  for (;;) {
-    auto got = server.tryRecv(40);
-    if (got.empty()) return all;
-    all.push_back(std::move(got));
-  }
-}
+std::vector<std::vector<std::uint8_t>> drain(FakeServer& server) { return server.takeAll(); }
 
 /// The tail's game token id of a request (long-spatial and channel requests end alike).
 std::int64_t tailId(const std::vector<std::uint8_t>& datagram) {
@@ -874,6 +1063,7 @@ void runOnlyFourMessagesUnderTheSessionsId() {
   cfg.transport.advertiseIntervalMs = 15'000;
   cfg.transport.advertiseCapabilities = false;  // not an option for a fleet session
   FleetSession fleet(cfg, crypto(), clock);
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   fleet.pump(0);
 
@@ -1053,6 +1243,7 @@ void runCarryResendAndDeadline() {
   FakeServer later;
   later.start();
   FleetSession waiting(configFor(later), crypto(), clock);
+  later.serves(waiting);
   CHECK(waiting.open().ok());
   CHECK_EQ(static_cast<int>(waiting.state()), static_cast<int>(ConnState::Connecting));
   CHECK(waiting.carry({kPlayerToken, kPlayerId}).ok());
@@ -1877,6 +2068,7 @@ void runFleetOwnStateCapability() {
     cfg.fleetOwnState = true;
     FleetSession fleet(cfg, crypto(), clock);
     CHECK(fleet.fleetOwnState());
+    server.serves(fleet);
     CHECK(fleet.open().ok());
     fleet.pump(0);
     CHECK_EQ(expectCapabilities(server), 0x0Bu);
@@ -1933,6 +2125,8 @@ void runAnotherServerCarriesEveryPlayerAgain() {
   FleetSession fleet(cfg, crypto(), clock);
   Seen seen;
   fleet.setHandlers(recording(seen));
+  first.serves(fleet);
+  second.serves(fleet);
   CHECK(fleet.open().ok());
   fleet.pump(0);
   CHECK_EQ(asked, 0);  // open() uses the server it was given
@@ -2122,6 +2316,7 @@ void runMoveOrderWaitsForARefresh() {
   ManualClock clock;
   FleetSession fleet(configFor(first), crypto(), clock);  // no FleetConfig::reassign
   openConnected(fleet, first);
+  second.serves(fleet);
   const std::int64_t a = 701;
   carryAs(fleet, first, a, 7001, tokenFor(a));
   CHECK(!fleet.moveOrdered());
@@ -2176,11 +2371,7 @@ std::vector<std::uint8_t> acknowledgementOf(const std::vector<std::uint8_t>& cap
 }
 
 /// Everything the session has sent that the server has not read yet.
-std::vector<std::vector<std::uint8_t>> sentSoFar(FakeServer& server) {
-  std::vector<std::vector<std::uint8_t>> all;
-  for (auto got = server.tryRecv(1); !got.empty(); got = server.tryRecv(1)) all.push_back(std::move(got));
-  return all;
-}
+std::vector<std::vector<std::uint8_t>> sentSoFar(FakeServer& server) { return server.takeAll(); }
 
 void runSilenceTimeoutDefaults() {
   // On for a fleet session, off for a player's connection, as it always was.
@@ -2207,6 +2398,7 @@ void runSilenceTimeoutDefaults() {
     cfg.transport.watchdogSilenceMs = c.timeoutMs;
     cfg.transport.advertiseIntervalMs = c.intervalMs;
     FleetSession fleet(cfg, crypto(), clock);
+    server.serves(fleet);
     CHECK(fleet.open().ok());
     int advertisements = 0;
     for (int step = 0; step <= 48; ++step) {  // 250 ms steps
@@ -2232,6 +2424,7 @@ void runAnIdleSessionIsNeverTakenForGone() {
   server.start();
   ManualClock clock;
   FleetSession fleet(watchedConfigFor(server), crypto(), clock);
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   int advertisements = 0;
   for (int second = 0; second <= 600; ++second) {
@@ -2249,9 +2442,7 @@ void runAnIdleSessionIsNeverTakenForGone() {
     clock.advance(1000);
   }
   CHECK_EQ(advertisements, 41);  // at 0 and every 15 seconds
-  // The last acknowledgement crosses the loopback in its own time (macOS takes longer than one
-  // empty pump): wait for it, in real time, before counting.
-  pumpUntil(fleet, [&] { return fleet.stats().boundControlAcks >= 41u; });
+  // Every acknowledgement has arrived: server.send() returned when the session had it.
   const auto stats = fleet.stats();
   CHECK_EQ(stats.boundControlAcks, 41u);
   CHECK_EQ(stats.reconnects, 0u);
@@ -2268,6 +2459,7 @@ void runTwoLostAcknowledgementsAreNotSilence() {
   ManualClock clock;
   RecordingLogger logger;
   FleetSession fleet(watchedConfigFor(server), crypto(), clock, logger);
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   const std::int64_t start = clock.monotonicMillis();
   int advertisements = 0;
@@ -2403,6 +2595,7 @@ void runSilenceMakesARefreshDue() {
     // A refresh that names another server: the session moves there and carries there.
     FakeServer second;
     second.start();
+    second.serves(fleet);
     CHECK(fleet.applyRefresh(TokenInfo{kFleetToken, kFleetId, 0}, Assignment{"127.0.0.1", "", second.port}).ok());
     CHECK(!fleet.moveOrdered());
     pumpUntil(fleet, [&] { return fleet.stats().reconnects == 1 && fleet.state() == ConnState::Connected; });
@@ -2551,6 +2744,7 @@ void runTheServerEndsTheSession() {
     FleetHandlers h = recording(seen);
     h.sessionReleased = [&](const FleetSessionReleased& r) { ended.push_back(r); };
     fleet.setHandlers(std::move(h));
+    server.serves(fleet);
     CHECK(fleet.open().ok());
     fleet.pump(0);
     const auto nonce = capabilitiesNonce(server);
@@ -2642,6 +2836,7 @@ void runOnlyAVerifiedReleaseEndsTheSession() {
   FleetHandlers h;
   h.sessionReleased = [&](const FleetSessionReleased& r) { ended.push_back(r); };
   fleet.setHandlers(std::move(h));
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   fleet.pump(0);
   const auto first = sentSoFar(server);
@@ -2732,6 +2927,7 @@ void runOnlyAVerifiedReleaseEndsTheSession() {
     FleetHandlers handlers;
     handlers.sessionReleased = [&](const FleetSessionReleased& r) { heard.push_back(r); };
     session.setHandlers(std::move(handlers));
+    idle.serves(session);
     CHECK(session.open().ok());
     session.pump(0);
     const auto bound = capabilitiesNonce(idle);
@@ -2757,6 +2953,7 @@ void runOnlyAVerifiedReleaseEndsTheSession() {
       return Assignment{"127.0.0.1", "", asked.port};
     };
     FleetSession session(cfg, crypto(), clock);
+    asked.serves(session);
     CHECK(session.open().ok());
     session.pump(0);
     const auto bound = capabilitiesNonce(asked);
@@ -2791,6 +2988,7 @@ void runALostReleaseLeavesTheSilenceTimeout() {
   FleetHandlers h;
   h.sessionReleased = [&](const FleetSessionReleased& r) { ended.push_back(r); };
   fleet.setHandlers(std::move(h));
+  server.serves(fleet);
   CHECK(fleet.open().ok());
   fleet.pump(0);
   const auto nonce = capabilitiesNonce(server);
@@ -3689,10 +3887,19 @@ void runARefreshedTokenKeepsThePlayerCarried() {
 // every message names the id it replaces, and from that carry on every message names the
 // new id, the rest of a frame that had begun included: the carry waits for the frame. (Run
 // this under ThreadSanitizer too.)
+//
+// This case judges by the order of arrival, and reads the socket as it is. The order the
+// sequence numbers give would not do: a send that took its number before the carry and
+// reached the socket after it is the very fault this case is here for, and its number
+// would put it back in front. So the case needs a loopback that keeps the order, as every
+// real one does, and asks nothing else of it: any delay will do, because its waits pump and
+// read until what they wait for has come. On a path that reorders (the head of this file
+// says when netem's does) the verdict means nothing; the case counts the datagrams of one
+// thread that arrived behind a later one and names them beside a verdict that fails.
+// FLEET_TEST_LOOPBACK_REORDERS=1 leaves the case out for a run on such a path.
 void runSendsInFlightSwitchWithTheCarry() {
   FakeServer server;
   server.start();
-  server.roomForABacklog();
   FleetConfig cfg = configFor(server);
   // 150 refreshed tokens against a burst of 64 at 40 a second: on any machine some carries
   // leave from carry() and the rest wait for their turn and leave from pump(), with the
@@ -3705,6 +3912,10 @@ void runSendsInFlightSwitchWithTheCarry() {
   constexpr int kTokens = 150;
   const std::int64_t base = 71000;
   carryAs(fleet, server, base, user, tokenFor(base));
+  // From here the server is a bare socket: the senders never stop, so there is no moment
+  // to wait for "everything sent", and this thread counts what it reads itself.
+  server.forget();
+  std::uint64_t taken = fleet.stats().datagramsSent;  // the capabilities and the first carry
   std::atomic<std::int64_t> oldId{base}, newId{base};
   std::atomic<bool> stop{false};
   std::atomic<int> sent{0}, notCarried{0}, otherRefusals{0};
@@ -3736,11 +3947,18 @@ void runSendsInFlightSwitchWithTheCarry() {
   // The fake server's side, on this thread: everything in the order it arrived.
   std::int64_t expected = base;  // the id the player's sends name now
   int updates = 0, wrong = 0, carries = 0;
+  // Whether the path kept the order, which this case takes for granted: the video fragments
+  // are one thread's and number themselves (the frame, then the fragment within it), so one
+  // that arrives behind that thread's last was overtaken on the way. Counted, to be named
+  // beside the verdict below.
+  int overtaken = 0;
+  std::int64_t lastFragment = -1;  // frame * 16 + fragment, of 2^20
   const auto drain = [&](int atMost) {
     // The bound is tested before the read: a datagram taken off the socket is always handled.
     for (int read = 0; read < atMost; ++read) {
       const auto got = server.tryRecv(1);
       if (got.empty()) break;
+      ++taken;
       if (got[0] == 49) {
         const std::int64_t id = le::readI64(got.data() + wire::offsets::kPayload);
         if (id != expected) ++carries;  // a carry sent again names the same id
@@ -3748,6 +3966,13 @@ void runSendsInFlightSwitchWithTheCarry() {
       } else if (got[0] == 128 || got[0] == 143) {
         ++updates;
         if (tailId(got) != expected) ++wrong;
+        if (got[0] == 143) {
+          const std::uint8_t* header = got.data() + wire::offsets::kPayload;
+          const std::int64_t fragment = ((std::int64_t{header[2]} << 8 | header[3]) << 4) + header[4];
+          const std::int64_t ahead = (fragment - lastFragment) & ((1 << 20) - 1);
+          if (lastFragment >= 0 && (ahead == 0 || ahead >= (1 << 19))) ++overtaken;
+          else lastFragment = fragment;
+        }
       }
     }
   };
@@ -3777,9 +4002,22 @@ void runSendsInFlightSwitchWithTheCarry() {
   stop.store(true);
   one.join();
   two.join();
-  for (int i = 0; i < 50; ++i) drain(1000);
+  // Everything the three threads sent is read before the counts are: the session's own count
+  // says how many datagrams left. (One the kernel dropped for want of room would be missing
+  // for good; the wait gives up on it and the counts are judged without it, as they were.)
+  const std::uint64_t left = fleet.stats().datagramsSent;
+  const auto giveUp = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (taken < left && std::chrono::steady_clock::now() < giveUp) drain(1000);
+  drain(1000);
   CHECK_EQ(carries, kTokens);
   CHECK(updates > kTokens);
+  if (overtaken != 0) {
+    std::fprintf(stderr,
+                 "the loopback handed over %d of %d datagrams behind a later one of the same thread: "
+                 "it does not keep the order here, and this case cannot judge by it "
+                 "(FLEET_TEST_LOOPBACK_REORDERS=1 leaves the case out)\n",
+                 overtaken, updates);
+  }
   if (wrong != 0) std::fprintf(stderr, "%d of %d messages named an id out of turn\n", wrong, updates);
   CHECK_EQ(wrong, 0);
   CHECK_EQ(otherRefusals.load(), 0);
@@ -3945,6 +4183,7 @@ void runOwnedThread() {
     if (!r.forSession() && r.size() == 1 && r[0] == kPlayerId) ++texts;
   };
   fleet.setHandlers(std::move(h));
+  server.serves(fleet, Pumped::ByItsOwnThread);
   CHECK(fleet.open().ok());
 
   // Carried from another thread while the session is still connecting.
@@ -4058,7 +4297,11 @@ int main() {
   runOnlyTheSessionsOwnAppIsDispatched();
   runVerifiedRefusals();
   runARefreshedTokenKeepsThePlayerCarried();
-  runSendsInFlightSwitchWithTheCarry();
+  if (const char* reorders = std::getenv("FLEET_TEST_LOOPBACK_REORDERS"); reorders && reorders[0] == '1') {
+    std::puts("runSendsInFlightSwitchWithTheCarry left out: FLEET_TEST_LOOPBACK_REORDERS=1");
+  } else {
+    runSendsInFlightSwitchWithTheCarry();
+  }
   runNoLiveTokenIsAskedOnceMore();
   runSendsWhileTheSessionMoves();
   runOwnedThread();

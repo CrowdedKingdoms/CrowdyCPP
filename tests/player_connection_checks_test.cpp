@@ -11,8 +11,10 @@
 //    for a fresh token, at most once in kTokenCheckIntervalMs, and its answer decides;
 //  - a receive pass and disconnect() end whatever is still arriving.
 //
-// Every wait here is on a count (what was delivered, what was counted as dropped), never on
-// an amount of time passing.
+// Nothing here depends on how long a datagram takes to cross the loopback (Linux hands one
+// to its receiver before sendto() returns; macOS does not, and refuses a burst with ENOBUFS).
+// `deliver` sends one datagram and pumps until the connection has read it, so every check
+// that follows it reads a settled count.
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -86,8 +88,7 @@ struct FakeServer {
     return std::vector<std::uint8_t>(buf, buf + (n > 0 ? n : 0));
   }
 
-  /// Best effort, as a datagram is: a full receive buffer drops it. Returns whether the
-  /// kernel took it.
+  /// One attempt, for the flood: whether the kernel took the datagram.
   bool send(const std::vector<std::uint8_t>& datagram) const {
     return ::sendto(fd, datagram.data(), datagram.size(), 0,
                     reinterpret_cast<const sockaddr*>(&client), clientLen) ==
@@ -239,13 +240,19 @@ void open(Connection& conn, FakeServer& server) {
   CHECK_EQ(server.recvOne()[0], 26u);
 }
 
-template <class Done>
-void pumpUntil(Connection& conn, Done done) {
-  for (int i = 0; i < 500 && !done(); ++i) {
-    conn.pump(20);
-    conn.poll();
+/// Send one datagram and pump until the connection has read it (Stats::datagramsReceived
+/// moved), then dispatch what it queued. A send the kernel refused for a full buffer is made
+/// again. When this returns, the datagram was delivered or counted as dropped.
+void deliver(Connection& conn, const FakeServer& server, const std::vector<std::uint8_t>& datagram) {
+  const std::uint64_t before = conn.stats().datagramsReceived;
+  bool sent = false;
+  for (int i = 0; i < 1000 && conn.stats().datagramsReceived == before; ++i) {
+    if (!sent) sent = server.send(datagram);
+    conn.pump(sent ? 20 : 1);
   }
-  CHECK(done());
+  CHECK(sent);
+  CHECK_EQ(conn.stats().datagramsReceived, before + 1);
+  conn.poll();
 }
 
 const wire::MessageType kNotificationTypes[] = {
@@ -274,37 +281,41 @@ void runWhatACorrectServerSendsArrives() {
   conn.setHandlers(recording(seen));
   open(conn, server);
 
+  int expected = 0;
   for (const wire::MessageType type : kNotificationTypes) {
     const auto note = signedNote(type);
-    CHECK(server.send(note));                                   // alone, its own HMAC
-    CHECK(server.send(plainBundle({note, note})));              // a plain bundle's members
-    CHECK(server.send(signedBundle({bare(note), bare(note)})));  // a signed bundle's members
-    CHECK(server.send(signedBundle({bare(note)})));              // a signed bundle of one
-  }
-  pumpUntil(conn, [&] { return seen.spatial == kTypeCount * 6; });
-  for (const wire::MessageType type : kNotificationTypes)
+    deliver(conn, server, note);                                    // alone, its own HMAC
+    deliver(conn, server, plainBundle({note, note}));               // a plain bundle's members
+    deliver(conn, server, signedBundle({bare(note), bare(note)}));  // a signed bundle's members
+    deliver(conn, server, signedBundle({bare(note)}));              // a signed bundle of one
+    expected += 6;
+    CHECK_EQ(seen.spatial, expected);
     CHECK_EQ(seen.spatialByType[static_cast<int>(type)], 6);
+  }
 
   // A video fragment too large to be a bundle's member travels alone with its own HMAC.
-  CHECK(server.send(signedNote(wire::MessageType::ClientVideoNotification, kApp, 1100)));
-  pumpUntil(conn, [&] { return seen.spatial == kTypeCount * 6 + 1; });
+  deliver(conn, server, signedNote(wire::MessageType::ClientVideoNotification, kApp, 1100));
+  CHECK_EQ(seen.spatial, ++expected);
 
   // Channel notifications: plain to a session that has not advertised, in a signed bundle
   // to one that has.
   for (const std::uint8_t type : {std::uint8_t{18}, std::uint8_t{36}}) {
-    CHECK(server.send(channelNote(type)));
-    CHECK(server.send(plainBundle({channelNote(type)})));
-    CHECK(server.send(signedBundle({channelNote(type)})));
+    deliver(conn, server, channelNote(type));
+    deliver(conn, server, plainBundle({channelNote(type)}));
+    deliver(conn, server, signedBundle({channelNote(type)}));
   }
-  pumpUntil(conn, [&] { return seen.channelMessages == 3 && seen.channelAudio == 3; });
+  CHECK_EQ(seen.channelMessages, 3);
+  CHECK_EQ(seen.channelAudio, 3);
 
   // A refusal: alone and unsigned, as a player's session is sent every one today. One
   // inside a signed bundle is marked verified.
   const std::vector<std::uint8_t> unauthorized = {3, 200, 7};
-  CHECK(server.send(unauthorized));
-  CHECK(server.send(plainBundle({unauthorized, signedNote(wire::MessageType::ClientTextNotification)})));
-  CHECK(server.send(signedBundle({unauthorized})));
-  pumpUntil(conn, [&] { return seen.errors.size() == 3 && seen.spatial == kTypeCount * 6 + 2; });
+  deliver(conn, server, unauthorized);
+  deliver(conn, server,
+          plainBundle({unauthorized, signedNote(wire::MessageType::ClientTextNotification)}));
+  deliver(conn, server, signedBundle({unauthorized}));
+  CHECK_EQ(seen.spatial, ++expected);
+  CHECK_EQ(seen.errors.size(), 3u);
   int verified = 0;
   for (const GenericError& e : seen.errors) {
     CHECK_EQ(static_cast<int>(e.code), 7);
@@ -312,6 +323,7 @@ void runWhatACorrectServerSendsArrives() {
     if (e.verified) ++verified;
   }
   CHECK_EQ(verified, 1);
+  CHECK(seen.errors.back().verified);
 
   const auto s = conn.stats();
   CHECK_EQ(s.wrongApp, 0u);
@@ -320,7 +332,7 @@ void runWhatACorrectServerSendsArrives() {
   CHECK_EQ(s.malformed, 0u);
   CHECK_EQ(s.unverifiedTokenExpired, 0u);
   CHECK_EQ(s.reconnects, 0u);
-  CHECK_EQ(s.messagesReceived, static_cast<std::uint64_t>(kTypeCount * 6 + 2 + 6 + 3));
+  CHECK_EQ(s.messagesReceived, static_cast<std::uint64_t>(expected + 6 + 3));
   for (const std::int64_t app : seen.apps) CHECK_EQ(app, kApp);
   CHECK_EQ(provider->assigns, 1);
   CHECK_EQ(provider->refreshes, 0);
@@ -343,48 +355,54 @@ void runWhatIsDropped() {
 
   const auto mine = signedNote(wire::MessageType::ActorUpdateNotification);
   const auto others = signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp);
+  std::uint64_t unsignedCount = 0;
+  std::uint64_t wrongApp = 0;
+  int delivered = 0;
 
   // Nothing signed it: alone, and beside a signed one in a plain bundle.
-  CHECK(server.send(bare(mine)));
-  pumpUntil(conn, [&] { return conn.stats().unsignedNotifications == 1; });
-  CHECK(server.send(plainBundle({bare(mine), mine, bare(mine)})));
-  pumpUntil(conn, [&] { return conn.stats().unsignedNotifications == 3 && seen.spatial == 1; });
+  deliver(conn, server, bare(mine));
+  CHECK_EQ(conn.stats().unsignedNotifications, ++unsignedCount);
+  deliver(conn, server, plainBundle({bare(mine), mine, bare(mine)}));
+  CHECK_EQ(conn.stats().unsignedNotifications, unsignedCount += 2);
+  CHECK_EQ(seen.spatial, ++delivered);
 
   // Each type, unsigned and alone: none is taken.
-  for (const wire::MessageType type : kNotificationTypes) CHECK(server.send(bare(signedNote(type))));
-  pumpUntil(conn, [&] {
-    return conn.stats().unsignedNotifications == static_cast<std::uint64_t>(3 + kTypeCount);
-  });
-  CHECK_EQ(seen.spatial, 1);
+  for (const wire::MessageType type : kNotificationTypes) {
+    deliver(conn, server, bare(signedNote(type)));
+    CHECK_EQ(conn.stats().unsignedNotifications, ++unsignedCount);
+  }
+  CHECK_EQ(seen.spatial, delivered);
 
   // Another app's, with an HMAC of its own that holds: alone, and in a plain bundle.
-  CHECK(server.send(others));
-  pumpUntil(conn, [&] { return conn.stats().wrongApp == 1; });
-  CHECK(server.send(plainBundle({others, mine})));
-  pumpUntil(conn, [&] { return conn.stats().wrongApp == 2 && seen.spatial == 2; });
+  deliver(conn, server, others);
+  CHECK_EQ(conn.stats().wrongApp, ++wrongApp);
+  deliver(conn, server, plainBundle({others, mine}));
+  CHECK_EQ(conn.stats().wrongApp, ++wrongApp);
+  CHECK_EQ(seen.spatial, ++delivered);
 
   // Another app's inside a signed bundle that verifies, beside this app's.
-  CHECK(server.send(signedBundle({bare(others), bare(mine), bare(others)})));
-  pumpUntil(conn, [&] { return conn.stats().wrongApp == 4 && seen.spatial == 3; });
+  deliver(conn, server, signedBundle({bare(others), bare(mine), bare(others)}));
+  CHECK_EQ(conn.stats().wrongApp, wrongApp += 2);
+  CHECK_EQ(seen.spatial, ++delivered);
 
   // Each type of another app, signed: none is taken.
-  for (const wire::MessageType type : kNotificationTypes) CHECK(server.send(signedNote(type, kOtherApp)));
-  pumpUntil(conn, [&] { return conn.stats().wrongApp == static_cast<std::uint64_t>(4 + kTypeCount); });
-  CHECK_EQ(seen.spatial, 3);
+  for (const wire::MessageType type : kNotificationTypes) {
+    deliver(conn, server, signedNote(type, kOtherApp));
+    CHECK_EQ(conn.stats().wrongApp, ++wrongApp);
+  }
+  CHECK_EQ(seen.spatial, delivered);
 
   // Another app's that nothing signed is counted once, as unsigned: the signature is read
   // first, and without one the app it names is nobody's word.
-  CHECK(server.send(bare(others)));
-  pumpUntil(conn, [&] {
-    return conn.stats().unsignedNotifications == static_cast<std::uint64_t>(4 + kTypeCount);
-  });
-  CHECK_EQ(conn.stats().wrongApp, static_cast<std::uint64_t>(4 + kTypeCount));
+  deliver(conn, server, bare(others));
+  CHECK_EQ(conn.stats().unsignedNotifications, ++unsignedCount);
+  CHECK_EQ(conn.stats().wrongApp, wrongApp);
 
   // A bad HMAC is what it always was.
   auto tampered = mine;
   tampered[wire::offsets::kPayload] ^= 0xff;
-  CHECK(server.send(tampered));
-  pumpUntil(conn, [&] { return conn.stats().hmacFailures == 1; });
+  deliver(conn, server, tampered);
+  CHECK_EQ(conn.stats().hmacFailures, 1u);
 
   // None of them answers an awaited send: an echo of another app, and an unsigned one, with
   // the send's own sequence number and actor.
@@ -396,23 +414,20 @@ void runWhatIsDropped() {
   const auto seq = conn.sendActorUpdate(send);
   CHECK(seq.ok());
   CHECK_EQ(server.recvOne()[0], 128u);
-  const std::uint64_t wrongBefore = conn.stats().wrongApp;
-  const std::uint64_t unsignedBefore = conn.stats().unsignedNotifications;
-  CHECK(server.send(signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp, 12, seq.value())));
-  CHECK(server.send(bare(signedNote(wire::MessageType::ActorUpdateNotification, kApp, 12, seq.value()))));
-  pumpUntil(conn, [&] {
-    return conn.stats().wrongApp == wrongBefore + 1 &&
-           conn.stats().unsignedNotifications == unsignedBefore + 1;
-  });
+  deliver(conn, server, signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp, 12, seq.value()));
+  deliver(conn, server, bare(signedNote(wire::MessageType::ActorUpdateNotification, kApp, 12, seq.value())));
+  CHECK_EQ(conn.stats().wrongApp, ++wrongApp);
+  CHECK_EQ(conn.stats().unsignedNotifications, ++unsignedCount);
   // Both were read and dropped before this wait begins, so it has nothing to find.
   CHECK(!conn.waitForSequence(seq.value(), send.uuid, 1).acknowledged);
   // The real echo does answer it.
-  CHECK(server.send(signedNote(wire::MessageType::ActorUpdateNotification, kApp, 12, seq.value())));
-  CHECK(conn.waitForSequence(seq.value(), send.uuid, 5000).acknowledged);
+  const auto echo = signedNote(wire::MessageType::ActorUpdateNotification, kApp, 12, seq.value());
+  for (int i = 0; i < 1000 && !server.send(echo); ++i) conn.pump(1);
+  CHECK(conn.waitForSequence(seq.value(), send.uuid, 10000).acknowledged);
+  CHECK_EQ(seen.spatial, ++delivered);
 
   const auto s = conn.stats();
-  CHECK_EQ(seen.spatial, 4);  // the three of this app from above, and the echo
-  CHECK_EQ(s.messagesReceived, 4u);
+  CHECK_EQ(s.messagesReceived, static_cast<std::uint64_t>(delivered));
   CHECK_EQ(s.malformed, 0u);
   for (const std::int64_t app : seen.apps) CHECK_EQ(app, kApp);
   CHECK_EQ(provider->assigns, 1);
@@ -437,10 +452,11 @@ void runWhatIsStillTaken() {
     conn.setHandlers(recording(seen));
     open(conn, server);
     const auto mine = signedNote(wire::MessageType::ActorUpdateNotification);
-    CHECK(server.send(bare(mine)));
-    CHECK(server.send(plainBundle({bare(mine), mine})));
-    CHECK(server.send(signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp)));
-    pumpUntil(conn, [&] { return seen.spatial == 3 && conn.stats().wrongApp == 1; });
+    deliver(conn, server, bare(mine));
+    deliver(conn, server, plainBundle({bare(mine), mine}));
+    deliver(conn, server, signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp));
+    CHECK_EQ(seen.spatial, 3);
+    CHECK_EQ(conn.stats().wrongApp, 1u);
     CHECK_EQ(conn.stats().unsignedNotifications, 0u);
     conn.disconnect();
   }
@@ -455,13 +471,13 @@ void runWhatIsStillTaken() {
     Seen seen;
     conn.setHandlers(recording(seen));
     open(conn, server);
-    CHECK(server.send(signedNote(wire::MessageType::ActorUpdateNotification, kApp)));
-    CHECK(server.send(signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp)));
-    pumpUntil(conn, [&] { return seen.spatial == 2; });
+    deliver(conn, server, signedNote(wire::MessageType::ActorUpdateNotification, kApp));
+    deliver(conn, server, signedNote(wire::MessageType::ActorUpdateNotification, kOtherApp));
+    CHECK_EQ(seen.spatial, 2);
     CHECK_EQ(conn.stats().wrongApp, 0u);
     // It still takes nothing unsigned.
-    CHECK(server.send(bare(signedNote(wire::MessageType::ActorUpdateNotification, kApp))));
-    pumpUntil(conn, [&] { return conn.stats().unsignedNotifications == 1; });
+    deliver(conn, server, bare(signedNote(wire::MessageType::ActorUpdateNotification, kApp)));
+    CHECK_EQ(conn.stats().unsignedNotifications, 1u);
     CHECK_EQ(seen.spatial, 2);
     conn.disconnect();
   }
@@ -474,9 +490,9 @@ void runWhatIsStillTaken() {
     Seen seen;
     conn.setHandlers(recording(seen));
     open(conn, server);
-    CHECK(server.send(signedNote(wire::MessageType::ServerEventNotification, 0)));
-    CHECK(server.send(signedBundle({bare(signedNote(wire::MessageType::ServerEventNotification, 0))})));
-    pumpUntil(conn, [&] { return seen.spatial == 2; });
+    deliver(conn, server, signedNote(wire::MessageType::ServerEventNotification, 0));
+    deliver(conn, server, signedBundle({bare(signedNote(wire::MessageType::ServerEventNotification, 0))}));
+    CHECK_EQ(seen.spatial, 2);
     CHECK_EQ(conn.stats().wrongApp, 0u);
     conn.disconnect();
   }
@@ -489,6 +505,21 @@ void runWhatIsStillTaken() {
 // kTokenCheckIntervalMs at most, and what it answers decides. Either way the handler is
 // told, and an awaited send that the frame names is settled.
 // ---------------------------------------------------------------------------
+
+/// One more pass of housekeeping, which is where a connection acts on what poll() read.
+void housekeep(Connection& conn) {
+  conn.pump(0);
+  conn.poll();
+}
+
+/// After a reassignment: connected again, and the server knows the new socket.
+void reopen(Connection& conn, FakeServer& server) {
+  conn.pump(0);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
+  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+}
+
 void runTokenExpired() {
   const std::vector<std::uint8_t> expired = {3, 9, 32};
 
@@ -505,14 +536,11 @@ void runTokenExpired() {
   // A hundred of them, alone and in a plain bundle: one question to the provider, which
   // says the fresh token is known to this server, so nothing moves.
   for (int i = 0; i < 50; ++i) {
-    CHECK(server.send(expired));
-    CHECK(server.send(plainBundle({expired})));
+    deliver(conn, server, expired);
+    deliver(conn, server, plainBundle({expired}));
   }
-  pumpUntil(conn, [&] { return seen.errors.size() == 100; });
-  for (int i = 0; i < 5; ++i) {
-    conn.pump(0);
-    conn.poll();
-  }
+  housekeep(conn);
+  CHECK_EQ(seen.errors.size(), 100u);
   for (const GenericError& e : seen.errors) {
     CHECK(!e.verified);
     CHECK_EQ(static_cast<int>(e.code), 32);
@@ -526,17 +554,16 @@ void runTokenExpired() {
 
   // One millisecond short of the interval: still one question.
   clock.mono += kTokenCheckIntervalMs - 1;
-  CHECK(server.send(expired));
-  pumpUntil(conn, [&] { return seen.errors.size() == 101; });
-  conn.pump(0);
+  deliver(conn, server, expired);
+  housekeep(conn);
   CHECK_EQ(provider->refreshes, 1);
 
   // At the interval: a second question. This time the provider cannot say: nothing changes.
   clock.mono += 1;
   provider->refreshFails = true;
-  CHECK(server.send(expired));
-  pumpUntil(conn, [&] { return seen.errors.size() == 102 && provider->refreshes == 2; });
-  conn.pump(0);
+  deliver(conn, server, expired);
+  housekeep(conn);
+  CHECK_EQ(provider->refreshes, 2);
   CHECK_EQ(provider->assigns, 1);
   CHECK_EQ(conn.stats().reconnects, 0u);
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Connected));
@@ -546,36 +573,33 @@ void runTokenExpired() {
   clock.mono += kTokenCheckIntervalMs;
   provider->refreshFails = false;
   provider->authorizedOnCurrent = false;
-  CHECK(server.send(expired));
-  pumpUntil(conn, [&] { return provider->assigns == 2; });
+  deliver(conn, server, expired);
+  housekeep(conn);
   CHECK_EQ(provider->refreshes, 3);
+  CHECK_EQ(provider->assigns, 2);
   CHECK_EQ(conn.stats().reconnects, 1u);
   CHECK_EQ(seen.errors.size(), 103u);
   provider->authorizedOnCurrent = true;
+  reopen(conn, server);
 
   // Verified: it reassigns at once, and asks the provider for no token.
-  conn.pump(0);
-  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
-  CHECK_EQ(server.recvOne()[0], 26u);
-  CHECK(server.send(signedBundle({expired})));
-  pumpUntil(conn, [&] { return provider->assigns == 3; });
+  deliver(conn, server, signedBundle({expired}));
+  housekeep(conn);
+  CHECK_EQ(provider->assigns, 3);
   CHECK_EQ(provider->refreshes, 3);
   CHECK_EQ(seen.errors.size(), 104u);
   CHECK(seen.errors.back().verified);
   CHECK_EQ(conn.stats().reconnects, 2u);
   CHECK_EQ(conn.stats().unverifiedTokenExpired, 103u);
+  reopen(conn, server);
 
   // A signed bundle whose HMAC does not hold is dropped whole: its TOKEN_EXPIRED reaches
   // nobody and moves nothing.
-  conn.pump(0);
-  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
-  CHECK_EQ(server.recvOne()[0], 26u);
   auto forged = signedBundle({expired});
   forged.back() ^= 0x01;
-  CHECK(server.send(forged));
-  pumpUntil(conn, [&] { return conn.stats().hmacFailures == 1; });
-  conn.pump(0);
-  conn.poll();
+  deliver(conn, server, forged);
+  housekeep(conn);
+  CHECK_EQ(conn.stats().hmacFailures, 1u);
   CHECK_EQ(seen.errors.size(), 104u);
   CHECK_EQ(provider->assigns, 3);
 
@@ -586,8 +610,9 @@ void runTokenExpired() {
   const auto seq = conn.sendText(send);
   CHECK(seq.ok());
   CHECK_EQ(server.recvOne()[0], 136u);
-  CHECK(server.send({3, seq.value(), 32}));
-  const auto outcome = conn.waitForSequence(seq.value(), send.uuid, 5000);
+  const std::vector<std::uint8_t> refusal = {3, seq.value(), 32};
+  for (int i = 0; i < 1000 && !server.send(refusal); ++i) conn.pump(1);
+  const auto outcome = conn.waitForSequence(seq.value(), send.uuid, 10000);
   CHECK(outcome.error.has_value());
   CHECK_EQ(static_cast<int>(*outcome.error), 32);
   CHECK_EQ(provider->assigns, 3);
@@ -605,9 +630,9 @@ void runTokenExpired() {
     Seen heard;
     quiet.setHandlers(recording(heard));
     open(quiet, other);
-    CHECK(other.send(expired));
-    pumpUntil(quiet, [&] { return heard.errors.size() == 1; });
-    quiet.pump(0);
+    deliver(quiet, other, expired);
+    housekeep(quiet);
+    CHECK_EQ(heard.errors.size(), 1u);
     CHECK_EQ(own->refreshes, 0);
     CHECK_EQ(own->assigns, 1);
     CHECK_EQ(quiet.stats().unverifiedTokenExpired, 1u);
@@ -619,8 +644,37 @@ void runTokenExpired() {
 // ---------------------------------------------------------------------------
 // Datagrams that arrive faster than they are verified. The flood here does not depend on how
 // fast anything runs: the crypto provider the connection verifies with sends two more
-// datagrams for every one it verifies, so the socket is never drained, by construction.
+// datagrams for every one it verifies. Where the loopback hands a datagram over before
+// sendto() returns (Linux, as it comes), the socket is therefore never drained, by
+// construction, and a receive loop that ends only on an empty socket never ends. Where it
+// does not (macOS, or a Linux loopback with a delay on it), the same flood is the best there
+// is: the checks that need "never drained" are made only when loopbackIsImmediate() found the
+// first kind, and the others are made everywhere.
 // ---------------------------------------------------------------------------
+
+/// Whether this machine's loopback hands a datagram to its receiver before sendto() returns:
+/// 50 datagrams, each read without waiting right after its send.
+bool loopbackIsImmediate() {
+  const int receiver = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  const int sender = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  CHECK(receiver >= 0 && sender >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  CHECK(::bind(receiver, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+  socklen_t len = sizeof(addr);
+  CHECK(::getsockname(receiver, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
+  bool immediate = true;
+  for (int i = 0; i < 50 && immediate; ++i) {
+    const std::uint8_t byte = 1;
+    std::uint8_t got = 0;
+    immediate = ::sendto(sender, &byte, 1, 0, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 1 &&
+                ::recv(receiver, &got, 1, MSG_DONTWAIT) == 1;
+  }
+  ::close(sender);
+  ::close(receiver);
+  return immediate;
+}
 
 /// OpenSSL, with a hook before every HMAC. It makes no reusable MAC, so every verification
 /// comes through hmacSha256.
@@ -666,7 +720,7 @@ struct Deadline {
 
 // One receive pass ends after kReceivePassDatagrams, whatever is still queued (a pass used
 // to end only on a short batch, so this pump() did not return).
-void runAReceivePassEnds() {
+void runAReceivePassEnds(bool immediate) {
   FakeServer server;
   server.start();
   auto provider = std::make_shared<Provider>(server.port);
@@ -688,17 +742,18 @@ void runAReceivePassEnds() {
   std::size_t read = 0;
   {
     Deadline deadline("pump() under a flood");
-    read = conn.pump(0);
+    read = conn.pump(1000);
   }
   CHECK(read > 0);
   CHECK(read <= kReceivePassDatagrams);
-  // More was sent than the pass read: it ended with datagrams still to read.
-  CHECK(fed.load() > read);
   CHECK_EQ(conn.stats().datagramsReceived, static_cast<std::uint64_t>(read));
-  // The next pass goes on from there.
-  {
+  if (immediate) {
+    // The pass read all it may, and ended with datagrams still to read: every batch was full.
+    CHECK_EQ(read, kReceivePassDatagrams);
+    CHECK(fed.load() > read);
+    // The next pass goes on from there.
     Deadline deadline("the second pump() under a flood");
-    CHECK(conn.pump(0) > 0);
+    CHECK_EQ(conn.pump(0), kReceivePassDatagrams);
   }
   feeding.store(false, std::memory_order_release);
   conn.disconnect();
@@ -716,7 +771,7 @@ struct DisconnectLogger final : core::ILogger {
 // network thread is held in the middle of a batch until disconnect() has asked it to stop
 // (the connection's own log line says when), so what it verifies after that is counted
 // exactly: the rest of the batch in hand at most, and nothing of what is still arriving.
-void runDisconnectReturnsUnderAFlood() {
+void runDisconnectReturnsUnderAFlood(bool immediate) {
   FakeServer server;
   server.start();
   auto provider = std::make_shared<Provider>(server.port);
@@ -760,8 +815,12 @@ void runDisconnectReturnsUnderAFlood() {
   for (std::size_t i = 0; i < 2 * kReceiveBatchDatagrams; ++i)
     if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
   {
+    // Until the network thread is held. On Linux the flood feeds itself; where a loopback
+    // send can be refused or lost, this keeps it fed.
     std::unique_lock lock(mu);
-    cv.wait(lock, [&] { return held; });
+    while (!cv.wait_for(lock, std::chrono::milliseconds(5), [&] { return held; })) {
+      if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
+    }
   }
   // The network thread is inside its 200th verification and goes no further until
   // disconnect() says it has asked it to stop.
@@ -776,7 +835,7 @@ void runDisconnectReturnsUnderAFlood() {
               static_cast<long long>(took), static_cast<unsigned long long>(after));
   CHECK(after < kReceiveBatchDatagrams);
   // The flood had not stopped: more was sent than was ever read.
-  CHECK(fed.load() > conn.stats().datagramsReceived);
+  if (immediate) CHECK(fed.load() > conn.stats().datagramsReceived);
   CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Closed));
 }
 
@@ -787,8 +846,10 @@ int main() {
   runWhatIsDropped();
   runWhatIsStillTaken();
   runTokenExpired();
-  runAReceivePassEnds();
-  runDisconnectReturnsUnderAFlood();
+  const bool immediate = loopbackIsImmediate();
+  std::printf("loopback hands a datagram over before sendto() returns: %s\n", immediate ? "yes" : "no");
+  runAReceivePassEnds(immediate);
+  runDisconnectReturnsUnderAFlood(immediate);
   std::puts("player_connection_checks_test OK");
   return 0;
 }

@@ -37,6 +37,10 @@ suite or carries an explicit exclusion reason.
 | `CROWDY_E2E_TEEN_SIGNUPS=1` | no | `e2e_teen_safety` also registers one CK account (its age, its own mint, then deleted) and tries a sign-up from a blocked country. A tier's sign-ups are limited and shared, so it is opt-in. The suite never signs up or records an age under 13: since ck-api v2.61.0 that refusal locks the address and user agent out of sign-up for 24 hours |
 | `CROWDY_E2E_EXPECT_BOUND_ACK=1` | no | `e2e_world_session` requires the servers' `CONTROL_BOUND_ACK` (46): set it against replication servers v0.46.0 or later. Without it the suite prints the count |
 | `CROWDY_E2E_THROWAWAY_OWNER=1` | no | `e2e_open_grid_exec_gateway` registers its own owner, org and app and a player (from `CROWDY_E2E_EMAIL`, plus-addressed), opens and closes a grid, and checks the tier's ck-exec gateway; it needs only `CROWDY_E2E_API_URL` and `CROWDY_E2E_EMAIL` besides, and leaves the org behind |
+| `CROWDY_FLEET_API_URL` / `CROWDY_FLEET_APP_ID` / `CROWDY_FLEET_ORG_TOKEN` | `e2e_fleet_session` | the Application API, an app whose players may send text and voice, and an org token of the app's organization with the scopes `fleet:session` and `players:mint`. The suite reads the token from the environment and never prints it. Fleet sessions must be switched on for the organization |
+| `CROWDY_FLEET_REALTIME_MIN` | no | `e2e_fleet_session`: the least version the tier's realtime servers are known to run, as `0.50.1`. Three steps print which behaviour they saw (a closed session told within 5 seconds or silent for 45, a refusal verified or unverified, a refreshed token's carry with or without a refused send); with `0.50.1` or later set, the earlier behaviour fails the run |
+| `CROWDY_FLEET_IDLE_SECONDS` | no | `e2e_fleet_session`: the app's idle timeout when it is short (60, say). The suite then lets one carried player go quiet and requires its release, reason 5 |
+| `CROWDY_FLEET_HUB_APP_ID` / `CROWDY_FLEET_HUB_ORG_TOKEN` / `CROWDY_FLEET_HUB_PLAYER_ID` | no | `e2e_fleet_session`'s hub step: a ck-exec app running the platform's probe (node types `bare` and `probe`), an org token of that app's organization with the scope `fleet:session`, and the user id of one of its players. It needs the curl WebSocket transport |
 | `CROWDY_E2E_AGENT=1` | no | enable Agentic Studio ASK/BUILD session coverage |
 | `CROWDY_E2E_AGENT_PROJECT_ID` | no | saved owner project used by the BUILD session |
 | `CROWDY_E2E_AGENT_RUN=1` | no | send one ASK provider turn (the deployment owns provider credentials) |
@@ -95,7 +99,7 @@ Run a single suite directly for its per-subtest output:
 |---|---|---|
 | `e2e` | everything not below | env config |
 | `e2e_slow` | `e2e_permission_refresh`, `e2e_soak_two_clients` | `CROWDY_E2E_SLOW=1` |
-| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway`, `e2e_studio_dock` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid (two suites) / ck-exec gateway / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
+| `e2e_optional` | `e2e_chunk_recorded_edits`, `e2e_crowdy_studio`, `e2e_native_studio_integration`, `e2e_cross_server`, `e2e_exec_client_halves`, `e2e_exec_gateway`, `e2e_fleet_session`, `e2e_marketplace_claims`, `e2e_open_grid_exec_gateway`, `e2e_studio_dock` | player file + hub app and chunk / project+grid+Play host / multi-server / ck-exec mod grid (two suites) / ck-exec gateway / `CROWDY_FLEET_*` / claim coordinate / `CROWDY_E2E_THROWAWAY_OWNER=1` |
 
 ## Notes for reruns
 
@@ -108,6 +112,20 @@ Run a single suite directly for its per-subtest output:
   (libcurl 8.13 or newer; the suite skips without it: point `CURL_INCLUDE_DIR` /
   `CURL_LIBRARY` at a newer build when the system's is older). It places into a voxel whose
   last recorded edit is air first, which its own mine-back leaves, so reruns reuse one voxel.
+- `e2e_fleet_session` uses its own variables (`CROWDY_FLEET_*`) and none of the
+  `CROWDY_E2E_*` ones: an organization's server signs in with an org token, with no
+  account. It signs four managed players in under the external ids
+  `crowdycpp-fleet-e2e-0` to `-3` and leaves them on the tier, so a rerun reuses them. It
+  deletes nobody and changes no setting. It opens four fleet sessions and closes each
+  through the API before it passes; a run that is killed leaves its sessions to end at
+  their `expiresAt`, 24 hours later. Its players stand in chunk (7100, 7100, 0). It takes
+  about 1.5 minutes: it waits out one player's idle timeout, and on realtime servers
+  before v0.50.1 it watches an ended session for 48 seconds. It refreshes one managed
+  player's app token (`refreshAppToken`, as that player). Its last step judges the
+  realtime servers: each session's counts of another app's notifications, unsigned
+  notifications and HMAC failures must be 0, and a failure prints the session, its
+  server, the counts, and what the SDK's log named (the app, the message type, the chunk,
+  when in the run).
 - `e2e_marketplace_claims` is opt-in because it temporarily owns a real chunk.
   It releases the grid before passing; choose a coordinate reserved for the
   test deployment and an app configured with `SELF_CLAIM`.

@@ -138,6 +138,15 @@ add_executable(managed_players_test managed_players_test.cpp)
 target_link_libraries(managed_players_test PRIVATE crowdy)
 add_test(NAME managed_players_test COMMAND managed_players_test)
 
+# The Application API's part of a fleet session, on a stub transport. Where the build has
+# OpenSSL and POSIX sockets it also runs one case against a loopback UDP server.
+add_executable(fleet_sessions_api_test fleet_sessions_api_test.cpp)
+target_link_libraries(fleet_sessions_api_test PRIVATE crowdy)
+if(NOT WIN32 AND CROWDY_WITH_OPENSSL)
+  target_compile_definitions(fleet_sessions_api_test PRIVATE CROWDY_TEST_FLEET_LOOPBACK=1)
+endif()
+add_test(NAME fleet_sessions_api_test COMMAND fleet_sessions_api_test)
+
 add_executable(teen_safety_test teen_safety_test.cpp)
 target_link_libraries(teen_safety_test PRIVATE crowdy)
 add_test(NAME teen_safety_test COMMAND teen_safety_test)
@@ -214,6 +223,12 @@ if(NOT WIN32 AND CROWDY_WITH_OPENSSL)
   add_executable(replication_test replication_test.cpp)
   target_link_libraries(replication_test PRIVATE crowdy_replication crowdy_crypto_openssl)
   add_test(NAME replication_test COMMAND replication_test)
+
+  # A fleet session (one realtime session of a game server, carrying its players) against
+  # a loopback UDP server, as replication_test runs a Connection.
+  add_executable(fleet_session_test fleet_session_test.cpp)
+  target_link_libraries(fleet_session_test PRIVATE crowdy_replication crowdy_crypto_openssl Threads::Threads)
+  add_test(NAME fleet_session_test COMMAND fleet_session_test)
 
   # Opens a UDP socket to a loopback assignment, as session_test does.
   add_executable(game_session_test game_session_test.cpp)

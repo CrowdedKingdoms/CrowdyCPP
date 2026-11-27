@@ -1,0 +1,39 @@
+mutation OpenFleetSession($input: OpenFleetSessionInput!) {
+  openFleetSession(input: $input) {
+    token
+    gameTokenId
+    appId
+    expiresAt
+    maxPlayers
+    server {
+      serverId
+      ip4
+      ip6
+      clientPort
+      status
+      clients
+    }
+  }
+}
+
+mutation RefreshFleetSession($input: RefreshFleetSessionInput!) {
+  refreshFleetSession(input: $input) {
+    token
+    gameTokenId
+    appId
+    expiresAt
+    maxPlayers
+    server {
+      serverId
+      ip4
+      ip6
+      clientPort
+      status
+      clients
+    }
+  }
+}
+
+mutation CloseFleetSession($input: CloseFleetSessionInput!) {
+  closeFleetSession(input: $input)
+}

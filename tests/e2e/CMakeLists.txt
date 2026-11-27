@@ -17,12 +17,14 @@ set(E2E_OPTIONAL_SUITES
   e2e_cross_server
   e2e_exec_client_halves
   e2e_exec_gateway
+  e2e_fleet_session
   e2e_marketplace_claims
   e2e_open_grid_exec_gateway
   e2e_studio_dock
 )
-# Waits on platform builds (a mod and its CLIENT half; e2e_studio_dock four of them).
-set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves e2e_studio_dock)
+# Waits on platform builds (a mod and its CLIENT half; e2e_studio_dock four of them), or
+# watches a session for a minute and waits out an idle timeout (e2e_fleet_session).
+set(E2E_LONG_OPTIONAL_SUITES e2e_exec_client_halves e2e_fleet_session e2e_studio_dock)
 
 foreach(src ${E2E_SOURCES})
   get_filename_component(name ${src} NAME_WE)

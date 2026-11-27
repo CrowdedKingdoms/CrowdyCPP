@@ -155,6 +155,120 @@ void testOpenSendsTheAppAndReadsTheAnswer() {
   CHECK(numbers.server.ip4.empty());
 }
 
+// 0.95.0 (Application API v2.90.0): `currentServer` names the server by the one address the
+// session connected to, an `ip4` or an `ip6`, never both.
+void testCurrentServerIsOneAddress() {
+  using replication::Assignment;
+  using replication::FleetCurrentServer;
+  using replication::fleetCurrentServer;
+
+  // The address a session connects to: the ip4 when there is one, the ip6 otherwise, or the
+  // ip6 first with preferIpv6. Give it a session answer's server as it is.
+  const Assignment both{"10.0.0.5", "2001:db8::10", 7777};
+  const Assignment four{"10.0.0.5", "", 7777};
+  const Assignment six{"", "2001:db8::10", 7777};
+  auto named = fleetCurrentServer(both);
+  CHECK(named.has_value() && named->ip4 == "10.0.0.5" && named->ip6.empty() && named->clientPort == 7777);
+  named = fleetCurrentServer(both, /*preferIpv6=*/true);
+  CHECK(named.has_value() && named->ip4.empty() && named->ip6 == "2001:db8::10");
+  named = fleetCurrentServer(four, /*preferIpv6=*/true);
+  CHECK(named.has_value() && named->ip4 == "10.0.0.5" && named->ip6.empty());
+  named = fleetCurrentServer(six);
+  CHECK(named.has_value() && named->ip4.empty() && named->ip6 == "2001:db8::10");
+  CHECK(!fleetCurrentServer(Assignment{"", "", 7777}).has_value());
+  CHECK(!fleetCurrentServer(Assignment{"10.0.0.5", "", 0}).has_value());
+  CHECK_EQ(replication::connectAddress(both, false), std::string("10.0.0.5"));
+  CHECK_EQ(replication::connectAddress(both, true), std::string("2001:db8::10"));
+  CHECK_EQ(replication::connectAddress(six, false), std::string("2001:db8::10"));
+  CHECK(replication::connectAddress(Assignment{}, true).empty());
+
+  Rig rig;
+  rig.http->reply = sessionReply("refreshFleetSession", kExpiresAt, "10.0.0.9", 7001);
+  FleetSessionsAPI api(rig.gql);
+  api.refresh("7", "9001", *fleetCurrentServer(six));
+  CHECK_EQ(bodyOf(rig.http->requests.back())["variables"].dump(),
+           std::string(R"({"input":{"appId":"7","currentServer":{"clientPort":7777,"ip6":"2001:db8::10"},"gameTokenId":"9001"}})"));
+  api.refresh("7", "9001", *fleetCurrentServer(both));
+  CHECK_EQ(bodyOf(rig.http->requests.back())["variables"].dump(),
+           std::string(R"({"input":{"appId":"7","currentServer":{"clientPort":7777,"ip4":"10.0.0.5"},"gameTokenId":"9001"}})"));
+  bool called = false;
+  api.refreshAsync("7", "9001", *fleetCurrentServer(both, true),
+                   [&](graphql::GraphQLOutcome out, FleetSessionResponse got) {
+                     called = true;
+                     CHECK(out.ok());
+                     CHECK_EQ(got.server.clientPort, 7001);
+                   });
+  CHECK(called);
+  CHECK_EQ(bodyOf(rig.http->requests.back())["variables"]["input"]["currentServer"].dump(),
+           std::string(R"({"clientPort":7777,"ip6":"2001:db8::10"})"));
+  CHECK_EQ(rig.http->requests.size(), std::size_t{3});
+
+  // Both addresses, neither, or no port: refused before any request, as the API refuses it.
+  for (const FleetCurrentServer& bad :
+       {FleetCurrentServer{"10.0.0.5", "2001:db8::10", 7777}, FleetCurrentServer{"", "", 7777},
+        FleetCurrentServer{"10.0.0.5", "", 0}}) {
+#ifndef CROWDY_NO_EXCEPTIONS
+    bool threw = false;
+    try {
+      api.refresh("7", "9001", bad);
+    } catch (const graphql::CrowdyError& e) {
+      threw = true;
+      CHECK_EQ(std::string(e.code()), std::string("INVALID_ARGUMENT"));
+    }
+    CHECK(threw);
+#else
+    CHECK(api.refresh("7", "9001", bad).token.empty());
+#endif
+    called = false;
+    api.refreshAsync("7", "9001", bad, [&](graphql::GraphQLOutcome out, FleetSessionResponse got) {
+      called = true;
+      CHECK(out.status.code == Errc::InvalidArgument);
+      CHECK(got.token.empty());
+    });
+    CHECK(called);
+  }
+  CHECK_EQ(rig.http->requests.size(), std::size_t{3});
+
+  // refresh(session) sends the session's refreshInput(): a session whose server has an ip6
+  // alone names the ip6 (through 0.94.1 it named an empty ip4), and one that prefers IPv6
+  // names the ip6 of a server with both.
+  const auto sessionOn = [&](const std::string& ip4, const std::string& ip6, bool preferIpv6) {
+    FleetSessionResponse opened = FleetSessionResponse::fromJson(
+        graphql::Json::parse(sessionReply("openFleetSession", kExpiresAt))["data"]["openFleetSession"]);
+    opened.server.ip4 = ip4;
+    opened.server.ip6 = ip6;
+    replication::FleetConfig base;
+    base.transport.preferIpv6 = preferIpv6;
+    return domains::fleetConfigOf(opened, base);
+  };
+  struct Case {
+    const char* ip4;
+    const char* ip6;
+    bool preferIpv6;
+    const char* sent;
+  };
+  for (const Case& c : {Case{"10.0.0.5", "", false, R"({"clientPort":7777,"ip4":"10.0.0.5"})"},
+                        Case{"", "2001:db8::10", false, R"({"clientPort":7777,"ip6":"2001:db8::10"})"},
+                        Case{"10.0.0.5", "2001:db8::10", false, R"({"clientPort":7777,"ip4":"10.0.0.5"})"},
+                        Case{"10.0.0.5", "2001:db8::10", true, R"({"clientPort":7777,"ip6":"2001:db8::10"})"}}) {
+    const auto config = sessionOn(c.ip4, c.ip6, c.preferIpv6);
+    CHECK(config.ok());
+    replication::FleetSession fleet(config.value(), core::defaultCrypto());
+    const replication::FleetRefreshInput input = fleet.refreshInput();
+    CHECK_EQ(input.appId, 7);
+    CHECK_EQ(input.gameTokenId, 9001);
+    CHECK(input.currentServer.has_value());
+    CHECK(input.currentServer->ip4.empty() != input.currentServer->ip6.empty());
+    api.refresh(fleet);
+    CHECK_EQ(bodyOf(rig.http->requests.back())["variables"]["input"]["currentServer"].dump(), std::string(c.sent));
+    // A server the session can connect to is one applyRefresh takes.
+    CHECK(fleet.applyRefresh(domains::fleetTokenOf(FleetSessionResponse::fromJson(graphql::Json::parse(
+                                 sessionReply("refreshFleetSession", kExpiresAt))["data"]["refreshFleetSession"])),
+                             Assignment{c.ip4, c.ip6, 7777})
+              .ok());
+  }
+}
+
 void testRefreshNamesTheSessionAndItsServer() {
   Rig rig;
   rig.http->reply = sessionReply("refreshFleetSession", kExpiresAt, "10.0.0.9", 7001);
@@ -397,6 +511,9 @@ void testAnswersReachTheWireClass() {
   base.carryBurst = 1000;
   CHECK_EQ(domains::fleetConfigOf(opened, base).value().carryBurst, 1000);
   base.carryBurst = 32;
+  // The answer's maxPlayers is how many rows the session's table holds, and 32 more.
+  CHECK_EQ(base.maxPlayers, 0);
+  CHECK_EQ(config.value().maxPlayers, 256);
   CHECK(domains::fleetConfigOf(opened).ok());
   // The silence timeout is on in a config made from an answer (45 seconds; an ended session
   // is sent nothing, so silence is the only sign), and the caller's own choice is kept: 0
@@ -448,8 +565,15 @@ void testAnswersReachTheWireClass() {
   const FleetSessionResponse refreshed = api.refresh(fleet);
   CHECK_EQ(bodyOf(rig.http->requests.back())["variables"].dump(),
            std::string(R"({"input":{"appId":"7","currentServer":{"clientPort":7777,"ip4":"10.0.0.5"},"gameTokenId":"9001"}})"));
-  // The same server came back: the new expiry is taken and nothing moves.
+  // The same server came back: the new expiry is taken and nothing moves. The answer's
+  // maxPlayers is the table's from here (an operator may have changed it).
+  CHECK_EQ(fleet.tableLimit(), 256u + replication::kFleetTableMargin);
+  FleetSessionResponse fewer = refreshed;
+  fewer.maxPlayers = 100;
+  CHECK(domains::applyFleetRefresh(fleet, fewer).ok());
+  CHECK_EQ(fleet.tableLimit(), 100u + replication::kFleetTableMargin);
   CHECK(domains::applyFleetRefresh(fleet, refreshed).ok());
+  CHECK_EQ(fleet.tableLimit(), 256u + replication::kFleetTableMargin);
   CHECK_EQ(fleet.token().expiresAtEpochMs, laterExpiryMs);
   CHECK_EQ(fleet.token().token, kFleetToken);
   CHECK_EQ(fleet.server().clientPort, 7777);
@@ -652,6 +776,7 @@ void testAMoveOrderAsksForANewServer() {
 
 int main() {
   testOpenSendsTheAppAndReadsTheAnswer();
+  testCurrentServerIsOneAddress();
   testRefreshNamesTheSessionAndItsServer();
   testCloseAnswersWhetherASessionEnded();
   testRefusalsAreToldApart();

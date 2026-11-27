@@ -8,6 +8,12 @@ if(TARGET crowdy_crypto_openssl)
     add_executable(bench_send bench_send.cpp)
     target_link_libraries(bench_send
       PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl crowdy_replication OpenSSL::Crypto)
+
+    # A player's Connection receiving: read and verify (pump) and dispatch (poll), timed
+    # apart, over loopback datagrams that were all sent before the clock starts.
+    add_executable(bench_receive bench_receive.cpp)
+    target_link_libraries(bench_receive
+      PRIVATE crowdy_wire crowdy_core crowdy_crypto_openssl crowdy_replication)
   endif()
 endif()
 

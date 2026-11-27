@@ -889,8 +889,220 @@ void runStoredCopyKeepsUnechoedEdits() {
   conn.disconnect();
 }
 
+// ---------------------------------------------------------------------------
+// A refused keepalive (for realtime servers v0.51.0: where the player has no access, every
+// keepalive is answered UNAUTHORIZED, every few seconds).
+// ---------------------------------------------------------------------------
+
+/// Read from the server as many datagrams as the connection has sent since `sentBefore`,
+/// and hand each to `each`. Count-based, so it does not depend on the loopback's timing.
+template <class Each>
+void readSent(FakeServer& server, Connection& conn, std::uint64_t& sentBefore, Each each) {
+  const std::uint64_t sent = conn.stats().datagramsSent;
+  for (; sentBefore < sent; ++sentBefore) each(server.recvOne());
+}
+
+/// Send one datagram to the connection and pump until it has read it.
+void answer(FakeServer& server, Connection& conn, const std::vector<std::uint8_t>& datagram) {
+  const std::uint64_t before = conn.stats().datagramsReceived;
+  bool sent = false;
+  for (int i = 0; i < 1000 && conn.stats().datagramsReceived == before; ++i) {
+    if (!sent)
+      sent = ::sendto(server.fd, datagram.data(), datagram.size(), 0,
+                      reinterpret_cast<sockaddr*>(&server.client), server.clientLen) ==
+             static_cast<ssize_t>(datagram.size());
+    conn.pump(sent ? 20 : 1);
+  }
+  CHECK_EQ(conn.stats().datagramsReceived, before + 1);
+}
+
+// LocalActorStore keeps its rate whatever the server answers: the same keepalives and the
+// same keyframes leave at the same times where every one of them is refused as where none
+// is. It does not stop, send sooner, or ask for a reassignment.
+void runKeepalivesKeepTheirRate() {
+  struct Sent {
+    std::int64_t atMs;
+    std::uint8_t type;
+    bool operator==(const Sent&) const = default;
+  };
+  const auto drive = [](bool refused) {
+    FakeServer server;
+    server.start();
+    Config cfg;
+    cfg.appId = 7;
+    cfg.token = TokenInfo{kToken, 42, 0};
+    cfg.manualPump = true;
+    cfg.sessionReadyWaitMs = 0;
+    cfg.bundleSends = false;
+    cfg.advertiseCapabilities = false;
+    struct Counting final : ISessionProvider {
+      int port;
+      int assigns = 0;
+      int refreshes = 0;
+      explicit Counting(int p) : port(p) {}
+      Result<Assignment> assignServer() override {
+        ++assigns;
+        return Assignment{"127.0.0.1", "", port};
+      }
+      Result<TokenInfo> refreshToken() override {
+        ++refreshes;
+        return TokenInfo{kToken, 42, 0};
+      }
+    };
+    auto provider = std::make_shared<Counting>(server.port);
+    Connection conn(cfg, provider, core::defaultCrypto());
+    CHECK(conn.connect().ok());
+    conn.pump(0);
+
+    LocalActorStore store(conn, uuidOf('k'), LocalActorStore::Options{});  // 5 Hz, 3 s, 2 s
+    int reports = 0;
+    std::int64_t now = 0;
+    Handlers handlers;
+    handlers.genericError = [&](const replication::GenericError& e) {
+      if (!e.keepalive) store.recordError(e, now);  // as WorldSession does
+    };
+    handlers.notPresent = [&](const replication::ActorNotPresent&) { ++reports; };
+    conn.setHandlers(std::move(handlers));
+
+    std::vector<Sent> sent;
+    std::uint64_t read = conn.stats().datagramsSent;
+    const std::uint8_t pose[] = {1, 2, 3, 4};
+    CHECK(store.join({5, 0, 5}, Bytes(pose, sizeof(pose))).ok());
+    for (now = 0; now <= 30'000; now += 100) {
+      if (now > 0) store.tick(now);
+      std::vector<std::vector<std::uint8_t>> left;
+      readSent(server, conn, read, [&](std::vector<std::uint8_t> datagram) { left.push_back(std::move(datagram)); });
+      for (const auto& datagram : left) {
+        sent.push_back({now, datagram[0]});
+        if (refused) answer(server, conn, {3, datagram.back(), 7});
+      }
+      conn.poll();
+    }
+    int keepalives = 0;
+    for (const Sent& one : sent) keepalives += one.type == 26 ? 1 : 0;
+    CHECK(keepalives >= 9);
+    CHECK_EQ(conn.stats().keepalivesRefused, refused ? static_cast<std::uint64_t>(keepalives) : 0u);
+    CHECK_EQ(reports, refused ? 1 : 0);  // one report, however many were refused
+    CHECK_EQ(conn.notPresent(uuidOf('k')).has_value(), refused);
+    CHECK(conn.state() == ConnState::Connected);
+    CHECK_EQ(provider->assigns, 1);
+    CHECK_EQ(provider->refreshes, 0);
+    CHECK_EQ(conn.stats().reconnects, 0u);
+    CHECK(store.joined());
+    conn.disconnect();
+    return sent;
+  };
+  const std::vector<Sent> accepted = drive(false);
+  const std::vector<Sent> refused = drive(true);
+  CHECK(accepted == refused);
+}
+
+// WorldSession: the refused keepalive is told once (onNotPresent, notPresent()), recorded
+// once in errors() as a keepalive's, and kept away from the stores it is not about.
+void runARefusedKeepaliveInAWorldSession() {
+  FakeServer server;
+  server.start();
+  Config cfg;
+  cfg.appId = 7;
+  cfg.token = TokenInfo{kToken, 42, 0};
+  cfg.manualPump = true;
+  cfg.sessionReadyWaitMs = 0;
+  cfg.bundleSends = false;
+  cfg.advertiseCapabilities = false;
+  auto conn = std::make_shared<Connection>(cfg, std::make_shared<StubProvider>(server.port),
+                                           core::defaultCrypto());
+  CHECK(conn->connect().ok());
+  conn->pump(0);
+
+  WorldSessionConfig sess;
+  sess.appId = "7";
+  sess.self.heartbeatIntervalMs = 0;  // this case sends its keepalives itself
+  sess.hostHeartbeatIntervalMs = 0;
+  std::vector<replication::ActorNotPresent> made;
+  std::vector<replication::NotPresentEnd> ended;
+  sess.onNotPresent = [&](const replication::ActorNotPresent& report) { made.push_back(report); };
+  sess.onNotPresentEnded = [&](const replication::ActorNotPresent&, replication::NotPresentEnd why) {
+    ended.push_back(why);
+  };
+  WorldSession session(conn, nullptr, sess);
+  int errorsTold = 0;
+  session.errors().onError([&](const AttributedError&) { ++errorsTold; });
+  const wire::ChunkCoord here{3, 0, 3};
+  const wire::ChunkCoord there{4, 0, 3};
+
+  const auto refusedKeepalive = [&](const wire::ChunkCoord& chunk, std::uint8_t code) {
+    const auto seq = conn->sendHeartbeat(chunk, session.actorUuid());
+    CHECK(seq.ok());
+    const auto got = server.recvOne();
+    CHECK_EQ(got[0], 26u);
+    answer(server, *conn, {3, seq.value(), code});
+    session.tick();
+    return seq.value();
+  };
+
+  const std::uint8_t first = refusedKeepalive(here, 7);
+  CHECK_EQ(made.size(), 1u);
+  CHECK(made[0].uuid == session.actorUuid());
+  CHECK(made[0].chunk == here);
+  CHECK(session.notPresent().has_value());
+  CHECK(session.notPresent()->chunk == here);
+  CHECK_EQ(session.errors().total(), 1u);
+  CHECK_EQ(errorsTold, 1);
+  CHECK(session.errors().last() != nullptr);
+  CHECK(session.errors().last()->kind == SendKind::Heartbeat);
+  CHECK_EQ(session.errors().last()->sequence, first);
+  CHECK(session.errors().last()->code == wire::ErrorCode::Unauthorized);
+  CHECK(session.errors().last()->actorUuid.has_value());
+  CHECK(*session.errors().last()->actorUuid == session.actorUuid());
+
+  // Refused again and again: told once, recorded once.
+  for (int i = 0; i < 10; ++i) refusedKeepalive(here, 7);
+  CHECK_EQ(made.size(), 1u);
+  CHECK_EQ(session.errors().total(), 1u);
+  CHECK_EQ(errorsTold, 1);
+  CHECK(session.self().status() == LocalActorStatus::Idle);  // no update was refused
+  CHECK(!session.self().lastError().has_value());
+  CHECK(conn->state() == ConnState::Connected);
+  CHECK_EQ(conn->stats().reconnects, 0u);
+  CHECK_EQ(conn->stats().keepalivesRefused, 11u);
+
+  // A keepalive refused for another reason is an error of its own, recorded as a keepalive's.
+  refusedKeepalive(here, 18);
+  CHECK_EQ(session.errors().total(), 2u);
+  CHECK(session.errors().last()->kind == SendKind::Heartbeat);
+  CHECK(session.errors().last()->code == wire::ErrorCode::InvalidAppId);
+  CHECK_EQ(made.size(), 1u);
+
+  // An update's refusal is what it always was: recorded each time, and the actor's status.
+  const std::uint8_t pose[] = {9};
+  CHECK(session.join(here, Bytes(pose, sizeof(pose))).ok());
+  CHECK_EQ(server.recvOne()[0], 128u);
+  session.tick();  // the first tick after a join sends a keyframe and notes its number
+  const auto keyframe = server.recvOne();
+  CHECK_EQ(keyframe[0], 128u);
+  answer(server, *conn, {3, keyframe.back(), 7});
+  session.tick();
+  CHECK_EQ(session.errors().total(), 3u);
+  CHECK(session.errors().last()->kind == SendKind::ActorUpdate);
+  CHECK(session.self().status() == LocalActorStatus::Error);
+  CHECK(session.notPresent().has_value());
+
+  // The actor moves on: the report ends, once.
+  CHECK(conn->sendHeartbeat(there, session.actorUuid()).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+  session.tick();
+  CHECK_EQ(ended.size(), 1u);
+  CHECK(ended[0] == replication::NotPresentEnd::Moved);
+  CHECK(!session.notPresent().has_value());
+  session.tick();
+  CHECK_EQ(ended.size(), 1u);
+  session.dispose();
+}
+
 int main() {
   run();
+  runKeepalivesKeepTheirRate();
+  runARefusedKeepaliveInAWorldSession();
   runInjectedServices();
   runHeartbeatNotSent();
   runTickFlushesBundle();

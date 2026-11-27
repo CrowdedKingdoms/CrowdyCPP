@@ -24,6 +24,31 @@ labels.
 - **Excluded:** no safe public black-box scenario exists, with the reason
   recorded in the row.
 
+## 0.95.0 live validation: fleet sessions
+
+On 2026-11-27 `e2e_fleet_session` ran live on dev against Application API `v2.90.0` and realtime servers
+`v0.51.0` (`CROWDY_FLEET_REALTIME_MIN=0.51.0`), 26 seconds a run, and passed every step it ran. **The hub step
+did not run:** this builder's libcurl with WebSockets was gone (the system's is 8.5.0, and the step needs
+8.13), so the step was skipped, and ck-exec `0.26.1` was not exercised. What 0.95.0 adds to the suite, and what
+the run showed:
+
+- **`userId` on the sign-in.** The four players' `mintManagedPlayerToken` answers select `userId`
+  (`AppTokenResponse::userId`, Application API v2.90.0), and each carry's `FleetCarryResult::userId` is required
+  to be that user.
+- **A keepalive where the player has access (step 4b).** Each carried player's keepalive
+  (`sendHeartbeat(player, chunk, uuid)`) was sent and none was refused within the 3 seconds a refusal has to
+  arrive: `keepalivesRefused` 0 and `notPresentReports` 0 on every session, to the end of the run. A player
+  without access is not something the suite can arrange, so the report itself has not been seen live; the
+  loopback tests hold it (`player_connection_checks_test`, `session_test`, `fleet_session_test`).
+- **`currentServer` as one address.** `refresh(session)` named the session's server by its `ip4` alone, and the
+  API kept the session on it (step 9). No session connected over IPv6.
+- **Unchanged from 0.94.0's run:** carries in 40 to 50 ms, a crossing between two realtime servers with no
+  Application API request, a verified refusal named by `sendRefused`, a refreshed token carried with no send
+  refused (66 of 66 sends delivered), a closed session told within 10 ms by a signed
+  `COMMAND_SESSION_RELEASED`, and no session sent anything of another app, unsigned, or with a failing HMAC.
+- **Not run live:** the hub step's own-hub address (`CROWDY_FLEET_HUB_NODE_TYPE`, `_KEY`, `_METHOD`), which is
+  new in this release; `removeMany` (the suite deletes nobody); `orgComputeCeiling`; test and prod.
+
 ## 0.94.0 live validation: fleet sessions
 
 On 2026-11-26 `e2e_fleet_session` ran live on dev (Application API `v2.89.1`, and the realtime servers' build
@@ -281,7 +306,7 @@ docs (wire formats, HMAC, operations, troubleshooting).
 | permission refresh (grant/revoke on a live session) | `e2e_permission_refresh` | implemented; optional slow live |
 | app-token refresh + reconnect | `client_portable_test` + `e2e_gameplay_token_refresh` | staged failures in default CI; fresh-token HMAC self-echo optional live |
 | cross-server replication | `e2e_cross_server` | implemented; optional live with 2+ servers |
-| fleet sessions (one session of an organization's game server carrying its players) | `wire_test` + `fleet_session_test` (golden bytes, both signed forms, pacing, replays, the silent server) + `e2e_fleet_session` | wire and session behaviour in default CI against a loopback server; carries, a crossing, state and text delivery, a refusal, a refresh, an ended session and the idle release optional live (`CROWDY_FLEET_*`) |
+| fleet sessions (one session of an organization's game server carrying its players) | `wire_test` + `fleet_session_test` (golden bytes, both signed forms, pacing, replays, the silent server) + `fleet_sessions_api_test` (`currentServer` as one address) + `e2e_fleet_session` | wire and session behaviour in default CI against a loopback server; carries, a crossing, state and text delivery, a refusal, a refresh, an ended session and the idle release optional live (`CROWDY_FLEET_*`) |
 | what a player's connection takes (0.95.0) | `player_connection_checks_test`: every notification type in every form a realtime server sends a player's session arrives; one that nothing signed, or that names another app, is dropped and counted; an unverified `TOKEN_EXPIRED` reassigns nothing; a receive pass and `disconnect()` end under a flood; a refused keepalive makes one report, which ends once (also `session_test`: the session layer keeps its rate and tells the game once; `fleet_session_test`: a carried player's) | default CI against a loopback server. The live suites assert nothing new: a count above 0 in `Stats::wrongApp` or `Stats::unsignedNotifications` on a player's connection there is worth reporting |
 | soak / sustained two-client | `e2e_soak_two_clients` | implemented; optional slow live |
 | `COMMAND_RECONNECT` load-shed | — | excluded: server-side trigger; client handling is covered by the offline `replication_test` fake-server unit test |

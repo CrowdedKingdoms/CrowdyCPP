@@ -188,7 +188,13 @@ Status Connection::connect() {
 
 void Connection::disconnect() {
   running_.store(false, std::memory_order_release);
-  if (netThread_.joinable()) netThread_.join();
+  if (netThread_.joinable()) {
+    // The network thread ends its receive pass at the batch in hand (receiveBatch), so this
+    // wait does not depend on what is still arriving.
+    if (logger_.enabled(core::LogLevel::Debug))
+      logger_.log(core::LogLevel::Debug, "disconnect: stopping the network thread");
+    netThread_.join();
+  }
   // Whatever the last frame queued goes out before the socket does.
   (void)flushSends();
   socket_.close();
@@ -1061,13 +1067,22 @@ std::size_t Connection::receiveBatch(int timeoutMs) {
   // elsewhere. 2048-byte slots comfortably hold any 1232-byte datagram, and the 1,242
   // bytes a fleet session can be sent (wire::fleet::kMaxReceiveDatagramSize).
   constexpr std::size_t kSlot = 2048;
-  constexpr std::size_t kBatch = 16;
+  constexpr std::size_t kBatch = kReceiveBatchDatagrams;
   std::uint8_t slab[kSlot * kBatch];
   std::size_t lengths[kBatch];
 
+  // A pass ends when the socket is drained (a short batch), and also after
+  // kReceivePassDatagrams whatever is still queued: datagrams that arrive faster than they
+  // are verified must not keep this thread from the bundle window, from housekeeping (the
+  // token refresh, the capabilities) or, in manual-pump mode, from the application. What is
+  // left is read by the next pass, which the network thread starts at once. The network
+  // thread also ends its pass at the batch in hand once disconnect() asked it to stop, so
+  // disconnect() waits for 16 datagrams at most (0.95.0; a pass used to end only on a short
+  // batch, so neither returned while a full batch was always waiting).
+  const bool stoppable = !config_.manualPump;
   std::size_t processed = 0;
   int wait = timeoutMs;
-  for (;;) {
+  while (processed < kReceivePassDatagrams) {
     auto n = socket_.recvBatch(slab, kSlot, kBatch, lengths, wait);
     if (!n.ok() || n.value() == 0) break;
     for (std::size_t i = 0; i < n.value(); ++i) {
@@ -1075,6 +1090,7 @@ std::size_t Connection::receiveBatch(int timeoutMs) {
     }
     processed += n.value();
     if (n.value() < kBatch) break;  // drained
+    if (stoppable && !running_.load(std::memory_order_acquire)) break;
     wait = 0;
   }
   return processed;

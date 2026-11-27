@@ -225,7 +225,7 @@ if(NOT WIN32 AND CROWDY_WITH_OPENSSL)
   add_test(NAME replication_test COMMAND replication_test)
 
   # What a player's own Connection does with what it is sent (0.95.0): what it delivers,
-  # what it drops and counts, and an unverified TOKEN_EXPIRED.
+  # what it drops and counts, an unverified TOKEN_EXPIRED, and a flood of datagrams.
   add_executable(player_connection_checks_test player_connection_checks_test.cpp)
   target_link_libraries(player_connection_checks_test PRIVATE crowdy_replication crowdy_crypto_openssl Threads::Threads)
   add_test(NAME player_connection_checks_test COMMAND player_connection_checks_test)

@@ -8,7 +8,8 @@
 //  - a long-spatial notification that nothing signed, and one that names another app, is
 //    dropped, counted (Stats::unsignedNotifications, Stats::wrongApp) and reaches no handler;
 //  - a TOKEN_EXPIRED that nothing verified does not reassign: the session provider is asked
-//    for a fresh token, at most once in kTokenCheckIntervalMs, and its answer decides.
+//    for a fresh token, at most once in kTokenCheckIntervalMs, and its answer decides;
+//  - a receive pass and disconnect() end whatever is still arriving.
 //
 // Every wait here is on a count (what was delivered, what was counted as dropped), never on
 // an amount of time passing.
@@ -18,12 +19,17 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "crowdy/replication/connection.hpp"
@@ -610,6 +616,170 @@ void runTokenExpired() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Datagrams that arrive faster than they are verified. The flood here does not depend on how
+// fast anything runs: the crypto provider the connection verifies with sends two more
+// datagrams for every one it verifies, so the socket is never drained, by construction.
+// ---------------------------------------------------------------------------
+
+/// OpenSSL, with a hook before every HMAC. It makes no reusable MAC, so every verification
+/// comes through hmacSha256.
+struct HookedCrypto final : core::ICrypto {
+  std::function<void()> beforeHmac;
+  bool hmacSha256(Bytes k, Bytes message, std::uint8_t* out) const override {
+    if (beforeHmac) beforeHmac();
+    return crypto().hmacSha256(k, message, out);
+  }
+  bool sha256(Bytes message, std::uint8_t* out) const override { return crypto().sha256(message, out); }
+  bool constantTimeEquals(const std::uint8_t* a, const std::uint8_t* b, std::size_t len) const override {
+    return crypto().constantTimeEquals(a, b, len);
+  }
+  bool randomBytes(std::uint8_t* out, std::size_t len) const override {
+    return crypto().randomBytes(out, len);
+  }
+};
+
+/// Fails the test, instead of hanging it, when `what` has not finished in a minute.
+struct Deadline {
+  std::mutex mu;
+  std::condition_variable cv;
+  bool done = false;
+  std::thread watcher;
+  explicit Deadline(const char* what) {
+    watcher = std::thread([this, what] {
+      std::unique_lock lock(mu);
+      if (!cv.wait_for(lock, std::chrono::seconds(60), [this] { return done; })) {
+        std::fprintf(stderr, "FAIL: %s did not return within 60 s\n", what);
+        std::_Exit(1);
+      }
+    });
+  }
+  ~Deadline() {
+    {
+      std::lock_guard lock(mu);
+      done = true;
+    }
+    cv.notify_all();
+    watcher.join();
+  }
+};
+
+// One receive pass ends after kReceivePassDatagrams, whatever is still queued (a pass used
+// to end only on a short batch, so this pump() did not return).
+void runAReceivePassEnds() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<Provider>(server.port);
+  HookedCrypto hooked;
+  const auto note = signedNote(wire::MessageType::ActorUpdateNotification);
+  std::atomic<bool> feeding{false};
+  std::atomic<std::uint64_t> fed{0};
+  hooked.beforeHmac = [&] {
+    if (!feeding.load(std::memory_order_acquire)) return;  // the connection's own signing
+    for (int i = 0; i < 2; ++i)
+      if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
+  };
+  Connection conn(playerConfig(), provider, hooked);
+  open(conn, server);
+  feeding.store(true, std::memory_order_release);
+  for (std::size_t i = 0; i < 2 * kReceiveBatchDatagrams; ++i)
+    if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
+
+  std::size_t read = 0;
+  {
+    Deadline deadline("pump() under a flood");
+    read = conn.pump(0);
+  }
+  CHECK(read > 0);
+  CHECK(read <= kReceivePassDatagrams);
+  // More was sent than the pass read: it ended with datagrams still to read.
+  CHECK(fed.load() > read);
+  CHECK_EQ(conn.stats().datagramsReceived, static_cast<std::uint64_t>(read));
+  // The next pass goes on from there.
+  {
+    Deadline deadline("the second pump() under a flood");
+    CHECK(conn.pump(0) > 0);
+  }
+  feeding.store(false, std::memory_order_release);
+  conn.disconnect();
+}
+
+struct DisconnectLogger final : core::ILogger {
+  std::function<void()> onDisconnect;
+  bool enabled(core::LogLevel) const override { return true; }
+  void log(core::LogLevel, std::string_view message) const override {
+    if (message.rfind("disconnect:", 0) == 0 && onDisconnect) onDisconnect();
+  }
+};
+
+// disconnect() on a connection with its own network thread, while the flood goes on. The
+// network thread is held in the middle of a batch until disconnect() has asked it to stop
+// (the connection's own log line says when), so what it verifies after that is counted
+// exactly: the rest of the batch in hand at most, and nothing of what is still arriving.
+void runDisconnectReturnsUnderAFlood() {
+  FakeServer server;
+  server.start();
+  auto provider = std::make_shared<Provider>(server.port);
+  HookedCrypto hooked;
+  DisconnectLogger logger;
+  const auto note = signedNote(wire::MessageType::ActorUpdateNotification);
+  constexpr std::uint64_t kHoldAt = 200;  // the eighth datagram of a batch
+  std::atomic<bool> feeding{false};
+  std::atomic<std::uint64_t> verified{0};
+  std::atomic<std::uint64_t> fed{0};
+  std::mutex mu;
+  std::condition_variable cv;
+  bool held = false;
+  bool released = false;
+  hooked.beforeHmac = [&] {
+    if (!feeding.load(std::memory_order_acquire)) return;  // the connection's own signing
+    const std::uint64_t n = verified.fetch_add(1, std::memory_order_relaxed) + 1;
+    for (int i = 0; i < 2; ++i)
+      if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
+    if (n != kHoldAt) return;
+    std::unique_lock lock(mu);
+    held = true;
+    cv.notify_all();
+    cv.wait(lock, [&] { return released; });
+  };
+  logger.onDisconnect = [&] {
+    std::lock_guard lock(mu);
+    released = true;
+    cv.notify_all();
+  };
+
+  Config cfg = playerConfig();
+  cfg.manualPump = false;
+  Connection conn(cfg, provider, hooked, core::systemClock(), logger);
+  CHECK(conn.connect().ok());
+  CHECK(conn.sendHeartbeat({0, 0, 0}, uuid('a')).ok());
+  CHECK_EQ(server.recvOne()[0], 26u);
+  feeding.store(true, std::memory_order_release);
+
+  Deadline deadline("disconnect() under a flood");
+  for (std::size_t i = 0; i < 2 * kReceiveBatchDatagrams; ++i)
+    if (server.send(note)) fed.fetch_add(1, std::memory_order_relaxed);
+  {
+    std::unique_lock lock(mu);
+    cv.wait(lock, [&] { return held; });
+  }
+  // The network thread is inside its 200th verification and goes no further until
+  // disconnect() says it has asked it to stop.
+  CHECK_EQ(verified.load(), kHoldAt);
+  const auto started = std::chrono::steady_clock::now();
+  conn.disconnect();
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started)
+                        .count();
+  const std::uint64_t after = verified.load() - kHoldAt;
+  std::printf("disconnect() under a flood: %lld ms, %llu datagrams verified after it was called\n",
+              static_cast<long long>(took), static_cast<unsigned long long>(after));
+  CHECK(after < kReceiveBatchDatagrams);
+  // The flood had not stopped: more was sent than was ever read.
+  CHECK(fed.load() > conn.stats().datagramsReceived);
+  CHECK_EQ(static_cast<int>(conn.state()), static_cast<int>(ConnState::Closed));
+}
+
 }  // namespace
 
 int main() {
@@ -617,6 +787,8 @@ int main() {
   runWhatIsDropped();
   runWhatIsStillTaken();
   runTokenExpired();
+  runAReceivePassEnds();
+  runDisconnectReturnsUnderAFlood();
   std::puts("player_connection_checks_test OK");
   return 0;
 }

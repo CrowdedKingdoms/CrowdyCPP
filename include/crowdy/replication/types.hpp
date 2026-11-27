@@ -81,6 +81,13 @@ struct SpeakerList {
   }
 };
 
+/// How many datagrams a connection reads from its socket at a time, and the most it reads
+/// in one receive pass (one Connection::pump(), or one turn of the network thread) before
+/// it does its other work and reads again. Connection::disconnect() waits for the batch in
+/// hand at most, whatever is still arriving.
+inline constexpr std::size_t kReceiveBatchDatagrams = 16;
+inline constexpr std::size_t kReceivePassDatagrams = 1'024;
+
 /// The least time between two fresh tokens a player's Connection asks its session provider
 /// for because of TOKEN_EXPIRED frames that nothing verified (GenericError::verified).
 inline constexpr std::int64_t kTokenCheckIntervalMs = 30'000;

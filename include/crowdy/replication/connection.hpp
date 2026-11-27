@@ -61,7 +61,11 @@ class Connection {
   /// again) from a refusal. Safe from any thread.
   AssignmentFailure lastAssignmentFailure() const;
 
-  /// Stop threads, close the socket, state -> Closed.
+  /// Stop threads, close the socket, state -> Closed. The network thread stops reading at
+  /// the batch in hand (kReceiveBatchDatagrams, 16 datagrams), so this returns within 100
+  /// milliseconds whatever is still arriving, unless the session provider is in the middle
+  /// of a call the network thread made (0.95.0; before, it did not return while datagrams
+  /// arrived faster than they were verified).
   void disconnect();
 
   ConnState state() const { return state_.load(std::memory_order_acquire); }
@@ -258,7 +262,8 @@ class Connection {
 
   /// Manual-pump mode only: perform network work (receive datagrams, run
   /// lifecycle housekeeping) without blocking longer than timeoutMs.
-  /// Returns the number of datagrams processed.
+  /// Returns the number of datagrams processed, kReceivePassDatagrams (1,024) at most: what
+  /// is still queued then is read by the next call (0.95.0).
   std::size_t pump(int timeoutMs = 0);
 
   // ----- Introspection --------------------------------------------------------

@@ -31,6 +31,8 @@ implements the
 and [HMAC scheme](https://docs.crowdedkingdoms.com/replication-api/hmac)
 natively.
 
+**v0.95.0: a player's connection checks what it receives, and Application API v2.90.0.** A player's `Connection` delivers only what the realtime server signed for its app, reassigns on `TOKEN_EXPIRED` only when it is verified, reports a refused keepalive once (`Handlers::notPresent`, for realtime servers v0.51.0), and returns from `disconnect()` whatever is arriving. Every app-token answer carries `userId`, so the token calls need Application API v2.90.0. `admin().managedPlayers().removeMany` deletes up to 100 players in one call, a fleet refresh names its server by an `ip4` or an `ip6`, and `exec().orgComputeCeiling` reads an organization's compute ceiling. The SDK waits 30 seconds at most on a server's `retryAfterMs`. Parity pinned to CrowdyJS 18.41.0. See [MIGRATION.md](MIGRATION.md).
+
 **v0.94.1: the fleet session documents come from the published schema.** Your code needs no change. The published schema has carried Application API v2.89.1 since November 26, 2026, so the four documents that 0.94.0 wrote in its headers (`openFleetSession`, `refreshFleetSession`, `closeFleetSession`, and `execConnectAsServer`) are now generated from `operations/`, as every other document is, with the same text. See [MIGRATION.md](MIGRATION.md).
 
 **v0.94.0: fleet sessions for an organization's game servers.** `replication::FleetSession` is one realtime session that a game server opens for itself and uses for every player on that server. `client.fleetSessions()` opens, refreshes, and closes it with the organization's org token, and `exec().connectAsServer` opens the server's hub connection, where `callAs` makes a call for one of the organization's players. Fleet sessions need Application API v2.89.0 or later, realtime servers v0.50.3, and ck-exec 0.25.0 for the hub connection; all three have been on dev, test, and prod since November 26, 2026. Crowded Kingdoms switches fleet sessions on for an organization. CrowdyJS 18.40.0 carries the same feature. See [Game servers: fleet sessions](#game-servers-fleet-sessions) and [MIGRATION.md](MIGRATION.md).
@@ -701,7 +703,7 @@ app-scoped token):
 | `client.auth()` | Sign-in: `login` / `registerUser` (email + password; `registerUser(RegisterUserInput)` with the birth date, country and parental confirmation), magic link, social/OIDC. The player's age (`recordPlayerAge`) and documents (`playerLegalDocuments`, `appRequiredDocuments`, `recordPlayerConsents` with an app and a method, `playerLegalAcceptance`), and the developer documents. Passwords: `requestPasswordReset` / `resetPassword`, `changePassword`, and `setInitialPassword` for an account created by magic link or a social provider. Log out, linked identities. **No dev bypass** — removed in 0.26.0. |
 | `client.users()` | `me` (with `ageBracket` and `country`), `updateGamertag(gamertag, disambiguation)`, profile reads. |
 | `client.session()` | Token store, restore, set/get token. |
-| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs, org-managed players (`adoptAppToken`, `exchangeManagedPlayerAssertion`), and the Minecraft sign-in for Crowded Kingdoms' own apps (`minecraftChallenge`, `signInWithMinecraft`). |
+| `client.portal()` | `mintAppToken`, `refresh`, PKCE portal entry for cross-origin handoffs, org-managed players (`adoptAppToken`, `exchangeManagedPlayerAssertion`), and the Minecraft sign-in for Crowded Kingdoms' own apps (`minecraftChallenge`, `signInWithMinecraft`). Every app-token answer names its player (`userId`). |
 | `crowdy::startGameSession(token)` | A game session from any app token: the per-game client on the app's datacenter and the native replication connection signed with the token (`crowdy/game_session.hpp`). |
 | `client.safety()` | The player's own controls in an app (app token): who hears and sees them (`commSettings` / `setCommSettings`), a parent's consent (`requestParentalConsent`), contacts, blocks and reports (`fileReport`). The realtime servers enforce them. |
 | `client.platform()` | `config`, and the public `territoryPolicies` (the countries Crowded Kingdoms does not serve, and higher minimum ages). |
@@ -710,7 +712,7 @@ app-scoped token):
 | `client.host()` | Host election reads + actor liveness heartbeat. |
 | `client.teleport()` | Teleport requests. |
 | `client.channels()`, `client.teams()` | Messaging channels and app-scoped teams: membership, roles, join policies and bans. |
-| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes — `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
+| `client.exec()` | **ck-exec:** an app's server code as hubs and spokes: `connect` / `ExecConnection` (calls, subscriptions, reconnects, and the final close when the player's access ends), `starters` / `build` / `deploy`, the operations (`logs`, `instances`, `versions`, `endpointStats`, `activateVersion`, `setEnabled`), the organization's compute ceiling (`orgComputeCeiling`), players' mods on grids they own (`mod*`, the kill ladder `modSetSwitch`), and a mod's CLIENT half (`modClientBuild` ... `modClientArtifactBytes`, which checks the module against its digest for a native sandbox). |
 | `client.marketplace()` | Player-authorized grid claims (`claimGridChunk`, `releaseClaimedGrid`, ownership claims, requests and invites) and studio moderation of player code (admission queue, listing administration, claim policy). |
 | `client.crowdyStudio()` | Caller-owned Crowdy Studio projects and reusable files: list/get/create, revision-fenced atomic saves (STUDIO file bodies; GITHUB commits via `saveProject`), metadata/file updates, archives, personal library, curated common files, and copy-by-value imports. |
 | `client.crowdyStudioGitHub()` | Bound-repository transport on the same session: `status` / `layout` / `tree` / `getFile` / `getFiles` / `putFile` / `commitFiles` / `deleteFile` / `refresh` (app token), plus `connectUrl` / `repos` / `bind` / `unbind` (identity session). Path helpers in `crowdy/studio/github_layout.hpp`. |
@@ -928,7 +930,7 @@ See the [native player-host notes](docs/native-player-host.md) and
   reassignment — see
   [Troubleshooting](https://docs.crowdedkingdoms.com/replication-api/troubleshooting)).
 
-What a connection delivers, from the next release (see `MIGRATION.md`, "Unreleased"):
+What a connection delivers (0.95.0; see `MIGRATION.md`):
 
 - **Signed, and for its app.** A long-spatial notification reaches a handler when it
   carries its own HMAC that verifies with the player's token, or when it is a member of
@@ -1248,7 +1250,7 @@ bearer.
 | Call | Application API | Answer |
 |---|---|---|
 | `open(appId)` | `openFleetSession` | `FleetSessionResponse`: `token`, `gameTokenId`, `appId`, `expiresAt` (24 hours away), `maxPlayers`, `server` |
-| `refresh(session)` or `refresh(appId, gameTokenId, currentIp4, currentClientPort)` | `refreshFleetSession` | The same token and id, with `expiresAt` moved to 24 hours from now |
+| `refresh(session)`, `refresh(appId, gameTokenId, currentServer)`, or `refresh(appId, gameTokenId, currentIp4, currentClientPort)` | `refreshFleetSession` | The same token and id, with `expiresAt` moved to 24 hours from now |
 | `close(session)` or `close(appId, gameTokenId)` | `closeFleetSession` | `true` when a session was ended |
 
 Every call has an `...Async` twin whose callback receives the outcome and the answer.
@@ -1272,9 +1274,16 @@ Every call has an `...Async` twin whose callback receives the outcome and the an
   ask `refreshDue()` from your loop. `FleetConfig::reassign` is the other way to answer a
   move order: the session calls it on its network thread and connects to the server it
   returns.
+- **One address.** `currentServer` names the server by the address the session connected
+  to: an `ip4` or an `ip6`, never both, and the `clientPort`. `refresh(session)` sends the
+  server's `ip4`, or its `ip6` when the server has no `ip4` or the session prefers IPv6
+  (`FleetConfig::transport.preferIpv6`). `replication::fleetCurrentServer(server)` makes
+  one from a session answer's server for the form that takes a `currentServer`. Naming an
+  `ip6` needs Application API v2.90.0.
 - **Without this client.** `FleetSession` needs only the token, its id, and the server. A
   server that calls the Application API with its own HTTP client fills `FleetConfig`
-  itself and passes a refresh to `fleet.applyRefresh(token, server)`.
+  itself, sends `fleet.refreshInput()` (the app, the session's id, and its `currentServer`,
+  left out after a move order), and passes the answer to `fleet.applyRefresh(token, server)`.
 
 Refusals arrive as GraphQL errors. The throwing calls raise `CrowdyGraphQLError`, and the
 async calls deliver them in the outcome's `errors`. `crowdy/graphql/errors.hpp` reads each:
@@ -1548,7 +1557,10 @@ platform's
    admin and minting. Not accepted for gameplay.
 2. Gameplay requires a short-lived **app-scoped token** per app
    (`portal().mintAppToken(appId)`), which is also the 64-octet HMAC key for
-   native UDP. With an active native connection, rotate it through
+   native UDP. Its answer (`AppTokenResponse`) names the player it signs in
+   as `userId`, as every call that answers an app token does (0.95.0,
+   Application API v2.90.0), so a game server needs no `me` call to learn
+   who a token is for. With an active native connection, rotate it through
    `refreshGameplayToken()` so the old socket is quiesced before the bearer
    changes and the same handlers reconnect under the fresh token. Use
    `portal().refresh()` directly only when no replication lifecycle needs to

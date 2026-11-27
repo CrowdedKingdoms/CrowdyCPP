@@ -1,9 +1,11 @@
 # CrowdyCPP migration notes
 
-## Unreleased (0.95.0)
+## 0.95.0 A player's connection checks what it receives, and Application API v2.90.0
 
-These changes are on `dev` and have no release yet. The release adds the platform versions it needs, the CrowdyJS
-pin, and the wrappers that wait for the next Application API schema. Your code needs a change in six cases:
+This release needs Application API v2.90.0 or later, because every call that answers an app token now selects
+`userId`. It works with realtime servers v0.50.3 and later, and reports a refused keepalive with v0.51.0. Both,
+and ck-exec 0.26.1, have been on dev, test, and prod since November 27, 2026. Pinned to CrowdyJS 18.41.0, which
+carries the same changes. Your code needs a change in six cases:
 
 - It sends a `Connection` notifications from a server of your own that does not sign them. Sign them, or set
   `Config::verifyNotifications = false`.
@@ -64,8 +66,8 @@ What changed:
   `replaces` names one, are never refused this way. `FleetConfig::maxPlayers` holds the number
   (`fleetConfigOf` sets it from `openFleetSession`'s answer, and 0 means 1,024), and `setMaxPlayers` takes a
   refresh's (`applyFleetRefresh` calls it). Release the players who left, or open another session.
-- **A refused keepalive is reported once.** For realtime servers v0.51.0, which are on the dev tier since
-  November 27, 2026, with test and production to follow. From v0.51.0 a keepalive
+- **A refused keepalive is reported once.** For realtime servers v0.51.0. An older realtime server never refuses
+  a keepalive, so with one the report is never made and nothing else differs. From v0.51.0 a keepalive
   (`Connection::sendHeartbeat`, `CLIENT_ACTOR_HEARTBEAT`) is accepted only where the player's actor update would
   be. Where the player has no `access`, the server answers every keepalive `UNAUTHORIZED`: 3 unsigned bytes to a
   player's session, or a member of a fleet session's signed bundle. The actor is not present there, other
@@ -114,6 +116,43 @@ What changed:
   dial pass through `serverText()`: control characters and runs of whitespace become one space, and the text is
   cut at 500 bytes (64 for a code), never inside a UTF-8 character. Show such text to a person. Do not act on
   it.
+- **Every app-token answer carries `userId`.** `portal().mintAppToken`, `refresh`, `exchangeCode`,
+  `completeEntry`, `exchangeManagedPlayerAssertion`, and `signInWithMinecraft` return `AppTokenResponse::userId`:
+  the user the token signs in, as `users().me()` returns it. `userIdInt64()` reads it as the integer
+  `ExecConnection::callAs` and `FleetCarryResult::userId` use. A game server reads the player from the answer
+  and makes no `me` call. These calls needed Application API v2.85.0 through 0.94.1 and need v2.90.0 now: an
+  earlier API refuses the selection. `GameSession::token` and `refreshGameplayToken`'s result carry it too.
+- **`managedPlayers()` deletes up to 100 players in one call.** `admin().managedPlayers().removeMany(orgId,
+  externalIds)` (CrowdyJS `deleteMany`; Application API v2.90.0, with the authorization `remove` takes) answers
+  `deleted`, `notFound`, `held`, and each external id's outcome: `DELETED`, `NOT_FOUND`, or `LEGAL_HOLD`
+  (`gen::ManagedPlayerDeletion`). A held player is kept and does not fail the call, and an id sent twice is
+  deleted once. No ids, or more than 100 (`kRemoveManyMax`), is refused before any request, with a message
+  that says how many it was given and names none. `settings(orgId)` now also reports the organization's fleet
+  limits: `fleetSessionsEnabled`, `maxFleetSessions`, and `maxFleetPlayers` (Application API v2.89.0).
+- **A fleet refresh names an `ip4` or an `ip6`.** `refreshFleetSession`'s `currentServer` takes exactly one
+  address. `fleetSessions().refresh(session)` names the address the session connected to: the server's `ip4`,
+  or its `ip6` when it has no `ip4` or when `FleetConfig::transport.preferIpv6` is set. Through 0.94.1 it sent
+  the `ip4` whatever the session used. `FleetSession::refreshInput()` returns what it sends, for a game server
+  with an HTTP client of its own, and `replication::fleetCurrentServer(server)` makes a `FleetCurrentServer`
+  from a session answer's server. `refresh(appId, gameTokenId, currentServer)` is the form that takes one, and
+  refuses both addresses or neither before any request. Naming an `ip6` needs Application API v2.90.0. The
+  `ip4` form of 0.94.0 is unchanged.
+- **A connection reaches a server that has an `ip6` alone.** `Connection` and `FleetSession` open their socket
+  to `replication::connectAddress(server, preferIpv6)`: the `ip6` with `preferIpv6` when there is one, otherwise
+  the `ip4`, and the `ip6` when the server has no `ip4`. Until now such a server was refused unless
+  `preferIpv6` was set.
+- **`exec().orgComputeCeiling(orgId)`** is new: what each of the organization's apps may run in one datacenter
+  once the organization is funded (`maxInstances`, `maxReservedMb`), the platform's defaults, whether the
+  organization is `funded`, and whether a Crowded Kingdoms operator set those numbers (`operatorSet`, `reason`,
+  `updatedAt`). It needs `view_compute_diagnostics` on the organization and Application API v2.88.0.
+- **A refused gateway is named by its scheme, host, and port.** The message of a hub connection that
+  `execGatewayRefusal` refuses used to contain the gateway URL as it was given. A URL can carry credentials, or
+  a connect token in its query, and a message is logged. Change a test that matched the whole URL.
+- **`schema.gql`** is the published schema of November 27, 2026 (Application API v2.90.0), and the generated
+  headers follow it: `gen::ManagedPlayerDeletion`, `gen::managedPlayers::kDeleteManagedPlayersIsolatedDocument`,
+  and `gen::exec::kOrgComputeCeilingIsolatedDocument` are new.
+- **CrowdyPy** vendors this release: `dev/v0.95.0` takes the place of `dev/v0.94.1`, and its own CrowdyJS pin
+  moves to 18.41.0 in the same change.
 - **A refused server assignment says why.** `connect()` still answers one `Errc`.
   `Connection::lastAssignmentFailure()`, `ReplicationClient::ConnectResult::failure`, and `GameSession::failure`
   now hold an `ApiFailure`: the Application API's refusal `code`, its `retryAfterMs`, and its `message`.

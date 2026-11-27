@@ -756,15 +756,47 @@ and the wait so `ExecReply::platformBusy()` and `retryAfterMs()` can read them. 
 that can be refused `PLATFORM_BUSY` on the way to a connection should hand its caller an
 `ApiFailure` the same way.
 
-**What 0.95.0's first pass left for the release pass:** the version in its six places and the
-README's version line; the CrowdyJS pin (18.41.0) with `npm run parity:repin` and the new
-surface it brings mapped; the schema sync (Application API v2.90.0) and the wrappers that
-need it; finishing `MIGRATION.md`'s "Unreleased" section (its title, the platform versions,
-CrowdyPy's re-vendor line); `docs/compatibility.md`'s line for the release; cks-docs, which
-has nothing yet on the refused keepalive or the 30 s ceiling. When the pin moves, look at
-what CrowdyJS does with a refused keepalive and classify the not-present report either way.
-While the sibling CrowdyJS checkout is ahead of the pin, the parity tools refuse it: point
-`CROWDYJS_PATH` at a clone at the pinned commit, built (`npm ci && npm run build`).
+**What the 0.95.0 release pass did, and what is left** (2026-11-27; CrowdyJS 18.41.0, Application
+API v2.90.0, realtime servers v0.51.0 and ck-exec 0.26.1 on every tier that day):
+
+- The pin is CrowdyJS 18.41.0 (`dev/v18.41.0`, 2388502). `schema.gql` is the published SDL with
+  v2.90.0, synced **after** the docs site's production deploy carried it (`curl` the SDL and
+  `grep -c deleteManagedPlayers` before a sync: it was 0 for two minutes after the deploy's tag,
+  and a sync then would have left CrowdyJS's schema ahead, which is the dated group that made
+  0.94.0 unpromotable). The matrix lists no schema difference and no dated group.
+- Wrapped, each with its document in `operations/`: `AppTokenResponse::userId` on the eight
+  selections in `portal.hpp` and `Minecraft.graphql` (`app-token-fields.test.mjs` holds them to
+  CrowdyJS's, and its pattern names `userId` now), so the token calls need v2.90.0;
+  `ManagedPlayersAPI::removeMany` (CrowdyJS `deleteMany`, aliased in `METHOD_ALIASES` as
+  `delete` is to `remove`); the fleet limits on `settings`; `ExecAPI::orgComputeCeiling`
+  (its root's "CrowdyJS does not wrap it" classification is gone); and `currentServer` as one
+  address (`replication::FleetCurrentServer`, `fleetCurrentServer`, `FleetSession::refreshInput()`,
+  `FleetSessionsAPI::refresh(appId, gameTokenId, currentServer)`).
+- `replication::connectAddress(server, preferIpv6)` is the one place the address is chosen
+  (`Connection::doAssign`, `FleetSession::place` and `applyRefresh`, `fleetCurrentServer`): the
+  `ip6` with `preferIpv6`, else the `ip4`, else the `ip6`. CrowdyJS has no `preferIpv6`.
+- The rest of 18.41.0 is in `CROSS_CUTTING_BEHAVIORS` with markers (`retry-wait-ceiling`,
+  `managed-players-delete-many-limit`, `fleet-current-server-one-address`, `app-token-user-id`,
+  `fleet-not-present-report`, `fleet-refresh-input`, `player-datagram-checks`,
+  `player-receive-stats`, `binary-relay-dropped-callback`) and four exports of
+  `src/fleet/session.ts`. CrowdyJS's player client sends no keepalive of its own, so the
+  not-present report on a player's `Connection` and `WorldSession` is native only.
+- From 18.41.0's point 9 only the gateway's name was taken: a refused gateway is named by its
+  scheme, host and port (`gatewayName` in `exec.cpp`). `callAs` takes a `std::uint64_t`, so it
+  has no value to describe.
+- `e2e_fleet_session` checks the sign-in's `userId` against the carry's, sends each carried
+  player's keepalive where it has access and requires no refusal (step 4b), and its hub step
+  takes `CROWDY_FLEET_HUB_NODE_TYPE` / `_KEY` / `_METHOD` for an app without the probe, with
+  the player defaulting to the suite's player 0. It passed on dev on 2026-11-27 **without the
+  hub step**: the libcurl with WebSockets this builder had (`/tmp/curl-ws`) was gone, and the
+  system's is 8.5.0. The hub step's new variables have not run live. Nobody has made a player
+  without access live either: the refused-keepalive report is proven against the fake server.
+- Left: cks-docs has nothing on the refused keepalive, the 30 s ceiling, `removeMany` or
+  `orgComputeCeiling`; CrowdyPy re-vendors at `dev/v0.95.0` with its pin at 18.41.0; the
+  promotion to test and prod (`promote.mjs --repo CrowdyCPP`), which needs CrowdyJS 18.41.0 at
+  the destination, as it is.
+- This pass touched `.github/workflows/ci.yml` (the Opus job's `find_package(CrowdyCPP 0.95`),
+  a CODEOWNERS path, as every minor bump does.
 
 ## Writing tests against `graphql::Json`
 
